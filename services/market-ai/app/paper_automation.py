@@ -45,6 +45,8 @@ class PaperEntryDecision:
     sizing: PaperOrderSizing | None
     bar_timestamp: datetime
     limit_price: Decimal
+    stop_price: Decimal
+    target_price: Decimal
     exit_manager_ready: bool
 
 
@@ -65,7 +67,8 @@ class PaperAutoTrader:
             return {"state": "BLOCKED", "reason": "PAPER_RISK_GATE_BLOCKED", "executable": False}
         if not decision.exit_manager_ready:
             return {"state": "BLOCKED", "reason": "PERSISTENT_EXIT_MANAGER_REQUIRED", "executable": False}
-        if decision.sizing is None or decision.sizing.quantity <= 0 or decision.limit_price <= 0:
+        if (decision.sizing is None or decision.sizing.quantity <= 0 or decision.limit_price <= 0
+                or not (Decimal(0) < decision.stop_price < decision.limit_price < decision.target_price)):
             return {"state": "BLOCKED", "reason": "VALID_ORDER_SIZE_REQUIRED", "executable": False}
 
         symbol = decision.symbol.strip().upper()
@@ -80,6 +83,19 @@ class PaperAutoTrader:
                     currency=decision.currency,
                 )
             order_id = int(order["id"])
+            existing_price = order.get("limitPrice", order.get("limit_price"))
+            if (str(order.get("market", "")).upper() != decision.market
+                    or str(order.get("symbol", "")).upper() != symbol
+                    or str(order.get("side", "")).upper() != "BUY"
+                    or int(order.get("quantity", -1)) != decision.sizing.quantity
+                    or existing_price is None or Decimal(str(existing_price)) != decision.limit_price
+                    or str(order.get("currency", "")).upper() != decision.currency):
+                return {"state": "BLOCKED", "reason": "IDEMPOTENCY_ORDER_MISMATCH",
+                        "order_id": order_id, "idempotency_key": str(idempotency_key), "executable": False}
+            order_status = str(order.get("status", "")).upper()
+            if order_status not in {"PENDING", "PARTIALLY_FILLED", "FILLED"}:
+                return {"state": "BLOCKED", "reason": "ORDER_NOT_OPEN_FOR_PAPER_FILL",
+                        "order_id": order_id, "idempotency_key": str(idempotency_key), "executable": False}
             filled = int(order.get("filledQuantity", 0))
             remaining = max(0, decision.sizing.quantity - filled)
             if remaining == 0:
@@ -87,7 +103,8 @@ class PaperAutoTrader:
                         "idempotency_key": str(idempotency_key), "executable": False}
             fill_key = uuid5(NAMESPACE_URL, f"{idempotency_key}:paper-fill:{filled}:{remaining}")
             filled_order = self._broker.record_fill(order_id, fill_key=fill_key,
-                                                    quantity=remaining, fill_price=decision.limit_price)
+                                                    quantity=remaining, fill_price=decision.limit_price,
+                                                    stop_price=decision.stop_price, target_price=decision.target_price)
             return {"state": filled_order.get("status", "FILLED"), "order_id": order_id,
                     "idempotency_key": str(idempotency_key), "filled_quantity": filled_order.get("filledQuantity", remaining),
                     "executable": False}

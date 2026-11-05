@@ -18,6 +18,10 @@ public class PaperFillRecord {
     private int quantity;
     @Column(name = "fill_price", nullable = false, precision = 20, scale = 6)
     private BigDecimal fillPrice;
+    @Column(name = "strategy_stop_price", precision = 20, scale = 6)
+    private BigDecimal strategyStopPrice;
+    @Column(name = "strategy_target_price", precision = 20, scale = 6)
+    private BigDecimal strategyTargetPrice;
     @Column(name = "filled_at", nullable = false)
     private Instant filledAt;
 
@@ -27,6 +31,8 @@ public class PaperFillRecord {
         this.fillKey = request.fillKey();
         this.quantity = request.quantity();
         this.fillPrice = request.fillPrice();
+        this.strategyStopPrice = request.stopPrice();
+        this.strategyTargetPrice = request.targetPrice();
         this.filledAt = Instant.now();
     }
     public Long getId() { return id; }
@@ -34,5 +40,7 @@ public class PaperFillRecord {
     public UUID getFillKey() { return fillKey; }
     public int getQuantity() { return quantity; }
     public BigDecimal getFillPrice() { return fillPrice; }
+    public BigDecimal getStrategyStopPrice() { return strategyStopPrice; }
+    public BigDecimal getStrategyTargetPrice() { return strategyTargetPrice; }
     public Instant getFilledAt() { return filledAt; }
 }

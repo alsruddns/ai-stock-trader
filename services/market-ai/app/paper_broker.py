@@ -55,13 +55,21 @@ class SpringPaperBrokerClient:
         except ValueError as exc:
             raise PaperBrokerOutcomeUnknown("paper order response was unreadable; reconcile before retry") from exc
 
-    def record_fill(self, order_id: int, *, fill_key: UUID, quantity: int, fill_price: Decimal) -> dict:
+    def record_fill(
+        self, order_id: int, *, fill_key: UUID, quantity: int, fill_price: Decimal,
+        stop_price: Decimal | None = None, target_price: Decimal | None = None,
+    ) -> dict:
         if order_id <= 0 or quantity <= 0 or fill_price <= 0:
             raise ValueError("paper fill identifiers and values must be positive")
         try:
+            payload = {"fillKey": str(fill_key), "quantity": quantity, "fillPrice": str(fill_price)}
+            if stop_price is not None or target_price is not None:
+                if stop_price is None or target_price is None or not (Decimal(0) < stop_price < fill_price < target_price):
+                    raise ValueError("strategy stop and target prices must surround the entry fill price")
+                payload.update({"stopPrice": str(stop_price), "targetPrice": str(target_price)})
             response = self._http.post(
                 f"{self.base_url}/api/v1/orders/paper/{order_id}/fills",
-                json={"fillKey": str(fill_key), "quantity": quantity, "fillPrice": str(fill_price)},
+                json=payload,
             )
         except httpx.TimeoutException as exc:
             raise PaperBrokerOutcomeUnknown("paper fill outcome is unknown; reconcile before retry") from exc

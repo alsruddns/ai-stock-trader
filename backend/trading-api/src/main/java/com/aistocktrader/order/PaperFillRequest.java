@@ -8,4 +8,10 @@ import java.util.UUID;
 
 public record PaperFillRequest(@NotNull UUID fillKey,
                                @Positive int quantity,
-                               @NotNull @DecimalMin("0.01") BigDecimal fillPrice) {}
+                               @NotNull @DecimalMin("0.01") BigDecimal fillPrice,
+                               @DecimalMin("0.01") BigDecimal stopPrice,
+                               @DecimalMin("0.01") BigDecimal targetPrice) {
+    public PaperFillRequest(UUID fillKey, int quantity, BigDecimal fillPrice) {
+        this(fillKey, quantity, fillPrice, null, null);
+    }
+}
