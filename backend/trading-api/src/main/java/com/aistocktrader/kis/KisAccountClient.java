@@ -51,7 +51,7 @@ public class KisAccountClient {
             JsonNode balance = getPaginatedBalance(environment, "/uapi/domestic-stock/v1/trading/inquire-balance",
                     environment == KisEnvironment.PAPER ? "VTTC8434R" : "TTTC8434R",
                     Map.ofEntries(Map.entry("CANO", cano), Map.entry("ACNT_PRDT_CD", product),
-                            Map.entry("AFHR_FLPR_YN", "N"), Map.entry("OFL_YN", "N"),
+                            Map.entry("AFHR_FLPR_YN", "N"), Map.entry("OFL_YN", ""),
                             Map.entry("INQR_DVSN", "01"), Map.entry("UNPR_DVSN", "01"),
                             Map.entry("FUND_STTL_ICLD_YN", "N"), Map.entry("FNCG_AMT_AUTO_RDPT_YN", "N"),
                             Map.entry("PRCS_DVSN", "00"), Map.entry("CTX_AREA_FK100", ""),

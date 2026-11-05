@@ -39,6 +39,7 @@ class KisAccountClientTest {
                 .andExpect(header("appkey", "paper-key"))
                 .andExpect(queryParam("CANO", "12345678"))
                 .andExpect(queryParam("ACNT_PRDT_CD", "01"))
+                .andExpect(queryParam("OFL_YN", ""))
                 .andRespond(withSuccess("""
                         {"rt_cd":"0","output1":[{"pdno":"005930","prdt_name":"Samsung","hldg_qty":"2","ord_psbl_qty":"2","pchs_avg_pric":"70000","prpr":"71000","evlu_amt":"142000","evlu_pfls_amt":"2000","evlu_pfls_rt":"1.43","CANO":"must-not-leak"}],"output2":[{"dnca_tot_amt":"1000000","ord_psbl_cash":"900000"}]}
                         """, MediaType.APPLICATION_JSON));
