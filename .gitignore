@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!dashboard/.env.local.example
 *.pem
 *.key
 secrets/
@@ -9,6 +10,10 @@ secrets/
 
 # Java / Maven
 **/target/
+**/node_modules/
+**/.next/
+**/out/
+.playwright-mcp/
 .mvn/wrapper/maven-wrapper.jar
 
 # Python

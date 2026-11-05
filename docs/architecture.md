@@ -2,14 +2,16 @@
 
 ## v1.0 구성
 
-- **Java Spring Boot:** 주문 상태, 리스크 검사, paper broker, 향후 KIS 주문 어댑터의 유일한 소유자
+- **Java Spring Boot:** 주문 상태, 리스크 검사, paper broker, KIS paper 주문 어댑터 및 운영 요약의 유일한 소유자
 - **Python FastAPI:** 시세 수집, WebSocket, 퀀트 지표, LightGBM/XGBoost 신호 생성
 - **PostgreSQL:** 계좌·시세 스냅샷, 주문·체결·포지션, 신호·모델·감사 데이터
 - **Next.js:** 로컬 운영 대시보드
 - **LEAN:** 퀀트 전략의 과거 데이터 백테스트
 - **KIS Open API:** 국내·미국 주식의 기본 증권사 연결
 
-AI는 주문을 직접 제출하지 않습니다. Python은 버전과 만료 시각을 포함한 신호를 만들고, Spring Boot가 가격·계좌·포지션·손실 한도를 확인한 뒤 주문 여부를 결정합니다. 실거래 구현도 같은 경계를 유지합니다.
+AI는 주문을 직접 제출하지 않습니다. Python의 모델 예측은 시장별로 버전이 구분되는 advisory 신호이며 `executable=false`를 유지합니다. Spring Boot는 KIS 모의 주문 어댑터만 제공하고 기본 `KIS_PAPER_ORDERS_ENABLED=false`로 잠겨 있습니다. 실계좌 주문 어댑터와 경로는 아직 없습니다.
+
+Next.js 대시보드는 server-side API route를 통해 loopback Spring/Python API를 polling합니다. 주문 제출·취소 UI를 제공하지 않습니다. 모델 파일은 PostgreSQL에 저장하지 않고 `.local/models` 아래 로컬 아티팩트와 메타데이터로 관리하며, 승인·활성·롤백 이벤트를 JSONL 로컬 기록으로 남깁니다.
 
 ## 외부 경계
 

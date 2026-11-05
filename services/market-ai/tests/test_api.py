@@ -16,6 +16,21 @@ def test_health_discloses_read_only_mode() -> None:
     assert response.json()["live_trading_enabled"] is False
 
 
+def test_model_governance_endpoint_is_read_only_for_execution(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AI_MODEL_REGISTRY_PATH", str(tmp_path))
+    response = client.get("/api/v1/ai/models")
+    assert response.status_code == 200
+    assert response.json() == {"models": [], "governance_events": [], "executable": False}
+
+
+def test_model_approval_route_requires_existing_candidate(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AI_MODEL_REGISTRY_PATH", str(tmp_path))
+    response = client.post("/api/v1/ai/models/lightgbm-" + "a" * 32 + "/approve", json={
+        "approved_by": "local-operator", "note": "Reviewed held-out test evidence for advisory use only.",
+    })
+    assert response.status_code == 404
+
+
 def test_live_mode_never_enables_python_paper_automation(monkeypatch) -> None:
     monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "true")
     monkeypatch.setenv("TRADING_MODE", "live")

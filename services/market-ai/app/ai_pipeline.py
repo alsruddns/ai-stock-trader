@@ -8,8 +8,9 @@ import math
 import os
 import re
 import tempfile
+import threading
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,7 @@ class TrainingSample:
 @dataclass(frozen=True)
 class ModelTrainingResult:
     model_id: str
+    market: str
     model_type: str
     threshold: float
     validation_metrics: dict[str, float]
@@ -170,8 +172,113 @@ class LocalModelRegistry:
     def __init__(self, root: str | Path = ".local/models"):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
+        self._governance_lock = threading.RLock()
 
-    def train_compare(self, samples: list[TrainingSample]) -> list[ModelTrainingResult]:
+    @property
+    def _active_path(self) -> Path:
+        return self.root / "active-model.json"
+
+    @property
+    def _audit_path(self) -> Path:
+        return self.root / "governance-audit.jsonl"
+
+    def list_models(self) -> list[dict[str, Any]]:
+        active_model = None
+        if self._active_path.is_file():
+            try:
+                active_model = json.loads(self._active_path.read_text(encoding="utf-8")).get("model_id")
+            except (OSError, json.JSONDecodeError):
+                active_model = None
+        items: list[dict[str, Any]] = []
+        for manifest_path in sorted(self.root.glob("*.json"), key=lambda path: path.name):
+            if manifest_path == self._active_path:
+                continue
+            try:
+                metadata = self.manifest(manifest_path.stem)
+                items.append({
+                    "model_id": metadata["model_id"], "market": metadata.get("market"), "model_type": metadata["model_type"],
+                    "approved": bool(metadata.get("approved", False)),
+                    "active": metadata["model_id"] == active_model,
+                    "artifact_sha256": metadata["artifact_sha256"],
+                    "validation_metrics": metadata.get("validation_metrics", {}),
+                    "test_metrics": metadata.get("test_metrics", {}),
+                    "test_sessions": metadata.get("test_sessions", []),
+                    "approval": metadata.get("approval"),
+                })
+            except (FileNotFoundError, ValueError, KeyError, OSError, json.JSONDecodeError):
+                items.append({"model_id": manifest_path.stem, "integrity_error": True, "approved": False, "active": False})
+        return items
+
+    def approve(self, model_id: str, *, approved_by: str, note: str) -> dict[str, Any]:
+        reviewer = approved_by.strip()[:80]
+        justification = note.strip()[:1000]
+        if not reviewer or len(justification) < 20:
+            raise ValueError("reviewer and an approval note of at least 20 characters are required")
+        with self._governance_lock:
+            metadata = self.manifest(model_id)
+            if metadata.get("market") not in {"KR", "US"}:
+                raise ValueError("market scope must be KR or US before model approval")
+            if not metadata.get("test_sessions") or not metadata.get("test_metrics"):
+                raise ValueError("model has no held-out test evidence and cannot be approved")
+            metadata["approved"] = True
+            metadata["approval"] = {"approved_by": reviewer, "note": justification, "approved_at": datetime.now().astimezone().isoformat()}
+            self._write_json_atomic(self.root / f"{model_id}.json", metadata)
+            self._record_governance_event({"action": "approve", "model_id": model_id, **metadata["approval"]})
+            return metadata
+
+    def activate(self, model_id: str, *, changed_by: str, note: str, action: str = "activate") -> dict[str, Any]:
+        operator = changed_by.strip()[:80]
+        justification = note.strip()[:1000]
+        if not operator or len(justification) < 20:
+            raise ValueError("operator and a change note of at least 20 characters are required")
+        with self._governance_lock:
+            metadata = self.manifest(model_id)
+            if not metadata.get("approved"):
+                raise ValueError("only an approved model can become the advisory active model")
+            previous = None
+            if self._active_path.is_file():
+                try:
+                    previous = json.loads(self._active_path.read_text(encoding="utf-8")).get("model_id")
+                except (OSError, json.JSONDecodeError):
+                    previous = None
+            changed_at = datetime.now().astimezone().isoformat()
+            self._write_json_atomic(self._active_path, {"model_id": model_id, "changed_at": changed_at})
+            event = {"action": action, "model_id": model_id, "previous_model_id": previous,
+                     "changed_by": operator, "note": justification, "changed_at": changed_at}
+            self._record_governance_event(event)
+            return event
+
+    def governance_events(self, limit: int = 50) -> list[dict[str, Any]]:
+        if not self._audit_path.is_file():
+            return []
+        with self._governance_lock:
+            try:
+                lines = self._audit_path.read_text(encoding="utf-8").splitlines()[-max(1, min(limit, 200)):]
+                return [json.loads(line) for line in lines]
+            except (OSError, json.JSONDecodeError):
+                return []
+
+    def _record_governance_event(self, event: dict[str, Any]) -> None:
+        with self._audit_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+
+    @staticmethod
+    def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+        fd, temporary = tempfile.mkstemp(prefix=".governance-", suffix=".tmp", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(payload, stream, ensure_ascii=False, indent=2)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    def train_compare(self, samples: list[TrainingSample], *, market: str) -> list[ModelTrainingResult]:
+        market = market.upper()
+        if market not in {"KR", "US"}:
+            raise ValueError("market must be KR or US; train separate market-specific candidates")
         try:
             from lightgbm import LGBMClassifier
             from xgboost import XGBClassifier
@@ -213,7 +320,7 @@ class LocalModelRegistry:
                     os.unlink(temporary)
             digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
             manifest = {
-                "model_id": model_id, "model_type": name, "artifact": artifact_name,
+                "model_id": model_id, "market": market, "model_type": name, "artifact": artifact_name,
                 "artifact_sha256": digest, "feature_names": list(FEATURE_NAMES),
                 "threshold": 0.5, "approved": False,
                 "validation_metrics": validation_metrics, "test_metrics": test_metrics,
@@ -224,7 +331,7 @@ class LocalModelRegistry:
             manifest_tmp = manifest_path.with_suffix(".json.tmp")
             manifest_tmp.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
             os.replace(manifest_tmp, manifest_path)
-            results.append(ModelTrainingResult(model_id, name, 0.5, validation_metrics, test_metrics, train_dates, validation_dates, test_dates, digest))
+            results.append(ModelTrainingResult(model_id, market, name, 0.5, validation_metrics, test_metrics, train_dates, validation_dates, test_dates, digest))
         return results
 
     def manifest(self, model_id: str) -> dict[str, Any]:
@@ -242,13 +349,15 @@ class LocalModelRegistry:
             raise ValueError("model artifact integrity check failed")
         return payload
 
-    def predict_preview(self, model_id: str, bars: list[MinuteBar]) -> dict[str, Any]:
+    def predict_preview(self, model_id: str, bars: list[MinuteBar], *, market: str) -> dict[str, Any]:
         try:
             import joblib
             import numpy as np
         except ImportError as exc:
             raise RuntimeError("Install the optional ai dependencies to run inference") from exc
         metadata = self.manifest(model_id)
+        if market.upper() != metadata.get("market"):
+            raise ValueError("model market scope does not match the requested market")
         artifact = self.root / metadata["artifact"]
         model = joblib.load(artifact)
         features = latest_features(bars)
@@ -256,6 +365,7 @@ class LocalModelRegistry:
         threshold = float(metadata["threshold"])
         return {
             "model_id": model_id,
+            "market": metadata["market"],
             "model_type": metadata["model_type"],
             "probability_positive": probability,
             "threshold": threshold,

@@ -50,6 +50,14 @@ PowerShell에서 아래 스크립트로 `.env`를 현재 창에 불러오고 Spr
 .\scripts\start-local.ps1
 ```
 
+운영 대시보드는 별도 PowerShell에서 다음 스크립트로 실행합니다. Next.js 화면은 로컬 Spring/Python API 상태, paper 현금·포지션·주문, 모델 승인 상태를 조회 전용으로 보여줍니다.
+
+```powershell
+.\scripts\start-dashboard.ps1
+```
+
+브라우저에서 `http://127.0.0.1:3000`을 엽니다. 일일 JSON 요약은 저장소 루트에서 `.\scripts\export-daily-report.ps1`을 실행하면 `.local/reports`에 저장됩니다. Windows 작업 스케줄러에 이 스크립트를 등록할 수 있습니다.
+
 새 PowerShell 창에서 Python 분석 API를 실행합니다.
 
 ```powershell
@@ -65,14 +73,15 @@ KIS 조회를 쓸 때는 `.env`에 모의·실전 자격증명을 각각 `KIS_PA
 - Spring 상태: `http://localhost:8080/api/v1/health`
 - Python 상태: `http://localhost:8000/api/v1/health`
 - Python API 문서: `http://localhost:8000/docs`
+- 운영 대시보드: `http://127.0.0.1:3000`
 
 LightGBM·XGBoost 학습용 선택 의존성은 `python -m pip install -e ".[dev,ai]"`로 설치합니다. 허가된 1분봉 CSV(`timestamp,open,high,low,close,volume,spread_bps`)로 모델 후보를 학습하려면 저장소 루트에서 아래 명령을 사용합니다. 각 행의 시각은 시간대를 포함해야 하고 데이터 제공·저장 권한을 확인한 자료만 사용하세요.
 
 ```powershell
-python .\scripts\train-ai-models.py .\data\licensed\005930.csv
+python .\scripts\train-ai-models.py .\data\licensed\005930.csv --market KR
 ```
 
-모델 파일과 메타데이터는 `.local/models`에만 저장됩니다. 생성된 모델은 자동 승인되지 않으며 예측 API는 `executable=false`를 반환합니다.
+한국과 미국 데이터는 각각 `--market KR` 또는 `--market US`로 별도 학습합니다. 모델 파일과 메타데이터는 `.local/models`에만 저장됩니다. 생성된 모델은 자동 승인되지 않으며, 승인된 활성 모델도 예측 API는 `executable=false`를 반환합니다.
 
 국내·미국 거래소 영업일 판정과 모의 운영 가드 테스트에는 `python -m pip install -e ".[dev,ai,ops]"`의 선택 `ops` 의존성이 필요합니다. `PAPER_AUTOTRADING_ENABLED=false`가 기본값이며, 시세 지연·모델/브로커 상태·일일 손실·연속 손실·보유 종목 수·장 마감 구간의 조건 중 하나라도 실패하면 신규 진입을 차단합니다.
 
@@ -156,7 +165,9 @@ Docker를 선호하면 기존 PostgreSQL 대신 컨테이너 DB도 선택할 수
 - **P4 — AI 모델:** LightGBM/XGBoost 학습·추론 후보, 시간 순서 분리, 해시 기반 모델 등록을 구현했습니다. 모델은 기본 미승인이고 결과는 주문 실행에 연결되지 않습니다.
 - **P5 — 자동 모의매매:** 거래소 캘린더, 실시간 틱 집계, 신규 진입 위험 게이트, 브로커 통신 경계를 구현했습니다. 지속 실행 worker 및 연속 모의 세션 검증은 남아 있습니다.
 - **P6 — KIS 모의 주문 준비:** 모의 지정가 주문·취소 어댑터, 계좌 잔고 사전확인, 영속 idempotency 기록 및 불명 결과 재전송 금지를 구현합니다. `KIS_PAPER_ORDERS_ENABLED=false`가 기본이며 현재 KIS 주문은 전송하지 않았습니다. 실제 계좌 주문 경로는 없습니다.
-- **P7 — 운영 고도화:** 모델 승인·롤백 통제, 성과·위험 보고서, 상태 대시보드와 장애 시 자동 중단을 추가합니다. P1/P5 실계좌·연속 세션 검증과 권한 있는 데이터가 없으면 성과와 실전 준비 완료로 간주하지 않습니다.
+- **P7 — 운영 고도화:** 조회 전용 Next.js 대시보드, 일일 JSON 운영 리포트, 통화별 paper 손익, 시장별 모델 분리와 검토 사유가 남는 승인·활성화·롤백 API를 구현했습니다. P1 실제 계좌 읽기, P5 연속 paper 세션, 수수료 포함 손익 대조, 데이터 권한과 성능 검증은 완료 전이라 전체 운영 승인 기준은 아직 통과하지 않았습니다.
+
+P7 모델 승인은 operator 이름, 검토 사유, holdout test 결과가 있는 모델 메타데이터를 남깁니다. 활성 모델 변경과 롤백은 `.local/models/governance-audit.jsonl`에 기록되며 예측은 계속 조언용입니다. 모델 승인 API와 운영 API는 로컬 개발용이며 운영체제 사용자 인증이나 원격 접근 제어를 제공하지 않습니다. 외부 네트워크에 노출하지 마세요.
 
 ## 공식 참고자료
 

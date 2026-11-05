@@ -19,6 +19,8 @@ from app.quant import MinuteBar
 def main() -> int:
     parser = argparse.ArgumentParser(description="Train read-only LightGBM/XGBoost candidates from a licensed minute-bar CSV.")
     parser.add_argument("csv_file", type=Path)
+    parser.add_argument("--market", choices=("KR", "US"), required=True,
+                        help="market scope; train and approve KR and US models separately")
     parser.add_argument("--registry", type=Path, default=Path(".local/models"))
     parser.add_argument("--horizon-bars", type=int, default=5)
     parser.add_argument("--round-trip-cost-bps", type=Decimal, default=Decimal("10"))
@@ -36,7 +38,7 @@ def main() -> int:
     samples = build_training_samples(
         sessions, horizon_bars=args.horizon_bars, round_trip_cost_bps=args.round_trip_cost_bps,
     )
-    results = LocalModelRegistry(args.registry).train_compare(samples)
+    results = LocalModelRegistry(args.registry).train_compare(samples, market=args.market)
     print(json.dumps([result.__dict__ for result in results], indent=2))
     return 0
 

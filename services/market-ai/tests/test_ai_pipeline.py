@@ -1,5 +1,7 @@
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+import hashlib
+import json
 
 import pytest
 
@@ -55,7 +57,7 @@ def test_chronological_split_keeps_sessions_disjoint_and_ordered() -> None:
 
 def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path) -> None:
     samples = build_training_samples(_sample_sessions(), horizon_bars=5, round_trip_cost_bps=Decimal("0"))
-    results = LocalModelRegistry(tmp_path).train_compare(samples)
+    results = LocalModelRegistry(tmp_path).train_compare(samples, market="KR")
     assert {result.model_type for result in results} == {"lightgbm", "xgboost"}
     for result in results:
         metadata = LocalModelRegistry(tmp_path).manifest(result.model_id)
@@ -63,12 +65,56 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path)
         assert metadata["artifact_sha256"] == result.artifact_sha256
         assert result.train_sessions[-1] < result.validation_sessions[0]
         assert result.validation_sessions[-1] < result.test_sessions[0]
-        prediction = LocalModelRegistry(tmp_path).predict_preview(result.model_id, _sample_sessions()[date(2026, 10, 8)][:20])
+        prediction = LocalModelRegistry(tmp_path).predict_preview(result.model_id, _sample_sessions()[date(2026, 10, 8)][:20], market="KR")
         assert 0 <= prediction["probability_positive"] <= 1
+        assert prediction["market"] == "KR"
         assert prediction["approved"] is False
         assert prediction["executable"] is False
+        with pytest.raises(ValueError, match="market scope"):
+            LocalModelRegistry(tmp_path).predict_preview(result.model_id, _sample_sessions()[date(2026, 10, 8)][:20], market="US")
 
 
 def test_model_registry_rejects_path_traversal(tmp_path) -> None:
     with pytest.raises(ValueError, match="identifier"):
         LocalModelRegistry(tmp_path).manifest("../../secret")
+
+
+def _write_candidate(registry: LocalModelRegistry, model_id: str) -> None:
+    artifact_name = f"{model_id}.joblib"
+    artifact = registry.root / artifact_name
+    artifact.write_bytes(model_id.encode())
+    metadata = {
+        "model_id": model_id, "market": "KR", "model_type": model_id.split("-")[0], "artifact": artifact_name,
+        "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(), "approved": False,
+        "feature_names": list(FEATURE_NAMES), "threshold": 0.5,
+        "validation_metrics": {"accuracy": 0.6}, "test_metrics": {"accuracy": 0.55},
+        "test_sessions": ["2026-10-08"],
+    }
+    (registry.root / f"{model_id}.json").write_text(json.dumps(metadata), encoding="utf-8")
+
+
+def test_model_governance_requires_review_and_records_rollback(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    first = "lightgbm-" + "a" * 32
+    second = "xgboost-" + "b" * 32
+    _write_candidate(registry, first)
+    _write_candidate(registry, second)
+
+    with pytest.raises(ValueError, match="approved"):
+        registry.activate(first, changed_by="operator", note="This note is long enough for an audit record.")
+    with pytest.raises(ValueError, match="20 characters"):
+        registry.approve(first, approved_by="operator", note="reviewed")
+
+    registry.approve(first, approved_by="operator", note="Held-out sessions reviewed; keep as advisory only.")
+    registry.activate(first, changed_by="operator", note="Approved after held-out test review; advisory only.")
+    registry.approve(second, approved_by="operator", note="Second candidate reviewed against held-out sessions.")
+    registry.activate(second, changed_by="operator", note="Promote second candidate after comparative review.")
+    rollback = registry.activate(first, changed_by="operator", note="Rollback after monitoring found degraded metrics.", action="rollback")
+
+    models = {item["model_id"]: item for item in registry.list_models()}
+    assert models[first]["active"] is True
+    assert models[first]["approved"] is True
+    assert models[first]["market"] == "KR"
+    assert models[second]["active"] is False
+    assert rollback["previous_model_id"] == second
+    assert registry.governance_events()[-1]["action"] == "rollback"

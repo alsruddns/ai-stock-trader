@@ -80,8 +80,19 @@ class QuantBacktestResponse(BaseModel):
 
 
 class AiPredictionRequest(BaseModel):
+    market: Market
     symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Za-z0-9.-]+$")
     bars: list[QuantBarRequest] = Field(min_length=20, max_length=500)
+
+
+class ModelApprovalRequest(BaseModel):
+    approved_by: str = Field(min_length=1, max_length=80)
+    note: str = Field(min_length=20, max_length=1000)
+
+
+class ModelChangeRequest(BaseModel):
+    changed_by: str = Field(min_length=1, max_length=80)
+    note: str = Field(min_length=20, max_length=1000)
 
 
 class AnalysisResponse(BaseModel):
@@ -293,7 +304,7 @@ def predict_with_model(
             close=item.close, volume=item.volume, spread_bps=item.spread_bps,
         ) for item in request.bars]
         registry = LocalModelRegistry(os.getenv("AI_MODEL_REGISTRY_PATH", ".local/models"))
-        result = registry.predict_preview(model_id, bars)
+        result = registry.predict_preview(model_id, bars, market=request.market.value)
         result["symbol"] = request.symbol.strip().upper()
         return result
     except FileNotFoundError as exc:
@@ -302,3 +313,47 @@ def predict_with_model(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _model_registry() -> LocalModelRegistry:
+    return LocalModelRegistry(os.getenv("AI_MODEL_REGISTRY_PATH", ".local/models"))
+
+
+@app.get("/api/v1/ai/models")
+def list_ai_models() -> dict[str, object]:
+    registry = _model_registry()
+    return {"models": registry.list_models(), "governance_events": registry.governance_events(30), "executable": False}
+
+
+@app.post("/api/v1/ai/models/{model_id}/approve")
+def approve_ai_model(model_id: str, request: ModelApprovalRequest) -> dict[str, object]:
+    try:
+        metadata = _model_registry().approve(model_id, approved_by=request.approved_by, note=request.note)
+        return {"model_id": model_id, "approved": bool(metadata.get("approved")), "executable": False,
+                "approval": metadata.get("approval")}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/ai/models/{model_id}/activate")
+def activate_ai_model(model_id: str, request: ModelChangeRequest) -> dict[str, object]:
+    try:
+        event = _model_registry().activate(model_id, changed_by=request.changed_by, note=request.note)
+        return {**event, "executable": False}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/ai/models/{model_id}/rollback")
+def rollback_ai_model(model_id: str, request: ModelChangeRequest) -> dict[str, object]:
+    try:
+        event = _model_registry().activate(model_id, changed_by=request.changed_by, note=request.note, action="rollback")
+        return {**event, "executable": False}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
