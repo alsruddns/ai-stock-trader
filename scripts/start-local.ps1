@@ -1,3 +1,6 @@
+[CmdletBinding()]
+param([switch]$PaperOnly)
+
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -18,6 +21,12 @@ foreach ($line in Get-Content -LiteralPath $envPath) {
         $value = $value.Substring(1, $value.Length - 2)
     }
     [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+}
+
+if ($PaperOnly) {
+    $env:TRADING_MODE = 'paper'
+    $env:LIVE_TRADING_ENABLED = 'false'
+    $env:KIS_REAL_ORDERS_ENABLED = 'false'
 }
 
 if (-not $env:POSTGRES_PASSWORD -or $env:POSTGRES_PASSWORD -eq 'replace_with_your_local_postgres_password') {
