@@ -40,6 +40,8 @@ def load_minute_bar_sessions(csv_path: str | Path, *, expected_symbol: str | Non
                 if any(normalized.get(column) is None or not normalized[column].strip()
                        for column in REQUIRED_COLUMNS):
                     raise ValueError("required value is empty")
+                if "symbol" in columns and not normalized.get("symbol", "").strip():
+                    raise ValueError("symbol is empty")
                 if normalized.get("symbol", "").strip():
                     symbols.add(normalized["symbol"].strip().upper())
                 timestamp = datetime.fromisoformat(normalized["timestamp"].strip())

@@ -28,6 +28,8 @@ def test_minute_bar_loader_groups_valid_timezone_aware_sessions(tmp_path) -> Non
     ("timestamp,open,high,low,close,volume\n2026-11-05T09:00:00,100,101,99,100,1000\n", "timezone"),
     ("timestamp,open,high,low,close,volume\n2026-11-05T09:00:00+09:00,100,99,101,100,1000\n", "high/low"),
     ("timestamp,open,high,low,close,volume\n2026-11-05T09:00:00+09:00,100,101,99,100,1000\n2026-11-05T09:00:00+09:00,100,101,99,100,1000\n", "strictly increasing"),
+    ("timestamp,open,high,low,close,volume,symbol\n2026-11-05T09:00:00+09:00,100,101,99,100,1000,\n", "symbol is empty"),
+    ("timestamp,open,high,low,close,volume,volume\n2026-11-05T09:00:00+09:00,100,101,99,100,1000,1000\n", "duplicate column names"),
     ("timestamp,open,high,low,close,volume\n2026-11-05T09:00:00+09:00,100,101,99,100,1000\n2026-11-05T09:01:00+09:00,100,101,99,100,1000\n", "one instrument"),
 ])
 def test_minute_bar_loader_rejects_invalid_rows_and_ambiguous_instruments(tmp_path, content, message) -> None:
