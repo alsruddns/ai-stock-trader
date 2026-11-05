@@ -10,11 +10,12 @@ import re
 import tempfile
 import threading
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from .quant import MinuteBar, _atr, _ema, _vwap
 
@@ -22,12 +23,27 @@ FEATURE_NAMES = (
     "return_1m", "return_3m", "return_5m", "close_vwap_pct", "ema9_gap_pct",
     "ema20_gap_pct", "atr14_pct", "relative_volume20", "spread_bps", "session_progress",
 )
+FEATURE_VERSION = 2
 
 
-def _session_progress(timestamp) -> Decimal:
-    """Fraction of a conventional 6.5-hour regular session elapsed, using only wall time."""
-    seconds = timestamp.hour * 3600 + timestamp.minute * 60 + timestamp.second
-    return min(Decimal(1), Decimal(seconds) / Decimal(6.5 * 60 * 60))
+_MARKET_SESSIONS = {
+    "KR": (ZoneInfo("Asia/Seoul"), time(9, 0)),
+    "US": (ZoneInfo("America/New_York"), time(9, 30)),
+}
+
+
+def _session_progress(timestamp: datetime, market: str) -> Decimal:
+    """Fraction of the local regular session elapsed, clamped to [0, 1]."""
+    normalized_market = market.strip().upper()
+    if normalized_market not in _MARKET_SESSIONS:
+        raise ValueError("market must be KR or US")
+    zone, open_time = _MARKET_SESSIONS[normalized_market]
+    local_time = timestamp.astimezone(zone).time().replace(tzinfo=None)
+    local_seconds = local_time.hour * 3600 + local_time.minute * 60 + local_time.second
+    open_seconds = open_time.hour * 3600 + open_time.minute * 60 + open_time.second
+    seconds = local_seconds - open_seconds
+    duration_seconds = 6 * 3600 + 30 * 60
+    return min(Decimal(1), max(Decimal(0), Decimal(seconds) / Decimal(duration_seconds)))
 
 
 @dataclass(frozen=True)
@@ -53,7 +69,7 @@ class ModelTrainingResult:
 
 
 def build_training_samples(
-    sessions: dict[date, list[MinuteBar]], *, horizon_bars: int = 5,
+    sessions: dict[date, list[MinuteBar]], *, market: str, horizon_bars: int = 5,
     round_trip_cost_bps: Decimal = Decimal("10"), warmup_bars: int = 20,
 ) -> list[TrainingSample]:
     """Create samples using features available at t and a label from t+horizon.
@@ -64,6 +80,9 @@ def build_training_samples(
     """
     if horizon_bars <= 0 or warmup_bars <= 0 or round_trip_cost_bps < 0:
         raise ValueError("horizon, warmup, and transaction cost settings are invalid")
+    normalized_market = market.strip().upper()
+    if normalized_market not in _MARKET_SESSIONS:
+        raise ValueError("market must be KR or US")
     samples: list[TrainingSample] = []
     required = max(warmup_bars, 20, 14, 9)
     for session, bars in sorted(sessions.items()):
@@ -90,7 +109,7 @@ def build_training_samples(
             ema9 = _ema([item.close for item in history[-9:]], 9)
             ema20 = _ema([item.close for item in history[-20:]], 20)
             atr_pct = _atr(history, 14) / close
-            session_progress = _session_progress(current.timestamp)
+            session_progress = _session_progress(current.timestamp, normalized_market)
             feature_values = (
                 *returns,
                 close / vwap - Decimal(1) if vwap else Decimal(0),
@@ -109,10 +128,13 @@ def build_training_samples(
     return samples
 
 
-def latest_features(bars: list[MinuteBar], *, minimum_bars: int = 20) -> tuple[float, ...]:
+def latest_features(bars: list[MinuteBar], *, market: str, minimum_bars: int = 20) -> tuple[float, ...]:
     """Build the current-bar feature vector without reading a future observation."""
     if len(bars) < minimum_bars:
         raise ValueError(f"at least {minimum_bars} bars are required for inference")
+    normalized_market = market.strip().upper()
+    if normalized_market not in _MARKET_SESSIONS:
+        raise ValueError("market must be KR or US")
     if any(item.timestamp.date() != bars[0].timestamp.date() for item in bars):
         raise ValueError("inference input must contain one session")
     if any(left.timestamp >= right.timestamp for left, right in zip(bars, bars[1:])):
@@ -133,7 +155,7 @@ def latest_features(bars: list[MinuteBar], *, minimum_bars: int = 20) -> tuple[f
         _atr(bars, 14) / close,
         volume_ratio,
         current.spread_bps,
-        _session_progress(current.timestamp),
+        _session_progress(current.timestamp, normalized_market),
     )
     return tuple(float(value) for value in features)
 
@@ -197,6 +219,8 @@ class LocalModelRegistry:
                 metadata = self.manifest(manifest_path.stem)
                 items.append({
                     "model_id": metadata["model_id"], "market": metadata.get("market"), "model_type": metadata["model_type"],
+                    "feature_version": metadata.get("feature_version"),
+                    "feature_compatible": self._supports_current_features(metadata),
                     "approved": bool(metadata.get("approved", False)),
                     "active": metadata["model_id"] == active_model,
                     "artifact_sha256": metadata["artifact_sha256"],
@@ -224,9 +248,14 @@ class LocalModelRegistry:
             metadata = self.manifest(active_id)
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
             return None
-        if metadata.get("market") != requested_market or not metadata.get("approved"):
+        if (metadata.get("market") != requested_market or not metadata.get("approved")
+                or not self._supports_current_features(metadata)):
             return None
         return metadata
+
+    @staticmethod
+    def _supports_current_features(metadata: dict[str, Any]) -> bool:
+        return metadata.get("feature_version") == FEATURE_VERSION and metadata.get("feature_names") == list(FEATURE_NAMES)
 
     def approve(self, model_id: str, *, approved_by: str, note: str) -> dict[str, Any]:
         reviewer = approved_by.strip()[:80]
@@ -237,6 +266,8 @@ class LocalModelRegistry:
             metadata = self.manifest(model_id)
             if metadata.get("market") not in {"KR", "US"}:
                 raise ValueError("market scope must be KR or US before model approval")
+            if not self._supports_current_features(metadata):
+                raise ValueError("model feature schema is outdated and must be retrained")
             if not metadata.get("test_sessions") or not metadata.get("test_metrics"):
                 raise ValueError("model has no held-out test evidence and cannot be approved")
             metadata["approved"] = True
@@ -252,6 +283,8 @@ class LocalModelRegistry:
             raise ValueError("operator and a change note of at least 20 characters are required")
         with self._governance_lock:
             metadata = self.manifest(model_id)
+            if not self._supports_current_features(metadata):
+                raise ValueError("model feature schema is outdated and cannot be activated")
             if not metadata.get("approved"):
                 raise ValueError("only an approved model can become the advisory active model")
             previous = None
@@ -340,7 +373,7 @@ class LocalModelRegistry:
             digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
             manifest = {
                 "model_id": model_id, "market": market, "model_type": name, "artifact": artifact_name,
-                "artifact_sha256": digest, "feature_names": list(FEATURE_NAMES),
+                "artifact_sha256": digest, "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION,
                 "threshold": 0.5, "approved": False,
                 "validation_metrics": validation_metrics, "test_metrics": test_metrics,
                 "train_sessions": train_dates, "validation_sessions": validation_dates,
@@ -377,9 +410,11 @@ class LocalModelRegistry:
         metadata = self.manifest(model_id)
         if market.upper() != metadata.get("market"):
             raise ValueError("model market scope does not match the requested market")
+        if not self._supports_current_features(metadata):
+            raise ValueError("model feature schema is outdated and must be retrained")
         artifact = self.root / metadata["artifact"]
         model = joblib.load(artifact)
-        features = latest_features(bars)
+        features = latest_features(bars, market=market)
         probability = float(model.predict_proba(np.asarray([features], dtype=np.float32))[0][1])
         threshold = float(metadata["threshold"])
         return {

@@ -7,10 +7,12 @@ import pytest
 
 from app.ai_pipeline import (
     FEATURE_NAMES,
+    FEATURE_VERSION,
     LocalModelRegistry,
     _chronological_partitions,
     build_training_samples,
     latest_features,
+    _session_progress,
 )
 from app.quant import MinuteBar
 
@@ -36,15 +38,26 @@ def _sample_sessions() -> dict[date, list[MinuteBar]]:
 
 def test_features_at_time_t_match_online_inference_features() -> None:
     bars = _sample_sessions()[date(2026, 10, 1)][:25]
-    samples = build_training_samples({bars[0].timestamp.date(): bars}, horizon_bars=5, round_trip_cost_bps=Decimal("0"))
+    samples = build_training_samples({bars[0].timestamp.date(): bars}, market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("0"))
     at_t = next(sample for sample in samples if sample.timestamp == bars[19].timestamp.isoformat())
-    online = latest_features(bars[:20])
+    online = latest_features(bars[:20], market="KR")
     assert len(online) == len(FEATURE_NAMES)
     assert at_t.features == online
+    assert at_t.features[-1] == pytest.approx(19 / 390)
+
+
+def test_session_progress_uses_market_open_and_exchange_timezone() -> None:
+    assert _session_progress(datetime(2026, 11, 5, 0, 0, tzinfo=timezone.utc), "KR") == Decimal(0)
+    assert _session_progress(datetime(2026, 11, 5, 3, 15, tzinfo=timezone.utc), "KR") == Decimal("0.5")
+    assert _session_progress(datetime(2026, 11, 5, 14, 30, tzinfo=timezone.utc), "US") == Decimal(0)
+    assert _session_progress(datetime(2026, 11, 5, 17, 45, tzinfo=timezone.utc), "US") == Decimal("0.5")
+    assert _session_progress(datetime(2026, 11, 5, 21, 30, tzinfo=timezone.utc), "US") == Decimal(1)
+    with pytest.raises(ValueError, match="market must be KR or US"):
+        _session_progress(datetime(2026, 11, 5, 0, 0, tzinfo=timezone.utc), "JP")
 
 
 def test_chronological_split_keeps_sessions_disjoint_and_ordered() -> None:
-    samples = build_training_samples(_sample_sessions(), horizon_bars=5, round_trip_cost_bps=Decimal("0"))
+    samples = build_training_samples(_sample_sessions(), market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("0"))
     train, validation, test = _chronological_partitions(samples)
     train_dates = {item.session for item in train}
     validation_dates = {item.session for item in validation}
@@ -56,7 +69,7 @@ def test_chronological_split_keeps_sessions_disjoint_and_ordered() -> None:
 
 
 def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path) -> None:
-    samples = build_training_samples(_sample_sessions(), horizon_bars=5, round_trip_cost_bps=Decimal("0"))
+    samples = build_training_samples(_sample_sessions(), market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("0"))
     results = LocalModelRegistry(tmp_path).train_compare(samples, market="KR")
     assert {result.model_type for result in results} == {"lightgbm", "xgboost"}
     for result in results:
@@ -85,6 +98,23 @@ def test_active_model_selection_fails_closed_for_corrupt_selection_file(tmp_path
     assert registry.active_approved_model("KR") is None
 
 
+def test_legacy_model_with_outdated_feature_schema_cannot_be_approved_or_selected(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "c" * 32
+    _write_candidate(registry, model_id)
+    manifest_path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    metadata.pop("feature_version")
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+    registry._active_path.write_text(json.dumps({"model_id": model_id}), encoding="utf-8")
+
+    assert registry.active_approved_model("KR") is None
+    listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
+    assert listed["feature_compatible"] is False
+    with pytest.raises(ValueError, match="feature schema is outdated"):
+        registry.approve(model_id, approved_by="operator", note="Reviewed for migration but requires retraining first.")
+
+
 def _write_candidate(registry: LocalModelRegistry, model_id: str) -> None:
     artifact_name = f"{model_id}.joblib"
     artifact = registry.root / artifact_name
@@ -92,7 +122,7 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str) -> None:
     metadata = {
         "model_id": model_id, "market": "KR", "model_type": model_id.split("-")[0], "artifact": artifact_name,
         "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(), "approved": False,
-        "feature_names": list(FEATURE_NAMES), "threshold": 0.5,
+        "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION, "threshold": 0.5,
         "validation_metrics": {"accuracy": 0.6}, "test_metrics": {"accuracy": 0.55},
         "test_sessions": ["2026-10-08"],
     }
