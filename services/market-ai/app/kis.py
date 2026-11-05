@@ -229,12 +229,13 @@ class KisReadOnlyClient:
         normalized_symbol = symbol.strip()
         if not (normalized_symbol.isdigit() and len(normalized_symbol) == 6):
             raise ValueError("KR symbols must be six digits")
-        if len(end_time) != 6 or not end_time.isdigit() or int(end_time[:2]) > 23 or int(end_time[2:4]) > 59 or int(end_time[4:]) > 59:
+        if (len(end_time) != 6 or not end_time.isdigit() or int(end_time[:2]) > 23
+                or int(end_time[2:4]) > 59 or int(end_time[4:]) > 59):
             raise ValueError("end_time must use HHMMSS")
         params = {
             "FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": normalized_symbol,
             "FID_INPUT_HOUR_1": end_time, "FID_INPUT_DATE_1": session_date.strftime("%Y%m%d"),
-            "FID_PW_DATA_INCU_YN": "Y", "FID_FAKE_TICK_INCU_YN": "",
+            "FID_PW_DATA_INCU_YN": "N", "FID_FAKE_TICK_INCU_YN": "",
         }
         try:
             response = self._http.get(

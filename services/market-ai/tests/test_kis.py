@@ -96,7 +96,7 @@ def test_domestic_minute_chart_uses_read_only_contract_and_preserves_missing_spr
     assert request.url.path.endswith("/inquire-time-dailychartprice")
     assert request.headers["tr_id"] == "FHKST03010230"
     assert request.url.params["FID_INPUT_DATE_1"] == "20261105"
-    assert request.url.params["FID_PW_DATA_INCU_YN"] == "Y"
+    assert request.url.params["FID_PW_DATA_INCU_YN"] == "N"
     assert [bar.timestamp.isoformat() for bar in bars] == [
         "2026-11-05T09:00:00+09:00", "2026-11-05T09:01:00+09:00",
     ]
