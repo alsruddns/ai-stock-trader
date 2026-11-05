@@ -350,6 +350,8 @@ class KisReadOnlyClient:
         """
         from .quant import MinuteBar
 
+        if self.settings.environment != "real":
+            raise KisApiError("KIS overseas minute chart is not available in the paper environment")
         normalized_symbol = symbol.strip().upper()
         if not (1 <= len(normalized_symbol) <= 16 and all(ch.isalnum() or ch in ".-" for ch in normalized_symbol)):
             raise ValueError("US symbols may contain only letters, digits, dot, or hyphen")

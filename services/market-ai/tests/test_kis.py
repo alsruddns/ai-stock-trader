@@ -99,7 +99,7 @@ def test_us_quote_uses_official_exchange_code_and_fields() -> None:
         })
 
     client = KisReadOnlyClient(
-        KisSettings(True, "paper", "paper-key", "paper-secret"),
+        KisSettings(True, "real", "real-key", "real-secret"),
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
     quote = client.get_quote("US", "aapl", "NAS")
@@ -181,7 +181,7 @@ def test_overseas_minute_chart_uses_official_bounded_contract_and_new_york_timez
         ]})
 
     client = KisReadOnlyClient(
-        KisSettings(True, "paper", "paper-key", "paper-secret"),
+        KisSettings(True, "real", "real-key", "real-secret"),
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
     from datetime import date
@@ -206,13 +206,25 @@ def test_overseas_minute_chart_uses_official_bounded_contract_and_new_york_timez
 
 def test_overseas_minute_chart_rejects_unsupported_exchange_before_network() -> None:
     client = KisReadOnlyClient(
-        KisSettings(True, "paper", "paper-key", "paper-secret"),
+        KisSettings(True, "real", "real-key", "real-secret"),
         http_client=httpx.Client(transport=httpx.MockTransport(
             lambda request: pytest.fail("unsupported exchange must not make a request")
         )),
     )
     with pytest.raises(ValueError, match="exchange must be"):
         client.get_overseas_minute_bars("AAPL", "HKS")  # type: ignore[arg-type]
+    client.close()
+
+
+def test_overseas_minute_chart_fails_closed_in_paper_environment() -> None:
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret"),
+        http_client=httpx.Client(transport=httpx.MockTransport(
+            lambda request: pytest.fail("KIS documents no paper support for this API")
+        )),
+    )
+    with pytest.raises(KisApiError, match="not available in the paper environment"):
+        client.get_overseas_minute_bars("AAPL", "NAS")
     client.close()
 
 
