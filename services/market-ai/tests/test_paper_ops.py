@@ -71,6 +71,33 @@ def test_order_sizing_fails_closed_without_funds_or_positive_inputs() -> None:
                             available_cash=Decimal("0"), max_order_notional=Decimal("1000")) is None
 
 
+def test_paper_risk_limits_load_from_environment(monkeypatch) -> None:
+    monkeypatch.setenv("PAPER_MAX_QUOTE_AGE_SECONDS", "4")
+    monkeypatch.setenv("PAPER_DAILY_LOSS_LIMIT_PCT", "0.75")
+    monkeypatch.setenv("PAPER_MAX_POSITION_EQUITY_PCT", "8")
+    monkeypatch.setenv("PAPER_TRADE_RISK_EQUITY_PCT", "0.20")
+    monkeypatch.setenv("PAPER_ATR_STOP_MULTIPLE", "2")
+    monkeypatch.setenv("PAPER_MAX_OPEN_POSITIONS", "2")
+    monkeypatch.setenv("PAPER_MAX_CONSECUTIVE_LOSSES", "2")
+    monkeypatch.setenv("PAPER_FLATTEN_BEFORE_CLOSE_MINUTES", "7")
+
+    limits = PaperOpsLimits.from_environment()
+    assert limits.max_quote_age_seconds == 4
+    assert limits.max_daily_loss_pct == Decimal("0.75")
+    assert limits.max_position_equity_pct == Decimal("8")
+    assert limits.trade_risk_equity_pct == Decimal("0.20")
+    assert limits.atr_stop_multiple == Decimal("2")
+    assert limits.max_open_positions == 2
+    assert limits.max_consecutive_losses == 2
+    assert limits.flatten_before_close_minutes == 7
+
+
+def test_malformed_paper_risk_setting_fails_closed(monkeypatch) -> None:
+    monkeypatch.setenv("PAPER_DAILY_LOSS_LIMIT_PCT", "not-a-number")
+    with pytest.raises(ValueError, match="risk settings are invalid"):
+        PaperOpsLimits.from_environment()
+
+
 def test_new_entries_allowed_only_when_every_dependency_and_risk_gate_passes() -> None:
     now = datetime(2026, 11, 5, 10, 0, tzinfo=timezone(timedelta(hours=9)))
     state = _good_gate(now)
