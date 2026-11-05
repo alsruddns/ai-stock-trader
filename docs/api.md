@@ -29,7 +29,7 @@ KIS API는 기본 잠금(`KIS_ACCOUNT_READ_ENABLED=false`)입니다. 조회를 �
 
 ## KIS REST 요청 범위
 
-국내·미국 잔고 경로와 PAPER/REAL 거래 ID는 [KIS API compatibility](kis-api-compatibility.md)에 공식 예제 대조 기록과 함께 정리했습니다. 해당 검토는 계좌 인증 연동 성공을 의미하지 않습니다.
+국내·미국 잔고 및 현재가 경로와 PAPER/REAL 거래 ID는 [KIS API compatibility](kis-api-compatibility.md)에 공식 예제 대조 기록과 함께 정리했습니다. 현재가는 REST 스냅샷이며, 실시간 체결 데이터는 별도 WebSocket 경로를 사용합니다. 해당 문서 검토는 계좌 인증 연동 성공을 의미하지 않습니다.
 
 - 인증: OAuth client credentials `/oauth2/tokenP`
 - 국내 잔고: `/uapi/domestic-stock/v1/trading/inquire-balance`
