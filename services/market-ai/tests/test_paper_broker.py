@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import date
 from uuid import UUID
 
 import httpx
@@ -84,4 +85,24 @@ def test_strategy_position_reader_uses_local_paper_exit_endpoint() -> None:
 
     assert positions[0]["symbol"] == "005930"
     assert seen[0].url.path == "/api/v1/orders/paper/strategy-risks"
+    client.close()
+
+
+def test_daily_baseline_is_read_and_recorded_only_through_local_paper_routes() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json={"currency": "KRW", "equity": "1000000"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    broker = SpringPaperBrokerClient(http_client=client)
+    assert broker.get_daily_risk_baselines(date(2026, 11, 5)) == []
+    assert broker.record_daily_risk_baseline(date(2026, 11, 5), "KRW", Decimal("1000000"))["currency"] == "KRW"
+    assert seen[0].url.path.endswith("/risk-baselines/2026-11-05")
+    assert seen[1].method == "PUT"
+    assert seen[1].url.path.endswith("/risk-baselines/2026-11-05/KRW")
+    assert seen[1].read().decode() == '{"equity":"1000000"}'
     client.close()

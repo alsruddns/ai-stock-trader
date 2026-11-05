@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from datetime import date
 from typing import Literal
 from urllib.parse import urlparse
 from uuid import UUID
@@ -111,6 +112,45 @@ class SpringPaperBrokerClient:
             return payload
         except (httpx.HTTPError, ValueError) as exc:
             raise PaperBrokerError("local paper exit state is unavailable") from exc
+
+    def get_positions(self) -> list[dict]:
+        return self._get_list("/api/v1/orders/paper/positions", "local paper positions are unavailable")
+
+    def get_cash_balances(self) -> list[dict]:
+        return self._get_list("/api/v1/orders/paper/cash", "local paper cash is unavailable")
+
+    def get_daily_risk_baselines(self, session_date: date) -> list[dict]:
+        return self._get_list(
+            f"/api/v1/orders/paper/risk-baselines/{session_date.isoformat()}",
+            "local paper daily risk baseline is unavailable",
+        )
+
+    def record_daily_risk_baseline(self, session_date: date, currency: str, equity: Decimal) -> dict:
+        if currency not in {"KRW", "USD"} or equity <= 0:
+            raise ValueError("paper daily baseline currency and equity are invalid")
+        try:
+            response = self._http.put(
+                f"{self.base_url}/api/v1/orders/paper/risk-baselines/{session_date.isoformat()}/{currency}",
+                json={"equity": str(equity)},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("daily baseline response has an invalid shape")
+            return payload
+        except (httpx.HTTPError, ValueError) as exc:
+            raise PaperBrokerError("local paper daily baseline could not be recorded") from exc
+
+    def _get_list(self, path: str, error: str) -> list[dict]:
+        try:
+            response = self._http.get(f"{self.base_url}{path}")
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, list) or any(not isinstance(item, dict) for item in payload):
+                raise ValueError("paper ledger response has an invalid shape")
+            return payload
+        except (httpx.HTTPError, ValueError) as exc:
+            raise PaperBrokerError(error) from exc
 
     def close(self) -> None:
         if self._owns_http:
