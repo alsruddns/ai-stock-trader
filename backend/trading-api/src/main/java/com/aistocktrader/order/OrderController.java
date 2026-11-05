@@ -5,12 +5,17 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
+import java.time.LocalDate;
 
 @RestController
 @RequestMapping("/api/v1/orders")
 public class OrderController {
     private final OrderService service;
-    public OrderController(OrderService service) { this.service = service; }
+    private final PaperDailyRiskBaselineService riskBaselineService;
+    public OrderController(OrderService service, PaperDailyRiskBaselineService riskBaselineService) {
+        this.service = service;
+        this.riskBaselineService = riskBaselineService;
+    }
     @PostMapping("/paper")
     @ResponseStatus(HttpStatus.CREATED)
     public OrderRecord paperOrder(@RequestHeader("Idempotency-Key") UUID idempotencyKey,
@@ -56,5 +61,17 @@ public class OrderController {
     @GetMapping("/paper/strategy-risks")
     public List<OrderService.StrategyPositionRiskView> paperStrategyRisks() {
         return service.paperStrategyRisks();
+    }
+
+    @GetMapping("/paper/risk-baselines/{sessionDate}")
+    public List<PaperDailyRiskBaseline> paperRiskBaselines(@PathVariable LocalDate sessionDate) {
+        return riskBaselineService.forSession(sessionDate);
+    }
+
+    @PutMapping("/paper/risk-baselines/{sessionDate}/{currency}")
+    public PaperDailyRiskBaseline recordPaperRiskBaseline(@PathVariable LocalDate sessionDate,
+                                                           @PathVariable Currency currency,
+                                                           @Valid @RequestBody PaperDailyRiskBaselineRequest request) {
+        return riskBaselineService.recordOnce(sessionDate, currency, request.equity());
     }
 }
