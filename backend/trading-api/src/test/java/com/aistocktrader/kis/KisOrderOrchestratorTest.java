@@ -12,6 +12,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -117,6 +118,44 @@ class KisOrderOrchestratorTest {
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")), intents);
         assertThrows(IllegalStateException.class, () -> locked.submitPaperOrder(UUID.randomUUID(), buyRequest(), null));
         verify(intents, never()).prepare(any(), anyString(), any(), nullable(String.class));
+    }
+
+    @Test
+    void reconciliationUpdatesAcceptedOrderFromBrokerSnapshot() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash",
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 2, new BigDecimal("70000"), Currency.KRW), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+        KisBrokerOrderSnapshot snapshot = new KisBrokerOrderSnapshot(1, 0, new BigDecimal("70000"), true, false);
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.reconcilePaperOrder(intent)).thenReturn(Optional.of(snapshot));
+        when(intents.reconcile(key, snapshot)).thenAnswer(invocation -> {
+            intent.reconcile(snapshot.filledQuantity(), snapshot.remainingQuantity(), snapshot.averageFillPrice(),
+                    snapshot.cancelled(), snapshot.rejected());
+            return intent;
+        });
+
+        KisOrderIntentResponse response = orchestrator.reconcilePaperOrder(key);
+
+        assertEquals(KisOrderStatus.CANCELLED, response.status());
+        assertEquals(1, response.filledQuantity());
+        assertEquals(0, response.remainingQuantity());
+        assertEquals("70000", response.averageFillPrice());
+        verify(orders).reconcilePaperOrder(intent);
+    }
+
+    @Test
+    void ambiguousSubmitWithoutBrokerNumberIsNeverMatchedByGuessing() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
+        intent.markUnknown();
+        when(intents.get(key)).thenReturn(intent);
+
+        KisOrderIntentResponse response = orchestrator.reconcilePaperOrder(key);
+
+        assertEquals(KisOrderStatus.UNKNOWN, response.status());
+        verify(orders, never()).reconcilePaperOrder(any());
+        verify(intents, never()).reconcile(any(), any());
     }
 
     private static OrderRequest buyRequest() {

@@ -84,7 +84,7 @@ public class KisOrderIntent {
         remainingQuantity = remaining;
         averageFillPrice = averagePrice;
         if (rejected && filled == 0) status = KisOrderStatus.REJECTED;
-        else if (filled == quantity || remaining == 0 && filled > 0) status = KisOrderStatus.FILLED;
+        else if (filled == quantity) status = KisOrderStatus.FILLED;
         else if (cancelled && remaining == 0) status = KisOrderStatus.CANCELLED;
         else if (cancellationRequested && remaining > 0) status = KisOrderStatus.CANCEL_PENDING;
         else if (filled > 0) status = KisOrderStatus.PARTIALLY_FILLED;
