@@ -25,7 +25,7 @@
 
 DB 접근 또는 트랜잭션 커밋 실패는 HTTP `503`과 일반 오류 메시지를 반환합니다. 응답에는 DB 드라이버 세부 내용이나 비밀값을 포함하지 않습니다. 클라이언트는 주문 완료로 간주하지 말고 idempotency key로 결과를 조회해야 합니다.
 
-KIS API는 기본 잠금(`KIS_ACCOUNT_READ_ENABLED=false`)입니다. 조회를 열려면 전체 스위치와 환경별 스위치를 모두 설정해야 합니다. REAL 조회에는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`가 추가로 필요하며 기본값은 false입니다. 종목별 매수가능액 확인 시 `symbol`과 `unitPrice`를 함께 전달합니다. 미국 조회의 `exchange`는 `NASD`, `NYSE`, `AMEX` 중 하나입니다. 계좌 API는 계좌번호, App Key, App Secret을 응답에 포함하지 않습니다.
+KIS API는 기본 잠금(`KIS_ACCOUNT_READ_ENABLED=false`)입니다. 조회를 열려면 전체 스위치와 환경별 스위치를 모두 설정해야 합니다. REAL 조회에는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`가 추가로 필요하며 기본값은 false입니다. 종목별 매수가능액 확인 시 `symbol`과 `unitPrice`를 함께 전달합니다. 미국 조회의 `exchange`는 PAPER·REAL 공통 지원 코드인 `NASD`, `NYSE`, `AMEX` 중 하나입니다. KIS 공식 예제의 REAL 전용 추가 코드 `NAS`는 현재 경로에서 허용하지 않습니다. 계좌 API는 계좌번호, App Key, App Secret을 응답에 포함하지 않습니다.
 
 ## KIS REST 요청 범위
 
