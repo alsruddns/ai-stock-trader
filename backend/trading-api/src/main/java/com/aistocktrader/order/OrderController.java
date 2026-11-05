@@ -23,6 +23,21 @@ public class OrderController {
         return service.recordPaperFill(orderId, request);
     }
 
+    @PostMapping("/paper/{orderId}/cancel")
+    public OrderRecord cancelPaperOrder(@PathVariable Long orderId) {
+        return service.cancelPaperOrder(orderId);
+    }
+
+    @PostMapping("/paper/{orderId}/expire")
+    public OrderRecord expirePaperOrder(@PathVariable Long orderId) {
+        return service.expirePaperOrder(orderId);
+    }
+
+    @GetMapping("/paper/{orderId}")
+    public OrderRecord getPaperOrder(@PathVariable Long orderId) {
+        return service.getPaperOrder(orderId);
+    }
+
     @GetMapping("/paper/positions")
     public List<PaperPosition> paperPositions() {
         return service.paperPositions();

@@ -115,6 +115,23 @@ class OrderServiceTest {
         assertEquals(new BigDecimal("20.00"), cash.getBalance());
     }
 
+    @Test
+    void paperOrderCancellationAndExpiryStopFutureFills() {
+        OrderRecord cancelled = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
+        cancelled.cancelPaperOrder();
+        assertEquals(OrderStatus.CANCELLED, cancelled.getStatus());
+        assertThrows(IllegalArgumentException.class,
+                () -> cancelled.applyFill(1, new BigDecimal("70000")));
+
+        OrderRecord expired = new OrderRecord(request(new BigDecimal("70000"), 2), UUID.randomUUID());
+        expired.applyFill(1, new BigDecimal("70000"));
+        expired.expirePaperOrder();
+        assertEquals(OrderStatus.EXPIRED, expired.getStatus());
+        assertEquals(1, expired.getFilledQuantity());
+        assertThrows(IllegalArgumentException.class,
+                () -> expired.applyFill(1, new BigDecimal("70000")));
+    }
+
     private OrderService service() {
         return new OrderService(orders, safeConfig(), fills, positions, cashBalances);
     }

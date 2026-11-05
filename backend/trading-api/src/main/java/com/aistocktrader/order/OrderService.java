@@ -92,6 +92,31 @@ public class OrderService {
         return orders.save(order);
     }
 
+    @Transactional
+    public OrderRecord cancelPaperOrder(Long orderId) {
+        requirePaperMode();
+        OrderRecord order = orders.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new NoSuchElementException("Order not found."));
+        if (order.getStatus() == OrderStatus.CANCELLED) return order;
+        order.cancelPaperOrder();
+        return orders.save(order);
+    }
+
+    @Transactional
+    public OrderRecord expirePaperOrder(Long orderId) {
+        requirePaperMode();
+        OrderRecord order = orders.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new NoSuchElementException("Order not found."));
+        order.expirePaperOrder();
+        return orders.save(order);
+    }
+
+    @Transactional(readOnly = true)
+    public OrderRecord getPaperOrder(Long orderId) {
+        requirePaperMode();
+        return orders.findById(orderId).orElseThrow(() -> new NoSuchElementException("Order not found."));
+    }
+
     @Transactional(readOnly = true)
     public List<PaperPosition> paperPositions() {
         requirePaperMode();

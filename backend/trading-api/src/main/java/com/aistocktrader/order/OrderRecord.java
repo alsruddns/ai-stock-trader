@@ -73,4 +73,20 @@ public class OrderRecord {
         status = filledQuantity == quantity ? OrderStatus.FILLED : OrderStatus.PARTIALLY_FILLED;
         updatedAt = Instant.now();
     }
+
+    public void cancelPaperOrder() {
+        if (status != OrderStatus.PENDING && status != OrderStatus.PARTIALLY_FILLED) {
+            throw new IllegalArgumentException("Only open paper orders can be cancelled.");
+        }
+        status = OrderStatus.CANCELLED;
+        updatedAt = Instant.now();
+    }
+
+    public void expirePaperOrder() {
+        if (status != OrderStatus.PENDING && status != OrderStatus.PARTIALLY_FILLED) {
+            throw new IllegalArgumentException("Only open paper orders can expire.");
+        }
+        status = OrderStatus.EXPIRED;
+        updatedAt = Instant.now();
+    }
 }
