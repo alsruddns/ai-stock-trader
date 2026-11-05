@@ -1,9 +1,10 @@
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$envPath = Join-Path $repoRoot '.env'
+$envPath = Join-Path $repoRoot '.env_local'
+if (-not (Test-Path -LiteralPath $envPath)) { $envPath = Join-Path $repoRoot '.env' }
 if (-not (Test-Path -LiteralPath $envPath)) {
-    throw 'Missing .env. Configure the local PostgreSQL connection and REAL KIS credentials first.'
+    throw 'Missing .env_local or .env. Configure the local PostgreSQL connection and REAL KIS credentials first.'
 }
 
 foreach ($line in Get-Content -LiteralPath $envPath) {
@@ -21,17 +22,17 @@ foreach ($line in Get-Content -LiteralPath $envPath) {
 }
 
 if ($env:KIS_ACCOUNT_READ_ENABLED -ne 'true' -or $env:KIS_REAL_ACCOUNT_READ_ENABLED -ne 'true') {
-    throw 'Set KIS_ACCOUNT_READ_ENABLED=true and KIS_REAL_ACCOUNT_READ_ENABLED=true in .env to explicitly allow read-only REAL account GET tests.'
+    throw 'Set KIS_ACCOUNT_READ_ENABLED=true and KIS_REAL_ACCOUNT_READ_ENABLED=true in .env_local to explicitly allow read-only REAL account GET tests.'
 }
 if (-not $env:KIS_REAL_APP_KEY -or -not $env:KIS_REAL_APP_SECRET -or -not $env:KIS_REAL_ACCOUNT_NUMBER) {
-    throw 'Configure KIS_REAL_APP_KEY, KIS_REAL_APP_SECRET, and KIS_REAL_ACCOUNT_NUMBER in .env. Values are never displayed.'
+    throw 'Configure KIS_REAL_APP_KEY, KIS_REAL_APP_SECRET, and KIS_REAL_ACCOUNT_NUMBER in .env_local. Values are never displayed.'
 }
 $realAccountNumber = $env:KIS_REAL_ACCOUNT_NUMBER -replace '-', ''
 if ($realAccountNumber -notmatch '^\d{10}$') {
     throw 'KIS_REAL_ACCOUNT_NUMBER must contain an eight-digit account number and two-digit product code.'
 }
 if (-not $env:POSTGRES_PASSWORD) {
-    throw 'Set POSTGRES_PASSWORD in .env before running the Spring-backed KIS integration test.'
+    throw 'Set POSTGRES_PASSWORD in .env_local before running the Spring-backed KIS integration test.'
 }
 if ($env:TRADING_MODE -ne 'paper' -or $env:LIVE_TRADING_ENABLED -ne 'false' -or
     $env:KIS_REAL_ORDERS_ENABLED -ne 'false' -or $env:KIS_REAL_RECONCILIATION_ENABLED -ne 'false') {

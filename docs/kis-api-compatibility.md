@@ -23,7 +23,7 @@ These REST endpoints provide quote snapshots. The official domestic example dire
 ## Security and verification status
 
 - Account reads require both `KIS_ACCOUNT_READ_ENABLED=true` and the environment-specific switch. Both remain false by default.
-- REAL and PAPER credentials are separate. Secrets and account numbers must remain in the ignored local `.env` file.
+- REAL and PAPER credentials are separate. Secrets and account numbers must remain in the ignored local `.env_local` file.
 - This source review is not an authenticated KIS integration test. In the current local environment credentials are not configured; Spring and Python return `503` with an account-read-disabled message before making a KIS request.
 - This project has not enabled live orders. The read-only account path must not be used as evidence that order submission, market data entitlement, or fill reconciliation is verified.
 

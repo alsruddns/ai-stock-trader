@@ -5,9 +5,10 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$envPath = Join-Path $repoRoot '.env'
+$envPath = Join-Path $repoRoot '.env_local'
+if (-not (Test-Path -LiteralPath $envPath)) { $envPath = Join-Path $repoRoot '.env' }
 if (-not (Test-Path -LiteralPath $envPath)) {
-    throw 'Missing local .env file.'
+    throw 'Missing local .env_local or .env file.'
 }
 
 foreach ($line in Get-Content -LiteralPath $envPath) {
@@ -40,11 +41,11 @@ if ($env:KIS_ENVIRONMENT -ne 'paper' -or
 if ($env:KIS_MARKET_DATA_ENABLED -ne 'true' -or
     $env:KIS_ACCOUNT_READ_ENABLED -ne 'true' -or
     $env:KIS_PAPER_ACCOUNT_READ_ENABLED -ne 'true') {
-    throw 'Enable PAPER KIS REST quotes and both read-only account gates in .env before running this smoke test.'
+    throw 'Enable PAPER KIS REST quotes and both read-only account gates in .env_local before running this smoke test.'
 }
 if (-not $env:KIS_PAPER_APP_KEY -or -not $env:KIS_PAPER_APP_SECRET -or
     -not $env:KIS_PAPER_ACCOUNT_NUMBER) {
-    throw 'Configure the PAPER KIS key, secret, and account number in .env. Values are never displayed.'
+    throw 'Configure the PAPER KIS key, secret, and account number in .env_local. Values are never displayed.'
 }
 $accountNumber = $env:KIS_PAPER_ACCOUNT_NUMBER -replace '-', ''
 if ($accountNumber -notmatch '^\d{10}$') {

@@ -1,7 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$envPath = Join-Path $repoRoot '.env'
+$envPath = Join-Path $repoRoot '.env_local'
+if (-not (Test-Path -LiteralPath $envPath)) { $envPath = Join-Path $repoRoot '.env' }
 $logDirectory = Join-Path $repoRoot '.local\logs'
 $taskLog = Join-Path $logDirectory 'local-stack-task.log'
 $runtimeState = Join-Path $logDirectory 'local-stack-pids.json'
@@ -49,7 +50,7 @@ function Stop-ServiceProcess {
 
 function Import-LocalEnvironment {
     if (-not (Test-Path -LiteralPath $envPath)) {
-        throw 'Missing local .env file.'
+        throw 'Missing local .env_local or .env file.'
     }
     $environmentHashBefore = (Get-FileHash -LiteralPath $envPath -Algorithm SHA256).Hash
     foreach ($name in $script:loadedEnvironmentNames) {
@@ -74,14 +75,14 @@ function Import-LocalEnvironment {
         $script:loadedEnvironmentNames += $name
     }
     if (-not $env:POSTGRES_PASSWORD -or $env:POSTGRES_PASSWORD -eq 'replace_with_your_local_postgres_password') {
-        throw 'Local PostgreSQL password is not configured.'
+        throw 'Local PostgreSQL password is not configured in .env_local or .env.'
     }
     $env:TRADING_MODE = 'paper'
     $env:LIVE_TRADING_ENABLED = 'false'
     $env:KIS_REAL_ORDERS_ENABLED = 'false'
     $environmentHashAfter = (Get-FileHash -LiteralPath $envPath -Algorithm SHA256).Hash
     if ($environmentHashAfter -ne $environmentHashBefore) {
-        throw 'Local .env changed while configuration was being loaded.'
+        throw 'Local environment file changed while configuration was being loaded.'
     }
     return $environmentHashAfter
 }
@@ -152,8 +153,8 @@ try {
                 Start-Sleep -Seconds 2
                 $currentEnvironmentHash = (Get-FileHash -LiteralPath $envPath -Algorithm SHA256).Hash
                 if ($currentEnvironmentHash -ne $environmentHash) {
-                    Write-TaskLog 'Local .env changed; restarting APIs to reload configuration.'
-                    throw 'Local .env changed.'
+                    Write-TaskLog 'Local environment file changed; restarting APIs to reload configuration.'
+                    throw 'Local environment file changed.'
                 }
                 if ($backendProcess.HasExited) { throw "Spring Boot stopped unexpectedly (code $($backendProcess.ExitCode))." }
                 if ($marketAiProcess.HasExited) { throw "Python market-ai stopped unexpectedly (code $($marketAiProcess.ExitCode))." }

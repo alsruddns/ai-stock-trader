@@ -1,9 +1,10 @@
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$envFile = Join-Path $repoRoot '.env'
+$envFile = Join-Path $repoRoot '.env_local'
+if (-not (Test-Path -LiteralPath $envFile)) { $envFile = Join-Path $repoRoot '.env' }
 if (-not (Test-Path -LiteralPath $envFile)) {
-    throw 'Repository .env file is missing. Copy .env.example and configure local PostgreSQL first.'
+    throw 'Repository .env_local or .env file is missing. Copy .env.example and configure local PostgreSQL first.'
 }
 
 $originalEnvironment = @{}

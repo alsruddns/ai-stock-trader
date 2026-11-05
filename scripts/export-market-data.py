@@ -17,10 +17,12 @@ from app.data_export import write_minute_bar_export
 
 
 def _load_local_env() -> None:
-    """Load ignored .env values for this process without printing them."""
-    env_file = repository / ".env"
+    """Load ignored local environment values for this process without printing them."""
+    env_file = repository / ".env_local"
     if not env_file.is_file():
-        raise ValueError("local .env file is missing")
+        env_file = repository / ".env"
+    if not env_file.is_file():
+        raise ValueError("local .env_local or .env file is missing")
     for line in env_file.read_text(encoding="utf-8-sig").splitlines():
         trimmed = line.strip()
         if not trimmed or trimmed.startswith("#") or "=" not in trimmed:
@@ -74,7 +76,7 @@ def main() -> int:
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     if not os.getenv("POSTGRES_PASSWORD"):
-        parser.error("POSTGRES_PASSWORD is not configured in the ignored local .env file")
+        parser.error("POSTGRES_PASSWORD is not configured in the ignored local environment file")
 
     zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
     start_at = datetime.combine(args.from_date, time.min, tzinfo=zone)

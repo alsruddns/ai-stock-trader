@@ -3,7 +3,7 @@
 ## 로컬 실행
 
 1. PostgreSQL 서비스가 `localhost:5432`에서 실행 중인지 확인합니다.
-2. 저장소 루트의 Git 제외 `.env`에 DB 비밀번호와 필요한 KIS 환경별 설정을 입력합니다.
+2. 저장소 루트의 Git 제외 `.env_local`에 DB 비밀번호와 필요한 KIS 환경별 설정을 입력합니다.
 3. Spring Boot를 실행합니다: `.\scripts\start-local.ps1`
 4. Python API는 `services/market-ai` 가상환경에서 실행합니다. API는 `127.0.0.1`에만 바인딩합니다.
 
@@ -20,8 +20,8 @@ paper ledger 비용 추정은 `PAPER_COST_MODEL_ENABLED=false`가 기본입니�
 - Python 실시간 시세 릴레이는 `KIS_WEBSOCKET_ENABLED=true`를 요구합니다. 국내 paper feed는 PAPER 자격정보를 사용합니다. 미국 시세 구독을 PAPER ledger에 공급하려면 `KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED=true`와 REAL 시세 자격정보가 추가로 필요합니다. 이 별도 REAL 연결은 미국 시세만 읽으며 모든 주문은 로컬 PAPER ledger로만 갑니다. 계좌 조회 및 REAL 주문 스위치와 독립이며 기본값은 `false`입니다.
 - Paper 자동 운영 스위치는 `PAPER_AUTOTRADING_ENABLED=false`가 기본값입니다. 이를 켤 때는 `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`도 설정해야 하며, 현재 거래일 분봉 저장·복원에 실패하면 monitor 시작을 차단합니다. 이 기록이 없으면 재시작 후 ORB 기준 구간을 잘못 계산할 수 있습니다. 달력·실시간 피드·모델 승인·브로커 상태와 리스크 게이트 검증 전에는 켜지 마세요. Live 모드에서는 Python paper 자동화도 강제로 비활성화됩니다.
 - 신규 진입에는 시세가 최신이어야 하고 신호 봉은 기본 120초 이내여야 합니다. WebSocket 재연결이나 작업 대기 때문에 오래된 봉이 늦게 도착하면 신규 진입을 차단합니다. 한도는 `PAPER_MAX_SIGNAL_BAR_AGE_SECONDS`로 설정합니다.
-- 저장소에는 `.env`를 커밋하지 않습니다. `.env.example`에는 실제 값을 입력하지 않습니다.
-- 모델 승인·활성화·롤백에는 `.env`의 `MODEL_GOVERNANCE_TOKEN`에 32자 이상의 무작위 값을 설정하고 요청의 `X-Model-Governance-Token` 헤더로 전달해야 합니다. PowerShell에서는 `[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))`로 64자리 값을 생성할 수 있습니다. 값이 비어 있거나 32자보다 짧으면 변경 API는 잠긴 상태입니다.
+- 저장소에는 `.env_local`을 커밋하지 않습니다. `.env.example`에는 실제 값을 입력하지 않습니다.
+- 모델 승인·활성화·롤백에는 `.env_local`의 `MODEL_GOVERNANCE_TOKEN`에 32자 이상의 무작위 값을 설정하고 요청의 `X-Model-Governance-Token` 헤더로 전달해야 합니다. PowerShell에서는 `[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))`로 64자리 값을 생성할 수 있습니다. 값이 비어 있거나 32자보다 짧으면 변경 API는 잠긴 상태입니다.
 - 모의 계좌 연결 테스트는 의도적으로 네트워크를 호출하는 별도 작업입니다: `.\scripts\test-paper-kis.ps1`. 이 스크립트는 paper 자격증명과 전체 및 PAPER 계좌 읽기 스위치를 확인한 뒤 Spring 애플리케이션 컨텍스트와 PostgreSQL 호출 제한기를 사용해 국내·미국 잔고 GET만 실행합니다. 테스트 전 모의/실전 주문, 실전 자동매매, 실전 주문 대조가 모두 잠겼는지 확인합니다. DB 연결이나 슬롯 예약에 실패하면 KIS 요청도 차단합니다.
 - Python KIS 읽기 전용 스모크는 `.\scripts\test-paper-kis-python.ps1`로 실행합니다. PAPER 키·시장 시세 스위치·전체/PAPER 계좌 읽기 게이트를 검사한 뒤 국내·미국 REST 시세 및 계좌 GET 네 건만 요청하며, 응답에 키·시크릿·계좌번호가 없는지도 확인합니다. 주문·자동매매 잠금이 꺼져 있으면 요청하지 않습니다.
 - 실계좌 잔고의 읽기 전용 확인은 `.\scripts\test-real-kis-account-readonly.ps1`로 별도 실행합니다. 전체/REAL 계좌 읽기 허용과 PostgreSQL, 계좌번호 형식을 검사하며 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`, `KIS_REAL_RECONCILIATION_ENABLED=false` 상태에서 국내·미국 잔고 GET만 요청합니다. 자격정보 값은 출력하지 않습니다.
@@ -33,7 +33,7 @@ REAL 주문 상태의 읽기 전용 주기 대조는 `KIS_REAL_RECONCILIATION_EN
 
 ## 로컬 PostgreSQL 통합 테스트
 
-저장소 루트에서 `.\scripts\test-local-postgres-integration.ps1`을 실행하면 `.env`의 DB 설정으로 PAPER/REAL 주문 의도 저장·재조회, 환경 격리, 멱등 키 복구 테스트를 선택 실행합니다. 테스트는 KIS API를 호출하지 않으며, 스크립트는 환경변수를 현재 프로세스에서만 적용하고 실행 후 복구합니다. 기본 `mvnw test`에서는 해당 DB 통합 테스트를 건너뜁니다.
+저장소 루트에서 `.\scripts\test-local-postgres-integration.ps1`을 실행하면 `.env_local`의 DB 설정으로 PAPER/REAL 주문 의도 저장·재조회, 환경 격리, 멱등 키 복구 테스트를 선택 실행합니다. 테스트는 KIS API를 호출하지 않으며, 스크립트는 환경변수를 현재 프로세스에서만 적용하고 실행 후 복구합니다. 기본 `mvnw test`에서는 해당 DB 통합 테스트를 건너뜁니다.
 
 별도 Java 프로세스 종료 후 복구까지 점검하려면 `.\scripts\test-paper-process-restart.ps1`을 실행합니다. 로컬 PostgreSQL에 고유 멱등 키의 PAPER 대기 주문을 만든 뒤 Spring JVM을 종료하고 새 JVM에서 동일 주문을 조회·재제출해 ID와 상태가 유지되는지 확인한 후 주문을 취소합니다. 이 스크립트는 KIS API를 호출하지 않습니다.
 

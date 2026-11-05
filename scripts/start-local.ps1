@@ -4,9 +4,10 @@ param([switch]$PaperOnly)
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$envPath = Join-Path $repoRoot '.env'
+$envPath = Join-Path $repoRoot '.env_local'
+if (-not (Test-Path -LiteralPath $envPath)) { $envPath = Join-Path $repoRoot '.env' }
 if (-not (Test-Path -LiteralPath $envPath)) {
-    throw 'Missing .env. Copy .env.example to .env and set your local PostgreSQL password.'
+    throw 'Missing .env_local or .env. Copy .env.example to .env_local and set your local PostgreSQL password.'
 }
 
 foreach ($line in Get-Content -LiteralPath $envPath) {
@@ -30,7 +31,7 @@ if ($PaperOnly) {
 }
 
 if (-not $env:POSTGRES_PASSWORD -or $env:POSTGRES_PASSWORD -eq 'replace_with_your_local_postgres_password') {
-    throw 'Set POSTGRES_PASSWORD in .env to the password for your local PostgreSQL user.'
+    throw 'Set POSTGRES_PASSWORD in .env_local (or .env) to the password for your local PostgreSQL user.'
 }
 
 Push-Location (Join-Path $repoRoot 'backend/trading-api')
