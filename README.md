@@ -5,8 +5,7 @@ Windows 로컬에서 실행하는 국내·미국 주식 자동매매 프로젝�
 ## 브랜치 사용
 
 - `main`은 GitHub 기본 브랜치이자 안정 기준 브랜치로 둡니다.
-- 기능 변경은 `feature/Pn-...` 브랜치에서 작업하고 단위 커밋 후 PR로 `develop`에 통합합니다.
-- 검증이 끝난 `develop`만 PR로 `main`에 반영합니다.
+- 현재 개발 작업은 사용자의 요청에 따라 `develop`에서만 수행합니다. `main`은 안정 기준으로 유지합니다.
 - 커밋 제목은 `Add : [업무명] 내용`, `Update : [업무명] 내용`, `Fix : [업무명] 내용` 형식을 사용합니다.
 
 > **안전 범위:** 기본값은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ACCOUNT_READ_ENABLED=false`, `KIS_REAL_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ORDERS_ENABLED=false`입니다. 계좌 조회는 전체 허용 스위치와 해당 환경 허용 스위치가 모두 켜져야 합니다. 실계좌 주문은 비활성화 상태로 유지합니다.
@@ -14,19 +13,19 @@ Windows 로컬에서 실행하는 국내·미국 주식 자동매매 프로젝�
 ## 구성
 
 ```text
-backend/trading-api/     Java 21 + Spring Boot 주문·리스크 API
-services/market-ai/      Python FastAPI 시세 분석 미리보기 API (읽기 전용)
-backend/.../db/migration Flyway PostgreSQL 초기 스키마
-compose.yaml             PostgreSQL 로컬 컨테이너
+backend/trading-api/     Java 21 + Spring Boot 주문·리스크 API (Maven Wrapper)
+services/market-ai/      Python FastAPI 시세·AI 분석 API
+backend/.../db/migration Flyway PostgreSQL 스키마 변경
+frontend/dashboard/      Next.js 조회 전용 운영 대시보드
 ```
 
-Python은 읽기 전용 국내·미국 가격 조회 기반을 제공합니다. Spring에서는 P1-001 KIS 인증·계좌 조회를 구현 중입니다. REST 현재가 조회는 실시간 WebSocket 스트림이 아니며 응답 시각은 조회 시각입니다.
+Python은 국내·미국 KIS 시세·계좌 읽기 기반을 제공하고, Spring은 KIS 계좌조회와 paper 주문·위험 관리 API를 제공합니다. P1 mock 검증은 완료했지만 `.env`에 KIS 모의 자격증명이 입력되지 않아 실제 계좌 읽기는 아직 확인하지 않았습니다. REST 현재가 조회는 실시간 WebSocket 스트림이 아니며 응답 시각은 조회 시각입니다.
 
 ## 준비
 
 - Java 21
 - Python 3.11 이상
-- PostgreSQL server listening on `localhost:5432` (Docker is optional)
+- PostgreSQL server listening on `localhost:5432` (Windows 설치본 사용 가능, Docker 불필요)
 - 첫 실행에는 Maven Wrapper가 Maven을 내려받으므로 인터넷 연결
 
 ## Windows 시작
@@ -38,7 +37,7 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-`.env`에서 설치된 PostgreSQL `postgres` 사용자의 암호를 입력합니다. 앱 테이블을 기본 `postgres` DB에 섞지 않도록 새 데이터베이스 `ai_stock_trader`를 한 번 만듭니다. pgAdmin에서 서버에 연결해 Query Tool을 열고 다음 SQL을 실행해도 됩니다:
+`.env`에서 설치된 PostgreSQL `postgres` 사용자의 암호를 입력합니다. 현재 앱 데이터베이스는 `ai_stock_trader`입니다. 이 DB가 아직 없으면 pgAdmin에서 `localhost:5432`에 연결해 Query Tool에서 다음 SQL을 한 번 실행합니다:
 
 ```sql
 CREATE DATABASE ai_stock_trader;
@@ -68,7 +67,7 @@ python -m pip install -e ".[dev]"
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --env-file ../../.env
 ```
 
-KIS 조회를 쓸 때는 `.env`에 모의·실전 자격증명을 각각 `KIS_PAPER_*`, `KIS_REAL_*`로 분리해 입력하세요. Python REST 시세는 `KIS_MARKET_DATA_ENABLED=true`, WebSocket 시세는 `KIS_WEBSOCKET_ENABLED=true`가 필요합니다. Spring 계좌조회는 전체 잠금 `KIS_ACCOUNT_READ_ENABLED=true`와 대상별 허용값(`KIS_PAPER_ACCOUNT_READ_ENABLED=true` 또는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`)이 모두 필요합니다. 대상별 허용은 기본 `false`이며, PAPER 허용값은 이전 설정과 호환되도록 미설정 시 전체 스위치를 따릅니다. REAL 계좌 조회는 별도 허용값을 명시해야 합니다. 계좌번호는 8자리 계좌번호와 2자리 상품코드를 붙인 총 10자리 형식으로 입력하세요. Spring 계좌 API는 URL의 `paper`/`real` 환경을 선택합니다.
+KIS 조회를 쓸 때는 `.env`의 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET`, `KIS_PAPER_ACCOUNT_NUMBER`에 모의계좌 값을 넣습니다. 실전 값은 별도 `KIS_REAL_*` 항목에만 저장합니다. Python REST 시세는 `KIS_MARKET_DATA_ENABLED=true`, WebSocket 시세는 `KIS_WEBSOCKET_ENABLED=true`가 필요합니다. Spring PAPER 계좌조회는 전체 잠금 `KIS_ACCOUNT_READ_ENABLED=true`와 `KIS_PAPER_ACCOUNT_READ_ENABLED=true`를 모두 요구합니다. REAL 조회는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`도 별도로 요구합니다. 계좌번호는 8자리 계좌번호와 2자리 상품코드를 붙인 총 10자리입니다. 일반 이름 `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ACCOUNT_NUMBER`는 호환 설정이 아니므로 쓰지 않습니다. 인증정보는 Git에 추가하지 마세요. 계좌 조회는 읽기 전용이며 실주문 스위치는 계속 꺼둡니다.
 
 - Spring 상태: `http://localhost:8080/api/v1/health`
 - Python 상태: `http://localhost:8000/api/v1/health`
