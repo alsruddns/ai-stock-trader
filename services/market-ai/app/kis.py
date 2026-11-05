@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -235,6 +236,8 @@ class KisReadOnlyClient:
                 "CTX_AREA_FK100": "", "CTX_AREA_NK100": "",
             }
             currency = "KRW"
+            positions_field, summary_field = "output1", "output2"
+            fk_field, nk_field = "CTX_AREA_FK100", "CTX_AREA_NK100"
         elif market == "US":
             if overseas_exchange not in {"NASD", "NYSE", "AMEX"}:
                 raise ValueError("overseas_exchange must be NASD, NYSE, or AMEX")
@@ -245,34 +248,54 @@ class KisReadOnlyClient:
                 "TR_CRCY_CD": "USD", "CTX_AREA_FK200": "", "CTX_AREA_NK200": "",
             }
             currency = "USD"
+            positions_field, summary_field = "output2", "output1"
+            fk_field, nk_field = "CTX_AREA_FK200", "CTX_AREA_NK200"
         else:
             raise ValueError("market must be KR or US")
 
-        try:
-            response = self._http.get(
-                f"{self.settings.base_url}{path}",
-                headers={
-                    "authorization": f"Bearer {self._access_token()}", "appkey": self.settings.app_key,
-                    "appsecret": self.settings.app_secret, "tr_id": tr_id, "custtype": "P",
-                },
-                params=params,
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except KisApiError:
-            raise
-        except (httpx.HTTPError, ValueError, TypeError) as exc:
-            raise KisApiError("KIS account balance request failed") from exc
+        positions: list[dict[str, Any]] = []
+        summary: Any = {}
+        continuation = ""
+        for page_number in range(20):
+            request_headers = {
+                "authorization": f"Bearer {self._access_token()}", "appkey": self.settings.app_key,
+                "appsecret": self.settings.app_secret, "tr_id": tr_id, "custtype": "P",
+            }
+            if continuation:
+                request_headers["tr_cont"] = continuation
+            try:
+                response = self._http.get(f"{self.settings.base_url}{path}", headers=request_headers, params=params)
+                response.raise_for_status()
+                payload = response.json()
+            except KisApiError:
+                raise
+            except (httpx.HTTPError, ValueError, TypeError) as exc:
+                raise KisApiError("KIS account balance request failed") from exc
 
-        if payload.get("rt_cd") != "0":
-            code = str(payload.get("msg_cd", "unknown"))[:32]
-            raise KisApiError(f"KIS rejected the account request (code {code})")
-        if market == "KR":
-            summary = payload.get("output2")
-            rows = payload.get("output1")
+            if payload.get("rt_cd") != "0":
+                code = str(payload.get("msg_cd", "unknown"))[:32]
+                raise KisApiError(f"KIS rejected the account request (code {code})")
+            if page_number == 0:
+                summary = payload.get(summary_field)
+            page_rows = payload.get(positions_field)
+            if isinstance(page_rows, list):
+                positions.extend(row for row in page_rows if isinstance(row, dict))
+            elif isinstance(page_rows, dict):
+                positions.append(page_rows)
+
+            response_continuation = response.headers.get("tr_cont", "").upper()
+            if response_continuation not in {"M", "F"}:
+                break
+            if page_number == 19:
+                raise KisApiError("KIS account balance exceeded the supported pagination limit")
+            params[fk_field] = str(payload.get(fk_field.lower(), ""))
+            params[nk_field] = str(payload.get(nk_field.lower(), ""))
+            continuation = "N"
+            time.sleep(0.1)
         else:
-            summary = payload.get("output1")
-            rows = payload.get("output2")
+            raise KisApiError("KIS account balance pagination did not complete")
+
+        rows = positions
         if isinstance(summary, list):
             summary = summary[0] if summary else {}
         if not isinstance(summary, dict) or not isinstance(rows, list):

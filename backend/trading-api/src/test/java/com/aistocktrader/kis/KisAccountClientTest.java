@@ -63,6 +63,37 @@ class KisAccountClientTest {
     }
 
     @Test
+    void domesticBalanceFollowsContinuationPagesAndMergesEveryPosition() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisAccountClient client = new KisAccountClient(properties(true), builder, new ObjectMapper());
+
+        server.expect(requestTo(PAPER_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token("paper-token"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/domestic-stock/v1/trading/inquire-balance?")))
+                .andExpect(header("tr_id", "VTTC8434R"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[{"pdno":"005930","hldg_qty":"2"}],"output2":[{"dnca_tot_amt":"1000000"}],"ctx_area_fk100":"next-fk","ctx_area_nk100":"next-nk"}
+                        """, MediaType.APPLICATION_JSON).header("tr_cont", "M"));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/domestic-stock/v1/trading/inquire-balance?")))
+                .andExpect(header("tr_id", "VTTC8434R"))
+                .andExpect(header("tr_cont", "N"))
+                .andExpect(queryParam("CTX_AREA_FK100", "next-fk"))
+                .andExpect(queryParam("CTX_AREA_NK100", "next-nk"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[{"pdno":"000660","hldg_qty":"3"}],"output2":[{"dnca_tot_amt":"1000000"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        KisAccountSnapshot result = client.getBalance(KisEnvironment.PAPER, Market.KR, null, null, null);
+
+        assertEquals(2, result.positions().size());
+        assertEquals("005930", result.positions().get(0).symbol());
+        assertEquals("000660", result.positions().get(1).symbol());
+        assertEquals(new BigDecimal("1000000"), result.cashBalance());
+        server.verify();
+    }
+
+    @Test
     void realAndPaperTokensAndDomainsAreKeptSeparate() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

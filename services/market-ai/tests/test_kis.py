@@ -139,6 +139,70 @@ def test_account_balance_uses_environment_specific_read_only_contract(
     client.close()
 
 
+def test_domestic_account_balance_merges_official_continuation_pages() -> None:
+    market_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        market_requests.append(request)
+        if len(market_requests) == 1:
+            return httpx.Response(200, headers={"tr_cont": "M"}, json={
+                "rt_cd": "0", "output1": [{"pdno": "005930", "hldg_qty": "2"}],
+                "output2": {"dnca_tot_amt": "100000"},
+                "ctx_area_fk100": "next-fk", "ctx_area_nk100": "next-nk",
+            })
+        return httpx.Response(200, headers={"tr_cont": "N"}, json={
+            "rt_cd": "0", "output1": [{"pdno": "000660", "hldg_qty": "1"}],
+            "output2": {"dnca_tot_amt": "100000"},
+        })
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "test-key", "test-secret", "1234567801"),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    balance = client.get_account_balance("KR")
+
+    assert [position["pdno"] for position in balance.positions] == ["005930", "000660"]
+    assert balance.summary["dnca_tot_amt"] == "100000"
+    assert len(market_requests) == 2
+    assert market_requests[1].headers["tr_cont"] == "N"
+    assert market_requests[1].url.params["CTX_AREA_FK100"] == "next-fk"
+    assert market_requests[1].url.params["CTX_AREA_NK100"] == "next-nk"
+    client.close()
+
+
+def test_overseas_account_balance_uses_200_cursor_fields_for_continuation() -> None:
+    market_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        market_requests.append(request)
+        if len(market_requests) == 1:
+            return httpx.Response(200, headers={"tr_cont": "M"}, json={
+                "rt_cd": "0", "output1": {"frcr_dncl_amt_2": "50.00"},
+                "output2": [{"ovrs_pdno": "AAPL", "ovrs_cblc_qty": "1"}],
+                "ctx_area_fk200": "next-fk", "ctx_area_nk200": "next-nk",
+            })
+        return httpx.Response(200, headers={"tr_cont": "N"}, json={
+            "rt_cd": "0", "output1": {"frcr_dncl_amt_2": "50.00"},
+            "output2": [{"ovrs_pdno": "MSFT", "ovrs_cblc_qty": "2"}],
+        })
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "test-key", "test-secret", "1234567801"),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    balance = client.get_account_balance("US")
+
+    assert [position["ovrs_pdno"] for position in balance.positions] == ["AAPL", "MSFT"]
+    assert balance.summary["frcr_dncl_amt_2"] == "50.00"
+    assert market_requests[1].url.params["CTX_AREA_FK200"] == "next-fk"
+    assert market_requests[1].url.params["CTX_AREA_NK200"] == "next-nk"
+    client.close()
+
+
 def test_invalid_account_number_is_rejected_before_network_request() -> None:
     client = KisReadOnlyClient(
         KisSettings(True, "paper", "paper-key", "paper-secret", "not-an-account"),

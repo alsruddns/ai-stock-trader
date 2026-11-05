@@ -1,6 +1,8 @@
 package com.aistocktrader.kis;
 
 import com.aistocktrader.order.Market;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
@@ -16,6 +18,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,14 +48,15 @@ public class KisAccountClient {
         String cano = account.substring(0, 8);
         String product = account.substring(8, 10);
         if (market == Market.KR) {
-            JsonNode balance = get(environment, "/uapi/domestic-stock/v1/trading/inquire-balance",
+            JsonNode balance = getPaginatedBalance(environment, "/uapi/domestic-stock/v1/trading/inquire-balance",
                     environment == KisEnvironment.PAPER ? "VTTC8434R" : "TTTC8434R",
                     Map.ofEntries(Map.entry("CANO", cano), Map.entry("ACNT_PRDT_CD", product),
                             Map.entry("AFHR_FLPR_YN", "N"), Map.entry("OFL_YN", "N"),
                             Map.entry("INQR_DVSN", "01"), Map.entry("UNPR_DVSN", "01"),
                             Map.entry("FUND_STTL_ICLD_YN", "N"), Map.entry("FNCG_AMT_AUTO_RDPT_YN", "N"),
                             Map.entry("PRCS_DVSN", "00"), Map.entry("CTX_AREA_FK100", ""),
-                            Map.entry("CTX_AREA_NK100", "")));
+                            Map.entry("CTX_AREA_NK100", "")), "output1", "output2",
+                    "CTX_AREA_FK100", "CTX_AREA_NK100");
             JsonNode summary = firstOrSelf(balance.path("output2"));
             List<KisAccountSnapshot.Position> positions = mapPositions(balance.path("output1"), market);
             BigDecimal orderable = firstAmount(summary, "ord_psbl_cash", "nrcvb_buy_amt");
@@ -70,10 +74,11 @@ public class KisAccountClient {
         }
 
         String validExchange = normalizeUsExchange(exchange);
-        JsonNode balance = get(environment, "/uapi/overseas-stock/v1/trading/inquire-balance",
+        JsonNode balance = getPaginatedBalance(environment, "/uapi/overseas-stock/v1/trading/inquire-balance",
                 environment == KisEnvironment.PAPER ? "VTTS3012R" : "TTTS3012R",
                 Map.of("CANO", cano, "ACNT_PRDT_CD", product, "OVRS_EXCG_CD", validExchange,
-                        "TR_CRCY_CD", "USD", "CTX_AREA_FK200", "", "CTX_AREA_NK200", ""));
+                        "TR_CRCY_CD", "USD", "CTX_AREA_FK200", "", "CTX_AREA_NK200", ""),
+                "output2", "output1", "CTX_AREA_FK200", "CTX_AREA_NK200");
         JsonNode cashResponse = get(environment, "/uapi/overseas-stock/v1/trading/inquire-present-balance",
                 environment == KisEnvironment.PAPER ? "VTRP6504R" : "CTRP6504R",
                 Map.of("CANO", cano, "ACNT_PRDT_CD", product, "WCRC_FRCR_DVSN_CD", "02",
@@ -94,24 +99,63 @@ public class KisAccountClient {
     }
 
     private JsonNode get(KisEnvironment environment, String path, String trId, Map<String, String> params) {
+        return getPage(environment, path, trId, params, "").body();
+    }
+
+    private JsonNode getPaginatedBalance(KisEnvironment environment, String path, String trId,
+                                         Map<String, String> initialParams, String positionsField,
+                                         String summaryField, String fkField, String nkField) {
+        Map<String, String> params = new HashMap<>(initialParams);
+        ArrayNode positions = mapper.createArrayNode();
+        JsonNode summary = mapper.createObjectNode();
+        String continuation = "";
+        for (int pageNumber = 0; pageNumber < 20; pageNumber++) {
+            ApiPage page = getPage(environment, path, trId, params, continuation);
+            JsonNode payload = page.body();
+            if (pageNumber == 0) summary = firstOrSelf(payload.path(summaryField));
+            JsonNode rows = payload.path(positionsField);
+            if (rows.isArray()) rows.forEach(positions::add);
+            else if (rows.isObject()) positions.add(rows);
+
+            String responseContinuation = page.continuation();
+            if (!"M".equalsIgnoreCase(responseContinuation) && !"F".equalsIgnoreCase(responseContinuation)) {
+                ObjectNode merged = mapper.createObjectNode();
+                merged.set(positionsField, positions);
+                merged.set(summaryField, summary);
+                return merged;
+            }
+            if (pageNumber == 19) {
+                throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                        "KIS account balance exceeded the supported pagination limit.");
+            }
+            params.put(fkField, payload.path(fkField.toLowerCase(java.util.Locale.ROOT)).asText(""));
+            params.put(nkField, payload.path(nkField.toLowerCase(java.util.Locale.ROOT)).asText(""));
+            continuation = "N";
+        }
+        throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS account balance pagination did not complete.");
+    }
+
+    private ApiPage getPage(KisEnvironment environment, String path, String trId,
+                            Map<String, String> params, String continuation) {
         KisProperties.Account credentials = properties.credentials(environment);
         try {
             throttle(environment);
             UriComponentsBuilder uri = UriComponentsBuilder.fromUriString(environment.baseUrl() + path);
             params.forEach(uri::queryParam);
-            var response = http.get().uri(uri.build().encode().toUri())
+            var request = http.get().uri(uri.build().encode().toUri())
                     .accept(MediaType.APPLICATION_JSON)
                     .header("authorization", "Bearer " + accessToken(environment))
                     .header("appkey", credentials.appKey())
                     .header("appsecret", credentials.appSecret())
                     .header("tr_id", trId)
-                    .header("custtype", "P")
-                    .retrieve()
-                    .body(JsonNode.class);
+                    .header("custtype", "P");
+            if (!continuation.isBlank()) request.header("tr_cont", continuation);
+            var entity = request.retrieve().toEntity(JsonNode.class);
+            JsonNode response = entity.getBody();
             if (response == null || !"0".equals(response.path("rt_cd").asText())) {
                 throw brokerError(response);
             }
-            return response;
+            return new ApiPage(response, entity.getHeaders().getFirst("tr_cont"));
         } catch (KisApiException ex) {
             throw ex;
         } catch (RestClientResponseException ex) {
@@ -277,4 +321,5 @@ public class KisAccountClient {
     }
 
     private record CachedToken(String value, Instant expiresAt) {}
+    private record ApiPage(JsonNode body, String continuation) {}
 }
