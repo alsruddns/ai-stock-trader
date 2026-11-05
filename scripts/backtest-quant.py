@@ -12,6 +12,7 @@ repository = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repository / "services" / "market-ai"))
 
 from app.data_import import load_minute_bar_sessions
+from app.data_provenance import load_data_provenance
 from app.quant import QuantConfig, backtest_orb_vwap
 
 
@@ -28,6 +29,11 @@ def main() -> int:
     parser.add_argument("--maximum-spread-bps", type=Decimal, default=Decimal("15"))
     args = parser.parse_args()
 
+    try:
+        provenance = load_data_provenance(args.csv_file, purpose="backtesting")
+    except ValueError as exc:
+        parser.error(str(exc))
+    dataset_sha256 = hashlib.sha256(args.csv_file.read_bytes()).hexdigest()
     sessions = load_minute_bar_sessions(args.csv_file, expected_symbol=args.symbol)
     config = replace(QuantConfig(), commission_bps=args.commission_bps, slippage_bps=args.slippage_bps,
                      minimum_turnover=args.minimum_turnover, maximum_spread_bps=args.maximum_spread_bps)
@@ -37,7 +43,9 @@ def main() -> int:
     output = {
         "market": args.market,
         "symbol": args.symbol.strip().upper(),
-        "dataset_sha256": hashlib.sha256(args.csv_file.read_bytes()).hexdigest(),
+        "dataset_sha256": dataset_sha256,
+        "data_rights_verified": True,
+        "data_provenance": provenance,
         "sessions": [{
             "date": result.session.isoformat(), "bars": result.data_points, "signals": result.signals,
             "trades": len(result.trades), "gross_pnl": str(result.gross_pnl),

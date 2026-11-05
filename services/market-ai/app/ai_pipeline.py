@@ -17,6 +17,7 @@ from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from .data_provenance import validate_data_provenance
 from .quant import MinuteBar, QuantConfig, _atr, _ema, _vwap, orb_vwap_entry_candidate
 
 FEATURE_NAMES = (
@@ -241,12 +242,16 @@ class LocalModelRegistry:
                 continue
             try:
                 metadata = self.manifest(manifest_path.stem)
+                data_rights_verified = self._has_verified_data_provenance(metadata)
+                approved = bool(metadata.get("approved", False) and data_rights_verified)
+                feature_compatible = self._supports_current_features(metadata)
                 items.append({
                     "model_id": metadata["model_id"], "market": metadata.get("market"), "model_type": metadata["model_type"],
                     "feature_version": metadata.get("feature_version"),
-                    "feature_compatible": self._supports_current_features(metadata),
-                    "approved": bool(metadata.get("approved", False)),
-                    "active": metadata["model_id"] == active_model,
+                    "feature_compatible": feature_compatible,
+                    "data_rights_verified": data_rights_verified,
+                    "approved": approved,
+                    "active": metadata["model_id"] == active_model and approved and feature_compatible,
                     "artifact_sha256": metadata["artifact_sha256"],
                     "dataset_sha256": metadata.get("dataset_sha256"),
                     "validation_metrics": metadata.get("validation_metrics", {}),
@@ -275,13 +280,24 @@ class LocalModelRegistry:
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
             return None
         if (metadata.get("market") != requested_market or not metadata.get("approved")
-                or not self._supports_current_features(metadata)):
+                or not self._supports_current_features(metadata)
+                or not self._has_verified_data_provenance(metadata)):
             return None
         return metadata
 
     @staticmethod
     def _supports_current_features(metadata: dict[str, Any]) -> bool:
         return metadata.get("feature_version") == FEATURE_VERSION and metadata.get("feature_names") == list(FEATURE_NAMES)
+
+    @staticmethod
+    def _has_verified_data_provenance(metadata: dict[str, Any]) -> bool:
+        try:
+            validate_data_provenance(metadata.get("data_provenance"),
+                                     expected_sha256=metadata.get("dataset_sha256"),
+                                     purpose="model_training")
+            return True
+        except ValueError:
+            return False
 
     def approve(self, model_id: str, *, approved_by: str, note: str) -> dict[str, Any]:
         reviewer = approved_by.strip()[:80]
@@ -294,6 +310,8 @@ class LocalModelRegistry:
                 raise ValueError("market scope must be KR or US before model approval")
             if not self._supports_current_features(metadata):
                 raise ValueError("model feature schema is outdated and must be retrained")
+            if not self._has_verified_data_provenance(metadata):
+                raise ValueError("model lacks verified data-rights provenance and cannot be approved")
             if not metadata.get("test_sessions") or not metadata.get("test_metrics"):
                 raise ValueError("model has no held-out test evidence and cannot be approved")
             previous_metadata = json.loads(json.dumps(metadata))
@@ -316,6 +334,8 @@ class LocalModelRegistry:
             metadata = self.manifest(model_id)
             if not self._supports_current_features(metadata):
                 raise ValueError("model feature schema is outdated and cannot be activated")
+            if not self._has_verified_data_provenance(metadata):
+                raise ValueError("model lacks verified data-rights provenance and cannot be activated")
             if not metadata.get("approved"):
                 raise ValueError("only an approved model can become the advisory active model")
             previous_state = None
@@ -374,12 +394,15 @@ class LocalModelRegistry:
                 os.unlink(temporary)
 
     def train_compare(self, samples: list[TrainingSample], *, market: str,
-                      dataset_sha256: str | None = None) -> list[ModelTrainingResult]:
+                      dataset_sha256: str,
+                      dataset_provenance: dict[str, Any]) -> list[ModelTrainingResult]:
         market = market.upper()
         if market not in {"KR", "US"}:
             raise ValueError("market must be KR or US; train separate market-specific candidates")
-        if dataset_sha256 is not None and not re.fullmatch(r"[a-f0-9]{64}", dataset_sha256):
+        if not re.fullmatch(r"[a-f0-9]{64}", dataset_sha256):
             raise ValueError("dataset_sha256 must be a lowercase SHA-256 digest")
+        provenance = validate_data_provenance(dataset_provenance, expected_sha256=dataset_sha256,
+                                              purpose="model_training")
         try:
             from lightgbm import LGBMClassifier
             from xgboost import XGBClassifier
@@ -426,6 +449,7 @@ class LocalModelRegistry:
                 "artifact_sha256": digest, "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION,
                 "threshold": 0.5, "approved": False,
                 "dataset_sha256": dataset_sha256,
+                "data_provenance": provenance,
                 "validation_metrics": validation_metrics, "test_metrics": test_metrics,
                 "quant_baseline_test_metrics": quant_baseline_test_metrics,
                 "train_sessions": train_dates, "validation_sessions": validation_dates,
