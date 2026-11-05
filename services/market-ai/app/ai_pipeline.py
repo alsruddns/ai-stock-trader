@@ -209,6 +209,22 @@ class LocalModelRegistry:
                 items.append({"model_id": manifest_path.stem, "integrity_error": True, "approved": False, "active": False})
         return items
 
+    def active_approved_model(self, market: str) -> dict[str, Any] | None:
+        """Return the integrity-checked active model only when approved for this market."""
+        requested_market = market.strip().upper()
+        if requested_market not in {"KR", "US"} or not self._active_path.is_file():
+            return None
+        try:
+            active_id = json.loads(self._active_path.read_text(encoding="utf-8")).get("model_id")
+            if not isinstance(active_id, str):
+                return None
+            metadata = self.manifest(active_id)
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            return None
+        if metadata.get("market") != requested_market or not metadata.get("approved"):
+            return None
+        return metadata
+
     def approve(self, model_id: str, *, approved_by: str, note: str) -> dict[str, Any]:
         reviewer = approved_by.strip()[:80]
         justification = note.strip()[:1000]

@@ -13,6 +13,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Literal
 
+from .ai_pipeline import LocalModelRegistry
 from .kis_stream import StreamSettings, approval_key, normalize_stream_frame, subscription_message
 from .market_stream import MinuteBarAggregator, parse_trade_frame
 from .quant import MinuteBar, QuantConfig, orb_vwap_entry_candidate
@@ -184,18 +185,36 @@ class PaperSessionFeedMonitor:
         history.append(bar)
         signal = "HOLD"
         reason = "INSUFFICIENT_SESSION_HISTORY"
-        try:
-            if len(history) >= max(QuantConfig().opening_range_bars, QuantConfig().ema_period,
-                                   QuantConfig().atr_period, QuantConfig().relative_volume_period):
-                signal = "BUY_CANDIDATE" if orb_vwap_entry_candidate(list(history), QuantConfig()) else "HOLD"
-                reason = "ORB_VWAP_CANDIDATE" if signal == "BUY_CANDIDATE" else "STRATEGY_FILTERS_NOT_MET"
-        except ValueError:
-            # Invalid or out-of-order bars must never produce a candidate.
-            signal, reason = "HOLD", "BAR_SEQUENCE_INVALID"
+        model_id: str | None = None
+        if len(history) >= max(QuantConfig().opening_range_bars, QuantConfig().ema_period,
+                               QuantConfig().atr_period, QuantConfig().relative_volume_period):
+            try:
+                quant_candidate = orb_vwap_entry_candidate(list(history), QuantConfig())
+            except ValueError:
+                quant_candidate = False
+                reason = "BAR_SEQUENCE_INVALID"
+            else:
+                reason = "STRATEGY_FILTERS_NOT_MET"
+            if quant_candidate:
+                try:
+                    registry = LocalModelRegistry(os.getenv("AI_MODEL_REGISTRY_PATH", ".local/models"))
+                    metadata = registry.active_approved_model(watch.market)
+                    if metadata is None:
+                        reason = "AI_MODEL_NOT_APPROVED_FOR_MARKET"
+                    else:
+                        prediction = registry.predict_preview(metadata["model_id"], list(history), market=watch.market)
+                        model_id = metadata["model_id"]
+                        if prediction["probability_positive"] >= prediction["threshold"]:
+                            signal, reason = "BUY_CANDIDATE", "QUANT_AND_APPROVED_AI_CANDIDATE"
+                        else:
+                            reason = "AI_THRESHOLD_NOT_MET"
+                except Exception:
+                    # Optional model packages, corrupt artifacts, and model I/O all fail closed.
+                    signal, reason, model_id = "HOLD", "AI_INFERENCE_UNAVAILABLE", None
         self._decisions[watch.key] = {
             "market": watch.market, "symbol": watch.symbol, "exchange": watch.exchange,
             "signal": signal, "reason": reason, "bars_in_session": len(history),
-            "evaluated_at": bar.timestamp.isoformat(), "executable": False,
+            "evaluated_at": bar.timestamp.isoformat(), "model_id": model_id, "executable": False,
         }
 
     def _set_status(self, **values: object) -> None:

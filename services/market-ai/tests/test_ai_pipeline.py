@@ -118,3 +118,5 @@ def test_model_governance_requires_review_and_records_rollback(tmp_path) -> None
     assert models[second]["active"] is False
     assert rollback["previous_model_id"] == second
     assert registry.governance_events()[-1]["action"] == "rollback"
+    assert registry.active_approved_model("KR")["model_id"] == first
+    assert registry.active_approved_model("US") is None

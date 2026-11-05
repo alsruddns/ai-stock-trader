@@ -67,3 +67,25 @@ def test_closed_bars_update_non_executable_quant_decision_and_reset_each_session
     runtime._record_closed_bar(watch, MinuteBar(next_session, Decimal("70000"), Decimal("70000"),
                                                Decimal("70000"), Decimal("70000"), 1000, Decimal("5")))
     assert runtime.decisions()[watch.key]["bars_in_session"] == 1
+
+
+def test_quant_candidate_is_held_without_an_active_approved_market_model(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AI_MODEL_REGISTRY_PATH", str(tmp_path / "models"))
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    runtime._bars[watch.key] = deque(maxlen=5_000)
+    runtime._decisions[watch.key] = {}
+    start = datetime(2026, 11, 5, 9, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+
+    for index in range(20):
+        price = Decimal("1002") if index == 19 else Decimal("1000")
+        runtime._record_closed_bar(watch, MinuteBar(
+            start + timedelta(minutes=index), price, price + Decimal("0.1"), price - Decimal("0.1"),
+            price, 2000 if index == 19 else 1000, Decimal("5"),
+        ))
+
+    decision = runtime.decisions()[watch.key]
+    assert decision["signal"] == "HOLD"
+    assert decision["reason"] == "AI_MODEL_NOT_APPROVED_FOR_MARKET"
+    assert decision["model_id"] is None
+    assert decision["executable"] is False
