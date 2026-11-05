@@ -2,6 +2,7 @@ from enum import StrEnum
 from functools import lru_cache
 import os
 import re
+import threading
 from datetime import date, datetime
 from decimal import Decimal
 import asyncio
@@ -12,12 +13,16 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, WebSocket, WebSocketDisconnect
 import psycopg
 from pydantic import BaseModel, Field
-from .kis import AccountBalance, Exchange, KisApiError, KisReadOnlyClient, KisSettings, Market, Quote
+from .kis import (AccountBalance, Exchange, KisApiError, KisReadOnlyClient, KisSettings,
+                  KisSharedRateLimitUnavailable, Market, Quote)
 from . import snapshot_store
 from . import kis_stream
 from .ai_pipeline import LocalModelRegistry
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from .paper_runtime import paper_session_monitor
+
+_KIS_ACCOUNT_CLIENTS: dict[str, KisReadOnlyClient] = {}
+_KIS_ACCOUNT_CLIENTS_LOCK = threading.RLock()
 
 
 @asynccontextmanager
@@ -26,7 +31,13 @@ async def lifespan(_app):
     try:
         yield
     finally:
-        await paper_session_monitor.stop()
+        try:
+            await paper_session_monitor.stop()
+        finally:
+            try:
+                close_kis_account_clients()
+            finally:
+                close_kis_market_client()
 
 app = FastAPI(
     title="AI Stock Trader Market Analysis",
@@ -44,6 +55,39 @@ def get_kis_client() -> KisReadOnlyClient:
     if not settings.app_key or not settings.app_secret:
         raise HTTPException(status_code=503, detail="KIS market data credentials are not configured")
     return KisReadOnlyClient(settings)
+
+
+def get_kis_account_client(environment: str) -> KisReadOnlyClient:
+    """Reuse one token-caching HTTP client per account environment."""
+    settings = KisSettings.from_environment(environment)  # type: ignore[arg-type]
+    if (not settings.app_key or not settings.app_secret
+            or not re.fullmatch(r"\d{10}", settings.account_number)):
+        raise HTTPException(status_code=503, detail="KIS account credentials are not configured")
+    with _KIS_ACCOUNT_CLIENTS_LOCK:
+        current = _KIS_ACCOUNT_CLIENTS.get(environment)
+        if current is not None and current.settings == settings:
+            return current
+        if current is not None:
+            current.close()
+        client = KisReadOnlyClient(settings)
+        _KIS_ACCOUNT_CLIENTS[environment] = client
+        return client
+
+
+def close_kis_account_clients() -> None:
+    with _KIS_ACCOUNT_CLIENTS_LOCK:
+        clients = list(_KIS_ACCOUNT_CLIENTS.values())
+        _KIS_ACCOUNT_CLIENTS.clear()
+    for client in clients:
+        client.close()
+
+
+def close_kis_market_client() -> None:
+    try:
+        if get_kis_client.cache_info().currsize:
+            get_kis_client().close()
+    finally:
+        get_kis_client.cache_clear()
 
 
 class Signal(StrEnum):
@@ -187,6 +231,8 @@ def get_quote(
         return quote
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KisSharedRateLimitUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except KisApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -214,6 +260,8 @@ def get_domestic_minute_bars(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KisSharedRateLimitUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except KisApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -289,20 +337,17 @@ def get_account_balance(
     ).strip().lower() == "true"
     if not global_reads_enabled or not environment_reads_enabled:
         raise HTTPException(status_code=503, detail="KIS account reads are disabled")
-    settings = KisSettings.from_environment(environment)  # type: ignore[arg-type]
-    if not settings.app_key or not settings.app_secret or not settings.account_number:
-        raise HTTPException(status_code=503, detail="KIS account credentials are not configured")
-    client = KisReadOnlyClient(settings)
+    client = get_kis_account_client(environment)
     try:
         balance = client.get_account_balance(market, overseas_exchange=exchange)
         _persist_snapshot(lambda: snapshot_store.store_account_balance(balance))
         return balance
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KisSharedRateLimitUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except KisApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    finally:
-        client.close()
 
 
 @app.post("/api/v1/analysis/momentum", response_model=AnalysisResponse)

@@ -10,7 +10,7 @@ from typing import Literal
 
 import httpx
 
-from .kis import KisApiError, KisSettings
+from .kis import KisApiError, KisSettings, KisSharedRateLimitUnavailable
 from .kis_rate_limit import SharedRateLimitUnavailable, wait_for_kis_rest_slot
 
 Market = Literal["KR", "US"]
@@ -50,7 +50,7 @@ def approval_key(settings: KisSettings, client: httpx.Client | None = None) -> s
             try:
                 wait_for_kis_rest_slot(settings.environment, settings.app_key, interval)
             except SharedRateLimitUnavailable as exc:
-                raise KisApiError("shared KIS request pacing is unavailable") from exc
+                raise KisSharedRateLimitUnavailable("shared KIS request pacing is unavailable") from exc
         response = http.post(
             f"{settings.base_url}/oauth2/Approval",
             json={"grant_type": "client_credentials", "appkey": settings.app_key, "secretkey": settings.app_secret},

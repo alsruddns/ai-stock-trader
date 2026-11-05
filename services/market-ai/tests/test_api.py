@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
+from app import main
 from app.main import app, get_kis_client
-from app.kis import Quote
+from app.kis import KisSharedRateLimitUnavailable, Quote
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from app.quant import MinuteBar
@@ -121,6 +122,20 @@ def test_quote_route_returns_normalized_snapshot() -> None:
         app.dependency_overrides.clear()
 
 
+def test_kis_database_rate_limit_failure_returns_service_unavailable() -> None:
+    class UnavailableKisClient:
+        def get_quote(self, *_args, **_kwargs):
+            raise KisSharedRateLimitUnavailable("shared KIS request pacing is unavailable")
+
+    app.dependency_overrides[get_kis_client] = lambda: UnavailableKisClient()
+    try:
+        response = client.get("/api/v1/market/quotes/KR/005930")
+        assert response.status_code == 503
+        assert response.json()["detail"] == "shared KIS request pacing is unavailable"
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_domestic_minute_bars_route_exposes_missing_spread_explicitly() -> None:
     class FakeKisClient:
         def get_domestic_minute_bars(self, symbol, session_date, end_time):
@@ -165,6 +180,76 @@ def test_account_balance_route_requires_global_switch_even_when_environment_is_e
     response = client.get("/api/v1/accounts/paper/KR/balance")
     assert response.status_code == 503
     assert response.json()["detail"] == "KIS account reads are disabled"
+
+
+def test_account_balance_route_rejects_incomplete_credentials_before_client_creation(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_ACCOUNT_READ_ENABLED", "true")
+    monkeypatch.setenv("KIS_PAPER_ACCOUNT_READ_ENABLED", "true")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "configured-key")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "configured-secret")
+    monkeypatch.setenv("KIS_PAPER_ACCOUNT_NUMBER", "123")
+    monkeypatch.setattr(main, "KisReadOnlyClient", lambda *_args: pytest.fail("invalid account must not create a client"))
+
+    response = client.get("/api/v1/accounts/paper/KR/balance")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "KIS account credentials are not configured"
+
+
+def test_account_kis_clients_reuse_tokens_per_environment_and_close_on_shutdown(monkeypatch) -> None:
+    created = []
+
+    class FakeKisClient:
+        def __init__(self, settings):
+            self.settings = settings
+            self.closed = False
+            created.append(self)
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(main, "_KIS_ACCOUNT_CLIENTS", {})
+    monkeypatch.setattr(main, "KisReadOnlyClient", FakeKisClient)
+    for environment in ("PAPER", "REAL"):
+        monkeypatch.setenv(f"KIS_{environment}_APP_KEY", f"{environment.lower()}-test-key")
+        monkeypatch.setenv(f"KIS_{environment}_APP_SECRET", f"{environment.lower()}-test-secret")
+        monkeypatch.setenv(f"KIS_{environment}_ACCOUNT_NUMBER", "1234567801")
+
+    paper_first = main.get_kis_account_client("paper")
+    paper_second = main.get_kis_account_client("paper")
+    real = main.get_kis_account_client("real")
+
+    assert paper_first is paper_second
+    assert paper_first is not real
+    assert len(created) == 2
+    main.close_kis_account_clients()
+    assert all(client.closed for client in created)
+
+
+def test_market_kis_client_is_closed_and_evicted_on_shutdown(monkeypatch) -> None:
+    created = []
+
+    class FakeKisClient:
+        def __init__(self, settings):
+            self.settings = settings
+            self.closed = False
+            created.append(self)
+
+        def close(self):
+            self.closed = True
+
+    main.get_kis_client.cache_clear()
+    monkeypatch.setattr(main, "KisReadOnlyClient", FakeKisClient)
+    monkeypatch.setenv("KIS_ENVIRONMENT", "paper")
+    monkeypatch.setenv("KIS_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-test-key")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-test-secret")
+
+    assert main.get_kis_client() is created[0]
+    main.close_kis_market_client()
+
+    assert created[0].closed is True
+    assert main.get_kis_client.cache_info().currsize == 0
 
 
 def test_quant_backtest_endpoint_accepts_supplied_bars_and_never_creates_orders() -> None:

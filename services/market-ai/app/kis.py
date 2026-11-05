@@ -28,6 +28,10 @@ class KisApiError(RuntimeError):
     """Safe, non-sensitive error intended for application logging/handling."""
 
 
+class KisSharedRateLimitUnavailable(KisApiError):
+    """KIS requests are blocked because PostgreSQL cannot reserve a shared slot."""
+
+
 @dataclass(frozen=True)
 class KisSettings:
     enabled: bool
@@ -141,7 +145,7 @@ class KisReadOnlyClient:
             try:
                 wait_for_kis_rest_slot(self.settings.environment, self.settings.app_key, self._rest_min_interval)
             except SharedRateLimitUnavailable as exc:
-                raise KisApiError("shared KIS request pacing is unavailable") from exc
+                raise KisSharedRateLimitUnavailable("shared KIS request pacing is unavailable") from exc
             return
         with self._rest_slot_lock:
             now = time.monotonic()
