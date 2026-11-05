@@ -55,7 +55,7 @@ PowerShell에서 아래 스크립트로 `.env`를 현재 창에 불러오고 Spr
 .\scripts\start-dashboard.ps1
 ```
 
-브라우저에서 `http://127.0.0.1:3000`을 엽니다. 일일 JSON 요약은 저장소 루트에서 `.\scripts\export-daily-report.ps1`을 실행하면 `.local/reports`에 저장됩니다. Windows 작업 스케줄러에 이 스크립트를 등록할 수 있습니다.
+브라우저에서 `http://127.0.0.1:3000`을 엽니다. 일일 JSON 요약은 `.\scripts\export-daily-report.ps1`로 수동 저장할 수 있습니다. 매일 오전 7시 30분(Windows 로컬 시간)에 자동 저장하려면 `.\scripts\install-daily-report-task.ps1`을 실행하세요. 다른 시간은 `-DailyTime "08:00"`처럼 지정할 수 있습니다. 작업은 현재 Windows 사용자가 로그인해 있고 Spring Boot가 실행 중일 때 동작하며, API 시작을 최대 5분 기다립니다. 실행 결과는 `.local/reports/daily-report-task.log`에서 확인할 수 있습니다. 예약을 제거하려면 `.\scripts\remove-daily-report-task.ps1`을 실행하세요.
 
 새 PowerShell 창에서 Python 분석 API를 실행합니다.
 
