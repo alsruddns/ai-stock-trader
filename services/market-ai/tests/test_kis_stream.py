@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from app.kis import KisApiError, KisSettings
+from app.kis_rate_limit import SharedRateLimitUnavailable
 from app.kis_stream import StreamSettings, approval_key, normalize_stream_frame, subscription_message
 
 
@@ -30,6 +31,18 @@ def test_approval_key_rejects_invalid_response_without_returning_raw_body() -> N
     with pytest.raises(KisApiError, match="missing required fields") as exc:
         approval_key(KisSettings(True, "real", "key", "secret"), client)
     assert "do-not-expose" not in str(exc.value)
+    client.close()
+
+
+def test_approval_key_fails_closed_when_shared_rate_limit_is_unavailable(monkeypatch) -> None:
+    settings = KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=True)
+    client = httpx.Client(transport=httpx.MockTransport(
+        lambda _request: pytest.fail("KIS must not be called without a shared slot")
+    ))
+    monkeypatch.setattr("app.kis_stream.wait_for_kis_rest_slot",
+                        lambda *_args: (_ for _ in ()).throw(SharedRateLimitUnavailable("database unavailable")))
+    with pytest.raises(KisApiError, match="shared KIS request pacing is unavailable"):
+        approval_key(settings, client)
     client.close()
 
 

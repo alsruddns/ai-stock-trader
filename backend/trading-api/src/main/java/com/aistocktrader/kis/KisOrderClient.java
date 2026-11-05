@@ -6,6 +6,7 @@ import com.aistocktrader.order.OrderSide;
 import com.aistocktrader.config.TradingSafetyProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.http.MediaType;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.stereotype.Component;
@@ -38,14 +39,23 @@ public class KisOrderClient {
     private final KisOrderProperties orderProperties;
     private final TradingSafetyProperties safety;
     private final RestClient http;
+    private final KisRestRateLimiter rateLimiter;
     private volatile CachedToken token;
 
     public KisOrderClient(KisProperties properties, KisOrderProperties orderProperties,
                           TradingSafetyProperties safety, RestClient.Builder builder) {
+        this(properties, orderProperties, safety, builder, new KisRestRateLimiter());
+    }
+
+    @Autowired
+    public KisOrderClient(KisProperties properties, KisOrderProperties orderProperties,
+                          TradingSafetyProperties safety, RestClient.Builder builder,
+                          KisRestRateLimiter rateLimiter) {
         this.properties = properties;
         this.orderProperties = orderProperties;
         this.safety = safety;
         this.http = builder.build();
+        this.rateLimiter = rateLimiter;
     }
 
     public KisOrderReceipt placePaperLimitOrder(Market market, String symbol, OrderSide side,
@@ -241,7 +251,7 @@ public class KisOrderClient {
         KisProperties.Account credentials = properties.credentials(KisEnvironment.PAPER);
         try {
             String bearer = accessToken(credentials);
-            KisRestRateLimiter.acquire(KisEnvironment.PAPER, properties.minRequestInterval());
+            rateLimiter.acquire(KisEnvironment.PAPER, credentials.appKey(), properties.minRequestInterval());
             JsonNode response = http.post().uri(KisEnvironment.PAPER.baseUrl() + path)
                     .contentType(MediaType.APPLICATION_JSON).accept(MediaType.APPLICATION_JSON)
                     .header("authorization", "Bearer " + bearer)
@@ -273,7 +283,7 @@ public class KisOrderClient {
             current = token;
             if (current != null && Instant.now().plusSeconds(300).isBefore(current.expiresAt())) return current.value();
             try {
-                KisRestRateLimiter.acquire(KisEnvironment.PAPER, properties.minRequestInterval());
+                rateLimiter.acquire(KisEnvironment.PAPER, credentials.appKey(), properties.minRequestInterval());
                 JsonNode response = http.post().uri(KisEnvironment.PAPER.baseUrl() + "/oauth2/tokenP")
                         .contentType(MediaType.APPLICATION_JSON).body(Map.of("grant_type", "client_credentials",
                                 "appkey", credentials.appKey(), "appsecret", credentials.appSecret()))

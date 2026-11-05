@@ -12,6 +12,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import httpx
+from .kis_rate_limit import SharedRateLimitUnavailable, wait_for_kis_rest_slot
 
 Market = Literal["KR", "US"]
 Exchange = Literal["NAS", "NYS", "AMS"]
@@ -34,6 +35,7 @@ class KisSettings:
     app_key: str
     app_secret: str
     account_number: str = ""
+    shared_rate_limit_enabled: bool = False
 
     @classmethod
     def from_environment(cls, environment: Literal["paper", "real"] | None = None) -> "KisSettings":
@@ -47,6 +49,7 @@ class KisSettings:
             app_key=os.getenv(f"KIS_{suffix}_APP_KEY", "").strip(),
             app_secret=os.getenv(f"KIS_{suffix}_APP_SECRET", "").strip(),
             account_number=os.getenv(f"KIS_{suffix}_ACCOUNT_NUMBER", "").strip().replace("-", ""),
+            shared_rate_limit_enabled=os.getenv("KIS_SHARED_RATE_LIMIT_ENABLED", "true").strip().lower() == "true",
         )
 
     @property
@@ -124,6 +127,12 @@ class KisReadOnlyClient:
         self._token_lock = threading.Lock()
 
     def _wait_for_rest_slot(self) -> None:
+        if self.settings.shared_rate_limit_enabled:
+            try:
+                wait_for_kis_rest_slot(self.settings.environment, self.settings.app_key, self._rest_min_interval)
+            except SharedRateLimitUnavailable as exc:
+                raise KisApiError("shared KIS request pacing is unavailable") from exc
+            return
         with self._rest_slot_lock:
             now = time.monotonic()
             slot = max(now, self._next_rest_slot)
@@ -146,6 +155,7 @@ class KisReadOnlyClient:
             if self._token and self._token_expires_at and now + timedelta(minutes=5) < self._token_expires_at:
                 return self._token
             try:
+                self._wait_for_rest_slot()
                 response = self._http.post(
                     f"{self.settings.base_url}/oauth2/tokenP",
                     json={

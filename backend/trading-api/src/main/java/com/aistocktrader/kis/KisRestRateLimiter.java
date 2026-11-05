@@ -1,35 +1,91 @@
 package com.aistocktrader.kis;
 
+import org.springframework.dao.DataAccessException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Component;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.sql.Timestamp;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Process-wide pacing shared by the Spring KIS account and order clients. */
+/** PostgreSQL-backed KIS pacing shared by Spring and Python, keyed by a one-way app-key fingerprint. */
+@Component
 final class KisRestRateLimiter {
     private static final long PAPER_FLOOR_MILLIS = 1_000;
     private static final long REAL_FLOOR_MILLIS = 100;
-    private static final Map<KisEnvironment, Object> LOCKS = new ConcurrentHashMap<>();
-    private static final Map<KisEnvironment, Long> NEXT_SLOT_NANOS = new ConcurrentHashMap<>();
+    private static final String RESERVE_SLOT_SQL = """
+            INSERT INTO kis_rest_rate_limit_slot (environment, app_key_sha256, next_request_at)
+            VALUES (?, ?, clock_timestamp() + interval '1 second' * ?)
+            ON CONFLICT (environment, app_key_sha256) DO UPDATE
+            SET next_request_at = GREATEST(kis_rest_rate_limit_slot.next_request_at, clock_timestamp())
+                                     + interval '1 second' * ?,
+                updated_at = clock_timestamp()
+            RETURNING next_request_at - interval '1 second' * ? AS reserved_at
+            """;
+    private static final Map<String, Object> LOCKS = new ConcurrentHashMap<>();
+    private static final Map<String, Instant> NEXT_SLOT = new ConcurrentHashMap<>();
+    private final JdbcTemplate jdbc;
 
-    static {
-        for (KisEnvironment environment : KisEnvironment.values()) LOCKS.put(environment, new Object());
-    }
+    @Autowired
+    KisRestRateLimiter(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
-    private KisRestRateLimiter() { }
+    /** In-memory fallback is only used by tests that construct clients directly. */
+    KisRestRateLimiter() { this.jdbc = null; }
 
-    static void acquire(KisEnvironment environment, Duration configuredMinimum) throws InterruptedException {
+    void acquire(KisEnvironment environment, String appKey, Duration configuredMinimum) throws InterruptedException {
+        if (appKey == null || appKey.isBlank()) {
+            throw unavailable();
+        }
         long floor = environment == KisEnvironment.PAPER ? PAPER_FLOOR_MILLIS : REAL_FLOOR_MILLIS;
         long configured = configuredMinimum == null ? 0 : configuredMinimum.toMillis();
-        long intervalNanos = Duration.ofMillis(Math.max(configured, floor)).toNanos();
-        synchronized (LOCKS.get(environment)) {
-            long now = System.nanoTime();
-            long slot = Math.max(now, NEXT_SLOT_NANOS.getOrDefault(environment, 0L));
-            long delayNanos = slot - now;
-            if (delayNanos > 0) {
-                long delayMillis = (delayNanos + 999_999) / 1_000_000;
-                Thread.sleep(delayMillis);
-            }
-            NEXT_SLOT_NANOS.put(environment, slot + intervalNanos);
+        long intervalMillis = Math.max(configured, floor);
+        if (jdbc == null) {
+            acquireLocally(environment, appKey, intervalMillis);
+            return;
         }
+        String fingerprint = sha256(appKey);
+        final Timestamp reserved;
+        try {
+            reserved = jdbc.queryForObject(RESERVE_SLOT_SQL, Timestamp.class,
+                    environment.name(), fingerprint, intervalMillis / 1_000.0,
+                    intervalMillis / 1_000.0, intervalMillis / 1_000.0);
+        } catch (DataAccessException exception) {
+            throw unavailable();
+        }
+        if (reserved == null) throw unavailable();
+        long delayMillis = Duration.between(Instant.now(), reserved.toInstant()).toMillis();
+        if (delayMillis > 0) Thread.sleep(delayMillis);
+    }
+
+    private void acquireLocally(KisEnvironment environment, String appKey, long intervalMillis) throws InterruptedException {
+        String key = environment.name() + ":" + sha256(appKey);
+        synchronized (LOCKS.computeIfAbsent(key, ignored -> new Object())) {
+            Instant now = Instant.now();
+            Instant slot = NEXT_SLOT.getOrDefault(key, now);
+            if (slot.isAfter(now)) Thread.sleep(Duration.between(now, slot).toMillis());
+            NEXT_SLOT.put(key, (slot.isAfter(now) ? slot : now).plusMillis(intervalMillis));
+        }
+    }
+
+    private static String sha256(String appKey) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(appKey.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
+    }
+
+    private static KisApiException unavailable() {
+        return new KisApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                "KIS shared rate-limit service is unavailable.");
     }
 }

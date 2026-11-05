@@ -8,6 +8,7 @@ import com.aistocktrader.order.OrderRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -37,13 +38,21 @@ public class KisRealOrderClient {
     private final KisProperties properties;
     private final TradingSafetyProperties safety;
     private final RestClient http;
+    private final KisRestRateLimiter rateLimiter;
     private final Object tokenLock = new Object();
     private volatile CachedToken token;
 
     public KisRealOrderClient(KisProperties properties, TradingSafetyProperties safety, RestClient.Builder builder) {
+        this(properties, safety, builder, new KisRestRateLimiter());
+    }
+
+    @Autowired
+    public KisRealOrderClient(KisProperties properties, TradingSafetyProperties safety, RestClient.Builder builder,
+                              KisRestRateLimiter rateLimiter) {
         this.properties = properties;
         this.safety = safety;
         this.http = builder.build();
+        this.rateLimiter = rateLimiter;
     }
 
     public KisOrderReceipt placeRealLimitOrder(Market market, String symbol, OrderSide side,
@@ -341,7 +350,8 @@ public class KisRealOrderClient {
     }
 
     private void throttle() throws InterruptedException {
-        KisRestRateLimiter.acquire(KisEnvironment.REAL, properties.minRequestInterval());
+        rateLimiter.acquire(KisEnvironment.REAL, properties.credentials(KisEnvironment.REAL).appKey(),
+                properties.minRequestInterval());
     }
 
     private static void validate(Market market, String symbol, OrderSide side, int quantity,

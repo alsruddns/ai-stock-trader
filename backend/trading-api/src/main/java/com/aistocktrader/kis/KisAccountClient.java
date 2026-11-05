@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
@@ -30,13 +31,21 @@ public class KisAccountClient {
     private final KisProperties properties;
     private final RestClient http;
     private final ObjectMapper mapper;
+    private final KisRestRateLimiter rateLimiter;
     private final Map<KisEnvironment, CachedToken> tokens = new ConcurrentHashMap<>();
     private final Map<KisEnvironment, Object> tokenLocks = new ConcurrentHashMap<>();
 
     public KisAccountClient(KisProperties properties, RestClient.Builder builder, ObjectMapper mapper) {
+        this(properties, builder, mapper, new KisRestRateLimiter());
+    }
+
+    @Autowired
+    public KisAccountClient(KisProperties properties, RestClient.Builder builder, ObjectMapper mapper,
+                            KisRestRateLimiter rateLimiter) {
         this.properties = properties;
         this.http = builder.build();
         this.mapper = mapper;
+        this.rateLimiter = rateLimiter;
     }
 
     public KisAccountSnapshot getBalance(KisEnvironment environment, Market market,
@@ -229,7 +238,7 @@ public class KisAccountClient {
     }
 
     private void throttle(KisEnvironment environment) throws InterruptedException {
-        KisRestRateLimiter.acquire(environment, properties.minRequestInterval());
+        rateLimiter.acquire(environment, properties.credentials(environment).appKey(), properties.minRequestInterval());
     }
 
     private KisApiException brokerError(JsonNode payload) {
