@@ -17,7 +17,7 @@ from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from .quant import MinuteBar, _atr, _ema, _vwap
+from .quant import MinuteBar, QuantConfig, _atr, _ema, _vwap, orb_vwap_entry_candidate
 
 FEATURE_NAMES = (
     "return_1m", "return_3m", "return_5m", "close_vwap_pct", "ema9_gap_pct",
@@ -52,6 +52,7 @@ class TrainingSample:
     timestamp: str
     features: tuple[float, ...]
     label: int
+    quant_candidate: bool = False
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,7 @@ class ModelTrainingResult:
     threshold: float
     validation_metrics: dict[str, float]
     test_metrics: dict[str, float]
+    quant_baseline_test_metrics: dict[str, float]
     train_sessions: tuple[str, ...]
     validation_sessions: tuple[str, ...]
     test_sessions: tuple[str, ...]
@@ -71,6 +73,7 @@ class ModelTrainingResult:
 def build_training_samples(
     sessions: dict[date, list[MinuteBar]], *, market: str, horizon_bars: int = 5,
     round_trip_cost_bps: Decimal = Decimal("10"), warmup_bars: int = 20,
+    quant_config: QuantConfig = QuantConfig(),
 ) -> list[TrainingSample]:
     """Create samples using features available at t and a label from t+horizon.
 
@@ -124,7 +127,9 @@ def build_training_samples(
                 continue
             future_return = bars[index + horizon_bars].close / close - Decimal(1)
             label = int(future_return > round_trip_cost_bps / Decimal(10_000))
-            samples.append(TrainingSample(session, current.timestamp.isoformat(), tuple(float(value) for value in feature_values), label))
+            quant_candidate = orb_vwap_entry_candidate(history, quant_config)
+            samples.append(TrainingSample(session, current.timestamp.isoformat(),
+                                          tuple(float(value) for value in feature_values), label, quant_candidate))
     return samples
 
 
@@ -186,7 +191,22 @@ def _metrics(model: Any, samples: list[TrainingSample]) -> dict[str, float]:
     predictions = (probabilities >= 0.5).astype(int)
     metrics = {"accuracy": float(accuracy_score(y, predictions)), "brier": float(brier_score_loss(y, probabilities))}
     metrics["roc_auc"] = float(roc_auc_score(y, probabilities)) if len(set(y)) == 2 else 0.5
+    predicted_candidates = [sample.label for sample, prediction in zip(samples, predictions) if prediction == 1]
+    metrics["candidate_count"] = float(len(predicted_candidates))
+    metrics["candidate_coverage"] = float(len(predicted_candidates) / len(samples))
+    metrics["candidate_positive_rate"] = (
+        float(sum(predicted_candidates) / len(predicted_candidates)) if predicted_candidates else 0.0
+    )
     return metrics
+
+
+def _quant_baseline_metrics(samples: list[TrainingSample]) -> dict[str, float]:
+    candidates = [sample.label for sample in samples if sample.quant_candidate]
+    return {
+        "candidate_count": float(len(candidates)),
+        "candidate_coverage": float(len(candidates) / len(samples)) if samples else 0.0,
+        "candidate_positive_rate": float(sum(candidates) / len(candidates)) if candidates else 0.0,
+    }
 
 
 class LocalModelRegistry:
@@ -227,6 +247,7 @@ class LocalModelRegistry:
                     "artifact_sha256": metadata["artifact_sha256"],
                     "validation_metrics": metadata.get("validation_metrics", {}),
                     "test_metrics": metadata.get("test_metrics", {}),
+                    "quant_baseline_test_metrics": metadata.get("quant_baseline_test_metrics", {}),
                     "test_sessions": metadata.get("test_sessions", []),
                     "approval": metadata.get("approval"),
                 })
@@ -358,6 +379,7 @@ class LocalModelRegistry:
             model.fit(x_train, y_train)
             validation_metrics = _metrics(model, validation)
             test_metrics = _metrics(model, test)
+            quant_baseline_test_metrics = _quant_baseline_metrics(test)
             model_id = f"{name}-{uuid4().hex}"
             artifact_name = f"{model_id}.joblib"
             artifact_path = self.root / artifact_name
@@ -377,6 +399,7 @@ class LocalModelRegistry:
                 "artifact_sha256": digest, "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION,
                 "threshold": 0.5, "approved": False,
                 "validation_metrics": validation_metrics, "test_metrics": test_metrics,
+                "quant_baseline_test_metrics": quant_baseline_test_metrics,
                 "train_sessions": train_dates, "validation_sessions": validation_dates,
                 "test_sessions": test_dates,
             }
@@ -384,7 +407,9 @@ class LocalModelRegistry:
             manifest_tmp = manifest_path.with_suffix(".json.tmp")
             manifest_tmp.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
             os.replace(manifest_tmp, manifest_path)
-            results.append(ModelTrainingResult(model_id, market, name, 0.5, validation_metrics, test_metrics, train_dates, validation_dates, test_dates, digest))
+            results.append(ModelTrainingResult(model_id, market, name, 0.5, validation_metrics, test_metrics,
+                                               quant_baseline_test_metrics, train_dates, validation_dates,
+                                               test_dates, digest))
         return results
 
     def manifest(self, model_id: str) -> dict[str, Any]:
