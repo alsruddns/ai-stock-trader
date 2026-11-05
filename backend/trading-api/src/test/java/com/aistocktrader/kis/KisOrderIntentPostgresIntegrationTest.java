@@ -6,6 +6,12 @@ import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderRequest;
 import com.aistocktrader.order.OrderSide;
 import com.aistocktrader.order.OrderService;
+import com.aistocktrader.order.PaperCashBalance;
+import com.aistocktrader.order.PaperCashRepository;
+import com.aistocktrader.order.PaperFillRepository;
+import com.aistocktrader.order.PaperFillRequest;
+import com.aistocktrader.order.PaperPositionRepository;
+import org.springframework.transaction.annotation.Transactional;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -31,6 +37,9 @@ class KisOrderIntentPostgresIntegrationTest {
     @Autowired KisOrderIntentRepository repository;
     @Autowired OrderService paperOrders;
     @Autowired com.aistocktrader.order.OrderRepository paperOrderRepository;
+    @Autowired PaperCashRepository paperCashRepository;
+    @Autowired PaperFillRepository paperFillRepository;
+    @Autowired PaperPositionRepository paperPositionRepository;
     @Autowired EntityManager entityManager;
 
     @Test
@@ -116,6 +125,38 @@ class KisOrderIntentPostgresIntegrationTest {
             executor.shutdownNow();
             paperOrderRepository.findByIdempotencyKey(key).ifPresent(paperOrderRepository::delete);
         }
+    }
+
+    @Test
+    @Transactional
+    void paperFillAndCashSettlementPersistOnceForAnIdempotentFillKey() {
+        UUID orderKey = UUID.randomUUID();
+        UUID fillKey = UUID.randomUUID();
+        String symbol = String.format(java.util.Locale.ROOT, "%06d",
+                java.util.concurrent.ThreadLocalRandom.current().nextInt(100000, 1_000_000));
+        OrderRequest request = new OrderRequest(Market.KR, symbol, OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+
+        paperCashRepository.save(new PaperCashBalance(Currency.KRW, new BigDecimal("1000000")));
+        var order = paperOrders.submit(request, orderKey);
+        var fillRequest = new PaperFillRequest(fillKey, 1, new BigDecimal("70000"));
+
+        paperOrders.recordPaperFill(order.getId(), fillRequest);
+        BigDecimal settledCash = paperCashRepository.findById(Currency.KRW).orElseThrow().getBalance();
+        paperOrders.recordPaperFill(order.getId(), fillRequest);
+        entityManager.flush();
+        entityManager.clear();
+
+        var recoveredOrder = paperOrders.getPaperOrderByIdempotencyKey(orderKey);
+        BigDecimal recoveredCash = paperCashRepository.findById(Currency.KRW).orElseThrow().getBalance();
+        var position = paperPositionRepository.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0).stream()
+                .filter(item -> item.getSymbol().equals(symbol)).findFirst().orElseThrow();
+
+        assertEquals(com.aistocktrader.order.OrderStatus.FILLED, recoveredOrder.getStatus());
+        assertEquals(1, recoveredOrder.getFilledQuantity());
+        assertEquals(0, settledCash.compareTo(recoveredCash));
+        assertEquals(1, position.getQuantity());
+        assertEquals(1L, paperFillRepository.findByFillKey(fillKey).stream().count());
     }
 
     private static OrderRequest request() {
