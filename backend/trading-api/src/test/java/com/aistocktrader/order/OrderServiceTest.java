@@ -54,6 +54,13 @@ class OrderServiceTest {
         assertSame(existing, result);
         verify(orders, never()).save(any());
     }
+
+    @Test
+    void reconcilesPaperOrderByIdempotencyKeyAfterAnAmbiguousWrite() {
+        OrderRecord existing = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
+        when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.of(existing));
+        assertSame(existing, service().getPaperOrderByIdempotencyKey(idempotencyKey));
+    }
     @Test
     void rejectsReusingTheSameKeyForADifferentOrder() {
         OrderRecord existing = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);

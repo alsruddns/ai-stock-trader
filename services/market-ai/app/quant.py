@@ -120,6 +120,26 @@ def _cost(price: Decimal, quantity: int, bps: Decimal) -> Decimal:
     return price * quantity * bps / Decimal(10_000)
 
 
+def orb_vwap_entry_candidate(bars: list[MinuteBar], config: QuantConfig = QuantConfig()) -> bool:
+    """Evaluate a long entry from a complete prefix ending at the current bar."""
+    _validate_session(bars)
+    required = max(config.opening_range_bars, config.ema_period, config.atr_period, config.relative_volume_period)
+    if len(bars) < required:
+        return False
+    opening_high = max(bar.high for bar in bars[:config.opening_range_bars])
+    current = bars[-1]
+    prior_volumes = [bar.volume for bar in bars[max(0, len(bars) - config.relative_volume_period - 1):-1]]
+    average_volume = Decimal(sum(prior_volumes)) / len(prior_volumes) if prior_volumes else Decimal(0)
+    relative_volume = Decimal(current.volume) / average_volume if average_volume else Decimal(0)
+    spread_ok = current.spread_bps is not None and current.spread_bps <= config.maximum_spread_bps
+    turnover_ok = current.close * current.volume >= config.minimum_turnover
+    return (
+        current.close > opening_high and current.close > _vwap(bars)
+        and current.close > _ema([bar.close for bar in bars[-config.ema_period:]], config.ema_period)
+        and relative_volume >= config.minimum_relative_volume and spread_ok and turnover_ok
+    )
+
+
 def backtest_orb_vwap(
     market: Market,
     symbol: str,
@@ -177,17 +197,8 @@ def backtest_orb_vwap(
                 continue
 
         # Each indicator is computed only from bars through this close.
-        prior_volumes = [item.volume for item in prior[-config.relative_volume_period:]]
-        average_volume = (Decimal(sum(prior_volumes)) / len(prior_volumes)) if prior_volumes else Decimal(0)
-        relative_volume = Decimal(bar.volume) / average_volume if average_volume else Decimal(0)
-        spread_ok = bar.spread_bps is not None and bar.spread_bps <= config.maximum_spread_bps
-        turnover_ok = bar.close * bar.volume >= config.minimum_turnover
         ready = index + 1 >= minimum_history
-        buy = (
-            entry is None and ready and bar.close > opening_high and bar.close > _vwap(history)
-            and bar.close > _ema([item.close for item in history[-config.ema_period:]], config.ema_period)
-            and relative_volume >= config.minimum_relative_volume and spread_ok and turnover_ok
-        )
+        buy = entry is None and ready and orb_vwap_entry_candidate(history, config)
         if buy:
             signals += 1
             if index + 1 < len(bars):

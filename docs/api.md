@@ -7,6 +7,7 @@
 | GET | `/api/v1/health` | Paper/live-lock 상태 확인 |
 | POST | `/api/v1/orders/paper` | 로컬 paper 주문 생성 |
 | GET | `/api/v1/orders/paper/{id}` | Paper 주문 상태 확인 |
+| GET | `/api/v1/orders/paper/by-idempotency/{key}` | 애매한 쓰기 결과 대조용 주문 조회 |
 | POST | `/api/v1/orders/paper/{id}/fills` | Paper 체결 기록 |
 | POST | `/api/v1/orders/paper/{id}/cancel` | Paper 취소 처리 |
 | GET | `/api/v1/orders/paper/positions` | Paper 포지션 조회 |
@@ -27,6 +28,8 @@ KIS API는 기본 잠금(`KIS_ACCOUNT_READ_ENABLED=false`)입니다. 종목별 �
 - 미국 종목 매수가능: `/uapi/overseas-stock/v1/trading/inquire-psamount`
 
 Read timeout, HTTP 429 및 KIS rate-limit 오류는 안전한 오류 응답으로 바꾸고 요청을 자동 재전송하지 않습니다.
+
+Paper 주문 응답이 타임아웃되면 `GET /api/v1/orders/paper/by-idempotency/{key}`로 결과를 먼저 대조합니다. 자동화 클라이언트는 주문 쓰기를 재시도하지 않습니다.
 
 ## KIS WebSocket
 

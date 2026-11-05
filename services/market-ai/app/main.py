@@ -120,11 +120,18 @@ class AccountBalanceResponse(BaseModel):
 @app.get("/api/v1/health")
 def health() -> dict[str, str | bool]:
     settings = KisSettings.from_environment()
+    paper_automation = (
+        os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("TRADING_MODE", "paper").strip().lower() == "paper"
+        and os.getenv("LIVE_TRADING_ENABLED", "false").strip().lower() != "true"
+    )
     return {
         "status": "ok",
         "mode": "read-only-preview",
         "broker_connected": False,
         "kis_market_data_enabled": settings.enabled,
+        "paper_automation_enabled": paper_automation,
+        "live_trading_enabled": False,
     }
 
 

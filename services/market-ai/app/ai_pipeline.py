@@ -74,7 +74,7 @@ def build_training_samples(
         for index in range(required - 1, len(bars) - horizon_bars):
             current = bars[index]
             history = bars[: index + 1]
-            prior = bars[max(0, index - 19):index]
+            prior = bars[max(0, index - 20):index]
             mean_volume = Decimal(sum(item.volume for item in prior)) / len(prior) if prior else Decimal(0)
             volume_ratio = Decimal(current.volume) / mean_volume if mean_volume else Decimal(0)
             if current.spread_bps is None:
@@ -119,7 +119,7 @@ def latest_features(bars: list[MinuteBar], *, minimum_bars: int = 20) -> tuple[f
     if current.spread_bps is None:
         raise ValueError("latest bar must include spread")
     index = len(bars) - 1
-    prior = bars[max(0, index - 19):index]
+    prior = bars[max(0, index - 20):index]
     mean_volume = Decimal(sum(item.volume for item in prior)) / len(prior) if prior else Decimal(0)
     volume_ratio = Decimal(current.volume) / mean_volume if mean_volume else Decimal(0)
     close = current.close

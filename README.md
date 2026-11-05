@@ -74,6 +74,8 @@ python .\scripts\train-ai-models.py .\data\licensed\005930.csv
 
 모델 파일과 메타데이터는 `.local/models`에만 저장됩니다. 생성된 모델은 자동 승인되지 않으며 예측 API는 `executable=false`를 반환합니다.
 
+국내·미국 거래소 영업일 판정과 모의 운영 가드 테스트에는 `python -m pip install -e ".[dev,ai,ops]"`의 선택 `ops` 의존성이 필요합니다. `PAPER_AUTOTRADING_ENABLED=false`가 기본값이며, 시세 지연·모델/브로커 상태·일일 손실·연속 손실·보유 종목 수·장 마감 구간의 조건 중 하나라도 실패하면 신규 진입을 차단합니다.
+
 KIS 모의 현재가 조회 예시 (선택 기능):
 
 ```powershell

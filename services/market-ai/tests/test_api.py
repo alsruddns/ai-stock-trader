@@ -12,6 +12,17 @@ def test_health_discloses_read_only_mode() -> None:
     assert response.status_code == 200
     assert response.json()["broker_connected"] is False
     assert response.json()["mode"] == "read-only-preview"
+    assert response.json()["paper_automation_enabled"] is False
+    assert response.json()["live_trading_enabled"] is False
+
+
+def test_live_mode_never_enables_python_paper_automation(monkeypatch) -> None:
+    monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "true")
+    monkeypatch.setenv("TRADING_MODE", "live")
+    response = client.get("/api/v1/health")
+    assert response.json()["paper_automation_enabled"] is False
+    monkeypatch.delenv("PAPER_AUTOTRADING_ENABLED", raising=False)
+    monkeypatch.delenv("TRADING_MODE", raising=False)
 
 
 def test_analysis_preview_cannot_be_executed() -> None:
