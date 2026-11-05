@@ -17,6 +17,7 @@ Market = Literal["KR", "US"]
 @dataclass(frozen=True)
 class PaperOpsLimits:
     max_quote_age_seconds: int = 3
+    max_signal_bar_age_seconds: int = 120
     max_daily_loss_pct: Decimal = Decimal("1.00")
     max_position_equity_pct: Decimal = Decimal("10.00")
     trade_risk_equity_pct: Decimal = Decimal("0.25")
@@ -31,6 +32,7 @@ class PaperOpsLimits:
         try:
             return cls(
                 max_quote_age_seconds=int(os.getenv("PAPER_MAX_QUOTE_AGE_SECONDS", "3")),
+                max_signal_bar_age_seconds=int(os.getenv("PAPER_MAX_SIGNAL_BAR_AGE_SECONDS", "120")),
                 max_daily_loss_pct=Decimal(os.getenv("PAPER_DAILY_LOSS_LIMIT_PCT", "1.00")),
                 max_position_equity_pct=Decimal(os.getenv("PAPER_MAX_POSITION_EQUITY_PCT", "10.00")),
                 trade_risk_equity_pct=Decimal(os.getenv("PAPER_TRADE_RISK_EQUITY_PCT", "0.25")),
@@ -43,7 +45,8 @@ class PaperOpsLimits:
             raise ValueError("paper operation risk settings are invalid") from exc
 
     def __post_init__(self) -> None:
-        if min(self.max_quote_age_seconds, self.max_open_positions, self.max_consecutive_losses) <= 0:
+        if min(self.max_quote_age_seconds, self.max_signal_bar_age_seconds,
+               self.max_open_positions, self.max_consecutive_losses) <= 0:
             raise ValueError("paper operation limits must be positive")
         if (self.max_daily_loss_pct <= 0 or self.max_position_equity_pct <= 0
                 or self.trade_risk_equity_pct <= 0 or self.atr_stop_multiple <= 0

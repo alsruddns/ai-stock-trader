@@ -75,6 +75,7 @@ def test_order_sizing_fails_closed_without_funds_or_positive_inputs() -> None:
 
 def test_paper_risk_limits_load_from_environment(monkeypatch) -> None:
     monkeypatch.setenv("PAPER_MAX_QUOTE_AGE_SECONDS", "4")
+    monkeypatch.setenv("PAPER_MAX_SIGNAL_BAR_AGE_SECONDS", "90")
     monkeypatch.setenv("PAPER_DAILY_LOSS_LIMIT_PCT", "0.75")
     monkeypatch.setenv("PAPER_MAX_POSITION_EQUITY_PCT", "8")
     monkeypatch.setenv("PAPER_TRADE_RISK_EQUITY_PCT", "0.20")
@@ -85,6 +86,7 @@ def test_paper_risk_limits_load_from_environment(monkeypatch) -> None:
 
     limits = PaperOpsLimits.from_environment()
     assert limits.max_quote_age_seconds == 4
+    assert limits.max_signal_bar_age_seconds == 90
     assert limits.max_daily_loss_pct == Decimal("0.75")
     assert limits.max_position_equity_pct == Decimal("8")
     assert limits.trade_risk_equity_pct == Decimal("0.20")
@@ -98,6 +100,11 @@ def test_malformed_paper_risk_setting_fails_closed(monkeypatch) -> None:
     monkeypatch.setenv("PAPER_DAILY_LOSS_LIMIT_PCT", "not-a-number")
     with pytest.raises(ValueError, match="risk settings are invalid"):
         PaperOpsLimits.from_environment()
+
+
+def test_non_positive_signal_bar_age_limit_fails_closed() -> None:
+    with pytest.raises(ValueError, match="limits must be positive"):
+        PaperOpsLimits(max_signal_bar_age_seconds=0)
 
 
 def test_paper_exit_uses_stop_first_and_worse_open_for_gaps() -> None:

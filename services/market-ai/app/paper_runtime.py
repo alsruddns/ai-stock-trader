@@ -288,6 +288,11 @@ class PaperSessionFeedMonitor:
         if decision.get("signal") != "BUY_CANDIDATE":
             return None
         now = datetime.now(timezone.utc)
+        if bar.timestamp.tzinfo is None:
+            return {"state": "BLOCKED", "reason": "SIGNAL_BAR_TIMESTAMP_INVALID", "executable": False}
+        signal_bar_age = (now - bar.timestamp.astimezone(timezone.utc)).total_seconds()
+        if signal_bar_age < -5 or signal_bar_age > limits.max_signal_bar_age_seconds:
+            return {"state": "BLOCKED", "reason": "SIGNAL_BAR_STALE", "executable": False}
         currency = "KRW" if watch.market == "KR" else "USD"
         try:
             positions = broker.get_positions()
