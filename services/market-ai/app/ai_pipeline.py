@@ -248,6 +248,7 @@ class LocalModelRegistry:
                     "approved": bool(metadata.get("approved", False)),
                     "active": metadata["model_id"] == active_model,
                     "artifact_sha256": metadata["artifact_sha256"],
+                    "dataset_sha256": metadata.get("dataset_sha256"),
                     "validation_metrics": metadata.get("validation_metrics", {}),
                     "test_metrics": metadata.get("test_metrics", {}),
                     "quant_baseline_test_metrics": metadata.get("quant_baseline_test_metrics", {}),
@@ -372,10 +373,13 @@ class LocalModelRegistry:
             if os.path.exists(temporary):
                 os.unlink(temporary)
 
-    def train_compare(self, samples: list[TrainingSample], *, market: str) -> list[ModelTrainingResult]:
+    def train_compare(self, samples: list[TrainingSample], *, market: str,
+                      dataset_sha256: str | None = None) -> list[ModelTrainingResult]:
         market = market.upper()
         if market not in {"KR", "US"}:
             raise ValueError("market must be KR or US; train separate market-specific candidates")
+        if dataset_sha256 is not None and not re.fullmatch(r"[a-f0-9]{64}", dataset_sha256):
+            raise ValueError("dataset_sha256 must be a lowercase SHA-256 digest")
         try:
             from lightgbm import LGBMClassifier
             from xgboost import XGBClassifier
@@ -421,6 +425,7 @@ class LocalModelRegistry:
                 "model_id": model_id, "market": market, "model_type": name, "artifact": artifact_name,
                 "artifact_sha256": digest, "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION,
                 "threshold": 0.5, "approved": False,
+                "dataset_sha256": dataset_sha256,
                 "validation_metrics": validation_metrics, "test_metrics": test_metrics,
                 "quant_baseline_test_metrics": quant_baseline_test_metrics,
                 "train_sessions": train_dates, "validation_sessions": validation_dates,

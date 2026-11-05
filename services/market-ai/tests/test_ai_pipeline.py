@@ -90,12 +90,13 @@ def test_quant_baseline_reports_candidate_coverage_and_cost_adjusted_label_rate(
 
 def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path) -> None:
     samples = build_training_samples(_sample_sessions(), market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("0"))
-    results = LocalModelRegistry(tmp_path).train_compare(samples, market="KR")
+    results = LocalModelRegistry(tmp_path).train_compare(samples, market="KR", dataset_sha256="a" * 64)
     assert {result.model_type for result in results} == {"lightgbm", "xgboost"}
     for result in results:
         metadata = LocalModelRegistry(tmp_path).manifest(result.model_id)
         assert metadata["approved"] is False
         assert metadata["artifact_sha256"] == result.artifact_sha256
+        assert metadata["dataset_sha256"] == "a" * 64
         assert metadata["quant_baseline_test_metrics"] == result.quant_baseline_test_metrics
         assert "candidate_positive_rate" in result.test_metrics
         assert "candidate_coverage" in result.quant_baseline_test_metrics
@@ -108,6 +109,11 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path)
         assert prediction["executable"] is False
         with pytest.raises(ValueError, match="market scope"):
             LocalModelRegistry(tmp_path).predict_preview(result.model_id, _sample_sessions()[date(2026, 10, 8)][:21], market="US")
+
+
+def test_training_rejects_malformed_dataset_digest_before_training(tmp_path) -> None:
+    with pytest.raises(ValueError, match="lowercase SHA-256"):
+        LocalModelRegistry(tmp_path).train_compare([], market="KR", dataset_sha256="not-a-digest")
 
 
 def test_model_registry_rejects_path_traversal(tmp_path) -> None:
