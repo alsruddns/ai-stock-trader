@@ -23,6 +23,11 @@ class KisPaperAccountIntegrationTest {
         assertTrue(paper.configured(), "Paper KIS credentials must be configured for this opt-in test.");
         assertEquals("true", System.getenv("KIS_ACCOUNT_READ_ENABLED"),
                 "Set KIS_ACCOUNT_READ_ENABLED=true only when intentionally running this read-only test.");
+        assertEquals("paper", System.getenv().getOrDefault("TRADING_MODE", "paper").toLowerCase());
+        assertEquals("false", System.getenv().getOrDefault("LIVE_TRADING_ENABLED", "false").toLowerCase());
+        assertEquals("false", System.getenv().getOrDefault("KIS_PAPER_ORDERS_ENABLED", "false").toLowerCase());
+        assertEquals("false", System.getenv().getOrDefault("KIS_REAL_ORDERS_ENABLED", "false").toLowerCase());
+        assertEquals("false", System.getenv().getOrDefault("KIS_REAL_RECONCILIATION_ENABLED", "false").toLowerCase());
     }
 
     @Test

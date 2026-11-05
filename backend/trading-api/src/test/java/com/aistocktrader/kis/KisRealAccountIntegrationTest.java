@@ -25,6 +25,7 @@ class KisRealAccountIntegrationTest {
         assertEquals("true", System.getenv("KIS_REAL_ACCOUNT_READ_ENABLED"));
         assertEquals("paper", System.getenv().getOrDefault("TRADING_MODE", "paper").toLowerCase());
         assertEquals("false", System.getenv().getOrDefault("LIVE_TRADING_ENABLED", "false").toLowerCase());
+        assertEquals("false", System.getenv().getOrDefault("KIS_PAPER_ORDERS_ENABLED", "false").toLowerCase());
         assertEquals("false", System.getenv().getOrDefault("KIS_REAL_ORDERS_ENABLED", "false").toLowerCase());
         assertEquals("false", System.getenv().getOrDefault("KIS_REAL_RECONCILIATION_ENABLED", "false").toLowerCase());
     }

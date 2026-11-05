@@ -26,6 +26,11 @@ if ($env:KIS_ACCOUNT_READ_ENABLED -ne 'true') {
 if ($env:KIS_PAPER_ACCOUNT_READ_ENABLED -ne 'true') {
     throw 'Set KIS_PAPER_ACCOUNT_READ_ENABLED=true in .env before explicitly running paper account GET tests.'
 }
+if ($env:TRADING_MODE -ne 'paper' -or $env:LIVE_TRADING_ENABLED -ne 'false' -or
+    $env:KIS_PAPER_ORDERS_ENABLED -ne 'false' -or $env:KIS_REAL_ORDERS_ENABLED -ne 'false' -or
+    $env:KIS_REAL_RECONCILIATION_ENABLED -ne 'false') {
+    throw 'Paper account smoke test requires paper mode with all order and REAL reconciliation switches disabled.'
+}
 if (-not $env:KIS_PAPER_APP_KEY -or -not $env:KIS_PAPER_APP_SECRET -or
     -not $env:KIS_PAPER_ACCOUNT_NUMBER) {
     throw 'Configure the paper KIS key, secret, and account number in .env. Values are not displayed.'
