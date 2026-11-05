@@ -71,6 +71,8 @@ KIS 조회를 쓸 때는 `.env`의 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET`, 
 
 국내 KIS 분봉 이력은 `GET /api/v1/market/bars/KR/{종목코드}?session_date=YYYY-MM-DD&end_time=HHMMSS`로 한 번에 최대 120개를 조회할 수 있습니다. 해당 이력 응답에는 과거 호가 스프레드가 없으므로 `spread_bps`는 null이며, 스프레드 필터를 요구하는 전략·학습 자료의 검증을 대신하지 않습니다. 이 경로는 읽기 전용이며 KIS REST 시세 스위치와 해당 환경의 API 인증이 필요합니다. `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`이면 REST 이력과 KIS paper WebSocket으로 집계한 실시간 분봉을 `market_minute_bar` 테이블에 출처와 함께 저장합니다. WebSocket 집계봉은 당시 호가 스프레드도 포함하며, PostgreSQL 쓰기 오류는 상태에 표시하고 paper 자동주문을 차단합니다. 동일 시각 재수집은 기존 행을 갱신합니다. 기본값은 `false`입니다.
 
+Python REST 요청은 인스턴스 내에서 직렬화해 호출 간 최소 간격을 지킵니다. KIS의 현재 공지 기준 PAPER는 초당 1건, REAL은 계좌당 초당 18건입니다. KIS가 동시 호출 간 100~150ms 간격을 권고하므로 `.env.example`은 PAPER 1초, REAL 0.1초로 설정했고 로컬 값은 더 느리게만 조정할 수 있습니다. [KIS API 호출 유량 안내](https://apiportal.koreainvestment.com/community/10000000-0000-0011-0000-000000000001/post/d0d1a83f-6f8d-4437-9700-6d26702fd989)
+
 - Spring 상태: `http://localhost:8080/api/v1/health`
 - Python 상태: `http://localhost:8000/api/v1/health`
 - Python API 문서: `http://localhost:8000/docs`

@@ -108,9 +108,33 @@ class KisReadOnlyClient:
             raise ValueError("KIS app key and secret are required")
         self.settings = settings
         self._http = http_client or httpx.Client(timeout=httpx.Timeout(8.0, connect=3.0))
+        default_interval = 1.0 if settings.environment == "paper" else 0.1
+        configured_interval = os.getenv(f"KIS_{settings.environment.upper()}_REST_MIN_INTERVAL_SECONDS", "").strip()
+        try:
+            requested_interval = float(configured_interval) if configured_interval else default_interval
+        except ValueError as exc:
+            raise ValueError("KIS REST minimum request interval must be numeric seconds") from exc
+        if not 0 < requested_interval <= 10:
+            raise ValueError("KIS REST minimum request interval must be greater than zero and at most 10 seconds")
+        self._rest_min_interval = max(default_interval, requested_interval)
+        self._rest_slot_lock = threading.Lock()
+        self._next_rest_slot = 0.0
         self._token: str | None = None
         self._token_expires_at: datetime | None = None
         self._token_lock = threading.Lock()
+
+    def _wait_for_rest_slot(self) -> None:
+        with self._rest_slot_lock:
+            now = time.monotonic()
+            slot = max(now, self._next_rest_slot)
+            delay = slot - now
+            if delay > 0:
+                time.sleep(delay)
+            self._next_rest_slot = slot + self._rest_min_interval
+
+    def _get(self, url: str, *, headers: dict[str, str], params: dict[str, str]) -> httpx.Response:
+        self._wait_for_rest_slot()
+        return self._http.get(url, headers=headers, params=params)
 
     def _access_token(self) -> str:
         now = datetime.now(timezone.utc)
@@ -171,7 +195,7 @@ class KisReadOnlyClient:
             raise ValueError("market must be KR or US")
 
         try:
-            response = self._http.get(
+            response = self._get(
                 f"{self.settings.base_url}{path}",
                 headers={
                     "authorization": f"Bearer {self._access_token()}",
@@ -238,7 +262,7 @@ class KisReadOnlyClient:
             "FID_PW_DATA_INCU_YN": "N", "FID_FAKE_TICK_INCU_YN": "",
         }
         try:
-            response = self._http.get(
+            response = self._get(
                 f"{self.settings.base_url}{DOMESTIC_MINUTE_CHART_PATH}",
                 headers={
                     "authorization": f"Bearer {self._access_token()}", "appkey": self.settings.app_key,
@@ -334,7 +358,7 @@ class KisReadOnlyClient:
             if continuation:
                 request_headers["tr_cont"] = continuation
             try:
-                response = self._http.get(f"{self.settings.base_url}{path}", headers=request_headers, params=params)
+                response = self._get(f"{self.settings.base_url}{path}", headers=request_headers, params=params)
                 response.raise_for_status()
                 payload = response.json()
             except KisApiError:
@@ -361,7 +385,6 @@ class KisReadOnlyClient:
             params[fk_field] = str(payload.get(fk_field.lower(), ""))
             params[nk_field] = str(payload.get(nk_field.lower(), ""))
             continuation = "N"
-            time.sleep(0.1)
         else:
             raise KisApiError("KIS account balance pagination did not complete")
 

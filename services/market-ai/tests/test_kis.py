@@ -11,6 +11,36 @@ def _token_response() -> dict[str, str]:
     return {"access_token": "test-token", "access_token_token_expired": expiry}
 
 
+def test_kis_rest_pacing_uses_paper_floor_and_serialized_slots(monkeypatch) -> None:
+    moments = iter([100.0, 100.05])
+    delays = []
+    monkeypatch.setenv("KIS_PAPER_REST_MIN_INTERVAL_SECONDS", "0.2")
+    monkeypatch.setattr("app.kis.time.monotonic", lambda: next(moments))
+    monkeypatch.setattr("app.kis.time.sleep", delays.append)
+    client = KisReadOnlyClient(KisSettings(True, "paper", "paper-key", "paper-secret"),
+                               http_client=httpx.Client(transport=httpx.MockTransport(
+                                   lambda request: httpx.Response(200, json={})
+                               )))
+
+    assert client._rest_min_interval == 1.0
+    client._wait_for_rest_slot()
+    client._wait_for_rest_slot()
+
+    assert delays == [pytest.approx(0.95)]
+    client.close()
+
+
+def test_kis_real_rest_pacing_uses_conservative_minimum_interval(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_REAL_REST_MIN_INTERVAL_SECONDS", "0.01")
+    client = KisReadOnlyClient(KisSettings(True, "real", "real-key", "real-secret"),
+                               http_client=httpx.Client(transport=httpx.MockTransport(
+                                   lambda request: httpx.Response(200, json={})
+                               )))
+
+    assert client._rest_min_interval == pytest.approx(0.1)
+    client.close()
+
+
 def test_domestic_quote_uses_read_only_endpoint_and_reuses_token() -> None:
     requests_seen: list[httpx.Request] = []
 
