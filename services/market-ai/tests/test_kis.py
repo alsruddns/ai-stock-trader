@@ -69,6 +69,59 @@ def test_us_quote_uses_official_exchange_code_and_fields() -> None:
     client.close()
 
 
+def test_domestic_minute_chart_uses_read_only_contract_and_preserves_missing_spread() -> None:
+    requests_seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests_seen.append(request)
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        return httpx.Response(200, json={"rt_cd": "0", "output2": [
+            {"stck_bsop_date": "20261105", "stck_cntg_hour": "090100", "stck_oprc": "101",
+             "stck_hgpr": "103", "stck_lwpr": "100", "stck_prpr": "102", "cntg_vol": "1200"},
+            {"stck_bsop_date": "20261105", "stck_cntg_hour": "090000", "stck_oprc": "100",
+             "stck_hgpr": "101", "stck_lwpr": "99", "stck_prpr": "100", "cntg_vol": "1000"},
+        ]})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret"),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    from datetime import date
+
+    bars = client.get_domestic_minute_bars("005930", date(2026, 11, 5))
+
+    request = requests_seen[-1]
+    assert request.method == "GET"
+    assert request.url.path.endswith("/inquire-time-dailychartprice")
+    assert request.headers["tr_id"] == "FHKST03010230"
+    assert request.url.params["FID_INPUT_DATE_1"] == "20261105"
+    assert request.url.params["FID_PW_DATA_INCU_YN"] == "Y"
+    assert [bar.timestamp.isoformat() for bar in bars] == [
+        "2026-11-05T09:00:00+09:00", "2026-11-05T09:01:00+09:00",
+    ]
+    assert [bar.volume for bar in bars] == [1000, 1200]
+    assert all(bar.spread_bps is None for bar in bars)
+    client.close()
+
+
+def test_domestic_minute_chart_rejects_malformed_kis_rows() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        return httpx.Response(200, json={"rt_cd": "0", "output2": [{"stck_bsop_date": "20261105"}]})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret"),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    from datetime import date
+
+    with pytest.raises(KisApiError, match="invalid bar data"):
+        client.get_domestic_minute_bars("005930", date(2026, 11, 5))
+    client.close()
+
+
 def test_invalid_kr_symbol_is_rejected_before_network_request() -> None:
     client = KisReadOnlyClient(
         KisSettings(True, "paper", "paper-key", "paper-secret"),

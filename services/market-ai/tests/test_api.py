@@ -1,8 +1,9 @@
 from fastapi.testclient import TestClient
 from app.main import app, get_kis_client
 from app.kis import Quote
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
+from app.quant import MinuteBar
 
 client = TestClient(app)
 
@@ -116,6 +117,29 @@ def test_quote_route_returns_normalized_snapshot() -> None:
         assert response.json()["price"] == "231.59"
         assert response.json()["currency"] == "USD"
         assert response.json()["source"] == "KIS_REST_SNAPSHOT"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_domestic_minute_bars_route_exposes_missing_spread_explicitly() -> None:
+    class FakeKisClient:
+        def get_domestic_minute_bars(self, symbol, session_date, end_time):
+            assert symbol == "005930"
+            assert session_date == date(2026, 11, 5)
+            assert end_time == "153000"
+            return [MinuteBar(
+                timestamp=datetime.fromisoformat("2026-11-05T09:00:00+09:00"), open=Decimal("100"),
+                high=Decimal("101"), low=Decimal("99"), close=Decimal("100"), volume=1000,
+            )]
+
+    app.dependency_overrides[get_kis_client] = lambda: FakeKisClient()
+    try:
+        response = client.get("/api/v1/market/bars/KR/005930?session_date=2026-11-05")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["source"] == "KIS_REST_MINUTE_CHART"
+        assert body["spread_bps_available"] is False
+        assert body["bars"][0]["spread_bps"] is None
     finally:
         app.dependency_overrides.clear()
 

@@ -6,9 +6,10 @@ import os
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -19,6 +20,7 @@ REAL_URL = "https://openapi.koreainvestment.com:9443"
 PAPER_URL = "https://openapivts.koreainvestment.com:29443"
 DOMESTIC_QUOTE_PATH = "/uapi/domestic-stock/v1/quotations/inquire-price"
 OVERSEAS_QUOTE_PATH = "/uapi/overseas-price/v1/quotations/price"
+DOMESTIC_MINUTE_CHART_PATH = "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice"
 
 
 class KisApiError(RuntimeError):
@@ -219,6 +221,73 @@ class KisReadOnlyClient:
             volume=volume,
             retrieved_at=datetime.now(timezone.utc),
         )
+
+    def get_domestic_minute_bars(self, symbol: str, session_date: date, end_time: str = "153000") -> list["MinuteBar"]:
+        """Fetch one bounded page of KRX minute bars; KIS does not provide historical spread here."""
+        from .quant import MinuteBar
+
+        normalized_symbol = symbol.strip()
+        if not (normalized_symbol.isdigit() and len(normalized_symbol) == 6):
+            raise ValueError("KR symbols must be six digits")
+        if len(end_time) != 6 or not end_time.isdigit() or int(end_time[:2]) > 23 or int(end_time[2:4]) > 59 or int(end_time[4:]) > 59:
+            raise ValueError("end_time must use HHMMSS")
+        params = {
+            "FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": normalized_symbol,
+            "FID_INPUT_HOUR_1": end_time, "FID_INPUT_DATE_1": session_date.strftime("%Y%m%d"),
+            "FID_PW_DATA_INCU_YN": "Y", "FID_FAKE_TICK_INCU_YN": "",
+        }
+        try:
+            response = self._http.get(
+                f"{self.settings.base_url}{DOMESTIC_MINUTE_CHART_PATH}",
+                headers={
+                    "authorization": f"Bearer {self._access_token()}", "appkey": self.settings.app_key,
+                    "appsecret": self.settings.app_secret, "tr_id": "FHKST03010230", "custtype": "P",
+                },
+                params=params,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except KisApiError:
+            raise
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise KisApiError("KIS minute chart request failed") from exc
+
+        if payload.get("rt_cd") != "0":
+            code = str(payload.get("msg_cd", "unknown"))[:32]
+            raise KisApiError(f"KIS rejected the minute chart request (code {code})")
+        rows = payload.get("output2")
+        if not isinstance(rows, list):
+            raise KisApiError("KIS minute chart response did not contain an output array")
+        bars: list[MinuteBar] = []
+        try:
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise ValueError("invalid row")
+                row_date = str(row.get("stck_bsop_date", ""))
+                row_time = str(row.get("stck_cntg_hour", ""))
+                if row_date != session_date.strftime("%Y%m%d") or len(row_time) != 6 or not row_time.isdigit():
+                    raise ValueError("invalid bar timestamp")
+                timestamp = datetime.combine(session_date, datetime_time(
+                    int(row_time[:2]), int(row_time[2:4]), int(row_time[4:])
+                ), tzinfo=ZoneInfo("Asia/Seoul"))
+                volume = _volume(row.get("cntg_vol"))
+                if volume is None:
+                    raise ValueError("missing bar volume")
+                bar = MinuteBar(
+                    timestamp=timestamp, open=_decimal(row.get("stck_oprc"), "open") or Decimal(0),
+                    high=_decimal(row.get("stck_hgpr"), "high") or Decimal(0),
+                    low=_decimal(row.get("stck_lwpr"), "low") or Decimal(0),
+                    close=_decimal(row.get("stck_prpr"), "close") or Decimal(0),
+                    volume=volume,
+                    spread_bps=None,
+                )
+                bars.append(bar)
+        except (ArithmeticError, TypeError, ValueError) as exc:
+            raise KisApiError("KIS minute chart response contained invalid bar data") from exc
+        bars.sort(key=lambda bar: bar.timestamp)
+        if len(bars) > 120 or len({bar.timestamp for bar in bars}) != len(bars):
+            raise KisApiError("KIS minute chart response exceeded the supported page contract")
+        return bars
 
     def get_account_balance(self, market: Market, *, overseas_exchange: str = "NASD") -> AccountBalance:
         """Read balances/positions. Results intentionally omit account identifiers."""

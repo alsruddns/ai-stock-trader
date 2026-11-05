@@ -92,6 +92,15 @@ class QuantBacktestResponse(BaseModel):
     executable: bool
 
 
+class HistoricalMinuteBarsResponse(BaseModel):
+    market: str
+    symbol: str
+    session_date: date
+    source: str
+    spread_bps_available: bool
+    bars: list[QuantBarRequest]
+
+
 class AiPredictionRequest(BaseModel):
     market: Market
     symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Za-z0-9.-]+$")
@@ -176,6 +185,30 @@ def get_quote(
         quote = client.get_quote(market, symbol, exchange)
         _persist_snapshot(lambda: snapshot_store.store_quote(quote))
         return quote
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KisApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/market/bars/KR/{symbol}", response_model=HistoricalMinuteBarsResponse)
+def get_domestic_minute_bars(
+    symbol: str = Path(pattern=r"^\d{6}$"),
+    session_date: date = Query(),
+    end_time: str = Query(default="153000", pattern=r"^\d{6}$"),
+    client: KisReadOnlyClient = Depends(get_kis_client),
+) -> HistoricalMinuteBarsResponse:
+    """Fetch one read-only page (up to 120 bars) of domestic KIS minute history."""
+    try:
+        bars = client.get_domestic_minute_bars(symbol, session_date, end_time)
+        return HistoricalMinuteBarsResponse(
+            market="KR", symbol=symbol, session_date=session_date, source="KIS_REST_MINUTE_CHART",
+            spread_bps_available=False,
+            bars=[QuantBarRequest(
+                timestamp=bar.timestamp, open=bar.open, high=bar.high, low=bar.low, close=bar.close,
+                volume=bar.volume, spread_bps=None,
+            ) for bar in bars],
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KisApiError as exc:
