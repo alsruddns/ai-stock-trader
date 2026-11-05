@@ -32,8 +32,6 @@ public class KisAccountClient {
     private final ObjectMapper mapper;
     private final Map<KisEnvironment, CachedToken> tokens = new ConcurrentHashMap<>();
     private final Map<KisEnvironment, Object> tokenLocks = new ConcurrentHashMap<>();
-    private final Map<KisEnvironment, Object> rateLocks = new ConcurrentHashMap<>();
-    private final Map<KisEnvironment, Long> lastRequestAt = new ConcurrentHashMap<>();
 
     public KisAccountClient(KisProperties properties, RestClient.Builder builder, ObjectMapper mapper) {
         this.properties = properties;
@@ -137,12 +135,13 @@ public class KisAccountClient {
                             Map<String, String> params, String continuation) {
         KisProperties.Account credentials = properties.credentials(environment);
         try {
+            String token = accessToken(environment);
             throttle(environment);
             UriComponentsBuilder uri = UriComponentsBuilder.fromUriString(environment.baseUrl() + path);
             params.forEach(uri::queryParam);
             var request = http.get().uri(uri.build().encode().toUri())
                     .accept(MediaType.APPLICATION_JSON)
-                    .header("authorization", "Bearer " + accessToken(environment))
+                    .header("authorization", "Bearer " + token)
                     .header("appkey", credentials.appKey())
                     .header("appsecret", credentials.appSecret())
                     .header("tr_id", trId)
@@ -230,15 +229,7 @@ public class KisAccountClient {
     }
 
     private void throttle(KisEnvironment environment) throws InterruptedException {
-        long minimum = properties.minRequestInterval().toMillis();
-        if (minimum <= 0) return;
-        synchronized (rateLocks.computeIfAbsent(environment, ignored -> new Object())) {
-            long now = System.currentTimeMillis();
-            long previous = lastRequestAt.getOrDefault(environment, 0L);
-            long delay = minimum - (now - previous);
-            if (delay > 0) Thread.sleep(delay);
-            lastRequestAt.put(environment, System.currentTimeMillis());
-        }
+        KisRestRateLimiter.acquire(environment, properties.minRequestInterval());
     }
 
     private KisApiException brokerError(JsonNode payload) {

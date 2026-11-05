@@ -240,9 +240,11 @@ public class KisOrderClient {
     private JsonNode post(String path, String trId, Map<String, String> body) {
         KisProperties.Account credentials = properties.credentials(KisEnvironment.PAPER);
         try {
+            String bearer = accessToken(credentials);
+            KisRestRateLimiter.acquire(KisEnvironment.PAPER, properties.minRequestInterval());
             JsonNode response = http.post().uri(KisEnvironment.PAPER.baseUrl() + path)
                     .contentType(MediaType.APPLICATION_JSON).accept(MediaType.APPLICATION_JSON)
-                    .header("authorization", "Bearer " + accessToken(credentials))
+                    .header("authorization", "Bearer " + bearer)
                     .header("appkey", credentials.appKey()).header("appsecret", credentials.appSecret())
                     .header("tr_id", trId).header("custtype", "P").body(body).retrieve().body(JsonNode.class);
             if (response == null || !"0".equals(response.path("rt_cd").asText())) {
@@ -253,6 +255,10 @@ public class KisOrderClient {
             return response;
         } catch (KisApiException ex) {
             throw ex;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new KisApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                    "KIS request was interrupted before submission.");
         } catch (ResourceAccessException ex) {
             throw new KisOrderOutcomeUnknownException("KIS paper order outcome is unknown; reconcile broker orders before taking further action.", ex);
         } catch (RestClientResponseException ex) {
@@ -267,6 +273,7 @@ public class KisOrderClient {
             current = token;
             if (current != null && Instant.now().plusSeconds(300).isBefore(current.expiresAt())) return current.value();
             try {
+                KisRestRateLimiter.acquire(KisEnvironment.PAPER, properties.minRequestInterval());
                 JsonNode response = http.post().uri(KisEnvironment.PAPER.baseUrl() + "/oauth2/tokenP")
                         .contentType(MediaType.APPLICATION_JSON).body(Map.of("grant_type", "client_credentials",
                                 "appkey", credentials.appKey(), "appsecret", credentials.appSecret()))
@@ -280,6 +287,10 @@ public class KisOrderClient {
                 return token.value();
             } catch (KisApiException ex) {
                 throw ex;
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new KisApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                        "KIS authentication was interrupted.");
             } catch (RuntimeException ex) {
                 throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "KIS authentication failed; check paper credentials.");
             }

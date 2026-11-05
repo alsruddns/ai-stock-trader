@@ -38,9 +38,7 @@ public class KisRealOrderClient {
     private final TradingSafetyProperties safety;
     private final RestClient http;
     private final Object tokenLock = new Object();
-    private final Object rateLock = new Object();
     private volatile CachedToken token;
-    private long lastRequestAt;
 
     public KisRealOrderClient(KisProperties properties, TradingSafetyProperties safety, RestClient.Builder builder) {
         this.properties = properties;
@@ -343,14 +341,7 @@ public class KisRealOrderClient {
     }
 
     private void throttle() throws InterruptedException {
-        long minimum = properties.minRequestInterval().toMillis();
-        if (minimum <= 0) return;
-        synchronized (rateLock) {
-            long now = System.currentTimeMillis();
-            long delay = minimum - (now - lastRequestAt);
-            if (delay > 0) Thread.sleep(delay);
-            lastRequestAt = System.currentTimeMillis();
-        }
+        KisRestRateLimiter.acquire(KisEnvironment.REAL, properties.minRequestInterval());
     }
 
     private static void validate(Market market, String symbol, OrderSide side, int quantity,
