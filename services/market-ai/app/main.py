@@ -2,14 +2,19 @@ from enum import StrEnum
 from functools import lru_cache
 import os
 import re
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
+import asyncio
+import json
 
-from fastapi import Depends, FastAPI, HTTPException, Path, Query
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, WebSocket, WebSocketDisconnect
 import psycopg
 from pydantic import BaseModel, Field
 from .kis import AccountBalance, Exchange, KisApiError, KisReadOnlyClient, KisSettings, Market, Quote
 from . import snapshot_store
+from . import kis_stream
+from .ai_pipeline import LocalModelRegistry
+from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 
 app = FastAPI(
     title="AI Stock Trader Market Analysis",
@@ -42,6 +47,41 @@ class AnalysisRequest(BaseModel):
     market: str = Field(pattern="^(KR|US)$")
     symbol: str = Field(min_length=1, max_length=24)
     bars: list[Bar] = Field(min_length=2, max_length=500)
+
+
+class QuantBarRequest(BaseModel):
+    timestamp: datetime
+    open: Decimal = Field(gt=0)
+    high: Decimal = Field(gt=0)
+    low: Decimal = Field(gt=0)
+    close: Decimal = Field(gt=0)
+    volume: int = Field(ge=0)
+    spread_bps: Decimal | None = Field(default=None, ge=0)
+
+
+class QuantBacktestRequest(BaseModel):
+    market: Market
+    symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Za-z0-9.-]+$")
+    quantity: int = Field(default=1, gt=0, le=100_000)
+    bars: list[QuantBarRequest] = Field(min_length=1, max_length=5000)
+
+
+class QuantBacktestResponse(BaseModel):
+    market: str
+    symbol: str
+    session: date
+    trades: list[dict[str, object]]
+    gross_pnl: Decimal
+    costs: Decimal
+    net_pnl: Decimal
+    data_points: int
+    signals: int
+    executable: bool
+
+
+class AiPredictionRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Za-z0-9.-]+$")
+    bars: list[QuantBarRequest] = Field(min_length=20, max_length=500)
 
 
 class AnalysisResponse(BaseModel):
@@ -80,11 +120,18 @@ class AccountBalanceResponse(BaseModel):
 @app.get("/api/v1/health")
 def health() -> dict[str, str | bool]:
     settings = KisSettings.from_environment()
+    paper_automation = (
+        os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("TRADING_MODE", "paper").strip().lower() == "paper"
+        and os.getenv("LIVE_TRADING_ENABLED", "false").strip().lower() != "true"
+    )
     return {
         "status": "ok",
         "mode": "read-only-preview",
         "broker_connected": False,
         "kis_market_data_enabled": settings.enabled,
+        "paper_automation_enabled": paper_automation,
+        "live_trading_enabled": False,
     }
 
 
@@ -107,6 +154,55 @@ def get_quote(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KisApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.websocket("/api/v1/market/stream")
+async def stream_market_data(websocket: WebSocket) -> None:
+    """Relay one read-only KIS trade stream to a loopback client."""
+    settings = kis_stream.StreamSettings.from_environment()
+    if not settings.enabled:
+        await websocket.close(code=4403, reason="KIS WebSocket is disabled")
+        return
+    if not settings.kis.app_key or not settings.kis.app_secret:
+        await websocket.close(code=4403, reason="KIS credentials are not configured")
+        return
+
+    await websocket.accept()
+    try:
+        request = await websocket.receive_json()
+        if not isinstance(request, dict):
+            raise ValueError("subscription must be a JSON object")
+        market = request.get("market")
+        symbol = request.get("symbol")
+        exchange = request.get("exchange")
+        if not isinstance(symbol, str) or not isinstance(market, str) or (exchange is not None and not isinstance(exchange, str)):
+            raise ValueError("market, symbol, and optional exchange must be strings")
+        message = kis_stream.subscription_message("pending", market, symbol, exchange)
+        key = await asyncio.to_thread(kis_stream.approval_key, settings.kis)
+        message["header"]["approval_key"] = key
+
+        import websockets
+
+        async with websockets.connect(settings.websocket_url, ping_interval=30, close_timeout=3) as upstream:
+            await upstream.send(json.dumps(message, separators=(",", ":")))
+            await websocket.send_json({"kind": "subscribed", "market": market, "symbol": symbol.upper(), "exchange": exchange})
+            while True:
+                frame = await upstream.recv()
+                if isinstance(frame, bytes):
+                    frame = frame.decode("utf-8", errors="replace")
+                await websocket.send_json(kis_stream.normalize_stream_frame(frame))
+    except WebSocketDisconnect:
+        return
+    except ValueError as exc:
+        await websocket.send_json({"kind": "error", "message": str(exc)})
+        await websocket.close(code=4400)
+    except Exception:
+        # Upstream protocol details and credential-bearing data are intentionally not returned.
+        try:
+            await websocket.send_json({"kind": "error", "message": "KIS WebSocket stream is unavailable"})
+            await websocket.close(code=1011)
+        except Exception:
+            pass
 
 
 def _persist_snapshot(save) -> None:
@@ -164,3 +260,45 @@ def analyze_momentum(request: AnalysisRequest) -> AnalysisResponse:
         executable=False,
         reason="Experimental moving-average preview only; requires independent risk checks and paper validation.",
     )
+
+
+@app.post("/api/v1/strategies/orb-vwap/backtest", response_model=QuantBacktestResponse)
+def backtest_orb_vwap_endpoint(request: QuantBacktestRequest) -> QuantBacktestResponse:
+    """Run a local, long-only one-session backtest. It never creates executable orders."""
+    try:
+        bars = [MinuteBar(
+            timestamp=item.timestamp, open=item.open, high=item.high, low=item.low,
+            close=item.close, volume=item.volume, spread_bps=item.spread_bps,
+        ) for item in request.bars]
+        result = backtest_orb_vwap(request.market, request.symbol, bars, QuantConfig(), quantity=request.quantity)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return QuantBacktestResponse(
+        market=result.market, symbol=result.symbol, session=result.session,
+        trades=[trade.__dict__ for trade in result.trades], gross_pnl=result.gross_pnl,
+        costs=result.costs, net_pnl=result.net_pnl, data_points=result.data_points,
+        signals=result.signals, executable=False,
+    )
+
+
+@app.post("/api/v1/ai/models/{model_id}/predict")
+def predict_with_model(
+    model_id: str = Path(pattern=r"^(lightgbm|xgboost)-[a-f0-9]{32}$"),
+    request: AiPredictionRequest = ...,
+) -> dict[str, object]:
+    """Return an advisory probability from a locally registered model; never an order."""
+    try:
+        bars = [MinuteBar(
+            timestamp=item.timestamp, open=item.open, high=item.high, low=item.low,
+            close=item.close, volume=item.volume, spread_bps=item.spread_bps,
+        ) for item in request.bars]
+        registry = LocalModelRegistry(os.getenv("AI_MODEL_REGISTRY_PATH", ".local/models"))
+        result = registry.predict_preview(model_id, bars)
+        result["symbol"] = request.symbol.strip().upper()
+        return result
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

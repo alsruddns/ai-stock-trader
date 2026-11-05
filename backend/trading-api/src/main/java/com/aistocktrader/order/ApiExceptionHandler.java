@@ -3,6 +3,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import com.aistocktrader.kis.KisApiException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -28,5 +29,11 @@ public class ApiExceptionHandler {
     @ResponseStatus(HttpStatus.CONFLICT)
     public Map<String, String> invalidState(IllegalStateException exception) {
         return Map.of("error", exception.getMessage());
+    }
+
+    @ExceptionHandler(KisApiException.class)
+    public org.springframework.http.ResponseEntity<Map<String, String>> kisError(KisApiException exception) {
+        return org.springframework.http.ResponseEntity.status(exception.status())
+                .body(Map.of("error", exception.getMessage()));
     }
 }

@@ -118,6 +118,13 @@ public class OrderService {
         return orders.findById(orderId).orElseThrow(() -> new NoSuchElementException("Order not found."));
     }
 
+    @Transactional(readOnly = true)
+    public OrderRecord getPaperOrderByIdempotencyKey(UUID idempotencyKey) {
+        requirePaperMode();
+        return orders.findByIdempotencyKey(idempotencyKey)
+                .orElseThrow(() -> new NoSuchElementException("Order not found."));
+    }
+
     @Transactional
     public int expireStalePaperOrders(long timeoutSeconds) {
         requirePaperMode();
