@@ -247,7 +247,11 @@ def get_account_balance(
     exchange: str = Query(default="NASD", pattern="^(NASD|NYSE|AMEX)$"),
 ) -> AccountBalance:
     """Read-only KIS balance/positions. Disabled unless explicitly enabled in local env."""
-    if os.getenv("KIS_ACCOUNT_READ_ENABLED", "false").strip().lower() != "true":
+    global_reads_enabled = os.getenv("KIS_ACCOUNT_READ_ENABLED", "false").strip().lower() == "true"
+    environment_reads_enabled = os.getenv(
+        f"KIS_{environment.upper()}_ACCOUNT_READ_ENABLED", "false"
+    ).strip().lower() == "true"
+    if not global_reads_enabled or not environment_reads_enabled:
         raise HTTPException(status_code=503, detail="KIS account reads are disabled")
     settings = KisSettings.from_environment(environment)  # type: ignore[arg-type]
     if not settings.app_key or not settings.app_secret or not settings.account_number:

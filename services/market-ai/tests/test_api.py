@@ -127,6 +127,22 @@ def test_account_balance_route_is_disabled_by_default(monkeypatch) -> None:
     assert response.json()["detail"] == "KIS account reads are disabled"
 
 
+def test_account_balance_route_requires_both_global_and_environment_switches(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_ACCOUNT_READ_ENABLED", "true")
+    monkeypatch.setenv("KIS_REAL_ACCOUNT_READ_ENABLED", "false")
+    response = client.get("/api/v1/accounts/real/KR/balance")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "KIS account reads are disabled"
+
+
+def test_account_balance_route_requires_global_switch_even_when_environment_is_enabled(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_ACCOUNT_READ_ENABLED", "false")
+    monkeypatch.setenv("KIS_PAPER_ACCOUNT_READ_ENABLED", "true")
+    response = client.get("/api/v1/accounts/paper/KR/balance")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "KIS account reads are disabled"
+
+
 def test_quant_backtest_endpoint_accepts_supplied_bars_and_never_creates_orders() -> None:
     response = client.post("/api/v1/strategies/orb-vwap/backtest", json={
         "market": "KR", "symbol": "005930", "bars": [
