@@ -38,6 +38,74 @@ def test_feed_monitor_remains_disabled_without_explicit_opt_in(monkeypatch) -> N
     assert status["automation_state"] == "DISABLED"
 
 
+def test_closed_paper_websocket_bars_are_written_off_loop_with_spread(monkeypatch) -> None:
+    from app import snapshot_store
+
+    stored = []
+    monkeypatch.setattr(snapshot_store, "store_minute_bars", lambda *args, **kwargs: stored.append((args, kwargs)))
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    runtime._bars[watch.key] = deque()
+    runtime._decisions[watch.key] = {}
+    runtime._bar_storage_queue = asyncio.Queue()
+    runtime._set_status(bar_storage_state="RUNNING")
+    bar = MinuteBar(
+        datetime.fromisoformat("2026-11-05T09:00:00+09:00"), Decimal("100"), Decimal("101"),
+        Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
+    )
+
+    async def run_storage():
+        worker = asyncio.create_task(runtime._bar_storage_loop())
+        runtime._record_closed_bar(watch, bar)
+        runtime._queue_bar_storage(watch, bar, {}, {})
+        await asyncio.wait_for(runtime._bar_storage_queue.join(), timeout=1)
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+
+    asyncio.run(run_storage())
+
+    assert stored == [(("KR", "005930", [bar]), {"source": "KIS_PAPER_WEBSOCKET"})]
+    assert runtime.status()["bar_storage_state"] == "RUNNING"
+
+
+def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch) -> None:
+    from app import snapshot_store
+
+    def fail_write(*_args, **_kwargs):
+        raise RuntimeError("database details must not be exposed")
+
+    monkeypatch.setattr(snapshot_store, "store_minute_bars", fail_write)
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    runtime._bars[watch.key] = deque()
+    runtime._decisions[watch.key] = {}
+    runtime._bar_storage_queue = asyncio.Queue()
+    runtime._automation_queue = asyncio.Queue()
+    runtime._set_status(bar_storage_state="RUNNING")
+    bar = MinuteBar(
+        datetime.fromisoformat("2026-11-05T09:00:00+09:00"), Decimal("100"), Decimal("101"),
+        Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
+    )
+
+    async def run_storage():
+        worker = asyncio.create_task(runtime._bar_storage_loop())
+        runtime._record_closed_bar(watch, bar)
+        runtime._queue_bar_storage(watch, bar, {}, {})
+        await asyncio.wait_for(runtime._bar_storage_queue.join(), timeout=1)
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+
+    asyncio.run(run_storage())
+
+    assert runtime.status()["bar_storage_state"] == "ERROR"
+    assert runtime.status()["bar_storage_error"] == "POSTGRES_WRITE_FAILED"
+    assert runtime.status()["automation_state"] == "BLOCKED"
+    assert runtime.status()["automation_error"] == "BAR_PERSISTENCE_UNAVAILABLE"
+    assert "database details" not in str(runtime.status())
+
+
 def test_websocket_reconnect_backoff_survives_short_lived_connections() -> None:
     delay = 1
     delays = []

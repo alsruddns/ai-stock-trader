@@ -15,6 +15,9 @@ class _FakeConnection:
     def __exit__(self, *_args):
         return False
 
+    def cursor(self):
+        return self
+
     def executemany(self, query, rows):
         self.calls.append((query, list(rows)))
 

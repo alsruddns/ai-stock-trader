@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
 
+from . import snapshot_store
 from .ai_pipeline import LocalModelRegistry
 from .kis_stream import StreamSettings, approval_key, normalize_stream_frame, subscription_message
 from .market_stream import MinuteBarAggregator, parse_trade_frame
@@ -69,12 +70,17 @@ class PaperSessionFeedMonitor:
             "ticks_received": 0, "bars_closed": 0, "last_tick_at": None,
             "last_error": None, "orders_enabled": False,
             "automation_state": "DISABLED", "automation_error": None,
+            "bar_storage_state": "DISABLED", "bar_storage_error": None,
         }
         self._aggregators: dict[str, MinuteBarAggregator] = {}
         self._bars: dict[str, deque[MinuteBar]] = {}
         self._decisions: dict[str, dict[str, object]] = {}
         self._automation_queue: asyncio.Queue[tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]] | None = None
         self._automation_task: asyncio.Task | None = None
+        self._bar_storage_queue: asyncio.Queue[
+            tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]
+        ] | None = None
+        self._bar_storage_task: asyncio.Task | None = None
         self._latest_quotes: dict[tuple[str, str], tuple[Decimal, datetime]] = {}
 
     def status(self) -> dict[str, object]:
@@ -118,6 +124,12 @@ class PaperSessionFeedMonitor:
                 "signal": "HOLD", "reason": "WAITING_FOR_CLOSED_BARS", "bars_in_session": 0,
                 "evaluated_at": None, "executable": False,
             }
+        if snapshot_store.enabled():
+            self._bar_storage_queue = asyncio.Queue(maxsize=5_000)
+            self._bar_storage_task = asyncio.create_task(self._bar_storage_loop())
+            self._set_status(bar_storage_state="RUNNING", bar_storage_error=None)
+        else:
+            self._set_status(bar_storage_state="DISABLED", bar_storage_error=None)
         readiness = PaperAutomationReadiness.from_environment()
         if os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true":
             if not readiness.enabled:
@@ -139,6 +151,8 @@ class PaperSessionFeedMonitor:
         self._task = None
         automation_task = self._automation_task
         self._automation_task = None
+        storage_task = self._bar_storage_task
+        self._bar_storage_task = None
         if task is not None:
             task.cancel()
             try:
@@ -151,8 +165,45 @@ class PaperSessionFeedMonitor:
                 await automation_task
             except asyncio.CancelledError:
                 pass
+        if storage_task is not None:
+            queue = self._bar_storage_queue
+            if queue is not None:
+                try:
+                    await asyncio.wait_for(queue.join(), timeout=5)
+                except TimeoutError:
+                    self._set_status(bar_storage_state="DRAIN_TIMEOUT", bar_storage_error="PENDING_BARS_NOT_FLUSHED")
+            storage_task.cancel()
+            try:
+                await storage_task
+            except asyncio.CancelledError:
+                pass
+            self._bar_storage_queue = None
         if self.status().get("enabled"):
             self._set_status(state="STOPPED", enabled=False)
+
+    async def _bar_storage_loop(self) -> None:
+        queue = self._bar_storage_queue
+        if queue is None:
+            return
+        while True:
+            watch, bar, decision, quotes = await queue.get()
+            try:
+                try:
+                    await asyncio.to_thread(
+                        snapshot_store.store_minute_bars, watch.market, watch.symbol, [bar],
+                        source="KIS_PAPER_WEBSOCKET",
+                    )
+                except Exception:
+                    self._set_status(bar_storage_state="ERROR", bar_storage_error="POSTGRES_WRITE_FAILED")
+                    if self._automation_queue is not None:
+                        self._set_status(automation_state="BLOCKED", automation_error="BAR_PERSISTENCE_UNAVAILABLE")
+                if self._automation_queue is not None:
+                    try:
+                        self._automation_queue.put_nowait((watch, bar, decision, quotes))
+                    except asyncio.QueueFull:
+                        self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
+            finally:
+                queue.task_done()
 
     async def _run(self, watches: tuple[PaperWatch, ...], settings: StreamSettings) -> None:
         delay = 1
@@ -221,11 +272,15 @@ class PaperSessionFeedMonitor:
                         self._record_closed_bar(watch, bar)
                         self._status["bars_closed"] = int(self._status["bars_closed"]) + 1
                         if self._automation_queue is not None:
-                            try:
-                                self._automation_queue.put_nowait((watch, bar, dict(self._decisions[watch.key]),
-                                                                  dict(self._latest_quotes)))
-                            except asyncio.QueueFull:
-                                self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
+                            decision = dict(self._decisions[watch.key])
+                            quotes = dict(self._latest_quotes)
+                            if self._bar_storage_queue is not None:
+                                self._queue_bar_storage(watch, bar, decision, quotes)
+                            else:
+                                try:
+                                    self._automation_queue.put_nowait((watch, bar, decision, quotes))
+                                except asyncio.QueueFull:
+                                    self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
 
     async def _automation_loop(self, limits: PaperOpsLimits) -> None:
         broker = SpringPaperBrokerClient()
@@ -249,9 +304,13 @@ class PaperSessionFeedMonitor:
                         self._set_status(automation_state=str(result.get("state", "EXIT_MONITORING")),
                                          automation_error=result.get("reason"),
                                          last_automation_result=result)
-                    entry_result = await asyncio.to_thread(
-                        self._manage_strategy_entry, broker, trader, watch, bar, decision, quotes, limits
-                    )
+                    if (self._bar_storage_queue is not None
+                            and self.status().get("bar_storage_state") != "RUNNING"):
+                        entry_result = {"state": "BLOCKED", "reason": "BAR_PERSISTENCE_UNAVAILABLE"}
+                    else:
+                        entry_result = await asyncio.to_thread(
+                            self._manage_strategy_entry, broker, trader, watch, bar, decision, quotes, limits
+                        )
                     if entry_result is not None:
                         self._set_status(automation_state=str(entry_result.get("state", "EXIT_MONITORING")),
                                          automation_error=entry_result.get("reason"),
@@ -450,6 +509,23 @@ class PaperSessionFeedMonitor:
             "signal": signal, "reason": reason, "bars_in_session": len(history),
             "evaluated_at": bar.timestamp.isoformat(), "model_id": model_id, "executable": False,
         }
+
+    def _queue_bar_storage(
+        self, watch: PaperWatch, bar: MinuteBar, decision: dict[str, object],
+        quotes: dict[tuple[str, str], tuple[Decimal, datetime]],
+    ) -> None:
+        queue = self._bar_storage_queue
+        if queue is None:
+            return
+        try:
+            queue.put_nowait((watch, bar, decision, quotes))
+        except asyncio.QueueFull:
+            self._set_status(bar_storage_state="ERROR", bar_storage_error="BAR_STORAGE_QUEUE_FULL")
+            if self._automation_queue is not None:
+                try:
+                    self._automation_queue.put_nowait((watch, bar, decision, quotes))
+                except asyncio.QueueFull:
+                    self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
 
     def _set_status(self, **values: object) -> None:
         with self._lock:

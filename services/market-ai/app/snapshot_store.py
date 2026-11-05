@@ -43,8 +43,9 @@ def store_minute_bars(market: str, symbol: str, bars: list[MinuteBar], *, source
     if not bars:
         return
     with _connect() as connection:
-        connection.executemany(
-            """INSERT INTO market_minute_bar
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                """INSERT INTO market_minute_bar
                (market, symbol, bar_at, open_price, high_price, low_price, close_price,
                 volume, spread_bps, source)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -53,9 +54,9 @@ def store_minute_bars(market: str, symbol: str, bars: list[MinuteBar], *, source
                  low_price = EXCLUDED.low_price, close_price = EXCLUDED.close_price,
                  volume = EXCLUDED.volume, spread_bps = EXCLUDED.spread_bps,
                  source = EXCLUDED.source, stored_at = now()""",
-            [(market, symbol.upper(), bar.timestamp, bar.open, bar.high, bar.low, bar.close,
-              bar.volume, bar.spread_bps, source) for bar in bars],
-        )
+                [(market, symbol.upper(), bar.timestamp, bar.open, bar.high, bar.low, bar.close,
+                  bar.volume, bar.spread_bps, source) for bar in bars],
+            )
 
 
 def store_account_balance(balance: AccountBalance) -> None:
