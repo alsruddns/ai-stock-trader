@@ -117,6 +117,21 @@ def test_websocket_reconnect_backoff_survives_short_lived_connections() -> None:
     assert PaperSessionFeedMonitor._next_reconnect_delay(30, connected_seconds=60) == 1
 
 
+def test_multi_feed_status_only_reports_running_when_all_streams_are_connected() -> None:
+    runtime = PaperSessionFeedMonitor()
+    runtime._set_status(stream_connections={"paper": "CONNECTING", "real": "CONNECTING"})
+
+    runtime._set_connection_state("paper", "RUNNING")
+    assert runtime.status()["state"] == "PARTIAL"
+
+    runtime._set_connection_state("real", "RUNNING")
+    assert runtime.status()["state"] == "RUNNING"
+
+    runtime._set_connection_state("real", "RECONNECTING")
+    assert runtime.status()["state"] == "RECONNECTING"
+    assert runtime.status()["last_error"] == "KIS_STREAM_UNAVAILABLE"
+
+
 def test_websocket_run_keeps_backoff_across_repeated_short_connections(monkeypatch) -> None:
     class DroppingConnection:
         async def __aenter__(self):

@@ -284,8 +284,17 @@ class PaperSessionFeedMonitor:
             connections = dict(self._status.get("stream_connections", {}))
             connections[environment] = state
             self._status["stream_connections"] = connections
-            self._status["state"] = "RECONNECTING" if "RECONNECTING" in connections.values() else "RUNNING"
-            self._status["last_error"] = "KIS_STREAM_UNAVAILABLE" if self._status["state"] == "RECONNECTING" else None
+            states = tuple(connections.values())
+            if "RECONNECTING" in states:
+                aggregate = "RECONNECTING"
+            elif all(feed_state == "RUNNING" for feed_state in states):
+                aggregate = "RUNNING"
+            elif "RUNNING" in states:
+                aggregate = "PARTIAL"
+            else:
+                aggregate = "CONNECTING"
+            self._status["state"] = aggregate
+            self._status["last_error"] = "KIS_STREAM_UNAVAILABLE" if aggregate == "RECONNECTING" else None
 
     @staticmethod
     def _next_reconnect_delay(current_delay: int, connected_seconds: float, *, stable_seconds: int = 60) -> int:
