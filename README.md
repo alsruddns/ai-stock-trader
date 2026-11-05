@@ -19,7 +19,7 @@ backend/.../db/migration Flyway PostgreSQL 스키마 변경
 frontend/dashboard/      Next.js 조회 전용 운영 대시보드
 ```
 
-Python은 국내·미국 KIS 시세·계좌 읽기 기반을 제공하고, Spring은 KIS 계좌조회와 paper 주문·위험 관리 API를 제공합니다. PAPER KIS 자격증명은 `.env_local`에 입력되어 있습니다. 계좌번호 형식 검증과 실제 읽기 전용 스모크 테스트는 아직 완료되지 않았습니다. REST 현재가 조회는 실시간 WebSocket 스트림이 아니며 응답 시각은 조회 시각입니다.
+Python은 국내·미국 KIS 시세·계좌 읽기 기반을 제공하고, Spring은 KIS 계좌조회와 paper 주문·위험 관리 API를 제공합니다. PAPER KIS 국내·미국 현재가 읽기는 통과했습니다. PAPER 잔고 조회는 KIS 계좌 오류(`OPSQ2000`)를 반환해 계좌 연결 확인이 남아 있습니다. REST 현재가 조회는 실시간 WebSocket 스트림이 아니며 응답 시각은 조회 시각입니다.
 
 ## 준비
 

@@ -18,13 +18,13 @@ The official sample lists `NASD`, `NYSE`, and `AMEX` for PAPER balance lookups; 
 | Korea | `/uapi/domestic-stock/v1/quotations/inquire-price` | `FHKST01010100` | `FHKST01010100` | Uses `FID_COND_MRKT_DIV_CODE=J` and `FID_INPUT_ISCD`; matches the current official sample for KRX-listed stocks. |
 | United States | `/uapi/overseas-price/v1/quotations/price` | `HHDFS00000300` | `HHDFS00000300` | Uses `AUTH` (empty as in the official sample), `EXCD`, and `SYMB`; supports configured `NAS`, `NYS`, and `AMS` exchanges. |
 
-These REST endpoints provide quote snapshots. The official domestic example directs clients to WebSocket for real-time quotes; the project's separate WebSocket stream is therefore the real-time path. The current quote contract matches the official examples, but credentials, market-data entitlement, exchange-code acceptance, and returned quote fields still require an authenticated PAPER smoke test.
+These REST endpoints provide quote snapshots. The official domestic example directs clients to WebSocket for real-time quotes; the project's separate WebSocket stream is therefore the real-time path. Authenticated PAPER smoke on 2026-11-06 returned valid KIS REST quote contracts for KR symbol 005930 and US symbol AAPL. This verifies these two quote requests only; it does not validate account access, WebSocket continuity, or trading entitlement.
 
 ## Security and verification status
 
 - Account reads require both `KIS_ACCOUNT_READ_ENABLED=true` and the environment-specific switch. Both remain false by default.
 - REAL and PAPER credentials are separate. Secrets and account numbers must remain in the ignored local `.env_local` file.
-- This source review is not an authenticated KIS integration test. In the current local environment credentials are not configured; Spring and Python return `503` with an account-read-disabled message before making a KIS request.
+- Authenticated PAPER account smoke on 2026-11-06 reached KIS for both domestic and US balance GETs, and both returned `OPSQ2000`. The official KIS error table defines this as `INPUT INVALID_CHECK_ACNO`; the account identity or PAPER account pairing remains unresolved. No order request was sent. The local PAPER account-read gates are enabled for diagnosis; REAL account reads remain disabled.
 - This project has not enabled live orders. The read-only account path must not be used as evidence that order submission, market data entitlement, or fill reconciliation is verified.
 
 ## WebSocket market data
@@ -37,6 +37,7 @@ The official KIS WebSocket sample answers a JSON `PINGPONG` message by sending i
 - [KIS official overseas stock balance example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/overseas_stock/overseas_stock_functions.py)
 - [KIS official domestic quote example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_price/inquire_price.py)
 - [KIS official overseas quote example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/overseas_stock/price/price.py)
+- [KIS Developers error code reference](https://apiportal.koreainvestment.com/faq-error-code)
 - [KIS Developers portal](https://apiportal.koreainvestment.com/)
 
 Recheck these references and the API portal before changing transaction IDs, fields, pagination behavior, or account environment handling.
