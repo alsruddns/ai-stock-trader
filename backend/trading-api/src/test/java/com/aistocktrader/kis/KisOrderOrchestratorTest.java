@@ -44,9 +44,9 @@ class KisOrderOrchestratorTest {
     void duplicateRequestReturnsExistingIntentWithoutSendingAgain() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();
-        KisOrderIntent existing = new KisOrderIntent(key, "same-hash", request);
+        KisOrderIntent existing = new KisOrderIntent(key, "same-hash", request, null);
         existing.markUnknown();
-        when(intents.prepare(any(), anyString(), any())).thenReturn(new KisOrderIntentStore.PreparedIntent(existing, false));
+        when(intents.prepare(any(), anyString(), any(), nullable(String.class))).thenReturn(new KisOrderIntentStore.PreparedIntent(existing, false));
 
         KisOrderIntentResponse response = orchestrator.submitPaperOrder(key, request, null);
 
@@ -59,8 +59,8 @@ class KisOrderOrchestratorTest {
     void insufficientCashRejectsBeforeBrokerOrderCall() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();
-        KisOrderIntent intent = new KisOrderIntent(key, "hash", request);
-        when(intents.prepare(any(), anyString(), any())).thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", request, null);
+        when(intents.prepare(any(), anyString(), any(), nullable(String.class))).thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
         when(accounts.getBalance(any(), any(), any(), any(), anyString())).thenReturn(
                 new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR, "KRW", BigDecimal.ZERO,
                         new BigDecimal("50000"), List.of(), Instant.now(), "test"));
@@ -80,8 +80,8 @@ class KisOrderOrchestratorTest {
     void uncertainBrokerOutcomeIsPersistedAndNeverRetriedAutomatically() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();
-        KisOrderIntent intent = new KisOrderIntent(key, "hash", request);
-        when(intents.prepare(any(), anyString(), any())).thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", request, null);
+        when(intents.prepare(any(), anyString(), any(), nullable(String.class))).thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
         when(accounts.getBalance(any(), any(), any(), any(), anyString())).thenReturn(
                 new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR, "KRW", BigDecimal.ZERO,
                         new BigDecimal("100000"), List.of(), Instant.now(), "test"));
@@ -100,9 +100,9 @@ class KisOrderOrchestratorTest {
     void databaseDuplicateRaceReadsExistingIntentWithoutBrokerSubmission() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();
-        KisOrderIntent existing = new KisOrderIntent(key, "hash", request);
+        KisOrderIntent existing = new KisOrderIntent(key, "hash", request, null);
         existing.markUnknown();
-        when(intents.prepare(any(), anyString(), any())).thenThrow(new DataIntegrityViolationException("duplicate"));
+        when(intents.prepare(any(), anyString(), any(), nullable(String.class))).thenThrow(new DataIntegrityViolationException("duplicate"));
         when(intents.get(key)).thenReturn(existing);
 
         KisOrderIntentResponse response = orchestrator.submitPaperOrder(key, request, null);
@@ -116,7 +116,7 @@ class KisOrderOrchestratorTest {
         KisOrderOrchestrator locked = new KisOrderOrchestrator(orders, accounts, new KisOrderProperties(false),
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")), intents);
         assertThrows(IllegalStateException.class, () -> locked.submitPaperOrder(UUID.randomUUID(), buyRequest(), null));
-        verify(intents, never()).prepare(any(), anyString(), any());
+        verify(intents, never()).prepare(any(), anyString(), any(), nullable(String.class));
     }
 
     private static OrderRequest buyRequest() {

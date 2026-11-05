@@ -6,7 +6,10 @@ import com.aistocktrader.order.OrderSide;
 import com.aistocktrader.config.TradingSafetyProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.http.MediaType;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.stereotype.Component;
+import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -14,9 +17,13 @@ import org.springframework.web.client.RestClientResponseException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** Internal paper-only KIS order adapter. No public trading controller uses it in this phase. */
@@ -111,6 +118,120 @@ public class KisOrderClient {
                     "OVRS_ORD_UNPR", "0", "MGCO_APTM_ODNO", "", "ORD_SVR_DVSN_CD", "0");
         }
         post(path, trId, body);
+    }
+
+    public Optional<KisBrokerOrderSnapshot> reconcilePaperOrder(KisOrderIntent intent) {
+        requirePaperOrdersEnabled();
+        KisProperties.Account credentials = properties.credentials(KisEnvironment.PAPER);
+        String account = credentials.accountNumber();
+        LocalDate orderDate = intent.getCreatedAt().atZone(intent.getMarket() == Market.KR
+                ? ZoneId.of("Asia/Seoul") : ZoneId.of("America/New_York")).toLocalDate();
+        String date = orderDate.format(DateTimeFormatter.BASIC_ISO_DATE);
+        String path;
+        String trId;
+        MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+        params.add("CANO", account.substring(0, 8));
+        params.add("ACNT_PRDT_CD", account.substring(8));
+        String continuation = "";
+        String nextKey = "";
+        String nextSearch = "";
+        for (int page = 0; page < 10; page++) {
+            if (intent.getMarket() == Market.KR) {
+                path = "/uapi/domestic-stock/v1/trading/inquire-daily-ccld";
+                trId = "VTTC0081R";
+                params.set("INQR_STRT_DT", date); params.set("INQR_END_DT", date);
+                params.set("SLL_BUY_DVSN_CD", "00"); params.set("PDNO", intent.getSymbol());
+                params.set("CCLD_DVSN", "00"); params.set("INQR_DVSN", "00");
+                params.set("INQR_DVSN_3", "00"); params.set("ORD_GNO_BRNO", "");
+                params.set("ODNO", intent.getBrokerOrderNumber()); params.set("INQR_DVSN_1", "");
+                params.set("EXCG_ID_DVSN_CD", "KRX");
+                params.set("CTX_AREA_FK100", nextSearch); params.set("CTX_AREA_NK100", nextKey);
+            } else {
+                path = "/uapi/overseas-stock/v1/trading/inquire-ccnl";
+                trId = "VTTS3035R";
+                params.set("PDNO", ""); params.set("ORD_STRT_DT", date); params.set("ORD_END_DT", date);
+                params.set("SLL_BUY_DVSN", "00"); params.set("CCLD_NCCS_DVSN", "00");
+                params.set("OVRS_EXCG_CD", ""); params.set("SORT_SQN", "DS");
+                params.set("ORD_DT", ""); params.set("ORD_GNO_BRNO", ""); params.set("ODNO", "");
+                params.set("CTX_AREA_FK200", nextSearch); params.set("CTX_AREA_NK200", nextKey);
+            }
+            BrokerQueryResponse queryResponse = getPaper(path, trId, params, continuation, credentials);
+            JsonNode response = queryResponse.body();
+            if (!"0".equals(response.path("rt_cd").asText())) {
+                throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
+                        "KIS order reconciliation failed (code " + safeCode(response.path("msg_cd").asText("unknown")) + ").");
+            }
+            JsonNode rows = response.path(intent.getMarket() == Market.KR ? "output1" : "output");
+            if (rows.isArray()) {
+                for (JsonNode row : rows) {
+                    if (intent.getBrokerOrderNumber().equals(firstText(row, "odno", "ODNO"))) {
+                        return parseSnapshot(row, intent);
+                    }
+                }
+            }
+            String headerContinuation = queryResponse.continuation();
+            if (!"M".equalsIgnoreCase(headerContinuation) && !"F".equalsIgnoreCase(headerContinuation)) break;
+            continuation = "N";
+            if (intent.getMarket() == Market.KR) {
+                nextSearch = response.path("ctx_area_fk100").asText("");
+                nextKey = response.path("ctx_area_nk100").asText("");
+            } else {
+                nextSearch = response.path("ctx_area_fk200").asText("");
+                nextKey = response.path("ctx_area_nk200").asText("");
+            }
+        }
+        return Optional.empty();
+    }
+
+    private BrokerQueryResponse getPaper(String path, String trId, MultiValueMap<String, String> params,
+                              String continuation, KisProperties.Account credentials) {
+        try {
+            var uriBuilder = UriComponentsBuilder.fromUriString(KisEnvironment.PAPER.baseUrl() + path);
+            params.forEach((key, values) -> values.forEach(value -> uriBuilder.queryParam(key, value)));
+            var response = http.get().uri(uriBuilder.build().encode().toUri())
+                    .header("authorization", "Bearer " + accessToken(credentials))
+                    .header("appkey", credentials.appKey()).header("appsecret", credentials.appSecret())
+                    .header("tr_id", trId).header("custtype", "P").header("tr_cont", continuation)
+                    .accept(MediaType.APPLICATION_JSON).retrieve().toEntity(JsonNode.class);
+            return new BrokerQueryResponse(response.getBody(), response.getHeaders().getFirst("tr_cont"));
+        } catch (ResourceAccessException | RestClientResponseException exception) {
+            throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "KIS order reconciliation request failed.");
+        }
+    }
+
+    private record BrokerQueryResponse(JsonNode body, String continuation) { }
+
+    private static Optional<KisBrokerOrderSnapshot> parseSnapshot(JsonNode row, KisOrderIntent intent) {
+        Integer filled = integer(row, "tot_ccld_qty", "ft_ccld_qty", "ccld_qty", "filled_qty");
+        Integer remaining = integer(row, "rmn_qty", "nccs_qty", "unfilled_qty", "remaining_qty");
+        if (filled == null && remaining == null) return Optional.empty();
+        if (filled == null) filled = Math.max(0, intent.getQuantity() - remaining);
+        if (remaining == null) remaining = Math.max(0, intent.getQuantity() - filled);
+        BigDecimal average = decimal(row, "avg_prvs", "ft_ccld_unpr3", "avg_ccld_unpr");
+        boolean cancelled = "Y".equalsIgnoreCase(firstText(row, "cncl_yn", "cncl_cfm_yn", "cancel_yn"));
+        Integer rejectedQuantity = integer(row, "rjct_qty", "rejected_qty");
+        return Optional.of(new KisBrokerOrderSnapshot(filled, remaining, average, cancelled,
+                rejectedQuantity != null && rejectedQuantity > 0));
+    }
+
+    private static Integer integer(JsonNode row, String... fields) {
+        String value = firstText(row, fields);
+        try { return value.isBlank() ? null : Integer.parseInt(value); }
+        catch (NumberFormatException ignored) { return null; }
+    }
+
+    private static BigDecimal decimal(JsonNode row, String... fields) {
+        String value = firstText(row, fields);
+        try { return value.isBlank() ? null : new BigDecimal(value); }
+        catch (NumberFormatException ignored) { return null; }
+    }
+
+    private static String firstText(JsonNode row, String... fields) {
+        for (String field : fields) {
+            String value = row.path(field).asText("");
+            if (!value.isBlank()) return value;
+        }
+        return "";
     }
 
     private JsonNode post(String path, String trId, Map<String, String> body) {
