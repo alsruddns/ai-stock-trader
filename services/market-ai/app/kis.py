@@ -1,4 +1,4 @@
-"""Read-only KIS REST quote client. This module contains no order or account APIs."""
+"""Read-only KIS REST quote and account client. No order APIs are implemented."""
 
 from __future__ import annotations
 
@@ -30,17 +30,20 @@ class KisSettings:
     environment: Literal["paper", "real"]
     app_key: str
     app_secret: str
+    account_number: str = ""
 
     @classmethod
-    def from_environment(cls) -> "KisSettings":
-        mode = os.getenv("KIS_ENVIRONMENT", "paper").strip().lower()
+    def from_environment(cls, environment: Literal["paper", "real"] | None = None) -> "KisSettings":
+        mode = (environment or os.getenv("KIS_ENVIRONMENT", "paper")).strip().lower()
         if mode not in {"paper", "real"}:
             raise ValueError("KIS_ENVIRONMENT must be paper or real")
+        suffix = mode.upper()
         return cls(
             enabled=os.getenv("KIS_MARKET_DATA_ENABLED", "false").strip().lower() == "true",
             environment=mode,  # type: ignore[arg-type]
-            app_key=os.getenv("KIS_APP_KEY", "").strip(),
-            app_secret=os.getenv("KIS_APP_SECRET", "").strip(),
+            app_key=os.getenv(f"KIS_{suffix}_APP_KEY", "").strip(),
+            app_secret=os.getenv(f"KIS_{suffix}_APP_SECRET", "").strip(),
+            account_number=os.getenv(f"KIS_{suffix}_ACCOUNT_NUMBER", "").strip().replace("-", ""),
         )
 
     @property
@@ -60,6 +63,17 @@ class Quote:
     volume: int | None
     retrieved_at: datetime
     source: str = "KIS_REST_SNAPSHOT"
+
+
+@dataclass(frozen=True)
+class AccountBalance:
+    environment: Literal["paper", "real"]
+    market: Market
+    currency: str
+    summary: dict[str, Any]
+    positions: list[dict[str, Any]]
+    retrieved_at: datetime
+    source: str = "KIS_REST_ACCOUNT_SNAPSHOT"
 
 
 def _decimal(value: Any, field: str) -> Decimal | None:
@@ -202,6 +216,76 @@ class KisReadOnlyClient:
             change=change,
             change_percent=change_percent,
             volume=volume,
+            retrieved_at=datetime.now(timezone.utc),
+        )
+
+    def get_account_balance(self, market: Market, *, overseas_exchange: str = "NASD") -> AccountBalance:
+        """Read balances/positions. Results intentionally omit account identifiers."""
+        account = self.settings.account_number
+        if len(account) != 10 or not account.isdigit():
+            raise ValueError("KIS account number must contain 10 digits (8 + 2)")
+        cano, product = account[:8], account[8:]
+        if market == "KR":
+            path = "/uapi/domestic-stock/v1/trading/inquire-balance"
+            tr_id = "VTTC8434R" if self.settings.environment == "paper" else "TTTC8434R"
+            params = {
+                "CANO": cano, "ACNT_PRDT_CD": product, "AFHR_FLPR_YN": "N", "OFL_YN": "",
+                "INQR_DVSN": "01", "UNPR_DVSN": "01", "FUND_STTL_ICLD_YN": "N",
+                "FNCG_AMT_AUTO_RDPT_YN": "N", "PRCS_DVSN": "00",
+                "CTX_AREA_FK100": "", "CTX_AREA_NK100": "",
+            }
+            currency = "KRW"
+        elif market == "US":
+            if overseas_exchange not in {"NASD", "NYSE", "AMEX"}:
+                raise ValueError("overseas_exchange must be NASD, NYSE, or AMEX")
+            path = "/uapi/overseas-stock/v1/trading/inquire-balance"
+            tr_id = "VTTS3012R" if self.settings.environment == "paper" else "TTTS3012R"
+            params = {
+                "CANO": cano, "ACNT_PRDT_CD": product, "OVRS_EXCG_CD": overseas_exchange,
+                "TR_CRCY_CD": "USD", "CTX_AREA_FK200": "", "CTX_AREA_NK200": "",
+            }
+            currency = "USD"
+        else:
+            raise ValueError("market must be KR or US")
+
+        try:
+            response = self._http.get(
+                f"{self.settings.base_url}{path}",
+                headers={
+                    "authorization": f"Bearer {self._access_token()}", "appkey": self.settings.app_key,
+                    "appsecret": self.settings.app_secret, "tr_id": tr_id, "custtype": "P",
+                },
+                params=params,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except KisApiError:
+            raise
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise KisApiError("KIS account balance request failed") from exc
+
+        if payload.get("rt_cd") != "0":
+            code = str(payload.get("msg_cd", "unknown"))[:32]
+            raise KisApiError(f"KIS rejected the account request (code {code})")
+        if market == "KR":
+            summary = payload.get("output2")
+            rows = payload.get("output1")
+        else:
+            summary = payload.get("output1")
+            rows = payload.get("output2")
+        if isinstance(summary, list):
+            summary = summary[0] if summary else {}
+        if not isinstance(summary, dict) or not isinstance(rows, list):
+            raise KisApiError("KIS account response was missing balance fields")
+        # Return only explicitly allowed business fields; never expose account numbers or raw payloads.
+        summary_keys = ("dnca_tot_amt", "tot_evlu_amt", "nass_amt", "frcr_dncl_amt_2", "tot_pftrt", "evlu_pfls_smtl_amt")
+        position_keys = ("pdno", "prdt_name", "hldg_qty", "ord_psbl_qty", "pchs_avg_pric", "prpr", "evlu_amt", "evlu_pfls_amt", "evlu_pfls_rt", "ovrs_pdno", "ovrs_item_name", "ovrs_cblc_qty", "ord_psbl_qty", "avg_unpr3", "now_pric2", "ovrs_stck_evlu_amt", "frcr_evlu_pfls_amt")
+        return AccountBalance(
+            environment=self.settings.environment,
+            market=market,
+            currency=currency,
+            summary={key: value for key, value in summary.items() if key in summary_keys},
+            positions=[{key: value for key, value in row.items() if key in position_keys} for row in rows if isinstance(row, dict)],
             retrieved_at=datetime.now(timezone.utc),
         )
 

@@ -1,12 +1,15 @@
 from enum import StrEnum
 from functools import lru_cache
+import os
 import re
 from datetime import datetime
 from decimal import Decimal
 
 from fastapi import Depends, FastAPI, HTTPException, Path, Query
+import psycopg
 from pydantic import BaseModel, Field
-from .kis import Exchange, KisApiError, KisReadOnlyClient, KisSettings, Market, Quote
+from .kis import AccountBalance, Exchange, KisApiError, KisReadOnlyClient, KisSettings, Market, Quote
+from . import snapshot_store
 
 app = FastAPI(
     title="AI Stock Trader Market Analysis",
@@ -64,6 +67,16 @@ class QuoteResponse(BaseModel):
     source: str
 
 
+class AccountBalanceResponse(BaseModel):
+    environment: str
+    market: Market
+    currency: str
+    summary: dict[str, object]
+    positions: list[dict[str, object]]
+    retrieved_at: datetime
+    source: str
+
+
 @app.get("/api/v1/health")
 def health() -> dict[str, str | bool]:
     settings = KisSettings.from_environment()
@@ -87,11 +100,47 @@ def get_quote(
     if market == "KR" and not re.fullmatch(r"\d{6}", symbol):
         raise HTTPException(status_code=422, detail="KR symbols must be six digits")
     try:
-        return client.get_quote(market, symbol, exchange)
+        quote = client.get_quote(market, symbol, exchange)
+        _persist_snapshot(lambda: snapshot_store.store_quote(quote))
+        return quote
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KisApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+def _persist_snapshot(save) -> None:
+    if not snapshot_store.enabled():
+        return
+    try:
+        save()
+    except psycopg.Error as exc:
+        raise HTTPException(status_code=503, detail="KIS snapshot storage is unavailable") from exc
+
+
+@app.get("/api/v1/accounts/{environment}/{market}/balance", response_model=AccountBalanceResponse)
+def get_account_balance(
+    environment: str = Path(pattern="^(paper|real)$"),
+    market: Market = Path(),
+    exchange: str = Query(default="NASD", pattern="^(NASD|NYSE|AMEX)$"),
+) -> AccountBalance:
+    """Read-only KIS balance/positions. Disabled unless explicitly enabled in local env."""
+    if os.getenv("KIS_ACCOUNT_READ_ENABLED", "false").strip().lower() != "true":
+        raise HTTPException(status_code=503, detail="KIS account reads are disabled")
+    settings = KisSettings.from_environment(environment)  # type: ignore[arg-type]
+    if not settings.app_key or not settings.app_secret or not settings.account_number:
+        raise HTTPException(status_code=503, detail="KIS account credentials are not configured")
+    client = KisReadOnlyClient(settings)
+    try:
+        balance = client.get_account_balance(market, overseas_exchange=exchange)
+        _persist_snapshot(lambda: snapshot_store.store_account_balance(balance))
+        return balance
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KisApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        client.close()
 
 
 @app.post("/api/v1/analysis/momentum", response_model=AnalysisResponse)

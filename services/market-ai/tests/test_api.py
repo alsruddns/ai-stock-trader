@@ -67,3 +67,10 @@ def test_quote_route_returns_normalized_snapshot() -> None:
         assert response.json()["source"] == "KIS_REST_SNAPSHOT"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_account_balance_route_is_disabled_by_default(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_ACCOUNT_READ_ENABLED", "false")
+    response = client.get("/api/v1/accounts/real/KR/balance")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "KIS account reads are disabled"

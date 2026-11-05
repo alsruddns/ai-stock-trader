@@ -95,3 +95,57 @@ def test_non_successful_kis_response_fails_closed() -> None:
         client.get_quote("KR", "005930")
     assert "sensitive" not in str(exc.value)
     client.close()
+
+
+@pytest.mark.parametrize(
+    ("market", "environment", "expected_path", "expected_tr", "body"),
+    [
+        ("KR", "paper", "/uapi/domestic-stock/v1/trading/inquire-balance", "VTTC8434R", {
+            "rt_cd": "0", "output1": [{"pdno": "005930", "hldg_qty": "2", "CANO": "do-not-return"}],
+            "output2": {"dnca_tot_amt": "100000", "secret_field": "do-not-return"},
+        }),
+        ("US", "real", "/uapi/overseas-stock/v1/trading/inquire-balance", "TTTS3012R", {
+            "rt_cd": "0", "output1": {"frcr_dncl_amt_2": "50.00"},
+            "output2": [{"ovrs_pdno": "AAPL", "ovrs_cblc_qty": "1", "CANO": "do-not-return"}],
+        }),
+    ],
+)
+def test_account_balance_uses_environment_specific_read_only_contract(
+    market: str, environment: str, expected_path: str, expected_tr: str, body: dict[str, object]
+) -> None:
+    requests_seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests_seen.append(request)
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        return httpx.Response(200, json=body)
+
+    client = KisReadOnlyClient(
+        KisSettings(True, environment, "test-key", "test-secret", "1234567801"),  # type: ignore[arg-type]
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    balance = client.get_account_balance(market)  # type: ignore[arg-type]
+
+    request = requests_seen[-1]
+    assert request.method == "GET"
+    assert request.url.path == expected_path
+    assert request.headers["tr_id"] == expected_tr
+    assert request.url.params["CANO"] == "12345678"
+    assert request.url.params["ACNT_PRDT_CD"] == "01"
+    assert balance.environment == environment
+    assert "CANO" not in str(balance)
+    assert "secret_field" not in str(balance)
+    client.close()
+
+
+def test_invalid_account_number_is_rejected_before_network_request() -> None:
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", "not-an-account"),
+        http_client=httpx.Client(transport=httpx.MockTransport(
+            lambda request: pytest.fail("invalid account must not make a request")
+        )),
+    )
+    with pytest.raises(ValueError, match="10 digits"):
+        client.get_account_balance("KR")
+    client.close()

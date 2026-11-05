@@ -1,4 +1,4 @@
-# AI Stock Trader — P1 시작점
+# AI Stock Trader — P1 기반
 
 Windows 로컬에서 실행하는 국내·미국 주식 자동매매 프로젝트의 첫 개발 기반입니다.
 
@@ -8,7 +8,7 @@ Windows 로컬에서 실행하는 국내·미국 주식 자동매매 프로젝�
 - 개발 변경과 푸시는 `develop`에서만 진행합니다.
 - 기능 검토와 준비가 끝난 경우에만 `develop`을 `main`에 반영합니다.
 
-> **P1 안전 범위:** 주문 API는 모의 주문만 저장합니다. `LIVE_TRADING_ENABLED=true` 또는 `TRADING_MODE`를 `paper` 이외 값으로 설정하면 Spring Boot가 시작을 거부합니다. Python 서비스의 KIS 연결은 기본 비활성인 읽기 전용 가격 조회뿐입니다. 이 저장소에는 실주문 어댑터가 없습니다.
+> **안전 범위:** 주문 API는 모의 주문만 저장합니다. `LIVE_TRADING_ENABLED=true` 또는 `TRADING_MODE`를 `paper` 이외 값으로 설정하면 Spring Boot가 시작을 거부합니다. Python KIS 연동은 가격·계좌 조회 전용이며 주문 API는 구현하지 않았습니다. 계좌 조회는 기본 잠금 상태입니다.
 
 ## 구성
 
@@ -19,7 +19,7 @@ backend/.../db/migration Flyway PostgreSQL 초기 스키마
 compose.yaml             PostgreSQL 로컬 컨테이너
 ```
 
-KIS 현재가 조회는 Python 서비스에서 읽기 전용으로 지원합니다. 기본값은 비활성화이며, 설정해도 국내·미국 가격 스냅샷 GET만 호출합니다. 주문, 잔고, 체결 내역 호출은 없습니다. REST 현재가 조회는 실시간 WebSocket 스트림이 아니며 응답 시각은 조회 시각으로만 기록합니다.
+KIS 국내·미국 현재가 및 계좌 잔고 조회는 Python 서비스에서 읽기 전용으로 지원합니다. 가격 조회와 계좌 조회는 각각 기본 비활성화되어 있습니다. 계좌 조회는 국내/해외 주식 잔고 GET만 요청하며 계좌번호는 결과에서 제외합니다. REST 현재가 조회는 실시간 WebSocket 스트림이 아니며 응답 시각은 조회 시각입니다.
 
 ## 준비
 
@@ -59,7 +59,7 @@ python -m pip install -e ".[dev]"
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --env-file ../../.env
 ```
 
-KIS 현재가 조회를 사용할 때만 `.env`에 모의투자 App Key와 App Secret을 입력하고 `KIS_MARKET_DATA_ENABLED=true`로 설정하세요. `KIS_ENVIRONMENT=paper`는 모의투자 도메인을 선택합니다. 계좌번호는 시세 조회에 필요하지 않습니다. 비활성 상태에서는 `/api/v1/market/quotes/...`가 KIS를 호출하지 않고 `503`을 반환합니다.
+KIS 조회를 쓸 때는 `.env`의 해당 환경 키를 입력하세요. 모의와 실전 자격증명을 각각 `KIS_PAPER_*`, `KIS_REAL_*`에 넣습니다. 가격 조회에 `KIS_MARKET_DATA_ENABLED=true`가 필요하고, 계좌 잔고에는 별도로 `KIS_ACCOUNT_READ_ENABLED=true`가 필요합니다. 두 기능 모두 기본 `false`입니다. `KIS_ENVIRONMENT`는 가격 조회 환경을 선택합니다.
 
 - Spring 상태: `http://localhost:8080/api/v1/health`
 - Python 상태: `http://localhost:8000/api/v1/health`
@@ -71,6 +71,15 @@ KIS 모의 현재가 조회 예시 (선택 기능):
 Invoke-RestMethod http://localhost:8000/api/v1/market/quotes/KR/005930
 Invoke-RestMethod 'http://localhost:8000/api/v1/market/quotes/US/AAPL?exchange=NAS'
 ```
+
+계좌 조회는 명시적으로 활성화한 후 환경과 시장을 URL에 지정합니다. 계좌번호는 KIS가 요구하는 8자리+2자리 총 10자리 형식으로 `.env`에 저장하세요. 조회 결과에는 계좌번호가 포함되지 않습니다.
+
+```powershell
+Invoke-RestMethod http://localhost:8000/api/v1/accounts/paper/KR/balance
+Invoke-RestMethod 'http://localhost:8000/api/v1/accounts/real/US/balance?exchange=NASD'
+```
+
+실전 계좌 경로는 읽기 전용 잔고 GET만 합니다. 실주문은 계속 잠겨 있으며 이 경로는 주문을 전송하지 않습니다.
 
 Paper 주문 미리보기:
 
@@ -87,11 +96,13 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/orders/paper `
 
 ```powershell
 cd backend/trading-api
-mvn test
+.\mvnw.cmd test
 cd ../../services/market-ai
 python -m pip install -e ".[dev]"
 python -m pytest
 ```
+
+Spring Boot는 Maven으로 빌드합니다. 프로젝트에 포함된 `mvnw.cmd`를 사용하므로 Maven을 별도로 설치할 필요가 없습니다. Gradle 빌드 구성은 없습니다.
 
 ## 비밀정보 취급
 
@@ -102,13 +113,15 @@ python -m pytest
 
 Docker를 선호하면 기존 PostgreSQL 대신 컨테이너 DB도 선택할 수 있습니다. 이 경우 Docker Desktop을 켠 상태에서 `docker compose up -d postgres`를 실행하고, `.env`의 DB 접속 암호를 동일하게 사용하세요.
 
-## 아직 필요한 개발
+## 단계별 개발 순서
 
-1. KIS 시세 인증과 국내/미국 시세 어댑터를 읽기 전용으로 구현하고 호출 제한·토큰 수명·장 운영시간을 확인합니다.
-2. 데이터 품질·시장 캘린더·체결 및 환율 모델을 정한 뒤 paper broker와 주문 상태 동기화를 구현합니다.
-3. 전략 검증, 포지션·일일 손실 한도, 킬 스위치, 감사기록, 재시작 복구와 모의 계좌 E2E 검증을 진행합니다.
-4. 운영 접근제어·인증·관측성 및 별도의 보안 검토를 완료하기 전에는 로컬 개발 환경을 벗어나지 않습니다.
-5. 실거래는 별도 구현, 검토와 명시적 승인 전까지 비활성 상태를 유지합니다.
+- **P1 — 기반·KIS 읽기 전용 연결:** 완료. 국내·미국 시세, 국내·해외 잔고 스냅샷 API와 PostgreSQL 저장 구조를 추가했습니다. KIS 실제 연결은 로컬 `.env`에 각 환경 자격증명을 입력한 후 선택적으로 확인합니다.
+- **P2 — 주문·리스크 엔진:** 다음 단계. 상태 전이, paper broker, 모의 체결, 보유 포지션·잔고 동기화, 중복·부분체결·타임아웃·재시작 복구를 구현합니다.
+- **P3 — 전략·백테스트:** VWAP/시초가 돌파 전략, 비용·슬리피지 모델, 과거 데이터 검증과 미래 데이터 누수 방지를 구현합니다.
+- **P4 — AI 모델:** 피처 생성, LightGBM/XGBoost 후보 비교, 모델 버전·학습 분리 검증을 구현합니다.
+- **P5 — 자동 모의매매:** 국내·미국 장 운영 시간, 신호·paper 주문 자동화, 체결 감시, 장 마감 처리와 장시간 안정성을 구현합니다.
+- **P6 — 실거래 준비 코드:** 주문 어댑터·제한·감사·복구 검증을 별도로 구현합니다. 실주문 활성화는 별도의 명시적 승인 전까지 잠금 상태로 둡니다.
+- **P7 — 운영 고도화:** 공시·뉴스, 전략 비교, 모델 재학습·롤백, 운영 보고서와 장애 시 자동 중단을 추가합니다.
 
 ## 공식 참고자료
 
@@ -116,6 +129,8 @@ Docker를 선호하면 기존 PostgreSQL 대신 컨테이너 DB도 선택할 수
 - [한국투자증권 공식 Open Trading API 샘플 저장소](https://github.com/koreainvestment/open-trading-api)
 - [국내주식 현금주문 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_cash/order_cash.py)
 - [국내주식 현재가 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_price/inquire_price.py)
+- [국내주식 잔고조회 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_balance/inquire_balance.py)
+- [해외주식 잔고조회 공식 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/overseas_stock/overseas_stock_functions.py)
 - [해외주식 현재체결가 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/overseas_stock/price/price.py)
 - [Spring Boot 3.5 시스템 요구사항](https://docs.spring.io/spring-boot/3.5/system-requirements.html)
 - [FastAPI 테스트 가이드](https://fastapi.tiangolo.com/tutorial/testing/)
