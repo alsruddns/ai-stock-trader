@@ -30,6 +30,13 @@ if (-not $env:KIS_PAPER_APP_KEY -or -not $env:KIS_PAPER_APP_SECRET -or
     -not $env:KIS_PAPER_ACCOUNT_NUMBER) {
     throw 'Configure the paper KIS key, secret, and account number in .env. Values are not displayed.'
 }
+$paperAccountNumber = $env:KIS_PAPER_ACCOUNT_NUMBER -replace '-', ''
+if ($paperAccountNumber -notmatch '^\d{10}$') {
+    throw 'KIS_PAPER_ACCOUNT_NUMBER must contain an eight-digit account number and two-digit product code.'
+}
+if (-not $env:POSTGRES_PASSWORD) {
+    throw 'Set POSTGRES_PASSWORD in .env before running the Spring-backed KIS integration test.'
+}
 
 $env:RUN_KIS_PAPER_ACCOUNT_INTEGRATION_TESTS = 'true'
 Push-Location (Join-Path $repoRoot 'backend/trading-api')
