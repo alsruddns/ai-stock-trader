@@ -119,6 +119,17 @@ class SpringPaperBrokerClient:
     def get_cash_balances(self) -> list[dict]:
         return self._get_list("/api/v1/orders/paper/cash", "local paper cash is unavailable")
 
+    def get_operations_summary(self) -> dict:
+        try:
+            response = self._http.get(f"{self.base_url}/api/v1/operations/summary")
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict) or not isinstance(payload.get("consecutiveLosingTrades"), int):
+                raise ValueError("operations summary has an invalid shape")
+            return payload
+        except (httpx.HTTPError, ValueError) as exc:
+            raise PaperBrokerError("local paper risk summary is unavailable") from exc
+
     def get_daily_risk_baselines(self, session_date: date) -> list[dict]:
         return self._get_list(
             f"/api/v1/orders/paper/risk-baselines/{session_date.isoformat()}",

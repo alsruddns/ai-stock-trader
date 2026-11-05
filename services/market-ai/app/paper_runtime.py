@@ -1,7 +1,7 @@
-"""Opt-in continuous paper-session market-data monitor.
+"""Opt-in paper-session monitor with separately gated local Spring automation.
 
-This component only collects KIS paper-market ticks and closes minute bars. It has
-no order-writing dependency; paper order automation remains a separate gated phase.
+Market data comes from the KIS paper WebSocket. Order writes use only Spring's
+local paper ledger; this module has no KIS order client.
 """
 
 from __future__ import annotations
@@ -11,16 +11,17 @@ import os
 import threading
 from collections import deque
 from dataclasses import dataclass
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
 
 from .kis_stream import StreamSettings, approval_key, normalize_stream_frame, subscription_message
 from .market_stream import MinuteBarAggregator, parse_trade_frame
-from .quant import MinuteBar, QuantConfig, orb_vwap_entry_candidate
-from .paper_automation import PaperAutomationReadiness, PaperAutoTrader
+from .quant import MinuteBar, QuantConfig, _atr, orb_vwap_entry_candidate
+from .paper_automation import PaperAutomationReadiness, PaperAutoTrader, PaperEntryDecision
 from .paper_broker import PaperBrokerError, SpringPaperBrokerClient
-from .paper_ops import PaperOpsLimits, evaluate_paper_exit, exchange_session_window
+from .paper_ops import PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate, exchange_session_window, size_paper_order
+from .paper_risk import baseline_capture_open, daily_loss_percent, paper_equity_snapshot
 
 
 @dataclass(frozen=True)
@@ -71,8 +72,9 @@ class PaperSessionFeedMonitor:
         self._aggregators: dict[str, MinuteBarAggregator] = {}
         self._bars: dict[str, deque[MinuteBar]] = {}
         self._decisions: dict[str, dict[str, object]] = {}
-        self._automation_queue: asyncio.Queue[tuple[PaperWatch, MinuteBar]] | None = None
+        self._automation_queue: asyncio.Queue[tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]] | None = None
         self._automation_task: asyncio.Task | None = None
+        self._latest_quotes: dict[tuple[str, str], tuple[Decimal, datetime]] = {}
 
     def status(self) -> dict[str, object]:
         with self._lock:
@@ -199,6 +201,7 @@ class PaperSessionFeedMonitor:
                     continue
                 bar = self._aggregators[watch.key].add(tick)
                 with self._lock:
+                    self._latest_quotes[(watch.market, watch.symbol.upper())] = (tick.price, tick.timestamp)
                     self._status["ticks_received"] = int(self._status["ticks_received"]) + 1
                     self._status["last_tick_at"] = tick.timestamp.isoformat()
                     if bar is not None:
@@ -206,9 +209,10 @@ class PaperSessionFeedMonitor:
                         self._status["bars_closed"] = int(self._status["bars_closed"]) + 1
                         if self._automation_queue is not None:
                             try:
-                                self._automation_queue.put_nowait((watch, bar))
+                                self._automation_queue.put_nowait((watch, bar, dict(self._decisions[watch.key]),
+                                                                  dict(self._latest_quotes)))
                             except asyncio.QueueFull:
-                                self._set_status(automation_state="BLOCKED", automation_error="EXIT_WORKER_QUEUE_FULL")
+                                self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
 
     async def _automation_loop(self, limits: PaperOpsLimits) -> None:
         broker = SpringPaperBrokerClient()
@@ -218,13 +222,27 @@ class PaperSessionFeedMonitor:
                 queue = self._automation_queue
                 if queue is None:
                     return
-                watch, bar = await queue.get()
+                watch, bar, decision, quotes = await queue.get()
                 try:
+                    baseline_result = await asyncio.to_thread(
+                        self._capture_daily_baseline, broker, watch, bar, quotes, limits
+                    )
+                    if baseline_result is not None:
+                        self._set_status(automation_state=str(baseline_result.get("state", "EXIT_MONITORING")),
+                                         automation_error=baseline_result.get("reason"),
+                                         daily_baseline=baseline_result)
                     result = await asyncio.to_thread(self._manage_strategy_exit, broker, trader, watch, bar, limits)
                     if result is not None:
                         self._set_status(automation_state=str(result.get("state", "EXIT_MONITORING")),
                                          automation_error=result.get("reason"),
                                          last_automation_result=result)
+                    entry_result = await asyncio.to_thread(
+                        self._manage_strategy_entry, broker, trader, watch, bar, decision, quotes, limits
+                    )
+                    if entry_result is not None:
+                        self._set_status(automation_state=str(entry_result.get("state", "EXIT_MONITORING")),
+                                         automation_error=entry_result.get("reason"),
+                                         last_automation_result=entry_result)
                 except PaperBrokerError:
                     self._set_status(automation_state="BLOCKED", automation_error="LOCAL_PAPER_BROKER_UNAVAILABLE")
                 except Exception:
@@ -261,6 +279,118 @@ class PaperSessionFeedMonitor:
                                   quantity=quantity, position_opened_at=str(position.get("openedAt", "")),
                                   bar_timestamp=bar.timestamp,
                                   exit_price=exit_candidate.price, reason=exit_candidate.reason)
+
+    def _manage_strategy_entry(
+        self, broker: SpringPaperBrokerClient, trader: PaperAutoTrader, watch: PaperWatch, bar: MinuteBar,
+        decision: dict[str, object], quotes: dict[tuple[str, str], tuple[Decimal, datetime]], limits: PaperOpsLimits,
+    ) -> dict[str, object] | None:
+        if decision.get("signal") != "BUY_CANDIDATE":
+            return None
+        now = datetime.now(timezone.utc)
+        currency = "KRW" if watch.market == "KR" else "USD"
+        try:
+            positions = broker.get_positions()
+            cash_balances = broker.get_cash_balances()
+            baselines = broker.get_daily_risk_baselines(bar.timestamp.date())
+        except PaperBrokerError:
+            return {"state": "BLOCKED", "reason": "LOCAL_PAPER_RISK_DATA_UNAVAILABLE", "executable": False}
+
+        matching_baseline = next((row for row in baselines
+                                  if str(row.get("currency", "")).upper() == currency), None)
+        snapshot = paper_equity_snapshot(currency, cash_balances=cash_balances, positions=positions,
+                                         quotes=quotes, now=now, max_quote_age_seconds=limits.max_quote_age_seconds)
+        if matching_baseline is None:
+            return {"state": "BLOCKED", "reason": "DAILY_BASELINE_MISSING", "executable": False}
+        try:
+            baseline_equity = Decimal(str(matching_baseline["equity"]))
+        except (KeyError, ValueError, ArithmeticError):
+            return {"state": "BLOCKED", "reason": "DAILY_BASELINE_INVALID", "executable": False}
+        loss_pct = daily_loss_percent(baseline_equity, snapshot.equity)
+        latest_quote = quotes.get((watch.market, watch.symbol.upper()))
+        try:
+            operations = broker.get_operations_summary()
+            consecutive_losses = int(operations["consecutiveLosingTrades"])
+            open_orders = int(operations["openOrders"])
+            if consecutive_losses < 0 or open_orders < 0:
+                raise ValueError
+        except (PaperBrokerError, KeyError, TypeError, ValueError):
+            return {"state": "BLOCKED", "reason": "LOCAL_PAPER_RISK_SUMMARY_UNAVAILABLE", "executable": False}
+        if open_orders > 0:
+            return {"state": "BLOCKED", "reason": "OPEN_PAPER_ORDER_REQUIRES_RECONCILIATION", "executable": False}
+        is_approved_candidate = bool(decision.get("model_id")) and decision.get("signal") == "BUY_CANDIDATE"
+        feed_healthy = self.status().get("state") == "RUNNING"
+        gate = evaluate_paper_gate(
+            watch.market, now, latest_quote[1] if latest_quote else None,
+            data_feed_healthy=feed_healthy, model_available=is_approved_candidate,
+            model_approved=is_approved_candidate, broker_healthy=True,
+            daily_loss_pct=loss_pct if loss_pct is not None else limits.max_daily_loss_pct,
+            consecutive_losses=consecutive_losses,
+            open_positions=len([item for item in positions if int(item.get("quantity", 0)) > 0]),
+            limits=limits,
+        )
+        if not gate.new_entries_allowed:
+            return {"state": "BLOCKED", "reason": ",".join(gate.reasons) or "PAPER_RISK_GATE_BLOCKED", "executable": False}
+        if snapshot.equity is None:
+            return {"state": "BLOCKED", "reason": snapshot.reason or "CURRENT_EQUITY_UNAVAILABLE", "executable": False}
+        if any(str(item.get("market", "")).upper() == watch.market
+               and str(item.get("symbol", "")).upper() == watch.symbol.upper()
+               and int(item.get("quantity", 0)) > 0 for item in positions):
+            return {"state": "BLOCKED", "reason": "SYMBOL_ALREADY_HELD", "executable": False}
+        cash_row = next((item for item in cash_balances
+                         if str(item.get("currency", "")).upper() == currency), None)
+        if cash_row is None:
+            return {"state": "BLOCKED", "reason": "PAPER_CASH_MISSING", "executable": False}
+        history = list(self.bars(watch))
+        try:
+            atr = _atr(history, QuantConfig().atr_period)
+            max_notional = Decimal(os.getenv("MAX_ORDER_NOTIONAL_KRW" if currency == "KRW" else "MAX_ORDER_NOTIONAL_USD",
+                                            "1000000" if currency == "KRW" else "100"))
+            sizing = size_paper_order(price=bar.close, atr=atr, equity=snapshot.equity,
+                                      available_cash=Decimal(str(cash_row["balance"])),
+                                      max_order_notional=max_notional, limits=limits)
+        except (KeyError, ValueError, ArithmeticError):
+            return {"state": "BLOCKED", "reason": "PAPER_ORDER_SIZING_FAILED", "executable": False}
+        if sizing is None:
+            return {"state": "BLOCKED", "reason": "PAPER_ORDER_SIZE_ZERO", "executable": False}
+        target = bar.close + sizing.stop_distance * QuantConfig().reward_risk_multiple
+        entry_decision = PaperEntryDecision(
+            market=watch.market, symbol=watch.symbol, currency=currency, signal="BUY_CANDIDATE",
+            model_approved=is_approved_candidate, gate=gate, sizing=sizing, bar_timestamp=bar.timestamp,
+            limit_price=bar.close, stop_price=bar.close - sizing.stop_distance, target_price=target,
+            exit_manager_ready=True,
+        )
+        return trader.submit_entry(entry_decision)
+
+    @staticmethod
+    def _capture_daily_baseline(
+        broker: SpringPaperBrokerClient, watch: PaperWatch, bar: MinuteBar,
+        quotes: dict[tuple[str, str], tuple[Decimal, datetime]], limits: PaperOpsLimits,
+    ) -> dict[str, object] | None:
+        currency = "KRW" if watch.market == "KR" else "USD"
+        session_date = bar.timestamp.date()
+        try:
+            baselines = broker.get_daily_risk_baselines(session_date)
+            if any(str(row.get("currency", "")).upper() == currency for row in baselines):
+                return None
+            positions = broker.get_positions()
+            cash_balances = broker.get_cash_balances()
+        except PaperBrokerError:
+            return {"state": "BLOCKED", "reason": "DAILY_BASELINE_SOURCE_UNAVAILABLE", "executable": False}
+        session = exchange_session_window(watch.market, bar.timestamp)
+        now = datetime.now(timezone.utc)
+        if not session or not baseline_capture_open(market_open=session[0], now=now):
+            return {"state": "BLOCKED", "reason": "DAILY_BASELINE_CAPTURE_WINDOW_MISSED", "executable": False}
+        snapshot = paper_equity_snapshot(currency, cash_balances=cash_balances, positions=positions,
+                                         quotes=quotes, now=now, max_quote_age_seconds=limits.max_quote_age_seconds)
+        if snapshot.equity is None:
+            return {"state": "BLOCKED", "reason": snapshot.reason or "DAILY_BASELINE_EQUITY_UNAVAILABLE",
+                    "executable": False}
+        try:
+            broker.record_daily_risk_baseline(session_date, currency, snapshot.equity)
+        except PaperBrokerError:
+            return {"state": "BLOCKED", "reason": "DAILY_BASELINE_WRITE_FAILED", "executable": False}
+        return {"state": "BASELINE_CAPTURED", "currency": currency, "session_date": session_date.isoformat(),
+                "equity": str(snapshot.equity), "executable": False}
 
     def _record_closed_bar(self, watch: PaperWatch, bar: MinuteBar) -> None:
         history = self._bars[watch.key]
