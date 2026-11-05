@@ -17,9 +17,11 @@
 | POST | `/api/v1/strategies/orb-vwap/backtest` | 전달된 단일 세션 봉 데이터의 ORB/VWAP 비용 반영 백테스트 |
 | POST | `/api/v1/ai/models/{model_id}/predict` | 등록 모델의 비실행 예측 확률 미리보기 |
 | GET | `/api/v1/ai/models` | 모델 승인·활성 상태와 최근 거버넌스 이벤트 |
-| POST | `/api/v1/ai/models/{model_id}/approve` | 검토자·사유와 함께 모델 승인 기록 |
+| POST | `/api/v1/ai/models/{model_id}/approve` | 로컬 거버넌스 토큰과 검토자·사유로 모델 승인 기록 |
 | POST | `/api/v1/ai/models/{model_id}/activate` | 승인된 advisory 모델 활성화 |
 | POST | `/api/v1/ai/models/{model_id}/rollback` | 승인된 이전 모델로 advisory 포인터 복구 |
+
+모델 `approve`, `activate`, `rollback` 변경 요청은 `.env`에 설정한 `MODEL_GOVERNANCE_TOKEN`을 `X-Model-Governance-Token` 헤더로 전달해야 합니다. 토큰 미설정 시 `503`, 불일치 시 `403`을 반환합니다. 토큰은 응답과 감사 기록에 저장되지 않습니다.
 
 KIS API는 기본 잠금(`KIS_ACCOUNT_READ_ENABLED=false`)입니다. 조회를 열려면 전체 스위치와 환경별 스위치를 모두 설정해야 합니다. REAL 조회에는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`가 추가로 필요하며 기본값은 false입니다. 종목별 매수가능액 확인 시 `symbol`과 `unitPrice`를 함께 전달합니다. 미국 조회의 `exchange`는 `NASD`, `NYSE`, `AMEX` 중 하나입니다. 계좌 API는 계좌번호, App Key, App Secret을 응답에 포함하지 않습니다.
 

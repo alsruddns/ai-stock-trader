@@ -30,11 +30,29 @@ def test_model_governance_endpoint_is_read_only_for_execution(monkeypatch, tmp_p
     assert response.json() == {"models": [], "governance_events": [], "executable": False}
 
 
-def test_model_approval_route_requires_existing_candidate(monkeypatch, tmp_path) -> None:
+def test_model_approval_route_is_locked_without_local_governance_token(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("AI_MODEL_REGISTRY_PATH", str(tmp_path))
     response = client.post("/api/v1/ai/models/lightgbm-" + "a" * 32 + "/approve", json={
         "approved_by": "local-operator", "note": "Reviewed held-out test evidence for advisory use only.",
     })
+    assert response.status_code == 503
+
+
+def test_model_approval_route_requires_matching_local_governance_token(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AI_MODEL_REGISTRY_PATH", str(tmp_path))
+    monkeypatch.setenv("MODEL_GOVERNANCE_TOKEN", "g" * 40)
+    response = client.post("/api/v1/ai/models/lightgbm-" + "a" * 32 + "/approve", headers={
+        "X-Model-Governance-Token": "wrong-token",
+    }, json={"approved_by": "local-operator", "note": "Reviewed held-out test evidence for advisory use only."})
+    assert response.status_code == 403
+
+
+def test_model_approval_route_reaches_registry_with_local_governance_token(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AI_MODEL_REGISTRY_PATH", str(tmp_path))
+    monkeypatch.setenv("MODEL_GOVERNANCE_TOKEN", "g" * 40)
+    response = client.post("/api/v1/ai/models/lightgbm-" + "a" * 32 + "/approve", headers={
+        "X-Model-Governance-Token": "g" * 40,
+    }, json={"approved_by": "local-operator", "note": "Reviewed held-out test evidence for advisory use only."})
     assert response.status_code == 404
 
 

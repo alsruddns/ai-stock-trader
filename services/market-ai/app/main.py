@@ -6,9 +6,10 @@ from datetime import date, datetime
 from decimal import Decimal
 import asyncio
 import json
+import hmac
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Path, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, WebSocket, WebSocketDisconnect
 import psycopg
 from pydantic import BaseModel, Field
 from .kis import AccountBalance, Exchange, KisApiError, KisReadOnlyClient, KisSettings, Market, Quote
@@ -333,6 +334,14 @@ def _model_registry() -> LocalModelRegistry:
     return LocalModelRegistry(os.getenv("AI_MODEL_REGISTRY_PATH", ".local/models"))
 
 
+def _require_model_governance_token(token: str | None = Header(default=None, alias="X-Model-Governance-Token")) -> None:
+    expected = os.getenv("MODEL_GOVERNANCE_TOKEN", "")
+    if len(expected) < 32:
+        raise HTTPException(status_code=503, detail="Model governance changes are locked until a local token is configured")
+    if token is None or not hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(status_code=403, detail="Model governance token is invalid")
+
+
 @app.get("/api/v1/ai/models")
 def list_ai_models() -> dict[str, object]:
     registry = _model_registry()
@@ -340,7 +349,8 @@ def list_ai_models() -> dict[str, object]:
 
 
 @app.post("/api/v1/ai/models/{model_id}/approve")
-def approve_ai_model(model_id: str, request: ModelApprovalRequest) -> dict[str, object]:
+def approve_ai_model(model_id: str, request: ModelApprovalRequest,
+                     _authorized: None = Depends(_require_model_governance_token)) -> dict[str, object]:
     try:
         metadata = _model_registry().approve(model_id, approved_by=request.approved_by, note=request.note)
         return {"model_id": model_id, "approved": bool(metadata.get("approved")), "executable": False,
@@ -352,7 +362,8 @@ def approve_ai_model(model_id: str, request: ModelApprovalRequest) -> dict[str, 
 
 
 @app.post("/api/v1/ai/models/{model_id}/activate")
-def activate_ai_model(model_id: str, request: ModelChangeRequest) -> dict[str, object]:
+def activate_ai_model(model_id: str, request: ModelChangeRequest,
+                      _authorized: None = Depends(_require_model_governance_token)) -> dict[str, object]:
     try:
         event = _model_registry().activate(model_id, changed_by=request.changed_by, note=request.note)
         return {**event, "executable": False}
@@ -363,7 +374,8 @@ def activate_ai_model(model_id: str, request: ModelChangeRequest) -> dict[str, o
 
 
 @app.post("/api/v1/ai/models/{model_id}/rollback")
-def rollback_ai_model(model_id: str, request: ModelChangeRequest) -> dict[str, object]:
+def rollback_ai_model(model_id: str, request: ModelChangeRequest,
+                      _authorized: None = Depends(_require_model_governance_token)) -> dict[str, object]:
     try:
         event = _model_registry().activate(model_id, changed_by=request.changed_by, note=request.note, action="rollback")
         return {**event, "executable": False}
