@@ -4,6 +4,9 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import com.aistocktrader.kis.KisApiException;
+import org.springframework.dao.DataAccessException;
+import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.TransactionSystemException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -35,5 +38,11 @@ public class ApiExceptionHandler {
     public org.springframework.http.ResponseEntity<Map<String, String>> kisError(KisApiException exception) {
         return org.springframework.http.ResponseEntity.status(exception.status())
                 .body(Map.of("error", exception.getMessage()));
+    }
+
+    @ExceptionHandler({DataAccessException.class, TransactionSystemException.class})
+    public ResponseEntity<Map<String, String>> databaseUnavailable(Exception exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(Map.of("error", "Local database is unavailable; no order result was confirmed."));
     }
 }
