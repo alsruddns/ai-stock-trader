@@ -292,10 +292,15 @@ class LocalModelRegistry:
                 raise ValueError("model feature schema is outdated and must be retrained")
             if not metadata.get("test_sessions") or not metadata.get("test_metrics"):
                 raise ValueError("model has no held-out test evidence and cannot be approved")
+            previous_metadata = json.loads(json.dumps(metadata))
             metadata["approved"] = True
             metadata["approval"] = {"approved_by": reviewer, "note": justification, "approved_at": datetime.now().astimezone().isoformat()}
             self._write_json_atomic(self.root / f"{model_id}.json", metadata)
-            self._record_governance_event({"action": "approve", "model_id": model_id, **metadata["approval"]})
+            try:
+                self._record_governance_event({"action": "approve", "model_id": model_id, **metadata["approval"]})
+            except OSError:
+                self._write_json_atomic(self.root / f"{model_id}.json", previous_metadata)
+                raise
             return metadata
 
     def activate(self, model_id: str, *, changed_by: str, note: str, action: str = "activate") -> dict[str, Any]:
@@ -309,17 +314,30 @@ class LocalModelRegistry:
                 raise ValueError("model feature schema is outdated and cannot be activated")
             if not metadata.get("approved"):
                 raise ValueError("only an approved model can become the advisory active model")
-            previous = None
+            previous_state = None
             if self._active_path.is_file():
                 try:
-                    previous = json.loads(self._active_path.read_text(encoding="utf-8")).get("model_id")
-                except (OSError, json.JSONDecodeError):
-                    previous = None
+                    previous_state = json.loads(self._active_path.read_text(encoding="utf-8"))
+                    previous = previous_state.get("model_id")
+                    if not isinstance(previous, str):
+                        raise ValueError("active model ID is missing")
+                    self.manifest(previous)
+                except (OSError, json.JSONDecodeError, AttributeError, ValueError, FileNotFoundError) as exc:
+                    raise ValueError("active model pointer is invalid and must be repaired before changing it") from exc
+            else:
+                previous = None
             changed_at = datetime.now().astimezone().isoformat()
             self._write_json_atomic(self._active_path, {"model_id": model_id, "changed_at": changed_at})
             event = {"action": action, "model_id": model_id, "previous_model_id": previous,
                      "changed_by": operator, "note": justification, "changed_at": changed_at}
-            self._record_governance_event(event)
+            try:
+                self._record_governance_event(event)
+            except OSError:
+                if previous_state is None:
+                    self._active_path.unlink(missing_ok=True)
+                else:
+                    self._write_json_atomic(self._active_path, previous_state)
+                raise
             return event
 
     def governance_events(self, limit: int = 50) -> list[dict[str, Any]]:
@@ -335,6 +353,8 @@ class LocalModelRegistry:
     def _record_governance_event(self, event: dict[str, Any]) -> None:
         with self._audit_path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
 
     @staticmethod
     def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:

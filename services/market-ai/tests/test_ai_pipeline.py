@@ -179,3 +179,29 @@ def test_model_governance_requires_review_and_records_rollback(tmp_path) -> None
     assert registry.governance_events()[-1]["action"] == "rollback"
     assert registry.active_approved_model("KR")["model_id"] == first
     assert registry.active_approved_model("US") is None
+
+
+def test_model_governance_rolls_back_state_when_audit_write_fails(tmp_path, monkeypatch) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "c" * 32
+    _write_candidate(registry, model_id)
+
+    def fail_audit(_event):
+        raise OSError("simulated audit storage failure")
+
+    monkeypatch.setattr(registry, "_record_governance_event", fail_audit)
+    with pytest.raises(OSError, match="audit storage failure"):
+        registry.approve(model_id, approved_by="operator", note="Held-out test evidence reviewed for advisory use.")
+    assert registry.manifest(model_id)["approved"] is False
+
+    monkeypatch.setattr(registry, "_record_governance_event", lambda _event: None)
+    registry.approve(model_id, approved_by="operator", note="Held-out test evidence reviewed for advisory use.")
+    registry.activate(model_id, changed_by="operator", note="Approved candidate selected for advisory use only.")
+    replacement_id = "xgboost-" + "d" * 32
+    _write_candidate(registry, replacement_id)
+    registry.approve(replacement_id, approved_by="operator", note="Held-out test evidence reviewed for advisory use.")
+
+    monkeypatch.setattr(registry, "_record_governance_event", fail_audit)
+    with pytest.raises(OSError, match="audit storage failure"):
+        registry.activate(replacement_id, changed_by="operator", note="Candidate change requires a durable audit event.")
+    assert registry.active_approved_model("KR")["model_id"] == model_id
