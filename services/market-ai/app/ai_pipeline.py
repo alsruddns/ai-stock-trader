@@ -215,7 +215,10 @@ class LocalModelRegistry:
         if requested_market not in {"KR", "US"} or not self._active_path.is_file():
             return None
         try:
-            active_id = json.loads(self._active_path.read_text(encoding="utf-8")).get("model_id")
+            active_payload = json.loads(self._active_path.read_text(encoding="utf-8"))
+            if not isinstance(active_payload, dict):
+                return None
+            active_id = active_payload.get("model_id")
             if not isinstance(active_id, str):
                 return None
             metadata = self.manifest(active_id)

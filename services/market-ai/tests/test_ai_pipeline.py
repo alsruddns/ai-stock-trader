@@ -79,6 +79,12 @@ def test_model_registry_rejects_path_traversal(tmp_path) -> None:
         LocalModelRegistry(tmp_path).manifest("../../secret")
 
 
+def test_active_model_selection_fails_closed_for_corrupt_selection_file(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    registry._active_path.write_text("[]", encoding="utf-8")
+    assert registry.active_approved_model("KR") is None
+
+
 def _write_candidate(registry: LocalModelRegistry, model_id: str) -> None:
     artifact_name = f"{model_id}.joblib"
     artifact = registry.root / artifact_name
