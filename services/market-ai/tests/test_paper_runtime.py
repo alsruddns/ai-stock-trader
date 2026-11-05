@@ -148,7 +148,7 @@ def test_websocket_run_keeps_backoff_across_repeated_short_connections(monkeypat
     monkeypatch.setattr("app.paper_runtime.asyncio.sleep", record_sleep)
 
     runtime = PaperSessionFeedMonitor()
-    settings = SimpleNamespace(kis=object(), websocket_url="ws://mock.invalid")
+    settings = SimpleNamespace(kis=SimpleNamespace(environment="paper"), websocket_url="ws://mock.invalid")
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(runtime._run((), settings))
 
@@ -166,6 +166,81 @@ def test_live_mode_blocks_paper_session_monitor(monkeypatch) -> None:
 
     assert runtime.status()["state"] == "BLOCKED"
     assert runtime.status()["last_error"] == "PAPER_MODE_REQUIRED"
+
+
+def test_us_paper_watchlist_requires_separate_read_only_real_market_data_switch(monkeypatch) -> None:
+    monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-key")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-secret")
+    monkeypatch.setenv("KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED", "false")
+    monkeypatch.setenv("PAPER_WATCHLIST", "US:AAPL:NAS")
+    runtime = PaperSessionFeedMonitor()
+
+    asyncio.run(runtime.start())
+
+    status = runtime.status()
+    assert status["state"] == "BLOCKED"
+    assert status["enabled"] is False
+    assert status["last_error"] == "REAL_US_MARKET_DATA_STREAM_DISABLED"
+    assert status["orders_enabled"] is False
+
+
+def test_us_paper_watchlist_requires_real_market_data_credentials(monkeypatch) -> None:
+    monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
+    monkeypatch.setenv("KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setenv("KIS_REAL_APP_KEY", "")
+    monkeypatch.setenv("KIS_REAL_APP_SECRET", "")
+    monkeypatch.setenv("PAPER_WATCHLIST", "US:AAPL:NAS")
+    runtime = PaperSessionFeedMonitor()
+
+    asyncio.run(runtime.start())
+
+    status = runtime.status()
+    assert status["state"] == "BLOCKED"
+    assert status["last_error"] == "REAL_US_MARKET_DATA_STREAM_NOT_CONFIGURED"
+    assert status["orders_enabled"] is False
+
+
+def test_mixed_paper_watchlist_uses_paper_kr_and_real_read_only_us_feeds(monkeypatch) -> None:
+    monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-key")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-secret")
+    monkeypatch.setenv("KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setenv("KIS_REAL_APP_KEY", "real-key")
+    monkeypatch.setenv("KIS_REAL_APP_SECRET", "real-secret")
+    monkeypatch.setenv("PAPER_WATCHLIST", "KR:005930;US:AAPL:NAS")
+    runtime = PaperSessionFeedMonitor()
+    feeds = []
+
+    async def hold_feed(watches, settings):
+        feeds.append((tuple(watches), settings.kis.environment))
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(runtime, "_run", hold_feed)
+
+    async def start_and_stop():
+        await runtime.start()
+        await asyncio.sleep(0)
+        status = runtime.status()
+        await runtime.stop()
+        return status
+
+    status = asyncio.run(start_and_stop())
+
+    assert {(watches[0].market, environment) for watches, environment in feeds} == {
+        ("KR", "paper"), ("US", "real"),
+    }
+    assert status["stream_connections"] == {"paper": "CONNECTING", "real": "CONNECTING"}
+    assert status["orders_enabled"] is False
 
 
 def test_closed_bars_update_non_executable_quant_decision_and_reset_each_session() -> None:

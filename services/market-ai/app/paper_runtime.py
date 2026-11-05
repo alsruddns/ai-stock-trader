@@ -1,7 +1,8 @@
-"""Opt-in paper-session monitor with separately gated local Spring automation.
+"""Opt-in local paper-session monitor with separately gated market data feeds.
 
-Market data comes from the KIS paper WebSocket. Order writes use only Spring's
-local paper ledger; this module has no KIS order client.
+KR market data comes from the KIS paper WebSocket. US delayed market data can
+use a separately enabled KIS REAL WebSocket while all order writes remain on
+Spring's local paper ledger; this module has no KIS order client.
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ class PaperSessionFeedMonitor:
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        self._task: asyncio.Task | None = None
+        self._stream_tasks: list[asyncio.Task] = []
         self._status: dict[str, object] = {
             "state": "DISABLED", "enabled": False, "subscriptions": 0,
             "ticks_received": 0, "bars_closed": 0, "last_tick_at": None,
@@ -101,11 +102,11 @@ class PaperSessionFeedMonitor:
     async def start(self) -> None:
         if os.getenv("PAPER_SESSION_MONITOR_ENABLED", "false").strip().lower() != "true":
             return
-        settings = StreamSettings.from_environment()
+        settings = StreamSettings.from_environment("paper")
         if os.getenv("TRADING_MODE", "paper").strip().lower() != "paper" or os.getenv("LIVE_TRADING_ENABLED", "false").strip().lower() == "true":
             self._set_status(state="BLOCKED", enabled=False, last_error="PAPER_MODE_REQUIRED")
             return
-        if settings.kis.environment != "paper" or not settings.enabled or not settings.kis.app_key or not settings.kis.app_secret:
+        if not settings.enabled:
             self._set_status(state="BLOCKED", enabled=False, last_error="PAPER_KIS_STREAM_NOT_CONFIGURED")
             return
         try:
@@ -116,6 +117,23 @@ class PaperSessionFeedMonitor:
         if not watches:
             self._set_status(state="BLOCKED", enabled=False, last_error="PAPER_WATCHLIST_EMPTY")
             return
+        feed_groups: dict[str, tuple[tuple[PaperWatch, ...], StreamSettings]] = {}
+        kr_watches = tuple(watch for watch in watches if watch.market == "KR")
+        us_watches = tuple(watch for watch in watches if watch.market == "US")
+        if kr_watches:
+            if not settings.kis.app_key or not settings.kis.app_secret:
+                self._set_status(state="BLOCKED", enabled=False, last_error="PAPER_KR_STREAM_NOT_CONFIGURED")
+                return
+            feed_groups["paper"] = (kr_watches, settings)
+        if us_watches:
+            if os.getenv("KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED", "false").strip().lower() != "true":
+                self._set_status(state="BLOCKED", enabled=False, last_error="REAL_US_MARKET_DATA_STREAM_DISABLED")
+                return
+            us_settings = StreamSettings.from_environment("real")
+            if not us_settings.kis.app_key or not us_settings.kis.app_secret:
+                self._set_status(state="BLOCKED", enabled=False, last_error="REAL_US_MARKET_DATA_STREAM_NOT_CONFIGURED")
+                return
+            feed_groups["real"] = (us_watches, us_settings)
         for watch in watches:
             self._aggregators[watch.key] = MinuteBarAggregator()
             self._bars[watch.key] = deque(maxlen=5_000)
@@ -143,18 +161,25 @@ class PaperSessionFeedMonitor:
                     self._automation_queue = asyncio.Queue(maxsize=100)
                     self._automation_task = asyncio.create_task(self._automation_loop(limits))
                     self._set_status(automation_state="EXIT_MONITORING", automation_error=None)
-        self._set_status(state="CONNECTING", enabled=True, subscriptions=len(watches), last_error=None)
-        self._task = asyncio.create_task(self._run(watches, settings))
+        self._set_status(
+            state="CONNECTING", enabled=True, subscriptions=len(watches), last_error=None,
+            stream_connections={environment: "CONNECTING" for environment in feed_groups},
+        )
+        self._stream_tasks = [
+            asyncio.create_task(self._run(group_watches, group_settings))
+            for group_watches, group_settings in feed_groups.values()
+        ]
 
     async def stop(self) -> None:
-        task = self._task
-        self._task = None
+        stream_tasks = self._stream_tasks
+        self._stream_tasks = []
         automation_task = self._automation_task
         self._automation_task = None
         storage_task = self._bar_storage_task
         self._bar_storage_task = None
-        if task is not None:
+        for task in stream_tasks:
             task.cancel()
+        for task in stream_tasks:
             try:
                 await task
             except asyncio.CancelledError:
@@ -191,7 +216,7 @@ class PaperSessionFeedMonitor:
                 try:
                     await asyncio.to_thread(
                         snapshot_store.store_minute_bars, watch.market, watch.symbol, [bar],
-                        source="KIS_PAPER_WEBSOCKET",
+                        source=("KIS_PAPER_WEBSOCKET" if watch.market == "KR" else "KIS_REAL_US_WEBSOCKET"),
                     )
                 except Exception:
                     self._set_status(bar_storage_state="ERROR", bar_storage_error="POSTGRES_WRITE_FAILED")
@@ -206,6 +231,7 @@ class PaperSessionFeedMonitor:
                 queue.task_done()
 
     async def _run(self, watches: tuple[PaperWatch, ...], settings: StreamSettings) -> None:
+        environment = settings.kis.environment
         delay = 1
         while True:
             connected_at: float | None = None
@@ -217,7 +243,7 @@ class PaperSessionFeedMonitor:
                     connected_at = asyncio.get_running_loop().time()
                     for watch in watches:
                         await upstream.send(self._subscription_json(key, watch))
-                    self._set_status(state="RUNNING", last_error=None)
+                    self._set_connection_state(environment, "RUNNING")
                     async for frame in upstream:
                         self._consume(frame, watches)
             except asyncio.CancelledError:
@@ -226,8 +252,16 @@ class PaperSessionFeedMonitor:
                 connected_seconds = (asyncio.get_running_loop().time() - connected_at
                                      if connected_at is not None else 0)
                 delay = self._next_reconnect_delay(delay, connected_seconds)
-                self._set_status(state="RECONNECTING", last_error="KIS_STREAM_UNAVAILABLE")
+                self._set_connection_state(environment, "RECONNECTING")
                 await asyncio.sleep(delay)
+
+    def _set_connection_state(self, environment: str, state: str) -> None:
+        with self._lock:
+            connections = dict(self._status.get("stream_connections", {}))
+            connections[environment] = state
+            self._status["stream_connections"] = connections
+            self._status["state"] = "RECONNECTING" if "RECONNECTING" in connections.values() else "RUNNING"
+            self._status["last_error"] = "KIS_STREAM_UNAVAILABLE" if self._status["state"] == "RECONNECTING" else None
 
     @staticmethod
     def _next_reconnect_delay(current_delay: int, connected_seconds: float, *, stable_seconds: int = 60) -> int:

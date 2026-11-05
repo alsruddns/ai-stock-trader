@@ -26,10 +26,10 @@ class StreamSettings:
     kis: KisSettings
 
     @classmethod
-    def from_environment(cls) -> "StreamSettings":
+    def from_environment(cls, environment: Literal["paper", "real"] | None = None) -> "StreamSettings":
         return cls(
             enabled=os.getenv("KIS_WEBSOCKET_ENABLED", "false").strip().lower() == "true",
-            kis=KisSettings.from_environment(),
+            kis=KisSettings.from_environment(environment),
         )
 
     @property
