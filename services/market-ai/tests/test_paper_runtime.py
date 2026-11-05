@@ -322,6 +322,31 @@ def test_paper_monitor_fails_closed_when_persisted_bar_restore_fails(monkeypatch
     assert not runtime._stream_tasks
 
 
+def test_paper_autotrading_requires_persisted_session_history(monkeypatch) -> None:
+    from app import snapshot_store
+
+    monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-key")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-secret")
+    monkeypatch.setenv("PAPER_WATCHLIST", "KR:005930")
+    monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "true")
+    monkeypatch.setattr(snapshot_store, "enabled", lambda: False)
+    runtime = PaperSessionFeedMonitor()
+
+    asyncio.run(runtime.start())
+
+    status = runtime.status()
+    assert status["state"] == "BLOCKED"
+    assert status["last_error"] == "PAPER_HISTORY_PERSISTENCE_REQUIRED"
+    assert status["automation_state"] == "BLOCKED"
+    assert status["automation_error"] == "PAPER_HISTORY_PERSISTENCE_REQUIRED"
+    assert runtime._automation_task is None
+    assert not runtime._stream_tasks
+
+
 def test_closed_bars_update_non_executable_quant_decision_and_reset_each_session() -> None:
     runtime = PaperSessionFeedMonitor()
     watch = parse_watchlist("KR:005930")[0]

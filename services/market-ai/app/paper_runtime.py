@@ -135,6 +135,15 @@ class PaperSessionFeedMonitor:
                 self._set_status(state="BLOCKED", enabled=False, last_error="REAL_US_MARKET_DATA_STREAM_NOT_CONFIGURED")
                 return
             feed_groups["real"] = (us_watches, us_settings)
+        persistence_enabled = snapshot_store.enabled()
+        if (os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true"
+                and not persistence_enabled):
+            self._set_status(
+                state="BLOCKED", enabled=False, last_error="PAPER_HISTORY_PERSISTENCE_REQUIRED",
+                bar_storage_state="DISABLED", automation_state="BLOCKED",
+                automation_error="PAPER_HISTORY_PERSISTENCE_REQUIRED",
+            )
+            return
         for watch in watches:
             self._aggregators[watch.key] = MinuteBarAggregator()
             self._bars[watch.key] = deque(maxlen=5_000)
@@ -143,7 +152,7 @@ class PaperSessionFeedMonitor:
                 "signal": "HOLD", "reason": "WAITING_FOR_CLOSED_BARS", "bars_in_session": 0,
                 "evaluated_at": None, "executable": False,
             }
-        if snapshot_store.enabled():
+        if persistence_enabled:
             restored_count = 0
             try:
                 for watch in watches:
