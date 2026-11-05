@@ -8,9 +8,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-_DATE_FIELDS = ("retrieved_at", "verified_at")
+_DATE_FIELDS = ("retrieved_at",)
 _TEXT_FIELDS = ("provider", "dataset_name", "source_reference", "license_or_terms",
-                "terms_reference", "verified_by")
+                "terms_reference")
 _PERMISSIONS = ("local_storage", "backtesting", "model_training")
 _PURPOSE_PERMISSION = {"backtesting": "backtesting", "model_training": "model_training"}
 
@@ -52,9 +52,27 @@ def validate_data_provenance(
             raise ValueError(f"data provenance field '{field}' must include a timezone")
         normalized[field] = parsed.isoformat()
 
-    if payload.get("rights_reviewed") is not True:
+    rights_reviewed = payload.get("rights_reviewed")
+    if not isinstance(rights_reviewed, bool):
+        raise ValueError("data provenance rights_reviewed must be true or false")
+    if not rights_reviewed:
         raise ValueError("data rights must be explicitly reviewed before use")
     normalized["rights_reviewed"] = True
+
+    reviewer = payload.get("verified_by")
+    if not isinstance(reviewer, str) or not reviewer.strip():
+        raise ValueError("data provenance field 'verified_by' is required after rights review")
+    normalized["verified_by"] = reviewer.strip()
+    verified_at = payload.get("verified_at")
+    if not isinstance(verified_at, str) or not verified_at.strip():
+        raise ValueError("data provenance field 'verified_at' is required after rights review")
+    try:
+        verified_timestamp = datetime.fromisoformat(verified_at.strip().replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("data provenance field 'verified_at' must be an ISO 8601 timestamp") from exc
+    if verified_timestamp.tzinfo is None or verified_timestamp.utcoffset() is None:
+        raise ValueError("data provenance field 'verified_at' must include a timezone")
+    normalized["verified_at"] = verified_timestamp.isoformat()
 
     permissions = payload.get("permissions")
     if not isinstance(permissions, dict):

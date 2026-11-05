@@ -6,8 +6,8 @@
   "license_or_terms": "REPLACE_WITH_LICENSE_OR_API_TERMS_NAME",
   "terms_reference": "REPLACE_WITH_PUBLIC_TERMS_URL_OR_PRIVATE_AGREEMENT_REFERENCE",
   "retrieved_at": "REPLACE_WITH_ISO8601_TIMESTAMP_WITH_TIMEZONE",
-  "verified_by": "REPLACE_WITH_REVIEWER",
-  "verified_at": "REPLACE_WITH_ISO8601_TIMESTAMP_WITH_TIMEZONE",
+  "verified_by": null,
+  "verified_at": null,
   "rights_reviewed": false,
   "permissions": {
     "local_storage": false,

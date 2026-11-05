@@ -91,6 +91,8 @@ python .\scripts\train-ai-models.py .\data\licensed\005930.csv --market KR
 ```
 
 
+PostgreSQL에 저장된 분봉은 로컬 CSV로 내보낼 수 있습니다. 예: `.\services\market-ai\.venv\Scripts\python.exe .\scripts\export-market-data.py --market KR --symbol 005930 --from-date 2026-11-01 --to-date 2026-11-06 --output .\data\exports\005930.csv`. 날짜 범위는 거래소 현지 날짜 기준으로 양 끝을 포함합니다. 먼저 `--dry-run`을 추가하면 파일을 만들지 않고 행 수·출처만 확인합니다. 실제 내보내기 조회도 DB 읽기 전용이며 `data/`는 Git에서 제외됩니다. 생성된 sidecar는 `rights_reviewed=false`와 모든 권한을 `false`로 시작하므로, 출처·약관과 저장·백테스트·학습 권한을 확인하기 전에는 학습·백테스트에 사용할 수 없습니다.
+
 한국과 미국 데이터는 각각 `--market KR` 또는 `--market US`로 별도 학습합니다. 모델 파일과 메타데이터는 `.local/models`에만 저장됩니다. 생성된 모델은 자동 승인되지 않으며, 승인된 활성 모델도 예측 API는 `executable=false`를 반환합니다.
 
 국내·미국 거래소 영업일 판정과 모의 운영 가드 테스트에는 `python -m pip install -e ".[dev,ai,ops]"`의 선택 `ops` 의존성이 필요합니다. `PAPER_AUTOTRADING_ENABLED=false`가 기본값이며, 시세 지연·모델/브로커 상태·일일 손실·연속 손실·보유 종목 수·장 마감 구간의 조건 중 하나라도 실패하면 신규 진입을 차단합니다. 자동매매를 켤 때는 당일 전략 분봉의 재시작 복구를 위해 `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`도 필수입니다. 분봉 저장/복원 설정이 없으면 PAPER 자동매매 monitor가 시작되지 않습니다. 미국 paper 감시에는 KIS의 REAL WebSocket 시세 연결을 별도 `KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED=true`로 명시해야 합니다. 이 연결은 읽기 전용 미국 시세만 받아 paper 장부에 기록하며 REAL 주문 기능은 사용하지 않습니다.
