@@ -8,6 +8,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
+import java.time.Instant;
 import org.springframework.test.util.ReflectionTestUtils;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -130,6 +132,54 @@ class OrderServiceTest {
         assertEquals(1, expired.getFilledQuantity());
         assertThrows(IllegalArgumentException.class,
                 () -> expired.applyFill(1, new BigDecimal("70000")));
+    }
+
+    @Test
+    void repeatedPaperFillKeyReturnsPriorOrderWithoutApplyingTheFillTwice() {
+        UUID fillKey = UUID.randomUUID();
+        PaperFillRequest fillRequest = new PaperFillRequest(fillKey, 1, new BigDecimal("70000"));
+        PaperFillRecord prior = new PaperFillRecord(11L, fillRequest);
+        OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
+        ReflectionTestUtils.setField(order, "id", 11L);
+        order.applyFill(1, new BigDecimal("70000"));
+        when(fills.findByFillKey(fillKey)).thenReturn(Optional.of(prior));
+        when(orders.findById(11L)).thenReturn(Optional.of(order));
+
+        OrderRecord result = service().recordPaperFill(11L, fillRequest);
+
+        assertSame(order, result);
+        assertEquals(1, result.getFilledQuantity());
+        verify(orders, never()).save(any());
+        verify(positions, never()).save(any());
+    }
+
+    @Test
+    void reusedPaperFillKeyWithDifferentDetailsIsRejected() {
+        UUID fillKey = UUID.randomUUID();
+        PaperFillRecord prior = new PaperFillRecord(11L,
+                new PaperFillRequest(fillKey, 1, new BigDecimal("70000")));
+        when(fills.findByFillKey(fillKey)).thenReturn(Optional.of(prior));
+
+        assertThrows(IdempotencyConflictException.class, () -> service().recordPaperFill(11L,
+                new PaperFillRequest(fillKey, 2, new BigDecimal("70000"))));
+        verify(orders, never()).findById(any());
+        verify(positions, never()).save(any());
+    }
+
+    @Test
+    void configuredPaperTimeoutExpiresOpenOrdersButZeroDisablesTheSweep() {
+        OrderRecord pending = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
+        OrderRecord partial = new OrderRecord(request(new BigDecimal("70000"), 2), UUID.randomUUID());
+        partial.applyFill(1, new BigDecimal("70000"));
+        when(orders.findOpenOrdersCreatedBefore(anyList(), any(Instant.class)))
+                .thenReturn(List.of(pending, partial));
+        when(orders.saveAll(any(Iterable.class))).thenReturn(List.of(pending, partial));
+
+        assertEquals(2, service().expireStalePaperOrders(30));
+        assertEquals(OrderStatus.EXPIRED, pending.getStatus());
+        assertEquals(OrderStatus.EXPIRED, partial.getStatus());
+        assertEquals(0, service().expireStalePaperOrders(0));
+        verify(orders, times(1)).findOpenOrdersCreatedBefore(anyList(), any(Instant.class));
     }
 
     private OrderService service() {

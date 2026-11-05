@@ -8,6 +8,7 @@ import java.util.UUID;
 import java.util.Locale;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.time.Instant;
 
 @Service
 public class OrderService {
@@ -115,6 +116,18 @@ public class OrderService {
     public OrderRecord getPaperOrder(Long orderId) {
         requirePaperMode();
         return orders.findById(orderId).orElseThrow(() -> new NoSuchElementException("Order not found."));
+    }
+
+    @Transactional
+    public int expireStalePaperOrders(long timeoutSeconds) {
+        requirePaperMode();
+        if (timeoutSeconds <= 0) return 0;
+        Instant cutoff = Instant.now().minusSeconds(timeoutSeconds);
+        var stale = orders.findOpenOrdersCreatedBefore(
+                List.of(OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED), cutoff);
+        stale.forEach(OrderRecord::expirePaperOrder);
+        orders.saveAll(stale);
+        return stale.size();
     }
 
     @Transactional(readOnly = true)

@@ -20,3 +20,4 @@ trading:
 paper:
   starting-cash-krw: ${PAPER_STARTING_CASH_KRW:0}
   starting-cash-usd: ${PAPER_STARTING_CASH_USD:0}
+  order-timeout-seconds: ${PAPER_ORDER_TIMEOUT_SECONDS:0}

@@ -95,6 +95,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/orders/paper `
 수동 paper 체결과 가상 포지션 조회 예시:
 
 매수 체결에는 가상 현금 잔고가 필요합니다. `.env`의 `PAPER_STARTING_CASH_KRW`와 `PAPER_STARTING_CASH_USD`에 직접 선택한 모의 시작 금액을 설정하세요. 기본값은 0이며, 기존 잔고는 재시작해도 설정값으로 덮어쓰지 않습니다. 가상 현금 조회는 `/api/v1/orders/paper/cash`입니다.
+선택 사항인 `PAPER_ORDER_TIMEOUT_SECONDS`는 미체결/부분체결 주문을 만료시키는 시간입니다. 기본값 0은 자동 만료를 끕니다.
 
 ```powershell
 Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/orders/paper/1/fills `
@@ -129,7 +130,7 @@ Docker를 선호하면 기존 PostgreSQL 대신 컨테이너 DB도 선택할 수
 ## 단계별 개발 순서
 
 - **P1 — 기반·KIS 읽기 전용 연결:** 완료. 국내·미국 시세, 국내·해외 잔고 스냅샷 API와 PostgreSQL 저장 구조를 추가했습니다. KIS 실제 연결은 로컬 `.env`에 각 환경 자격증명을 입력한 후 선택적으로 확인합니다.
-- **P2 — 주문·리스크 엔진:** 진행 중. 주문 상태 전이, 중복 방지, 모의 부분/전체 체결, 취소·만료, 가상 현금 차감·환급과 보유 포지션 원가 집계를 추가했습니다. 다음으로 타임아웃·재시작 복구와 end-to-end 테스트를 진행합니다.
+- **P2 — 주문·리스크 엔진:** 진행 중. 주문 상태 전이, 중복 방지, 모의 부분/전체 체결, 취소·만료, 가상 현금 차감·환급, 포지션 원가 집계와 선택형 미체결 만료를 추가했습니다. 다음으로 DB 재시작 복구와 end-to-end 테스트를 진행합니다.
 - **P3 — 전략·백테스트:** VWAP/시초가 돌파 전략, 비용·슬리피지 모델, 과거 데이터 검증과 미래 데이터 누수 방지를 구현합니다.
 - **P4 — AI 모델:** 피처 생성, LightGBM/XGBoost 후보 비교, 모델 버전·학습 분리 검증을 구현합니다.
 - **P5 — 자동 모의매매:** 국내·미국 장 운영 시간, 신호·paper 주문 자동화, 체결 감시, 장 마감 처리와 장시간 안정성을 구현합니다.
