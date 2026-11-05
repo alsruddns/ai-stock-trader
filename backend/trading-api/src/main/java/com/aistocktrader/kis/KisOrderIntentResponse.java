@@ -10,7 +10,7 @@ public record KisOrderIntentResponse(UUID idempotencyKey, String environment, St
                                     Integer filledQuantity, Integer remainingQuantity, String averageFillPrice,
                                     Instant createdAt, Instant updatedAt) {
     public static KisOrderIntentResponse from(KisOrderIntent intent) {
-        return new KisOrderIntentResponse(intent.getIdempotencyKey(), "paper", intent.getMarket().name(),
+        return new KisOrderIntentResponse(intent.getIdempotencyKey(), intent.getEnvironment().label(), intent.getMarket().name(),
                 intent.getSymbol(), intent.getSide().name(), intent.getQuantity(), intent.getLimitPrice().toPlainString(),
                 intent.getCurrency().name(), intent.getStatus(), intent.getBrokerOrderNumber(),
                 intent.getBrokerOrganizationNumber(), intent.getBrokerResponseCode(), intent.getFilledQuantity(),

@@ -23,6 +23,18 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class KisOrderClientTest {
     @Test
+    void orderIntentAndResponseKeepExplicitEnvironment() {
+        var request = new com.aistocktrader.order.OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent realIntent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL, request, null);
+        KisOrderIntent paperIntent = new KisOrderIntent(UUID.randomUUID(), "hash", request, null);
+
+        assertEquals(KisEnvironment.REAL, realIntent.getEnvironment());
+        assertEquals("real", KisOrderIntentResponse.from(realIntent).environment());
+        assertEquals("paper", KisOrderIntentResponse.from(paperIntent).environment());
+    }
+
+    @Test
     void domesticPaperLimitOrderUsesPaperCredentialsAndLimitOnlyContract() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

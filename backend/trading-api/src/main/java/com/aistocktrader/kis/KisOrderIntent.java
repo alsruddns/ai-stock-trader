@@ -24,6 +24,8 @@ public class KisOrderIntent {
     private UUID idempotencyKey;
     @Column(name = "request_hash", nullable = false, length = 64)
     private String requestHash;
+    @Enumerated(EnumType.STRING) @Column(nullable = false, length = 8)
+    private KisEnvironment environment;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 2)
     private Market market;
     @Column(nullable = false, length = 24)
@@ -60,7 +62,12 @@ public class KisOrderIntent {
     protected KisOrderIntent() { }
 
     public KisOrderIntent(UUID key, String hash, OrderRequest request, String exchange) {
+        this(key, hash, KisEnvironment.PAPER, request, exchange);
+    }
+
+    public KisOrderIntent(UUID key, String hash, KisEnvironment environment, OrderRequest request, String exchange) {
         idempotencyKey = key; requestHash = hash; market = request.market();
+        this.environment = java.util.Objects.requireNonNull(environment, "environment");
         symbol = request.symbol().trim().toUpperCase(Locale.ROOT); side = request.side();
         quantity = request.quantity(); limitPrice = request.limitPrice(); currency = request.currency();
         exchangeCode = exchange == null ? null : exchange.trim().toUpperCase(Locale.ROOT);
@@ -93,6 +100,7 @@ public class KisOrderIntent {
     }
     public UUID getIdempotencyKey() { return idempotencyKey; }
     public String getRequestHash() { return requestHash; }
+    public KisEnvironment getEnvironment() { return environment; }
     public Market getMarket() { return market; }
     public String getSymbol() { return symbol; }
     public OrderSide getSide() { return side; }
