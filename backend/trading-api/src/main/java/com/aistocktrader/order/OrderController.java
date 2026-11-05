@@ -27,4 +27,9 @@ public class OrderController {
     public List<PaperPosition> paperPositions() {
         return service.paperPositions();
     }
+
+    @GetMapping("/paper/cash")
+    public List<PaperCashBalance> paperCashBalances() {
+        return service.paperCashBalances();
+    }
 }

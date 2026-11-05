@@ -18,6 +18,7 @@ class OrderServiceTest {
     @Mock OrderRepository orders;
     @Mock PaperFillRepository fills;
     @Mock PaperPositionRepository positions;
+    @Mock PaperCashRepository cashBalances;
     private final UUID idempotencyKey = UUID.fromString("d8d449d8-f154-4c5a-b1d0-6ce69f790f51");
     private TradingSafetyProperties safeConfig() {
         return new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100"));
@@ -75,6 +76,9 @@ class OrderServiceTest {
         when(orders.findByIdForUpdate(11L)).thenReturn(Optional.of(order));
         when(positions.findInstrumentForUpdate(Market.KR, "005930", Currency.KRW)).thenReturn(Optional.empty());
         when(positions.save(any(PaperPosition.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        PaperCashBalance cash = new PaperCashBalance(Currency.KRW, new BigDecimal("1000000"));
+        when(cashBalances.findByCurrencyForUpdate(Currency.KRW)).thenReturn(Optional.of(cash));
+        when(cashBalances.save(any(PaperCashBalance.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(fills.save(any(PaperFillRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(orders.save(any(OrderRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -83,6 +87,7 @@ class OrderServiceTest {
         assertEquals(OrderStatus.PARTIALLY_FILLED, partial.getStatus());
         assertEquals(1, partial.getFilledQuantity());
         assertEquals(new BigDecimal("69900.000000"), partial.getAverageFillPrice());
+        assertEquals(0, new BigDecimal("930100").compareTo(cash.getBalance()));
 
         order.applyFill(2, new BigDecimal("70200"));
         assertEquals(OrderStatus.FILLED, order.getStatus());
@@ -101,7 +106,16 @@ class OrderServiceTest {
         assertEquals(0, position.getQuantity());
     }
 
+    @Test
+    void paperCashRejectsOverspendingWithoutChangingBalance() {
+        PaperCashBalance cash = new PaperCashBalance(Currency.USD, new BigDecimal("100.00"));
+        cash.debit(new BigDecimal("80.00"));
+        assertEquals(new BigDecimal("20.00"), cash.getBalance());
+        assertThrows(IllegalArgumentException.class, () -> cash.debit(new BigDecimal("20.01")));
+        assertEquals(new BigDecimal("20.00"), cash.getBalance());
+    }
+
     private OrderService service() {
-        return new OrderService(orders, safeConfig(), fills, positions);
+        return new OrderService(orders, safeConfig(), fills, positions, cashBalances);
     }
 }

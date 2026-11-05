@@ -15,9 +15,11 @@ public class OrderService {
     private final TradingSafetyProperties safety;
     private final PaperFillRepository fills;
     private final PaperPositionRepository positions;
+    private final PaperCashRepository cashBalances;
     public OrderService(OrderRepository orders, TradingSafetyProperties safety,
-                        PaperFillRepository fills, PaperPositionRepository positions) {
-        this.orders = orders; this.safety = safety; this.fills = fills; this.positions = positions;
+                        PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances) {
+        this.orders = orders; this.safety = safety; this.fills = fills;
+        this.positions = positions; this.cashBalances = cashBalances;
     }
 
     @Transactional
@@ -64,6 +66,9 @@ public class OrderService {
         }
         OrderRecord order = orders.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new NoSuchElementException("Order not found."));
+        PaperCashBalance cash = cashBalances.findByCurrencyForUpdate(order.getCurrency())
+                .orElseThrow(() -> new IllegalStateException("Paper cash account is not initialized."));
+        BigDecimal fillNotional = request.fillPrice().multiply(BigDecimal.valueOf(request.quantity()));
         if (order.getSide() == OrderSide.SELL) {
             PaperPosition position = positions.findInstrumentForUpdate(order.getMarket(), order.getSymbol(), order.getCurrency())
                     .orElseThrow(() -> new IllegalArgumentException("Paper sell requires an existing position."));
@@ -72,14 +77,17 @@ public class OrderService {
             }
             order.applyFill(request.quantity(), request.fillPrice());
             position.apply(order.getSide(), request.quantity(), request.fillPrice());
+            cash.credit(fillNotional);
             positions.save(position);
         } else {
             order.applyFill(request.quantity(), request.fillPrice());
+            cash.debit(fillNotional);
             PaperPosition position = positions.findInstrumentForUpdate(order.getMarket(), order.getSymbol(), order.getCurrency())
                     .orElseGet(() -> new PaperPosition(order.getMarket(), order.getSymbol(), order.getCurrency()));
             position.apply(order.getSide(), request.quantity(), request.fillPrice());
             positions.save(position);
         }
+        cashBalances.save(cash);
         fills.save(new PaperFillRecord(order.getId(), request));
         return orders.save(order);
     }
@@ -88,6 +96,12 @@ public class OrderService {
     public List<PaperPosition> paperPositions() {
         requirePaperMode();
         return positions.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PaperCashBalance> paperCashBalances() {
+        requirePaperMode();
+        return cashBalances.findAll();
     }
 
     private void requirePaperMode() {

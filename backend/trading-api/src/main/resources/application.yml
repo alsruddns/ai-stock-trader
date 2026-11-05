@@ -17,3 +17,6 @@ trading:
   live-trading-enabled: ${LIVE_TRADING_ENABLED:false}
   max-order-notional-krw: ${MAX_ORDER_NOTIONAL_KRW:1000000}
   max-order-notional-usd: ${MAX_ORDER_NOTIONAL_USD:100}
+paper:
+  starting-cash-krw: ${PAPER_STARTING_CASH_KRW:0}
+  starting-cash-usd: ${PAPER_STARTING_CASH_USD:0}
