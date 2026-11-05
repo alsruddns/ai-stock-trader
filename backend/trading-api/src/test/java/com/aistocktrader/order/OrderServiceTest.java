@@ -76,6 +76,9 @@ class OrderServiceTest {
                 () -> new TradingSafetyProperties("paper", true, BigDecimal.TEN, BigDecimal.TEN));
         assertThrows(IllegalStateException.class,
                 () -> new TradingSafetyProperties("live", false, BigDecimal.TEN, BigDecimal.TEN));
+        assertThrows(IllegalStateException.class,
+                () -> new TradingSafetyProperties("real", true, false, BigDecimal.TEN, BigDecimal.TEN));
+        assertDoesNotThrow(() -> new TradingSafetyProperties("real", true, true, BigDecimal.TEN, BigDecimal.TEN));
     }
 
     @Test

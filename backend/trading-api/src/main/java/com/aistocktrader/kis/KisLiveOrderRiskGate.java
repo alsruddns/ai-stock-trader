@@ -25,13 +25,13 @@ public class KisLiveOrderRiskGate {
                                       KisAccountSnapshot account, KisLiveRiskContext context) {
         List<String> reasons = new ArrayList<>();
         if (request == null || account == null || context == null) {
-            return new KisLiveRiskDecision(false, List.of("REQUIRED_RISK_INPUT_MISSING"));
+            return decision(false, List.of("REQUIRED_RISK_INPUT_MISSING"), request, exchange);
         }
         if (request.market() == null || request.side() == null || request.currency() == null
                 || request.symbol() == null || request.symbol().isBlank()
                 || request.quantity() <= 0 || request.limitPrice() == null || request.limitPrice().signum() <= 0) {
             reasons.add("INVALID_ORDER_REQUEST");
-            return new KisLiveRiskDecision(false, reasons);
+            return decision(false, reasons, request, exchange);
         }
         if (request.market() == com.aistocktrader.order.Market.US && !validUsExchange(exchange)) {
             reasons.add("VALID_US_EXCHANGE_REQUIRED");
@@ -52,7 +52,7 @@ public class KisLiveOrderRiskGate {
         if (context.totalOpenPositions() < 0) reasons.add("OPEN_POSITION_COUNT_INVALID");
         if (!realAccount || !matchingMarket || !matchingCurrency || !positionsValid
                 || !context.accountSnapshotFresh() || context.totalOpenPositions() < 0) {
-            return new KisLiveRiskDecision(false, reasons);
+            return decision(false, reasons, request, exchange);
         }
         BigDecimal notional = request.limitPrice().multiply(BigDecimal.valueOf(request.quantity()));
         BigDecimal maxNotional = request.currency() == Currency.KRW
@@ -65,11 +65,11 @@ public class KisLiveOrderRiskGate {
                     .map(KisAccountSnapshot.Position::sellableQuantity)
                     .filter(java.util.Objects::nonNull).findFirst().orElse(BigDecimal.ZERO);
             if (sellable.compareTo(BigDecimal.valueOf(request.quantity())) < 0) reasons.add("INSUFFICIENT_SELLABLE_QUANTITY");
-            return new KisLiveRiskDecision(reasons.isEmpty(), reasons);
+            return decision(reasons.isEmpty(), reasons, request, exchange);
         }
 
         assessBuy(request, account, context, notional, reasons);
-        return new KisLiveRiskDecision(reasons.isEmpty(), reasons);
+        return decision(reasons.isEmpty(), reasons, request, exchange);
     }
 
     private void assessBuy(OrderRequest request, KisAccountSnapshot account,
@@ -117,5 +117,10 @@ public class KisLiveOrderRiskGate {
 
     private static List<KisAccountSnapshot.Position> safePositions(KisAccountSnapshot account) {
         return account.positions() == null ? List.of() : account.positions().stream().filter(java.util.Objects::nonNull).toList();
+    }
+
+    private static KisLiveRiskDecision decision(boolean approved, List<String> reasons,
+                                                OrderRequest request, String exchange) {
+        return new KisLiveRiskDecision(approved, reasons, request, exchange);
     }
 }
