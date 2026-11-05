@@ -45,6 +45,7 @@ public class OperationsController {
     private final boolean kisPaperOrdersEnabled;
     private final KisOrderIntentRepository kisIntents;
     private final boolean kisRealAccountReadsEnabled;
+    private final boolean kisRealReconciliationEnabled;
     private final boolean paperCostModelEnabled;
 
     public OperationsController(OrderRepository orders, PaperPositionRepository positions,
@@ -54,6 +55,7 @@ public class OperationsController {
                                 @Value("${kis.account-read-enabled:false}") boolean kisAccountReadsEnabled,
                                 @Value("${kis.orders.paper-enabled:false}") boolean kisPaperOrdersEnabled,
                                 @Value("${kis.real-account-read-enabled:false}") boolean kisRealAccountReadsEnabled,
+                                @Value("${kis.real-reconciliation-enabled:false}") boolean kisRealReconciliationEnabled,
                                 @Value("${paper.costs.enabled:false}") boolean paperCostModelEnabled) {
         this.orders = orders;
         this.positions = positions;
@@ -64,6 +66,7 @@ public class OperationsController {
         this.kisAccountReadsEnabled = kisAccountReadsEnabled;
         this.kisPaperOrdersEnabled = kisPaperOrdersEnabled;
         this.kisRealAccountReadsEnabled = kisRealAccountReadsEnabled;
+        this.kisRealReconciliationEnabled = kisRealReconciliationEnabled;
         this.paperCostModelEnabled = paperCostModelEnabled;
     }
 
@@ -97,7 +100,8 @@ public class OperationsController {
 
         return new OperationsSummary(now, safety.mode(), safety.liveTradingEnabled() ? "enabled" : "disabled",
                 false, kisAccountReadsEnabled, kisPaperOrdersEnabled, safety.realOrdersEnabled(),
-                kisRealAccountReadsEnabled, realOrderCounts, paperCostModelEnabled, transactionCostsToday,
+                kisRealAccountReadsEnabled, kisRealReconciliationEnabled, realOrderCounts,
+                paperCostModelEnabled, transactionCostsToday,
                 realizedNetPnlToday, recentRealOrders, counts, consecutiveLosingTrades,
                 counts.getOrDefault(OrderStatus.PENDING, 0L)
                 + counts.getOrDefault(OrderStatus.PARTIALLY_FILLED, 0L)
@@ -219,7 +223,8 @@ public class OperationsController {
     public record OperationsSummary(Instant generatedAt, String tradingMode, String liveTrading,
                                     boolean paperAutomationEnabled, boolean kisAccountReadsEnabled,
                                     boolean kisPaperOrdersEnabled, boolean kisRealOrdersEnabled,
-                                    boolean kisRealAccountReadsEnabled, Map<KisOrderStatus, Long> realOrderCounts,
+                                    boolean kisRealAccountReadsEnabled, boolean kisRealReconciliationEnabled,
+                                    Map<KisOrderStatus, Long> realOrderCounts,
                                     boolean paperCostModelEnabled, Map<String, BigDecimal> paperTransactionCostsTodayByCurrency,
                                     Map<String, BigDecimal> realizedPnlTodayNetByCurrency,
                                     List<RealOrderView> recentRealOrders, Map<OrderStatus, Long> orderCounts,

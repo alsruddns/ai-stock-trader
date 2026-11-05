@@ -46,7 +46,7 @@ class OperationsControllerTest {
 
         OperationsController controller = new OperationsController(orders, positions, cash, fills,
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")),
-                kisIntents, false, false, false, false);
+                kisIntents, false, false, false, false, false);
 
         var summary = controller.summary();
 
@@ -80,7 +80,7 @@ class OperationsControllerTest {
 
         var summary = new OperationsController(orders, positions, cash, fills,
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")),
-                kisIntents, false, false, false, false).summary();
+                kisIntents, false, false, false, false, false).summary();
 
         assertEquals(1, summary.consecutiveLosingTrades());
     }
@@ -107,7 +107,7 @@ class OperationsControllerTest {
 
         var summary = new OperationsController(orders, positions, cash, fills,
                 new TradingSafetyProperties("paper", false, BigDecimal.TEN, BigDecimal.TEN), kisIntents,
-                false, false, false, false).summary();
+                false, false, false, false, false).summary();
 
         assertEquals("paper", summary.tradingMode());
         assertEquals(1L, summary.realOrderCounts().get(KisOrderStatus.ACCEPTED));
@@ -134,7 +134,7 @@ class OperationsControllerTest {
 
         var summary = new OperationsController(orders, positions, cash, fills,
                 new TradingSafetyProperties("paper", false, BigDecimal.TEN, BigDecimal.TEN), kisIntents,
-                false, false, false, true).summary();
+                false, false, false, false, true).summary();
 
         assertEquals(new BigDecimal("40.000000"), summary.realizedPnlTodayGrossByCurrency().get("USD"));
         assertEquals(new BigDecimal("33.000000"), summary.realizedPnlTodayNetByCurrency().get("USD"));

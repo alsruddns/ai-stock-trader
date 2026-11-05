@@ -40,6 +40,8 @@ kis:
   account-read-enabled: ${KIS_ACCOUNT_READ_ENABLED:false}
   paper-account-read-enabled: ${KIS_PAPER_ACCOUNT_READ_ENABLED:${KIS_ACCOUNT_READ_ENABLED:false}}
   real-account-read-enabled: ${KIS_REAL_ACCOUNT_READ_ENABLED:false}
+  real-reconciliation-enabled: ${KIS_REAL_RECONCILIATION_ENABLED:false}
+  real-reconciliation-delay-ms: ${KIS_REAL_RECONCILIATION_DELAY_MS:30000}
   snapshot-persistence-enabled: ${KIS_SNAPSHOT_PERSISTENCE_ENABLED:false}
   paper:
     app-key: ${KIS_PAPER_APP_KEY:}
