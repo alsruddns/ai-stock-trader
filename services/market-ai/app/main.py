@@ -94,7 +94,7 @@ class QuantBacktestResponse(BaseModel):
 class AiPredictionRequest(BaseModel):
     market: Market
     symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Za-z0-9.-]+$")
-    bars: list[QuantBarRequest] = Field(min_length=20, max_length=500)
+    bars: list[QuantBarRequest] = Field(min_length=21, max_length=500)
 
 
 class ModelApprovalRequest(BaseModel):

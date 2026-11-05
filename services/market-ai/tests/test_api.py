@@ -129,3 +129,14 @@ def test_quant_backtest_endpoint_rejects_naive_timestamps() -> None:
         ],
     })
     assert response.status_code == 422
+
+
+def test_ai_prediction_endpoint_requires_full_relative_volume_lookback() -> None:
+    response = client.post("/api/v1/ai/models/lightgbm-" + "a" * 32 + "/predict", json={
+        "market": "KR", "symbol": "005930", "bars": [
+            {"timestamp": f"2026-11-05T09:{i:02d}:00+09:00", "open": "100", "high": "101",
+             "low": "99", "close": "100", "volume": 1000, "spread_bps": "5"}
+            for i in range(20)
+        ],
+    })
+    assert response.status_code == 422
