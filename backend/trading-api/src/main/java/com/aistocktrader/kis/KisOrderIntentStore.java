@@ -22,6 +22,10 @@ public class KisOrderIntentStore {
         var existing = repository.findById(key);
         if (existing.isPresent()) {
             KisOrderIntent intent = existing.get();
+            if (intent.getEnvironment() != environment) {
+                throw new com.aistocktrader.order.IdempotencyConflictException(
+                        "Idempotency-Key was already used in a different KIS environment.");
+            }
             if (!intent.getRequestHash().equals(hash)) throw new com.aistocktrader.order.IdempotencyConflictException("Idempotency-Key was already used for a different KIS order.");
             return new PreparedIntent(intent, false);
         }
