@@ -66,6 +66,14 @@ KIS 조회를 쓸 때는 `.env`에 모의·실전 자격증명을 각각 `KIS_PA
 - Python 상태: `http://localhost:8000/api/v1/health`
 - Python API 문서: `http://localhost:8000/docs`
 
+LightGBM·XGBoost 학습용 선택 의존성은 `python -m pip install -e ".[dev,ai]"`로 설치합니다. 허가된 1분봉 CSV(`timestamp,open,high,low,close,volume,spread_bps`)로 모델 후보를 학습하려면 저장소 루트에서 아래 명령을 사용합니다. 각 행의 시각은 시간대를 포함해야 하고 데이터 제공·저장 권한을 확인한 자료만 사용하세요.
+
+```powershell
+python .\scripts\train-ai-models.py .\data\licensed\005930.csv
+```
+
+모델 파일과 메타데이터는 `.local/models`에만 저장됩니다. 생성된 모델은 자동 승인되지 않으며 예측 API는 `executable=false`를 반환합니다.
+
 KIS 모의 현재가 조회 예시 (선택 기능):
 
 ```powershell

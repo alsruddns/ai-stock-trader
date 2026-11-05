@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from .kis import AccountBalance, Exchange, KisApiError, KisReadOnlyClient, KisSettings, Market, Quote
 from . import snapshot_store
 from . import kis_stream
+from .ai_pipeline import LocalModelRegistry
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 
 app = FastAPI(
@@ -76,6 +77,11 @@ class QuantBacktestResponse(BaseModel):
     data_points: int
     signals: int
     executable: bool
+
+
+class AiPredictionRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Za-z0-9.-]+$")
+    bars: list[QuantBarRequest] = Field(min_length=20, max_length=500)
 
 
 class AnalysisResponse(BaseModel):
@@ -266,3 +272,26 @@ def backtest_orb_vwap_endpoint(request: QuantBacktestRequest) -> QuantBacktestRe
         costs=result.costs, net_pnl=result.net_pnl, data_points=result.data_points,
         signals=result.signals, executable=False,
     )
+
+
+@app.post("/api/v1/ai/models/{model_id}/predict")
+def predict_with_model(
+    model_id: str = Path(pattern=r"^(lightgbm|xgboost)-[a-f0-9]{32}$"),
+    request: AiPredictionRequest = ...,
+) -> dict[str, object]:
+    """Return an advisory probability from a locally registered model; never an order."""
+    try:
+        bars = [MinuteBar(
+            timestamp=item.timestamp, open=item.open, high=item.high, low=item.low,
+            close=item.close, volume=item.volume, spread_bps=item.spread_bps,
+        ) for item in request.bars]
+        registry = LocalModelRegistry(os.getenv("AI_MODEL_REGISTRY_PATH", ".local/models"))
+        result = registry.predict_preview(model_id, bars)
+        result["symbol"] = request.symbol.strip().upper()
+        return result
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
