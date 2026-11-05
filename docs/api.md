@@ -34,6 +34,8 @@ KIS API는 기본 잠금(`KIS_ACCOUNT_READ_ENABLED=false`)입니다. 조회를 �
 - 미국 USD 잔고: `/uapi/overseas-stock/v1/trading/inquire-present-balance`
 - 미국 종목 매수가능: `/uapi/overseas-stock/v1/trading/inquire-psamount`
 
+미국 잔고 응답은 `output1`을 보유 종목, `output2`를 계좌 요약으로 처리합니다. 모의계좌의 체결기준 잔고(`inquire-present-balance`)는 KIS 공식 샘플 안내상 `output3`만 정상 제공될 수 있습니다. `output3.tot_asst_amt`는 총자산 평가액이므로 현금이나 주문가능금액으로 사용하지 않습니다. 특정 종목의 매수가능액은 `inquire-psamount`로 별도 조회합니다.
+
 Read timeout, HTTP 429 및 KIS rate-limit 오류는 안전한 오류 응답으로 바꾸고 요청을 자동 재전송하지 않습니다.
 
 Paper 주문 응답이 타임아웃되면 `GET /api/v1/orders/paper/by-idempotency/{key}`로 결과를 먼저 대조합니다. 자동화 클라이언트는 주문 쓰기를 재시도하지 않습니다.

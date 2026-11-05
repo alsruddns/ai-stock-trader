@@ -129,13 +129,13 @@ class KisAccountClientTest {
                 .andExpect(header("tr_id", "VTTS3012R"))
                 .andExpect(queryParam("OVRS_EXCG_CD", "NASD"))
                 .andRespond(withSuccess("""
-                        {"rt_cd":"0","output1":{},"output2":[{"ovrs_pdno":"AAPL","ovrs_item_name":"Apple","ovrs_cblc_qty":"2","pchs_avg_pric":"190","now_pric2":"200","ovrs_stck_evlu_amt":"400","frcr_evlu_pfls_amt":"20","evlu_pfls_rt":"5"}]}
+                        {"rt_cd":"0","output1":[{"ovrs_pdno":"AAPL","ovrs_item_name":"Apple","ovrs_cblc_qty":"2","pchs_avg_pric":"190","now_pric2":"200","ovrs_stck_evlu_amt":"400","frcr_evlu_pfls_amt":"20","evlu_pfls_rt":"5"}],"output2":{"frcr_dncl_amt_2":"100"}}
                         """, MediaType.APPLICATION_JSON));
         server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/overseas-stock/v1/trading/inquire-present-balance?")))
                 .andExpect(header("tr_id", "VTRP6504R"))
                 .andExpect(queryParam("NATN_CD", "840"))
                 .andRespond(withSuccess("""
-                        {"rt_cd":"0","output2":[{"crcy_cd":"USD","frcr_drwg_psbl_amt_1":"100","frcr_ord_psbl_amt1":"90"}]}
+                        {"rt_cd":"0","output2":[{"crcy_cd":"USD","frcr_drwg_psbl_amt_1":"999","frcr_ord_psbl_amt1":"999"}],"output3":{"tot_asst_amt":"1000"}}
                         """, MediaType.APPLICATION_JSON));
         server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/overseas-stock/v1/trading/inquire-psamount?")))
                 .andExpect(header("tr_id", "VTTS3007R"))

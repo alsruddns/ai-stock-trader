@@ -248,7 +248,7 @@ class KisReadOnlyClient:
                 "TR_CRCY_CD": "USD", "CTX_AREA_FK200": "", "CTX_AREA_NK200": "",
             }
             currency = "USD"
-            positions_field, summary_field = "output2", "output1"
+            positions_field, summary_field = "output1", "output2"
             fk_field, nk_field = "CTX_AREA_FK200", "CTX_AREA_NK200"
         else:
             raise ValueError("market must be KR or US")

@@ -78,13 +78,18 @@ public class KisAccountClient {
                 environment == KisEnvironment.PAPER ? "VTTS3012R" : "TTTS3012R",
                 Map.of("CANO", cano, "ACNT_PRDT_CD", product, "OVRS_EXCG_CD", validExchange,
                         "TR_CRCY_CD", "USD", "CTX_AREA_FK200", "", "CTX_AREA_NK200", ""),
-                "output2", "output1", "CTX_AREA_FK200", "CTX_AREA_NK200");
+                "output1", "output2", "CTX_AREA_FK200", "CTX_AREA_NK200");
         JsonNode cashResponse = get(environment, "/uapi/overseas-stock/v1/trading/inquire-present-balance",
                 environment == KisEnvironment.PAPER ? "VTRP6504R" : "CTRP6504R",
                 Map.of("CANO", cano, "ACNT_PRDT_CD", product, "WCRC_FRCR_DVSN_CD", "02",
                         "NATN_CD", "840", "TR_MKET_CD", "00", "INQR_DVSN_CD", "00"));
-        JsonNode cashSummary = findCurrency(cashResponse.path("output2"), "USD");
-        BigDecimal cash = firstAmount(cashSummary, "frcr_drwg_psbl_amt_1", "frcr_dncl_amt_2");
+        // KIS's paper present-balance response normally exposes output3 only. Do not
+        // interpret total asset valuation (tot_asst_amt) as cash or buying power.
+        JsonNode cashSummary = environment == KisEnvironment.PAPER
+                ? firstOrSelf(cashResponse.path("output3"))
+                : findCurrency(cashResponse.path("output2"), "USD");
+        BigDecimal cash = firstAmount(balance.path("output2"), "frcr_dncl_amt_2");
+        if (cash == null) cash = firstAmount(cashSummary, "frcr_drwg_psbl_amt_1", "frcr_dncl_amt_2");
         BigDecimal orderable = firstAmount(cashSummary, "frcr_ord_psbl_amt1", "ord_psbl_frcr_amt");
         if (symbol != null && unitPrice != null) {
             JsonNode buyingPower = get(environment, "/uapi/overseas-stock/v1/trading/inquire-psamount",
@@ -95,7 +100,7 @@ public class KisAccountClient {
             orderable = firstAmount(output, "ord_psbl_frcr_amt", "frcr_ord_psbl_amt1", "ovrs_ord_psbl_amt");
         }
         return new KisAccountSnapshot(environment, market, "USD", cash, orderable,
-                mapPositions(balance.path("output2"), market), Instant.now(), "KIS_READ_ONLY_REST");
+                mapPositions(balance.path("output1"), market), Instant.now(), "KIS_READ_ONLY_REST");
     }
 
     private JsonNode get(KisEnvironment environment, String path, String trId, Map<String, String> params) {

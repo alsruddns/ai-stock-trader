@@ -181,13 +181,13 @@ def test_overseas_account_balance_uses_200_cursor_fields_for_continuation() -> N
         market_requests.append(request)
         if len(market_requests) == 1:
             return httpx.Response(200, headers={"tr_cont": "M"}, json={
-                "rt_cd": "0", "output1": {"frcr_dncl_amt_2": "50.00"},
-                "output2": [{"ovrs_pdno": "AAPL", "ovrs_cblc_qty": "1"}],
+                "rt_cd": "0", "output1": [{"ovrs_pdno": "AAPL", "ovrs_cblc_qty": "1"}],
+                "output2": {"frcr_dncl_amt_2": "50.00"},
                 "ctx_area_fk200": "next-fk", "ctx_area_nk200": "next-nk",
             })
         return httpx.Response(200, headers={"tr_cont": "N"}, json={
-            "rt_cd": "0", "output1": {"frcr_dncl_amt_2": "50.00"},
-            "output2": [{"ovrs_pdno": "MSFT", "ovrs_cblc_qty": "2"}],
+            "rt_cd": "0", "output1": [{"ovrs_pdno": "MSFT", "ovrs_cblc_qty": "2"}],
+            "output2": {"frcr_dncl_amt_2": "50.00"},
         })
 
     client = KisReadOnlyClient(
