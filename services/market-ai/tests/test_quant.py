@@ -59,6 +59,20 @@ def test_missing_spread_and_low_turnover_block_entries() -> None:
     assert result.trades == ()
 
 
+def test_relative_volume_requires_full_prior_lookback_plus_current_bar() -> None:
+    bars = _session_bars()[:20]
+    start = bars[-1].timestamp
+    bars[-1] = MinuteBar(start, Decimal("100.5"), Decimal("101.5"), Decimal("100.2"),
+                         Decimal("101"), 3000, Decimal("5"))
+    config = QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"))
+
+    assert backtest_orb_vwap("KR", "005930", bars, config).signals == 0
+    next_bar_time = start + timedelta(minutes=1)
+    bars.append(MinuteBar(next_bar_time, Decimal("101"), Decimal("101.5"), Decimal("100.8"),
+                          Decimal("101.2"), 3000, Decimal("5")))
+    assert backtest_orb_vwap("KR", "005930", bars, config).signals == 1
+
+
 def test_stop_wins_when_stop_and_target_are_touched_in_same_bar() -> None:
     bars = _session_bars()
     ambiguous = MinuteBar(bars[21].timestamp, Decimal("102"), Decimal("110"), Decimal("90"), Decimal("100"), 2000, Decimal("5"))

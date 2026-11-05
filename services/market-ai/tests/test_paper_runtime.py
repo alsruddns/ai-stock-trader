@@ -80,11 +80,11 @@ def test_quant_candidate_is_held_without_an_active_approved_market_model(tmp_pat
     runtime._decisions[watch.key] = {}
     start = datetime(2026, 11, 5, 9, 0, tzinfo=ZoneInfo("Asia/Seoul"))
 
-    for index in range(20):
-        price = Decimal("1002") if index == 19 else Decimal("1000")
+    for index in range(21):
+        price = Decimal("1002") if index == 20 else Decimal("1000")
         runtime._record_closed_bar(watch, MinuteBar(
             start + timedelta(minutes=index), price, price + Decimal("0.1"), price - Decimal("0.1"),
-            price, 2000 if index == 19 else 1000, Decimal("5"),
+            price, 2000 if index == 20 else 1000, Decimal("5"),
         ))
 
     decision = runtime.decisions()[watch.key]

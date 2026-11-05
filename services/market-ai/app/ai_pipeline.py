@@ -84,7 +84,7 @@ def build_training_samples(
     if normalized_market not in _MARKET_SESSIONS:
         raise ValueError("market must be KR or US")
     samples: list[TrainingSample] = []
-    required = max(warmup_bars, 20, 14, 9)
+    required = max(warmup_bars, 21, 15, 10)
     for session, bars in sorted(sessions.items()):
         if not bars:
             continue
@@ -128,10 +128,11 @@ def build_training_samples(
     return samples
 
 
-def latest_features(bars: list[MinuteBar], *, market: str, minimum_bars: int = 20) -> tuple[float, ...]:
+def latest_features(bars: list[MinuteBar], *, market: str, minimum_bars: int = 21) -> tuple[float, ...]:
     """Build the current-bar feature vector without reading a future observation."""
-    if len(bars) < minimum_bars:
-        raise ValueError(f"at least {minimum_bars} bars are required for inference")
+    required_bars = max(21, minimum_bars)
+    if len(bars) < required_bars:
+        raise ValueError(f"at least {required_bars} bars are required for inference")
     normalized_market = market.strip().upper()
     if normalized_market not in _MARKET_SESSIONS:
         raise ValueError("market must be KR or US")

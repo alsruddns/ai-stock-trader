@@ -37,13 +37,15 @@ def _sample_sessions() -> dict[date, list[MinuteBar]]:
 
 
 def test_features_at_time_t_match_online_inference_features() -> None:
-    bars = _sample_sessions()[date(2026, 10, 1)][:25]
+    bars = _sample_sessions()[date(2026, 10, 1)][:26]
     samples = build_training_samples({bars[0].timestamp.date(): bars}, market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("0"))
-    at_t = next(sample for sample in samples if sample.timestamp == bars[19].timestamp.isoformat())
-    online = latest_features(bars[:20], market="KR")
+    at_t = next(sample for sample in samples if sample.timestamp == bars[20].timestamp.isoformat())
+    online = latest_features(bars[:21], market="KR")
     assert len(online) == len(FEATURE_NAMES)
     assert at_t.features == online
-    assert at_t.features[-1] == pytest.approx(19 / 390)
+    assert at_t.features[-1] == pytest.approx(20 / 390)
+    with pytest.raises(ValueError, match="at least 21 bars"):
+        latest_features(bars[:20], market="KR")
 
 
 def test_session_progress_uses_market_open_and_exchange_timezone() -> None:
@@ -78,13 +80,13 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path)
         assert metadata["artifact_sha256"] == result.artifact_sha256
         assert result.train_sessions[-1] < result.validation_sessions[0]
         assert result.validation_sessions[-1] < result.test_sessions[0]
-        prediction = LocalModelRegistry(tmp_path).predict_preview(result.model_id, _sample_sessions()[date(2026, 10, 8)][:20], market="KR")
+        prediction = LocalModelRegistry(tmp_path).predict_preview(result.model_id, _sample_sessions()[date(2026, 10, 8)][:21], market="KR")
         assert 0 <= prediction["probability_positive"] <= 1
         assert prediction["market"] == "KR"
         assert prediction["approved"] is False
         assert prediction["executable"] is False
         with pytest.raises(ValueError, match="market scope"):
-            LocalModelRegistry(tmp_path).predict_preview(result.model_id, _sample_sessions()[date(2026, 10, 8)][:20], market="US")
+            LocalModelRegistry(tmp_path).predict_preview(result.model_id, _sample_sessions()[date(2026, 10, 8)][:21], market="US")
 
 
 def test_model_registry_rejects_path_traversal(tmp_path) -> None:

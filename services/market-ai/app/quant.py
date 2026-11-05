@@ -123,7 +123,8 @@ def _cost(price: Decimal, quantity: int, bps: Decimal) -> Decimal:
 def orb_vwap_entry_candidate(bars: list[MinuteBar], config: QuantConfig = QuantConfig()) -> bool:
     """Evaluate a long entry from a complete prefix ending at the current bar."""
     _validate_session(bars)
-    required = max(config.opening_range_bars, config.ema_period, config.atr_period, config.relative_volume_period)
+    required = max(config.opening_range_bars, config.ema_period, config.atr_period,
+                   config.relative_volume_period + 1)
     if len(bars) < required:
         return False
     opening_high = max(bar.high for bar in bars[:config.opening_range_bars])
@@ -160,7 +161,8 @@ def backtest_orb_vwap(
     if len(opening) < config.opening_range_bars:
         return BacktestResult(market, normalized_symbol, bars[0].timestamp.date(), (), Decimal(0), Decimal(0), Decimal(0), len(bars), 0)
     opening_high = max(bar.high for bar in opening)
-    minimum_history = max(config.ema_period, config.atr_period, config.relative_volume_period, config.opening_range_bars)
+    minimum_history = max(config.ema_period, config.atr_period,
+                          config.relative_volume_period + 1, config.opening_range_bars)
     trades: list[Trade] = []
     entry: tuple[int, Decimal, Decimal, Decimal] | None = None  # index, fill, stop, target
     signals = 0
