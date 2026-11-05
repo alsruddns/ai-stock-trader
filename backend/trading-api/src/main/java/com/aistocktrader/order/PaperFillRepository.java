@@ -11,7 +11,7 @@ public interface PaperFillRepository extends JpaRepository<PaperFillRecord, Long
     long countByFilledAtAfter(Instant cutoff);
 
     @Query(value = """
-            SELECT f.filled_at AS \"filledAt\", f.quantity AS quantity, f.fill_price AS \"fillPrice\",
+            SELECT f.order_id AS \"orderId\", f.filled_at AS \"filledAt\", f.quantity AS quantity, f.fill_price AS \"fillPrice\",
                    o.market AS market, o.symbol AS symbol, o.currency AS currency, o.side AS side
               FROM paper_fill f JOIN trade_order o ON o.id = f.order_id
              ORDER BY f.filled_at ASC, f.id ASC
@@ -19,6 +19,7 @@ public interface PaperFillRepository extends JpaRepository<PaperFillRecord, Long
     java.util.List<FillTradeView> findAllWithTradeDetails();
 
     interface FillTradeView {
+        Long getOrderId();
         Instant getFilledAt();
         int getQuantity();
         java.math.BigDecimal getFillPrice();

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 type Ops = {
   generatedAt: string; tradingMode: string; liveTrading: string; paperAutomationEnabled: boolean;
   kisAccountReadsEnabled: boolean; kisPaperOrdersEnabled: boolean; orderCounts: Record<string, number>;
+  consecutiveLosingTrades: number;
   openOrders: number; fillsToday: number; totalOrders: number;
   cashBalances: { currency: string; balance: string }[];
   positions: { market: string; symbol: string; currency: string; quantity: number; averageCost: string; costBasis: string }[];
@@ -56,7 +57,7 @@ export default function Dashboard() {
         {ops?.cashBalances.length ? <div className="cash-list">{ops.cashBalances.map(item => <div className="cash-row" key={item.currency}><span>{item.currency}</span><strong>{money(item.balance, item.currency)}</strong></div>)}</div> : <Empty text="가상 현금 잔고가 아직 없습니다." />}
       </div>
       <div className="panel"><div className="panel-title"><div><p className="eyebrow">RISK SNAPSHOT</p><h2>운영 제한</h2></div><span className="tag green">매수 자동화 OFF</span></div>
-        <div className="risk-list"><RiskRow label="운영 모드" value={ops?.tradingMode.toUpperCase() ?? "PAPER"} /><RiskRow label="실거래 주문" value={ops?.liveTrading.toUpperCase() ?? "DISABLED"} /><RiskRow label="KIS 잔고 조회" value={ops?.kisAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="paper 자동매매" value={ops?.paperAutomationEnabled ? "사용" : "잠금"} /></div>
+        <div className="risk-list"><RiskRow label="운영 모드" value={ops?.tradingMode.toUpperCase() ?? "PAPER"} /><RiskRow label="실거래 주문" value={ops?.liveTrading.toUpperCase() ?? "DISABLED"} /><RiskRow label="KIS 잔고 조회" value={ops?.kisAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="paper 자동매매" value={ops?.paperAutomationEnabled ? "사용" : "잠금"} /><RiskRow label="연속 손실 주문" value={`${ops?.consecutiveLosingTrades ?? 0}회`} /></div>
       </div>
     </section>
     <section className="two-col lower">

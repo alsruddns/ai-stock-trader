@@ -71,13 +71,45 @@ public class OperationsController {
         openPositions.forEach(position -> costBasis.merge(position.currency(), position.costBasis(), BigDecimal::add));
         long fillsToday = fills.countByFilledAtAfter(dayStart);
         Map<String, BigDecimal> realizedPnlToday = realizedPnlSince(dayStart);
+        int consecutiveLosingTrades = consecutiveLosingTrades();
 
         return new OperationsSummary(now, "paper", "disabled", false, kisAccountReadsEnabled,
-                kisPaperOrdersEnabled, counts, counts.getOrDefault(OrderStatus.PENDING, 0L)
+                kisPaperOrdersEnabled, counts, consecutiveLosingTrades, counts.getOrDefault(OrderStatus.PENDING, 0L)
                 + counts.getOrDefault(OrderStatus.PARTIALLY_FILLED, 0L)
                 + counts.getOrDefault(OrderStatus.CANCEL_PENDING, 0L)
                 + counts.getOrDefault(OrderStatus.UNKNOWN, 0L), fillsToday, allOrders.size(),
                 cashBalances, openPositions, costBasis, realizedPnlToday, recentOrders);
+    }
+
+    private int consecutiveLosingTrades() {
+        Map<String, Holding> holdings = new HashMap<>();
+        Map<Long, BigDecimal> realizedBySellOrder = new java.util.LinkedHashMap<>();
+        for (PaperFillRepository.FillTradeView trade : fills.findAllWithTradeDetails()) {
+            String key = trade.getMarket() + "|" + trade.getSymbol() + "|" + trade.getCurrency();
+            Holding holding = holdings.computeIfAbsent(key, ignored -> new Holding());
+            BigDecimal quantity = BigDecimal.valueOf(trade.getQuantity());
+            if (OrderSide.BUY.name().equals(trade.getSide())) {
+                BigDecimal totalCost = holding.averageCost.multiply(BigDecimal.valueOf(holding.quantity))
+                        .add(trade.getFillPrice().multiply(quantity));
+                holding.quantity += trade.getQuantity();
+                holding.averageCost = totalCost.divide(BigDecimal.valueOf(holding.quantity), 6, java.math.RoundingMode.HALF_UP);
+            } else if (OrderSide.SELL.name().equals(trade.getSide())) {
+                if (trade.getQuantity() > holding.quantity) {
+                    throw new IllegalStateException("Paper fill history contains a sell larger than the recorded position.");
+                }
+                BigDecimal pnl = trade.getFillPrice().subtract(holding.averageCost).multiply(quantity);
+                realizedBySellOrder.merge(trade.getOrderId(), pnl, BigDecimal::add);
+                holding.quantity -= trade.getQuantity();
+                if (holding.quantity == 0) holding.averageCost = BigDecimal.ZERO;
+            }
+        }
+        int consecutive = 0;
+        var sellResults = realizedBySellOrder.values().stream().toList();
+        for (int index = sellResults.size() - 1; index >= 0; index--) {
+            if (sellResults.get(index).signum() >= 0) break;
+            consecutive++;
+        }
+        return consecutive;
     }
 
     private Map<String, BigDecimal> realizedPnlSince(Instant cutoff) {
@@ -115,7 +147,7 @@ public class OperationsController {
     public record OperationsSummary(Instant generatedAt, String tradingMode, String liveTrading,
                                     boolean paperAutomationEnabled, boolean kisAccountReadsEnabled,
                                     boolean kisPaperOrdersEnabled, Map<OrderStatus, Long> orderCounts,
-                                    long openOrders, long fillsToday, long totalOrders,
+                                    int consecutiveLosingTrades, long openOrders, long fillsToday, long totalOrders,
                                     List<CashView> cashBalances, List<PositionView> positions,
                                     Map<String, BigDecimal> positionCostBasisByCurrency,
                                     Map<String, BigDecimal> realizedPnlTodayGrossByCurrency,
