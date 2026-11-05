@@ -15,6 +15,9 @@ Market = Literal["KR", "US"]
 class PaperOpsLimits:
     max_quote_age_seconds: int = 3
     max_daily_loss_pct: Decimal = Decimal("1.00")
+    max_position_equity_pct: Decimal = Decimal("10.00")
+    trade_risk_equity_pct: Decimal = Decimal("0.25")
+    atr_stop_multiple: Decimal = Decimal("1.5")
     max_open_positions: int = 3
     max_consecutive_losses: int = 3
     flatten_before_close_minutes: int = 5
@@ -22,8 +25,39 @@ class PaperOpsLimits:
     def __post_init__(self) -> None:
         if min(self.max_quote_age_seconds, self.max_open_positions, self.max_consecutive_losses) <= 0:
             raise ValueError("paper operation limits must be positive")
-        if self.max_daily_loss_pct <= 0 or self.flatten_before_close_minutes < 0:
+        if (self.max_daily_loss_pct <= 0 or self.max_position_equity_pct <= 0
+                or self.trade_risk_equity_pct <= 0 or self.atr_stop_multiple <= 0
+                or self.flatten_before_close_minutes < 0):
             raise ValueError("paper operation risk limits are invalid")
+
+
+@dataclass(frozen=True)
+class PaperOrderSizing:
+    quantity: int
+    notional: Decimal
+    stop_distance: Decimal
+    risk_budget: Decimal
+
+
+def size_paper_order(
+    *, price: Decimal, atr: Decimal, equity: Decimal, available_cash: Decimal,
+    max_order_notional: Decimal, limits: PaperOpsLimits = PaperOpsLimits(),
+) -> PaperOrderSizing | None:
+    """Size a long-only paper entry under risk, concentration, cash, and notional caps."""
+    if min(price, atr, equity, available_cash, max_order_notional) <= 0:
+        return None
+    risk_budget = equity * limits.trade_risk_equity_pct / Decimal(100)
+    stop_distance = atr * limits.atr_stop_multiple
+    caps = (
+        risk_budget / stop_distance,
+        equity * limits.max_position_equity_pct / Decimal(100) / price,
+        available_cash / price,
+        max_order_notional / price,
+    )
+    quantity = int(min(caps))
+    if quantity <= 0:
+        return None
+    return PaperOrderSizing(quantity, price * quantity, stop_distance, risk_budget)
 
 
 @dataclass(frozen=True)
