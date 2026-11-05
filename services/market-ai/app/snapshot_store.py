@@ -8,6 +8,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from .kis import AccountBalance, Quote
+from .quant import MinuteBar
 
 
 def enabled() -> bool:
@@ -33,6 +34,27 @@ def store_quote(quote: Quote) -> None:
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (quote.market, quote.symbol, quote.exchange, quote.currency, quote.price, quote.change,
              quote.change_percent, quote.volume, quote.retrieved_at, quote.source),
+        )
+
+
+def store_minute_bars(market: str, symbol: str, bars: list[MinuteBar], *, source: str) -> None:
+    if market not in {"KR", "US"} or not symbol.strip() or not source.strip():
+        raise ValueError("market, symbol, and source are required")
+    if not bars:
+        return
+    with _connect() as connection:
+        connection.executemany(
+            """INSERT INTO market_minute_bar
+               (market, symbol, bar_at, open_price, high_price, low_price, close_price,
+                volume, spread_bps, source)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (market, symbol, bar_at) DO UPDATE SET
+                 open_price = EXCLUDED.open_price, high_price = EXCLUDED.high_price,
+                 low_price = EXCLUDED.low_price, close_price = EXCLUDED.close_price,
+                 volume = EXCLUDED.volume, spread_bps = EXCLUDED.spread_bps,
+                 source = EXCLUDED.source, stored_at = now()""",
+            [(market, symbol.upper(), bar.timestamp, bar.open, bar.high, bar.low, bar.close,
+              bar.volume, bar.spread_bps, source) for bar in bars],
         )
 
 

@@ -69,7 +69,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --env-file ../../.env
 
 KIS 조회를 쓸 때는 `.env`의 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET`, `KIS_PAPER_ACCOUNT_NUMBER`에 모의계좌 값을 넣습니다. 실전 값은 별도 `KIS_REAL_*` 항목에만 저장합니다. Python REST 시세는 `KIS_MARKET_DATA_ENABLED=true`, WebSocket 시세는 `KIS_WEBSOCKET_ENABLED=true`가 필요합니다. Spring PAPER 계좌조회는 전체 잠금 `KIS_ACCOUNT_READ_ENABLED=true`와 `KIS_PAPER_ACCOUNT_READ_ENABLED=true`를 모두 요구합니다. REAL 조회는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`도 별도로 요구합니다. 계좌번호는 8자리 계좌번호와 2자리 상품코드를 붙인 총 10자리입니다. 일반 이름 `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ACCOUNT_NUMBER`는 호환 설정이 아니므로 쓰지 않습니다. 인증정보는 Git에 추가하지 마세요. 계좌 조회는 읽기 전용이며 실주문 스위치는 계속 꺼둡니다.
 
-국내 KIS 분봉 이력은 `GET /api/v1/market/bars/KR/{종목코드}?session_date=YYYY-MM-DD&end_time=HHMMSS`로 한 번에 최대 120개를 조회할 수 있습니다. 해당 이력 응답에는 과거 호가 스프레드가 없으므로 `spread_bps`는 null이며, 스프레드 필터를 요구하는 전략·학습 자료의 검증을 대신하지 않습니다. 이 경로는 읽기 전용이며 KIS REST 시세 스위치와 해당 환경의 API 인증이 필요합니다.
+국내 KIS 분봉 이력은 `GET /api/v1/market/bars/KR/{종목코드}?session_date=YYYY-MM-DD&end_time=HHMMSS`로 한 번에 최대 120개를 조회할 수 있습니다. 해당 이력 응답에는 과거 호가 스프레드가 없으므로 `spread_bps`는 null이며, 스프레드 필터를 요구하는 전략·학습 자료의 검증을 대신하지 않습니다. 이 경로는 읽기 전용이며 KIS REST 시세 스위치와 해당 환경의 API 인증이 필요합니다. `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`이면 `market_minute_bar` 테이블에 출처와 함께 저장하고, 동일 시각 재수집은 기존 행을 갱신합니다. 기본값은 `false`입니다.
 
 - Spring 상태: `http://localhost:8080/api/v1/health`
 - Python 상태: `http://localhost:8000/api/v1/health`

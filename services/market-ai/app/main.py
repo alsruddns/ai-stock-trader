@@ -201,6 +201,9 @@ def get_domestic_minute_bars(
     """Fetch one read-only page (up to 120 bars) of domestic KIS minute history."""
     try:
         bars = client.get_domestic_minute_bars(symbol, session_date, end_time)
+        _persist_snapshot(lambda: snapshot_store.store_minute_bars(
+            "KR", symbol, bars, source="KIS_REST_MINUTE_CHART",
+        ))
         return HistoricalMinuteBarsResponse(
             market="KR", symbol=symbol, session_date=session_date, source="KIS_REST_MINUTE_CHART",
             spread_bps_available=False,
