@@ -35,6 +35,9 @@ class PaperPerformanceAnalyzerTest {
         assertEquals(new BigDecimal("16.000000"), performance.averageWin());
         assertEquals(new BigDecimal("-11.000000"), performance.averageLoss());
         assertEquals(new BigDecimal("0.500000"), performance.winRate());
+        assertEquals(new BigDecimal("2.500000"), performance.expectancy());
+        assertEquals(new BigDecimal("1.454545"), performance.profitFactor());
+        assertEquals(new BigDecimal("11.000000"), performance.maxRealizedDrawdown());
     }
 
     @Test
@@ -55,8 +58,10 @@ class PaperPerformanceAnalyzerTest {
         assertEquals(2, result.size());
         assertEquals("lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", result.get(0).modelId());
         assertEquals(new BigDecimal("10.000000"), result.get(0).netPnl());
+        assertEquals(null, result.get(0).profitFactor());
         assertEquals("xgboost-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", result.get(1).modelId());
         assertEquals(new BigDecimal("-10.000000"), result.get(1).netPnl());
+        assertEquals(new BigDecimal("10.000000"), result.get(1).maxRealizedDrawdown());
     }
 
     private static PaperFillRepository.FillTradeView trade(long orderId, String side, int quantity,

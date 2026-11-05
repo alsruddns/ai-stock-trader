@@ -38,13 +38,15 @@ public final class PaperPerformanceAnalyzer {
                     throw new IllegalStateException("A paper sell order contains inconsistent instrument or strategy attribution.");
                 }
                 sell.pnl = sell.pnl.add(pnl);
+                sell.lastFilledAt = trade.getFilledAt();
                 holding.quantity -= trade.getQuantity();
                 if (holding.quantity == 0) holding.averageCost = BigDecimal.ZERO;
             }
         }
 
         Map<AttributionKey, Aggregate> totals = new LinkedHashMap<>();
-        sellOrders.values().forEach(sell -> totals.computeIfAbsent(sell.attribution, ignored -> new Aggregate()).add(sell.pnl));
+        sellOrders.values().stream().sorted(Comparator.comparing(sell -> sell.lastFilledAt))
+                .forEach(sell -> totals.computeIfAbsent(sell.attribution, ignored -> new Aggregate()).add(sell.pnl));
         return totals.entrySet().stream().map(entry -> {
             AttributionKey key = entry.getKey();
             return entry.getValue().toView(key.market, key.symbol, key.currency, key.strategyId, key.modelId);
@@ -69,6 +71,7 @@ public final class PaperPerformanceAnalyzer {
         private final String instrumentKey;
         private final AttributionKey attribution;
         private BigDecimal pnl = BigDecimal.ZERO;
+        private java.time.Instant lastFilledAt;
         private SellOrder(String instrumentKey, AttributionKey attribution) {
             this.instrumentKey = instrumentKey;
             this.attribution = attribution;
@@ -84,12 +87,23 @@ public final class PaperPerformanceAnalyzer {
         private BigDecimal netPnl = BigDecimal.ZERO;
         private BigDecimal winningPnl = BigDecimal.ZERO;
         private BigDecimal losingPnl = BigDecimal.ZERO;
+        private BigDecimal grossProfit = BigDecimal.ZERO;
+        private BigDecimal grossLoss = BigDecimal.ZERO;
+        private BigDecimal realizedEquity = BigDecimal.ZERO;
+        private BigDecimal peakRealizedEquity = BigDecimal.ZERO;
+        private BigDecimal maxRealizedDrawdown = BigDecimal.ZERO;
 
         private void add(BigDecimal pnl) {
             realizedSellOrders++;
             netPnl = netPnl.add(pnl);
-            if (pnl.signum() > 0) { wins++; winningPnl = winningPnl.add(pnl); }
-            else if (pnl.signum() < 0) { losses++; losingPnl = losingPnl.add(pnl); }
+            if (pnl.signum() > 0) {
+                wins++; winningPnl = winningPnl.add(pnl); grossProfit = grossProfit.add(pnl);
+            } else if (pnl.signum() < 0) {
+                losses++; losingPnl = losingPnl.add(pnl); grossLoss = grossLoss.add(pnl.abs());
+            }
+            realizedEquity = realizedEquity.add(pnl);
+            peakRealizedEquity = peakRealizedEquity.max(realizedEquity);
+            maxRealizedDrawdown = maxRealizedDrawdown.max(peakRealizedEquity.subtract(realizedEquity));
         }
 
         private InstrumentPerformance toView(String market, String symbol, String currency,
@@ -98,13 +112,19 @@ public final class PaperPerformanceAnalyzer {
             BigDecimal averageLoss = losses == 0 ? BigDecimal.ZERO : losingPnl.divide(BigDecimal.valueOf(losses), 6, RoundingMode.HALF_UP);
             BigDecimal winRate = realizedSellOrders == 0 ? BigDecimal.ZERO
                     : BigDecimal.valueOf(wins).divide(BigDecimal.valueOf(realizedSellOrders), 6, RoundingMode.HALF_UP);
+            BigDecimal expectancy = realizedSellOrders == 0 ? BigDecimal.ZERO
+                    : netPnl.divide(BigDecimal.valueOf(realizedSellOrders), 6, RoundingMode.HALF_UP);
+            BigDecimal profitFactor = grossLoss.signum() == 0 ? null
+                    : grossProfit.divide(grossLoss, 6, RoundingMode.HALF_UP);
             return new InstrumentPerformance(market, symbol, currency, strategyId, modelId,
-                    realizedSellOrders, wins, losses, netPnl, averageWin, averageLoss, winRate);
+                    realizedSellOrders, wins, losses, netPnl, averageWin, averageLoss, winRate,
+                    expectancy, profitFactor, maxRealizedDrawdown);
         }
     }
 
     public record InstrumentPerformance(String market, String symbol, String currency, String strategyId,
                                         String modelId, long realizedSellOrders, long wins, long losses,
                                         BigDecimal netPnl, BigDecimal averageWin, BigDecimal averageLoss,
-                                        BigDecimal winRate) { }
+                                        BigDecimal winRate, BigDecimal expectancy, BigDecimal profitFactor,
+                                        BigDecimal maxRealizedDrawdown) { }
 }
