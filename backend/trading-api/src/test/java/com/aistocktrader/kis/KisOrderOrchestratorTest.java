@@ -103,12 +103,14 @@ class KisOrderOrchestratorTest {
         OrderRequest request = buyRequest();
         KisOrderIntent existing = new KisOrderIntent(key, "hash", request, null);
         existing.markUnknown();
-        when(intents.prepare(any(), anyString(), any(), nullable(String.class))).thenThrow(new DataIntegrityViolationException("duplicate"));
-        when(intents.get(key)).thenReturn(existing);
+        when(intents.prepare(any(), anyString(), any(), nullable(String.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate"))
+                .thenReturn(new KisOrderIntentStore.PreparedIntent(existing, false));
 
         KisOrderIntentResponse response = orchestrator.submitPaperOrder(key, request, null);
 
         assertEquals(KisOrderStatus.UNKNOWN, response.status());
+        verify(intents, org.mockito.Mockito.times(2)).prepare(any(), anyString(), any(), nullable(String.class));
         verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(), any(), any(), anyString());
     }
 

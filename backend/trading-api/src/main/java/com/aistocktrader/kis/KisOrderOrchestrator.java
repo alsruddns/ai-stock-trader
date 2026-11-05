@@ -40,7 +40,8 @@ public class KisOrderOrchestrator {
         try {
             prepared = intents.prepare(idempotencyKey, requestHash, request, exchange);
         } catch (org.springframework.dao.DataIntegrityViolationException duplicateRace) {
-            prepared = new KisOrderIntentStore.PreparedIntent(intents.get(idempotencyKey), false);
+            // Re-run the store's hash and environment checks after the concurrent insert wins.
+            prepared = intents.prepare(idempotencyKey, requestHash, request, exchange);
         }
         KisOrderIntent intent = prepared.intent();
         if (!prepared.createdNow()) {
