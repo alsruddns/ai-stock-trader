@@ -15,7 +15,7 @@ from typing import Literal
 
 from .kis_stream import StreamSettings, approval_key, normalize_stream_frame, subscription_message
 from .market_stream import MinuteBarAggregator, parse_trade_frame
-from .quant import MinuteBar
+from .quant import MinuteBar, QuantConfig, orb_vwap_entry_candidate
 
 
 @dataclass(frozen=True)
@@ -64,14 +64,22 @@ class PaperSessionFeedMonitor:
         }
         self._aggregators: dict[str, MinuteBarAggregator] = {}
         self._bars: dict[str, deque[MinuteBar]] = {}
+        self._decisions: dict[str, dict[str, object]] = {}
 
     def status(self) -> dict[str, object]:
         with self._lock:
-            return dict(self._status)
+            result = dict(self._status)
+            result["decisions"] = {key: dict(value) for key, value in self._decisions.items()}
+            return result
 
     def bars(self, watch: PaperWatch) -> tuple[MinuteBar, ...]:
         with self._lock:
             return tuple(self._bars.get(watch.key, ()))
+
+    def decisions(self) -> dict[str, dict[str, object]]:
+        """Return latest advisory quant decisions; none are executable orders."""
+        with self._lock:
+            return {key: dict(value) for key, value in self._decisions.items()}
 
     async def start(self) -> None:
         if os.getenv("PAPER_SESSION_MONITOR_ENABLED", "false").strip().lower() != "true":
@@ -94,6 +102,11 @@ class PaperSessionFeedMonitor:
         for watch in watches:
             self._aggregators[watch.key] = MinuteBarAggregator()
             self._bars[watch.key] = deque(maxlen=5_000)
+            self._decisions[watch.key] = {
+                "market": watch.market, "symbol": watch.symbol, "exchange": watch.exchange,
+                "signal": "HOLD", "reason": "WAITING_FOR_CLOSED_BARS", "bars_in_session": 0,
+                "evaluated_at": None, "executable": False,
+            }
         self._set_status(state="CONNECTING", enabled=True, subscriptions=len(watches), last_error=None)
         self._task = asyncio.create_task(self._run(watches, settings))
 
@@ -160,8 +173,30 @@ class PaperSessionFeedMonitor:
                     self._status["ticks_received"] = int(self._status["ticks_received"]) + 1
                     self._status["last_tick_at"] = tick.timestamp.isoformat()
                     if bar is not None:
-                        self._bars[watch.key].append(bar)
+                        self._record_closed_bar(watch, bar)
                         self._status["bars_closed"] = int(self._status["bars_closed"]) + 1
+
+    def _record_closed_bar(self, watch: PaperWatch, bar: MinuteBar) -> None:
+        history = self._bars[watch.key]
+        session_day = bar.timestamp.date()
+        if history and history[-1].timestamp.date() != session_day:
+            history.clear()
+        history.append(bar)
+        signal = "HOLD"
+        reason = "INSUFFICIENT_SESSION_HISTORY"
+        try:
+            if len(history) >= max(QuantConfig().opening_range_bars, QuantConfig().ema_period,
+                                   QuantConfig().atr_period, QuantConfig().relative_volume_period):
+                signal = "BUY_CANDIDATE" if orb_vwap_entry_candidate(list(history), QuantConfig()) else "HOLD"
+                reason = "ORB_VWAP_CANDIDATE" if signal == "BUY_CANDIDATE" else "STRATEGY_FILTERS_NOT_MET"
+        except ValueError:
+            # Invalid or out-of-order bars must never produce a candidate.
+            signal, reason = "HOLD", "BAR_SEQUENCE_INVALID"
+        self._decisions[watch.key] = {
+            "market": watch.market, "symbol": watch.symbol, "exchange": watch.exchange,
+            "signal": signal, "reason": reason, "bars_in_session": len(history),
+            "evaluated_at": bar.timestamp.isoformat(), "executable": False,
+        }
 
     def _set_status(self, **values: object) -> None:
         with self._lock:
