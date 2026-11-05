@@ -21,3 +21,17 @@ paper:
   starting-cash-krw: ${PAPER_STARTING_CASH_KRW:0}
   starting-cash-usd: ${PAPER_STARTING_CASH_USD:0}
   order-timeout-seconds: ${PAPER_ORDER_TIMEOUT_SECONDS:0}
+kis:
+  account-read-enabled: ${KIS_ACCOUNT_READ_ENABLED:false}
+  snapshot-persistence-enabled: ${KIS_SNAPSHOT_PERSISTENCE_ENABLED:false}
+  paper:
+    app-key: ${KIS_PAPER_APP_KEY:}
+    app-secret: ${KIS_PAPER_APP_SECRET:}
+    account-number: ${KIS_PAPER_ACCOUNT_NUMBER:}
+  real:
+    app-key: ${KIS_REAL_APP_KEY:}
+    app-secret: ${KIS_REAL_APP_SECRET:}
+    account-number: ${KIS_REAL_ACCOUNT_NUMBER:}
+  connect-timeout: ${KIS_CONNECT_TIMEOUT:3s}
+  read-timeout: ${KIS_READ_TIMEOUT:8s}
+  min-request-interval: ${KIS_MIN_REQUEST_INTERVAL:100ms}

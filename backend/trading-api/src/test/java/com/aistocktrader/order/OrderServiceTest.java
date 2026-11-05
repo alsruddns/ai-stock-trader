@@ -21,6 +21,7 @@ class OrderServiceTest {
     @Mock PaperFillRepository fills;
     @Mock PaperPositionRepository positions;
     @Mock PaperCashRepository cashBalances;
+    @Mock PaperStrategyRiskRepository strategyRisks;
     private final UUID idempotencyKey = UUID.fromString("d8d449d8-f154-4c5a-b1d0-6ce69f790f51");
     private TradingSafetyProperties safeConfig() {
         return new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100"));
@@ -53,6 +54,13 @@ class OrderServiceTest {
         OrderRecord result = service().submit(request, idempotencyKey);
         assertSame(existing, result);
         verify(orders, never()).save(any());
+    }
+
+    @Test
+    void reconcilesPaperOrderByIdempotencyKeyAfterAnAmbiguousWrite() {
+        OrderRecord existing = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
+        when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.of(existing));
+        assertSame(existing, service().getPaperOrderByIdempotencyKey(idempotencyKey));
     }
     @Test
     void rejectsReusingTheSameKeyForADifferentOrder() {
@@ -95,6 +103,73 @@ class OrderServiceTest {
         assertEquals(OrderStatus.FILLED, order.getStatus());
         assertEquals(3, order.getFilledQuantity());
         assertEquals(new BigDecimal("70100.000000"), order.getAverageFillPrice());
+    }
+
+    @Test
+    void strategyEntryFillPersistsStopAndTargetInSameServiceTransaction() {
+        OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
+        ReflectionTestUtils.setField(order, "id", 12L);
+        PaperPosition position = new PaperPosition(Market.KR, "005930", Currency.KRW);
+        ReflectionTestUtils.setField(position, "id", 55L);
+        when(fills.findByFillKey(any())).thenReturn(Optional.empty());
+        when(orders.findByIdForUpdate(12L)).thenReturn(Optional.of(order));
+        when(positions.findInstrumentForUpdate(Market.KR, "005930", Currency.KRW)).thenReturn(Optional.empty());
+        when(positions.save(any(PaperPosition.class))).thenReturn(position);
+        when(cashBalances.findByCurrencyForUpdate(Currency.KRW))
+                .thenReturn(Optional.of(new PaperCashBalance(Currency.KRW, new BigDecimal("500000"))));
+        when(cashBalances.save(any(PaperCashBalance.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(strategyRisks.findByPositionId(55L)).thenReturn(Optional.empty());
+        when(strategyRisks.save(any(PaperStrategyRisk.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fills.save(any(PaperFillRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orders.save(any(OrderRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderRecord result = serviceWithStrategyRisks().recordPaperFill(12L, new PaperFillRequest(
+                UUID.randomUUID(), 2, new BigDecimal("70000"), new BigDecimal("69000"), new BigDecimal("72000")));
+
+        assertEquals(OrderStatus.FILLED, result.getStatus());
+        verify(strategyRisks).save(argThat(risk -> risk.getPositionId().equals(55L)
+                && risk.getStopPrice().compareTo(new BigDecimal("69000")) == 0
+                && risk.getTargetPrice().compareTo(new BigDecimal("72000")) == 0));
+    }
+
+    @Test
+    void strategyEntryFillRejectsUnsafeStopAndTargetBeforeMutatingPosition() {
+        OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 1), idempotencyKey);
+        ReflectionTestUtils.setField(order, "id", 13L);
+        when(fills.findByFillKey(any())).thenReturn(Optional.empty());
+        when(orders.findByIdForUpdate(13L)).thenReturn(Optional.of(order));
+
+        assertThrows(IllegalArgumentException.class, () -> serviceWithStrategyRisks().recordPaperFill(13L,
+                new PaperFillRequest(UUID.randomUUID(), 1, new BigDecimal("70000"), new BigDecimal("71000"), new BigDecimal("72000"))));
+        verify(positions, never()).save(any());
+        verify(strategyRisks, never()).save(any());
+    }
+
+    @Test
+    void closingStrategyPositionRemovesItsPersistentExitRisk() {
+        OrderRequest sellRequest = new OrderRequest(Market.KR, "005930", OrderSide.SELL, 2,
+                new BigDecimal("72000"), Currency.KRW);
+        OrderRecord order = new OrderRecord(sellRequest, UUID.randomUUID());
+        ReflectionTestUtils.setField(order, "id", 14L);
+        PaperPosition position = new PaperPosition(Market.KR, "005930", Currency.KRW);
+        position.apply(OrderSide.BUY, 2, new BigDecimal("70000"));
+        ReflectionTestUtils.setField(position, "id", 56L);
+        when(fills.findByFillKey(any())).thenReturn(Optional.empty());
+        when(orders.findByIdForUpdate(14L)).thenReturn(Optional.of(order));
+        when(positions.findInstrumentForUpdate(Market.KR, "005930", Currency.KRW)).thenReturn(Optional.of(position));
+        when(positions.save(any(PaperPosition.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(cashBalances.findByCurrencyForUpdate(Currency.KRW))
+                .thenReturn(Optional.of(new PaperCashBalance(Currency.KRW, new BigDecimal("100000"))));
+        when(cashBalances.save(any(PaperCashBalance.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fills.save(any(PaperFillRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orders.save(any(OrderRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderRecord result = serviceWithStrategyRisks().recordPaperFill(14L,
+                new PaperFillRequest(UUID.randomUUID(), 2, new BigDecimal("72000")));
+
+        assertEquals(OrderStatus.FILLED, result.getStatus());
+        assertEquals(0, position.getQuantity());
+        verify(strategyRisks).deleteByPositionId(56L);
     }
 
     @Test
@@ -167,6 +242,19 @@ class OrderServiceTest {
     }
 
     @Test
+    void reusedPaperFillKeyWithDifferentStrategyRiskIsRejected() {
+        UUID fillKey = UUID.randomUUID();
+        PaperFillRecord prior = new PaperFillRecord(11L,
+                new PaperFillRequest(fillKey, 1, new BigDecimal("70000"), new BigDecimal("69000"), new BigDecimal("72000")));
+        when(fills.findByFillKey(fillKey)).thenReturn(Optional.of(prior));
+
+        assertThrows(IdempotencyConflictException.class, () -> serviceWithStrategyRisks().recordPaperFill(11L,
+                new PaperFillRequest(fillKey, 1, new BigDecimal("70000"), new BigDecimal("69500"), new BigDecimal("72000"))));
+        verify(orders, never()).findById(any());
+        verify(strategyRisks, never()).save(any());
+    }
+
+    @Test
     void configuredPaperTimeoutExpiresOpenOrdersButZeroDisablesTheSweep() {
         OrderRecord pending = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
         OrderRecord partial = new OrderRecord(request(new BigDecimal("70000"), 2), UUID.randomUUID());
@@ -184,5 +272,8 @@ class OrderServiceTest {
 
     private OrderService service() {
         return new OrderService(orders, safeConfig(), fills, positions, cashBalances);
+    }
+    private OrderService serviceWithStrategyRisks() {
+        return new OrderService(orders, safeConfig(), fills, positions, cashBalances, strategyRisks);
     }
 }

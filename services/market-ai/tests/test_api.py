@@ -12,6 +12,24 @@ def test_health_discloses_read_only_mode() -> None:
     assert response.status_code == 200
     assert response.json()["broker_connected"] is False
     assert response.json()["mode"] == "read-only-preview"
+    assert response.json()["paper_automation_enabled"] is False
+    assert response.json()["live_trading_enabled"] is False
+    assert response.json()["paper_session_monitor"] == "DISABLED"
+
+
+def test_paper_session_status_is_monitor_only() -> None:
+    response = client.get("/api/v1/paper/session")
+    assert response.status_code == 200
+    assert response.json()["orders_enabled"] is False
+
+
+def test_live_mode_never_enables_python_paper_automation(monkeypatch) -> None:
+    monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "true")
+    monkeypatch.setenv("TRADING_MODE", "live")
+    response = client.get("/api/v1/health")
+    assert response.json()["paper_automation_enabled"] is False
+    monkeypatch.delenv("PAPER_AUTOTRADING_ENABLED", raising=False)
+    monkeypatch.delenv("TRADING_MODE", raising=False)
 
 
 def test_analysis_preview_cannot_be_executed() -> None:
@@ -74,3 +92,25 @@ def test_account_balance_route_is_disabled_by_default(monkeypatch) -> None:
     response = client.get("/api/v1/accounts/real/KR/balance")
     assert response.status_code == 503
     assert response.json()["detail"] == "KIS account reads are disabled"
+
+
+def test_quant_backtest_endpoint_accepts_supplied_bars_and_never_creates_orders() -> None:
+    response = client.post("/api/v1/strategies/orb-vwap/backtest", json={
+        "market": "KR", "symbol": "005930", "bars": [
+            {"timestamp": f"2026-11-05T09:0{i}:00+09:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": 1000, "spread_bps": "5"}
+            for i in range(3)
+        ],
+    })
+    assert response.status_code == 200
+    assert response.json()["executable"] is False
+    assert response.json()["data_points"] == 3
+    assert response.json()["trades"] == []
+
+
+def test_quant_backtest_endpoint_rejects_naive_timestamps() -> None:
+    response = client.post("/api/v1/strategies/orb-vwap/backtest", json={
+        "market": "KR", "symbol": "005930", "bars": [
+            {"timestamp": "2026-11-05T09:00:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": 1000}
+        ],
+    })
+    assert response.status_code == 422

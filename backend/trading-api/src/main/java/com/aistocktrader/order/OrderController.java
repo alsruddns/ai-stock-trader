@@ -38,6 +38,11 @@ public class OrderController {
         return service.getPaperOrder(orderId);
     }
 
+    @GetMapping("/paper/by-idempotency/{idempotencyKey}")
+    public OrderRecord getPaperOrderByIdempotencyKey(@PathVariable UUID idempotencyKey) {
+        return service.getPaperOrderByIdempotencyKey(idempotencyKey);
+    }
+
     @GetMapping("/paper/positions")
     public List<PaperPosition> paperPositions() {
         return service.paperPositions();
@@ -46,5 +51,10 @@ public class OrderController {
     @GetMapping("/paper/cash")
     public List<PaperCashBalance> paperCashBalances() {
         return service.paperCashBalances();
+    }
+
+    @GetMapping("/paper/strategy-risks")
+    public List<OrderService.StrategyPositionRiskView> paperStrategyRisks() {
+        return service.paperStrategyRisks();
     }
 }
