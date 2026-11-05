@@ -11,12 +11,17 @@ import os
 import threading
 from collections import deque
 from dataclasses import dataclass
+from datetime import timedelta, timezone
+from decimal import Decimal
 from typing import Literal
 
 from .ai_pipeline import LocalModelRegistry
 from .kis_stream import StreamSettings, approval_key, normalize_stream_frame, subscription_message
 from .market_stream import MinuteBarAggregator, parse_trade_frame
 from .quant import MinuteBar, QuantConfig, orb_vwap_entry_candidate
+from .paper_automation import PaperAutomationReadiness, PaperAutoTrader
+from .paper_broker import PaperBrokerError, SpringPaperBrokerClient
+from .paper_ops import PaperOpsLimits, evaluate_paper_exit, exchange_session_window
 
 
 @dataclass(frozen=True)
@@ -62,10 +67,13 @@ class PaperSessionFeedMonitor:
             "state": "DISABLED", "enabled": False, "subscriptions": 0,
             "ticks_received": 0, "bars_closed": 0, "last_tick_at": None,
             "last_error": None, "orders_enabled": False,
+            "automation_state": "DISABLED", "automation_error": None,
         }
         self._aggregators: dict[str, MinuteBarAggregator] = {}
         self._bars: dict[str, deque[MinuteBar]] = {}
         self._decisions: dict[str, dict[str, object]] = {}
+        self._automation_queue: asyncio.Queue[tuple[PaperWatch, MinuteBar]] | None = None
+        self._automation_task: asyncio.Task | None = None
 
     def status(self) -> dict[str, object]:
         with self._lock:
@@ -108,16 +116,37 @@ class PaperSessionFeedMonitor:
                 "signal": "HOLD", "reason": "WAITING_FOR_CLOSED_BARS", "bars_in_session": 0,
                 "evaluated_at": None, "executable": False,
             }
+        readiness = PaperAutomationReadiness.from_environment()
+        if os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true":
+            if not readiness.enabled:
+                self._set_status(automation_state="BLOCKED", automation_error="PAPER_AUTOMATION_SAFETY_SWITCH")
+            else:
+                try:
+                    limits = PaperOpsLimits.from_environment()
+                except ValueError:
+                    self._set_status(automation_state="BLOCKED", automation_error="PAPER_RISK_SETTINGS_INVALID")
+                else:
+                    self._automation_queue = asyncio.Queue(maxsize=100)
+                    self._automation_task = asyncio.create_task(self._automation_loop(limits))
+                    self._set_status(automation_state="EXIT_MONITORING", automation_error=None)
         self._set_status(state="CONNECTING", enabled=True, subscriptions=len(watches), last_error=None)
         self._task = asyncio.create_task(self._run(watches, settings))
 
     async def stop(self) -> None:
         task = self._task
         self._task = None
+        automation_task = self._automation_task
+        self._automation_task = None
         if task is not None:
             task.cancel()
             try:
                 await task
+            except asyncio.CancelledError:
+                pass
+        if automation_task is not None:
+            automation_task.cancel()
+            try:
+                await automation_task
             except asyncio.CancelledError:
                 pass
         if self.status().get("enabled"):
@@ -176,6 +205,63 @@ class PaperSessionFeedMonitor:
                     if bar is not None:
                         self._record_closed_bar(watch, bar)
                         self._status["bars_closed"] = int(self._status["bars_closed"]) + 1
+                        if self._automation_queue is not None:
+                            try:
+                                self._automation_queue.put_nowait((watch, bar))
+                            except asyncio.QueueFull:
+                                self._set_status(automation_state="BLOCKED", automation_error="EXIT_WORKER_QUEUE_FULL")
+
+    async def _automation_loop(self, limits: PaperOpsLimits) -> None:
+        broker = SpringPaperBrokerClient()
+        trader = PaperAutoTrader(broker)
+        try:
+            while True:
+                queue = self._automation_queue
+                if queue is None:
+                    return
+                watch, bar = await queue.get()
+                try:
+                    result = await asyncio.to_thread(self._manage_strategy_exit, broker, trader, watch, bar, limits)
+                    if result is not None:
+                        self._set_status(automation_state=str(result.get("state", "EXIT_MONITORING")),
+                                         automation_error=result.get("reason"),
+                                         last_automation_result=result)
+                except PaperBrokerError:
+                    self._set_status(automation_state="BLOCKED", automation_error="LOCAL_PAPER_BROKER_UNAVAILABLE")
+                except Exception:
+                    self._set_status(automation_state="BLOCKED", automation_error="EXIT_EVALUATION_FAILED")
+                finally:
+                    queue.task_done()
+        finally:
+            trader.close()
+            broker.close()
+
+    @staticmethod
+    def _manage_strategy_exit(broker: SpringPaperBrokerClient, trader: PaperAutoTrader,
+                               watch: PaperWatch, bar: MinuteBar, limits: PaperOpsLimits) -> dict[str, object] | None:
+        rows = broker.get_strategy_positions()
+        position = next((row for row in rows
+                         if str(row.get("market", "")).upper() == watch.market
+                         and str(row.get("symbol", "")).upper() == watch.symbol.upper()), None)
+        if position is None:
+            return {"state": "EXIT_MONITORING", "reason": "NO_PERSISTED_STRATEGY_POSITION", "executable": False}
+        try:
+            stop = Decimal(str(position["stopPrice"]))
+            target = Decimal(str(position["targetPrice"]))
+            quantity = int(position["quantity"])
+            currency = str(position["currency"]).upper()
+        except (KeyError, ValueError, ArithmeticError):
+            return {"state": "BLOCKED", "reason": "PERSISTED_EXIT_STATE_INVALID", "executable": False}
+        window = exchange_session_window(watch.market, bar.timestamp)
+        flatten = bool(window and window[1] - bar.timestamp.astimezone(timezone.utc)
+                       <= timedelta(minutes=limits.flatten_before_close_minutes))
+        exit_candidate = evaluate_paper_exit(bar, stop_price=stop, target_price=target, flatten_required=flatten)
+        if exit_candidate is None:
+            return {"state": "EXIT_MONITORING", "reason": "EXIT_LEVELS_NOT_REACHED", "executable": False}
+        return trader.submit_exit(market=watch.market, symbol=watch.symbol, currency=currency,
+                                  quantity=quantity, position_opened_at=str(position.get("openedAt", "")),
+                                  bar_timestamp=bar.timestamp,
+                                  exit_price=exit_candidate.price, reason=exit_candidate.reason)
 
     def _record_closed_bar(self, watch: PaperWatch, bar: MinuteBar) -> None:
         history = self._bars[watch.key]

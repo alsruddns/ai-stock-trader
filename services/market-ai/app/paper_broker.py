@@ -100,6 +100,18 @@ class SpringPaperBrokerClient:
         except (httpx.HTTPError, ValueError) as exc:
             raise PaperBrokerError("paper order reconciliation failed") from exc
 
+    def get_strategy_positions(self) -> list[dict]:
+        """Read persistent local-paper exit levels from Spring; never queries KIS."""
+        try:
+            response = self._http.get(f"{self.base_url}/api/v1/orders/paper/strategy-risks")
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, list) or any(not isinstance(item, dict) for item in payload):
+                raise ValueError("strategy risk response has an invalid shape")
+            return payload
+        except (httpx.HTTPError, ValueError) as exc:
+            raise PaperBrokerError("local paper exit state is unavailable") from exc
+
     def close(self) -> None:
         if self._owns_http:
             self._http.close()

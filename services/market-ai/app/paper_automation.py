@@ -116,6 +116,63 @@ class PaperAutoTrader:
             return {"state": "BLOCKED", "reason": "LOCAL_PAPER_BROKER_UNAVAILABLE",
                     "idempotency_key": str(idempotency_key), "executable": False}
 
+    def submit_exit(
+        self, *, market: Market, symbol: str, currency: str, quantity: int,
+        position_opened_at: str, bar_timestamp: datetime, exit_price: Decimal, reason: str,
+    ) -> dict[str, object]:
+        """Submit a deterministic local paper exit; exits do not depend on model availability."""
+        readiness = PaperAutomationReadiness.from_environment()
+        if not readiness.enabled:
+            return {"state": "BLOCKED", "reason": "PAPER_AUTOMATION_LOCKED", "executable": False}
+        if reason not in {"ATR_STOP", "TAKE_PROFIT", "TAKE_PROFIT_GAP", "SESSION_END"}:
+            return {"state": "BLOCKED", "reason": "UNSUPPORTED_EXIT_REASON", "executable": False}
+        if quantity <= 0 or exit_price <= 0 or not position_opened_at.strip():
+            return {"state": "BLOCKED", "reason": "VALID_EXIT_SIZE_REQUIRED", "executable": False}
+        normalized_symbol = symbol.strip().upper()
+        idempotency_key = uuid5(NAMESPACE_URL,
+                                f"ai-stock-trader-paper-exit:{market}:{normalized_symbol}:{position_opened_at}")
+        try:
+            order = self._broker.get_order_by_idempotency_key(idempotency_key)
+            is_existing = order is not None
+            if order is None:
+                order = self._broker.submit_order(
+                    idempotency_key=idempotency_key, market=market, symbol=normalized_symbol, side="SELL",
+                    quantity=quantity, limit_price=exit_price, currency=currency,
+                )
+            order_id = int(order["id"])
+            existing_price = order.get("limitPrice", order.get("limit_price"))
+            filled = int(order.get("filledQuantity", 0))
+            expected_order_quantity = quantity + filled if is_existing else quantity
+            if (str(order.get("market", "")).upper() != market
+                    or str(order.get("symbol", "")).upper() != normalized_symbol
+                    or str(order.get("side", "")).upper() != "SELL"
+                    or int(order.get("quantity", -1)) != expected_order_quantity
+                    or existing_price is None or Decimal(str(existing_price)) <= 0
+                    or (not is_existing and Decimal(str(existing_price)) != exit_price)
+                    or str(order.get("currency", "")).upper() != currency):
+                return {"state": "BLOCKED", "reason": "IDEMPOTENCY_ORDER_MISMATCH",
+                        "order_id": order_id, "idempotency_key": str(idempotency_key), "executable": False}
+            order_status = str(order.get("status", "")).upper()
+            if order_status not in {"PENDING", "PARTIALLY_FILLED", "FILLED"}:
+                return {"state": "BLOCKED", "reason": "ORDER_NOT_OPEN_FOR_PAPER_FILL",
+                        "order_id": order_id, "idempotency_key": str(idempotency_key), "executable": False}
+            remaining = max(0, expected_order_quantity - filled)
+            if remaining == 0:
+                return {"state": order_status, "order_id": order_id,
+                        "idempotency_key": str(idempotency_key), "executable": False}
+            fill_key = uuid5(NAMESPACE_URL, f"{idempotency_key}:paper-exit-fill:{filled}:{remaining}")
+            filled_order = self._broker.record_fill(order_id, fill_key=fill_key,
+                                                    quantity=remaining, fill_price=Decimal(str(existing_price)))
+            return {"state": filled_order.get("status", "FILLED"), "order_id": order_id,
+                    "idempotency_key": str(idempotency_key), "filled_quantity": filled_order.get("filledQuantity", remaining),
+                    "executable": False}
+        except PaperBrokerOutcomeUnknown:
+            return {"state": "UNKNOWN", "reason": "RECONCILIATION_REQUIRED",
+                    "idempotency_key": str(idempotency_key), "executable": False}
+        except PaperBrokerError:
+            return {"state": "BLOCKED", "reason": "LOCAL_PAPER_BROKER_UNAVAILABLE",
+                    "idempotency_key": str(idempotency_key), "executable": False}
+
     def close(self) -> None:
         if self._owns_broker:
             self._broker.close()

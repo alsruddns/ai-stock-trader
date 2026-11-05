@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.paper_runtime import PaperSessionFeedMonitor, parse_watchlist
+from app.paper_ops import PaperOpsLimits
 from app.quant import MinuteBar
 
 
@@ -31,6 +32,7 @@ def test_feed_monitor_remains_disabled_without_explicit_opt_in(monkeypatch) -> N
     assert status["state"] == "DISABLED"
     assert status["enabled"] is False
     assert status["orders_enabled"] is False
+    assert status["automation_state"] == "DISABLED"
 
 
 def test_live_mode_blocks_paper_session_monitor(monkeypatch) -> None:
@@ -89,3 +91,31 @@ def test_quant_candidate_is_held_without_an_active_approved_market_model(tmp_pat
     assert decision["reason"] == "AI_MODEL_NOT_APPROVED_FOR_MARKET"
     assert decision["model_id"] is None
     assert decision["executable"] is False
+
+
+def test_exit_worker_uses_persisted_stop_and_submits_only_local_paper_exit() -> None:
+    class Broker:
+        def get_strategy_positions(self):
+            return [{"market": "KR", "symbol": "005930", "currency": "KRW", "quantity": 2,
+                     "stopPrice": "98", "targetPrice": "104", "openedAt": "2026-11-05T00:00:00Z"}]
+
+    class Trader:
+        def __init__(self):
+            self.exit = None
+
+        def submit_exit(self, **kwargs):
+            self.exit = kwargs
+            return {"state": "FILLED", "executable": False}
+
+    watch = parse_watchlist("KR:005930")[0]
+    at = datetime(2026, 11, 5, 10, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+    bar = MinuteBar(at, Decimal("100"), Decimal("105"), Decimal("95"), Decimal("101"), 1000, Decimal("5"))
+    trader = Trader()
+
+    result = PaperSessionFeedMonitor._manage_strategy_exit(Broker(), trader, watch, bar, PaperOpsLimits())
+
+    assert result["state"] == "FILLED"
+    assert trader.exit["reason"] == "ATR_STOP"
+    assert trader.exit["exit_price"] == Decimal("98")
+    assert trader.exit["quantity"] == 2
+    assert trader.exit["position_opened_at"] == "2026-11-05T00:00:00Z"

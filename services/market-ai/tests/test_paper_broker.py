@@ -71,3 +71,17 @@ def test_fill_adapter_includes_atomic_strategy_exit_levels() -> None:
     assert seen[0].read().decode().find('"stopPrice":"98"') >= 0
     assert seen[0].read().decode().find('"targetPrice":"104"') >= 0
     client.close()
+
+
+def test_strategy_position_reader_uses_local_paper_exit_endpoint() -> None:
+    seen: list[httpx.Request] = []
+    client = httpx.Client(transport=httpx.MockTransport(lambda request: (
+        seen.append(request) or httpx.Response(200, json=[{"market": "KR", "symbol": "005930", "quantity": 2}])
+    )))
+    broker = SpringPaperBrokerClient(http_client=client)
+
+    positions = broker.get_strategy_positions()
+
+    assert positions[0]["symbol"] == "005930"
+    assert seen[0].url.path == "/api/v1/orders/paper/strategy-risks"
+    client.close()

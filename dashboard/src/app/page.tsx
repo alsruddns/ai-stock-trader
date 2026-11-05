@@ -14,7 +14,7 @@ type Ops = {
 };
 type Model = { model_id: string; market?: string; model_type?: string; approved?: boolean; active?: boolean; integrity_error?: boolean; test_metrics?: Record<string, number> };
 type Decision = { market: string; symbol: string; exchange: string | null; signal: string; reason: string; bars_in_session: number; evaluated_at: string | null; model_id?: string | null; executable: false };
-type Payload = { generatedAt: string; springConnected: boolean; pythonConnected: boolean; operations: Ops | null; marketAi: Record<string, unknown> | null; paperSession: { state: string; enabled: boolean; subscriptions: number; ticks_received: number; bars_closed: number; orders_enabled: false; decisions?: Record<string, Decision> } | null; aiModels: { models: Model[]; governance_events: Record<string, string>[]; executable: false } | null };
+type Payload = { generatedAt: string; springConnected: boolean; pythonConnected: boolean; operations: Ops | null; marketAi: Record<string, unknown> | null; paperSession: { state: string; enabled: boolean; subscriptions: number; ticks_received: number; bars_closed: number; orders_enabled: false; automation_state?: string; automation_error?: string | null; decisions?: Record<string, Decision> } | null; aiModels: { models: Model[]; governance_events: Record<string, string>[]; executable: false } | null };
 
 const money = (value: string | number, currency: string) => new Intl.NumberFormat("ko-KR", { style: "currency", currency, maximumFractionDigits: currency === "KRW" ? 0 : 2 }).format(Number(value));
 const time = (value: string) => new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "medium" }).format(new Date(value));
@@ -45,7 +45,7 @@ export default function Dashboard() {
       <StatusCard title="시세·AI API" good={pythonConnected} value={pythonConnected ? "정상 연결" : "연결 안 됨"} detail="FastAPI · localhost:8000" />
       <StatusCard title="실거래" good={false} value="비활성" detail="LIVE_TRADING_ENABLED=false" />
       <StatusCard title="KIS 모의 주문" good={false} value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} detail="별도 활성 스위치" />
-      <StatusCard title="P5 시세 세션 모니터" good={data?.paperSession?.state === "RUNNING"} value={sessionLabel(data?.paperSession?.state)} detail={`${data?.paperSession?.subscriptions ?? 0}개 구독 · ${data?.paperSession?.bars_closed ?? 0}개 분봉 · 매수 후보 ${Object.values(data?.paperSession?.decisions ?? {}).filter(item => item.signal === "BUY_CANDIDATE").length}개 · 주문 잠금`} />
+      <StatusCard title="P5 시세 세션 모니터" good={data?.paperSession?.state === "RUNNING"} value={sessionLabel(data?.paperSession?.state)} detail={`${data?.paperSession?.subscriptions ?? 0}개 구독 · ${data?.paperSession?.bars_closed ?? 0}개 분봉 · 후보 ${Object.values(data?.paperSession?.decisions ?? {}).filter(item => item.signal === "BUY_CANDIDATE").length}개 · 자동 청산 ${automationLabel(data?.paperSession?.automation_state)}`} />
     </section>
     <section className="metric-grid">
       <Metric title="미체결 주문" value={ops?.openOrders ?? "—"} caption="미체결·부분체결·확인 필요" />
@@ -89,3 +89,4 @@ function statusLabel(value: string) { return ({ PENDING: "대기", PARTIALLY_FIL
 function sessionLabel(value?: string) { return ({ RUNNING: "시세 수집 중", CONNECTING: "연결 중", RECONNECTING: "재연결 대기", BLOCKED: "설정 확인 필요", STOPPED: "중지", DISABLED: "비활성" } as Record<string, string>)[value ?? ""] ?? "확인 중"; }
 function signalLabel(value: string) { return value === "BUY_CANDIDATE" ? "AI·퀀트 후보" : "관망"; }
 function decisionReason(value: string) { return ({ WAITING_FOR_CLOSED_BARS: "닫힌 분봉 대기", INSUFFICIENT_SESSION_HISTORY: "세션 이력 부족", STRATEGY_FILTERS_NOT_MET: "퀀트 조건 미충족", AI_MODEL_NOT_APPROVED_FOR_MARKET: "시장 승인 모델 없음", AI_THRESHOLD_NOT_MET: "AI 기준 미달", AI_INFERENCE_UNAVAILABLE: "AI 추론 불가", BAR_SEQUENCE_INVALID: "분봉 순서 오류", QUANT_AND_APPROVED_AI_CANDIDATE: "퀀트 및 승인 AI 통과" } as Record<string, string>)[value] ?? value; }
+function automationLabel(value?: string) { return ({ EXIT_MONITORING: "청산 감시", BLOCKED: "차단", DISABLED: "잠금" } as Record<string, string>)[value ?? ""] ?? "잠금"; }
