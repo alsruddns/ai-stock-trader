@@ -121,6 +121,15 @@ def test_active_model_selection_fails_closed_for_corrupt_selection_file(tmp_path
     assert registry.active_approved_model("KR") is None
 
 
+def test_registry_instances_for_same_model_directory_share_governance_lock(tmp_path) -> None:
+    first = LocalModelRegistry(tmp_path)
+    second = LocalModelRegistry(tmp_path / ".")
+    separate = LocalModelRegistry(tmp_path / "other")
+
+    assert first._governance_lock is second._governance_lock
+    assert first._governance_lock is not separate._governance_lock
+
+
 def test_legacy_model_with_outdated_feature_schema_cannot_be_approved_or_selected(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)
     model_id = "lightgbm-" + "c" * 32

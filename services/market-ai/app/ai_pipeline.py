@@ -24,6 +24,8 @@ FEATURE_NAMES = (
     "ema20_gap_pct", "atr14_pct", "relative_volume20", "spread_bps", "session_progress",
 )
 FEATURE_VERSION = 2
+_REGISTRY_LOCKS_GUARD = threading.Lock()
+_REGISTRY_LOCKS: dict[Path, threading.RLock] = {}
 
 
 _MARKET_SESSIONS = {
@@ -215,7 +217,8 @@ class LocalModelRegistry:
     def __init__(self, root: str | Path = ".local/models"):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
-        self._governance_lock = threading.RLock()
+        with _REGISTRY_LOCKS_GUARD:
+            self._governance_lock = _REGISTRY_LOCKS.setdefault(self.root, threading.RLock())
 
     @property
     def _active_path(self) -> Path:
