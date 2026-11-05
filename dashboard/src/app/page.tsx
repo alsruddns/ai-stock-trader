@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 
 type Ops = {
   generatedAt: string; tradingMode: string; liveTrading: string; paperAutomationEnabled: boolean;
-  kisAccountReadsEnabled: boolean; kisPaperOrdersEnabled: boolean; kisRealOrdersEnabled: boolean; kisRealAccountReadsEnabled: boolean; kisRealReconciliationEnabled: boolean;
+  kisAccountReadsEnabled: boolean; kisPaperAccountReadsEnabled: boolean; kisPaperOrdersEnabled: boolean; kisRealOrdersEnabled: boolean; kisRealAccountReadsEnabled: boolean; kisRealReconciliationEnabled: boolean;
+  kisPaperCredentialsConfigured: boolean; kisRealCredentialsConfigured: boolean;
   realOrderCounts: Record<string, number>;
   paperCostModelEnabled: boolean; paperTransactionCostsTodayByCurrency: Record<string, string>; realizedPnlTodayNetByCurrency: Record<string, string>;
   recentRealOrders?: { market: string; symbol: string; side: string; quantity: number; filledQuantity: number; remainingQuantity: number; currency: string; status: string; createdAt: string; updatedAt: string }[];
@@ -51,6 +52,7 @@ export default function Dashboard() {
       <StatusCard title="시세·AI API" good={pythonConnected} value={pythonConnected ? "정상 연결" : "연결 안 됨"} detail="FastAPI · localhost:8000" />
       <StatusCard title="실거래 주문" good={false} value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} detail={`실주문 ${ops?.liveTrading.toUpperCase() ?? "DISABLED"} · KIS_REAL_ORDERS_ENABLED`} />
       <StatusCard title="KIS 모의 주문" good={false} value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} detail="별도 활성 스위치" />
+      <StatusCard title="KIS 자격정보 설정" good={ops?.kisPaperCredentialsConfigured ?? false} value={ops?.kisPaperCredentialsConfigured ? "PAPER 값 입력됨" : "PAPER 값 미설정"} detail={`실계좌 ${ops?.kisRealCredentialsConfigured ? "입력됨" : "미설정"} · 계좌조회 스위치 PAPER ${ops?.kisAccountReadsEnabled && ops?.kisPaperAccountReadsEnabled ? "켜짐" : "잠금"} / REAL ${ops?.kisAccountReadsEnabled && ops?.kisRealAccountReadsEnabled ? "켜짐" : "잠금"} · 인증 성공 여부 아님`} />
       <StatusCard title="P5 시세 세션 모니터" good={data?.paperSession?.state === "RUNNING"} value={sessionLabel(data?.paperSession?.state)} detail={`${streamFeedLabel(data?.paperSession?.stream_connections)} · ${data?.paperSession?.subscriptions ?? 0}개 구독 · ${data?.paperSession?.bars_closed ?? 0}개 분봉 · 후보 ${Object.values(data?.paperSession?.decisions ?? {}).filter(item => item.signal === "BUY_CANDIDATE").length}개 · paper 자동매매 ${automationLabel(data?.paperSession?.automation_state)} · ${baselineLabel(data?.paperSession?.daily_baseline)}`} />
     </section>
     <section className="metric-grid">

@@ -5,6 +5,7 @@ import com.aistocktrader.kis.KisEnvironment;
 import com.aistocktrader.kis.KisOrderIntent;
 import com.aistocktrader.kis.KisOrderIntentRepository;
 import com.aistocktrader.kis.KisOrderStatus;
+import com.aistocktrader.kis.KisProperties;
 import com.aistocktrader.order.OrderRecord;
 import com.aistocktrader.order.OrderRepository;
 import com.aistocktrader.order.OrderStatus;
@@ -15,6 +16,7 @@ import com.aistocktrader.order.PaperPosition;
 import com.aistocktrader.order.PaperPositionRepository;
 import com.aistocktrader.order.OrderSide;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -42,17 +44,23 @@ public class OperationsController {
     private final PaperFillRepository fills;
     private final TradingSafetyProperties safety;
     private final boolean kisAccountReadsEnabled;
+    private final boolean kisPaperAccountReadsEnabled;
     private final boolean kisPaperOrdersEnabled;
     private final KisOrderIntentRepository kisIntents;
     private final boolean kisRealAccountReadsEnabled;
     private final boolean kisRealReconciliationEnabled;
     private final boolean paperCostModelEnabled;
+    private final boolean kisPaperCredentialsConfigured;
+    private final boolean kisRealCredentialsConfigured;
 
+    @Autowired
     public OperationsController(OrderRepository orders, PaperPositionRepository positions,
                                 PaperCashRepository cash, PaperFillRepository fills,
                                 TradingSafetyProperties safety,
                                 KisOrderIntentRepository kisIntents,
+                                KisProperties kisProperties,
                                 @Value("${kis.account-read-enabled:false}") boolean kisAccountReadsEnabled,
+                                @Value("${kis.paper-account-read-enabled:false}") boolean kisPaperAccountReadsEnabled,
                                 @Value("${kis.orders.paper-enabled:false}") boolean kisPaperOrdersEnabled,
                                 @Value("${kis.real-account-read-enabled:false}") boolean kisRealAccountReadsEnabled,
                                 @Value("${kis.real-reconciliation-enabled:false}") boolean kisRealReconciliationEnabled,
@@ -64,10 +72,26 @@ public class OperationsController {
         this.safety = safety;
         this.kisIntents = kisIntents;
         this.kisAccountReadsEnabled = kisAccountReadsEnabled;
+        this.kisPaperAccountReadsEnabled = kisPaperAccountReadsEnabled;
         this.kisPaperOrdersEnabled = kisPaperOrdersEnabled;
         this.kisRealAccountReadsEnabled = kisRealAccountReadsEnabled;
         this.kisRealReconciliationEnabled = kisRealReconciliationEnabled;
         this.paperCostModelEnabled = paperCostModelEnabled;
+        this.kisPaperCredentialsConfigured = kisProperties.credentials(KisEnvironment.PAPER).configured();
+        this.kisRealCredentialsConfigured = kisProperties.credentials(KisEnvironment.REAL).configured();
+    }
+
+    public OperationsController(OrderRepository orders, PaperPositionRepository positions,
+                                PaperCashRepository cash, PaperFillRepository fills,
+                                TradingSafetyProperties safety, KisOrderIntentRepository kisIntents,
+                                boolean kisAccountReadsEnabled, boolean kisPaperOrdersEnabled,
+                                boolean kisRealAccountReadsEnabled, boolean kisRealReconciliationEnabled,
+                                boolean paperCostModelEnabled) {
+        this(orders, positions, cash, fills, safety, kisIntents,
+                new KisProperties(false, false,
+                        new KisProperties.Account("", "", ""), new KisProperties.Account("", "", ""),
+                        null, null, null), kisAccountReadsEnabled, kisAccountReadsEnabled, kisPaperOrdersEnabled,
+                kisRealAccountReadsEnabled, kisRealReconciliationEnabled, paperCostModelEnabled);
     }
 
     @GetMapping("/summary")
@@ -99,7 +123,7 @@ public class OperationsController {
                 .map(RealOrderView::from).toList();
 
         return new OperationsSummary(now, safety.mode(), safety.liveTradingEnabled() ? "enabled" : "disabled",
-                false, kisAccountReadsEnabled, kisPaperOrdersEnabled, safety.realOrdersEnabled(),
+                false, kisAccountReadsEnabled, kisPaperAccountReadsEnabled, kisPaperOrdersEnabled, safety.realOrdersEnabled(),
                 kisRealAccountReadsEnabled, kisRealReconciliationEnabled, realOrderCounts,
                 paperCostModelEnabled, transactionCostsToday,
                 realizedNetPnlToday, recentRealOrders, counts, consecutiveLosingTrades,
@@ -108,7 +132,8 @@ public class OperationsController {
                 + counts.getOrDefault(OrderStatus.CANCEL_PENDING, 0L)
                 + counts.getOrDefault(OrderStatus.UNKNOWN, 0L), fillsToday, allOrders.size(),
                 cashBalances, openPositions, costBasis, realizedPnlToday, recentOrders,
-                new PaperPerformanceAnalyzer().analyze(fills.findAllWithTradeDetails()));
+                new PaperPerformanceAnalyzer().analyze(fills.findAllWithTradeDetails()),
+                kisPaperCredentialsConfigured, kisRealCredentialsConfigured);
     }
 
     private int consecutiveLosingTrades() {
@@ -223,7 +248,7 @@ public class OperationsController {
 
     public record OperationsSummary(Instant generatedAt, String tradingMode, String liveTrading,
                                     boolean paperAutomationEnabled, boolean kisAccountReadsEnabled,
-                                    boolean kisPaperOrdersEnabled, boolean kisRealOrdersEnabled,
+                                    boolean kisPaperAccountReadsEnabled, boolean kisPaperOrdersEnabled, boolean kisRealOrdersEnabled,
                                     boolean kisRealAccountReadsEnabled, boolean kisRealReconciliationEnabled,
                                     Map<KisOrderStatus, Long> realOrderCounts,
                                     boolean paperCostModelEnabled, Map<String, BigDecimal> paperTransactionCostsTodayByCurrency,
@@ -234,7 +259,8 @@ public class OperationsController {
                                     Map<String, BigDecimal> positionCostBasisByCurrency,
                                     Map<String, BigDecimal> realizedPnlTodayGrossByCurrency,
                                     List<OrderView> recentOrders,
-                                    List<PaperPerformanceAnalyzer.InstrumentPerformance> paperPerformanceByInstrument) { }
+                                    List<PaperPerformanceAnalyzer.InstrumentPerformance> paperPerformanceByInstrument,
+                                    boolean kisPaperCredentialsConfigured, boolean kisRealCredentialsConfigured) { }
 
     public record RealOrderView(String market, String symbol, String side, int quantity, Integer filledQuantity,
                                 Integer remainingQuantity, String currency, KisOrderStatus status,

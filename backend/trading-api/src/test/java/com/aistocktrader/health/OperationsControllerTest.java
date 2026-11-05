@@ -6,6 +6,7 @@ import com.aistocktrader.kis.KisOrderIntent;
 import com.aistocktrader.kis.KisOrderIntentRepository;
 import com.aistocktrader.kis.KisOrderStatus;
 import com.aistocktrader.kis.KisOrderReceipt;
+import com.aistocktrader.kis.KisProperties;
 import com.aistocktrader.order.Currency;
 import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderRequest;
@@ -28,6 +29,31 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class OperationsControllerTest {
+    @Test
+    void operationsSummaryReportsOnlyWhetherEnvironmentCredentialsAreConfigured() {
+        OrderRepository orders = mock(OrderRepository.class);
+        PaperPositionRepository positions = mock(PaperPositionRepository.class);
+        PaperCashRepository cash = mock(PaperCashRepository.class);
+        PaperFillRepository fills = mock(PaperFillRepository.class);
+        when(orders.findAll()).thenReturn(List.of());
+        when(orders.findAll(any(Sort.class))).thenReturn(List.of());
+        when(positions.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0)).thenReturn(List.of());
+        when(cash.findAll()).thenReturn(List.of());
+        when(fills.countByFilledAtAfter(any())).thenReturn(0L);
+        when(fills.findAllWithTradeDetails()).thenReturn(List.of());
+        KisProperties credentials = new KisProperties(false, false, false, false,
+                new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
+                new KisProperties.Account("", "", ""), null, null, null);
+
+        var summary = new OperationsController(orders, positions, cash, fills,
+                new TradingSafetyProperties("paper", false, BigDecimal.TEN, BigDecimal.TEN),
+                emptyKisIntents(), credentials, false, false, false, false, false, false).summary();
+
+        assertEquals(true, summary.kisPaperCredentialsConfigured());
+        assertEquals(false, summary.kisRealCredentialsConfigured());
+        assertEquals(false, summary.kisPaperAccountReadsEnabled());
+    }
+
     @Test
     void dailyRealizedPnlUsesAverageCostAndKeepsCurrenciesSeparate() {
         OrderRepository orders = mock(OrderRepository.class);
