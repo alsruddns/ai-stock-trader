@@ -60,7 +60,7 @@ python -m pip install -e ".[dev]"
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --env-file ../../.env
 ```
 
-KIS 조회를 쓸 때는 `.env`에 모의·실전 자격증명을 각각 `KIS_PAPER_*`, `KIS_REAL_*`로 분리해 입력하세요. Python 시세 조회는 `KIS_MARKET_DATA_ENABLED=true`, Spring 계좌조회는 별도로 `KIS_ACCOUNT_READ_ENABLED=true`가 필요합니다. 모두 기본 `false`입니다. 계좌번호는 8자리 계좌번호와 2자리 상품코드를 붙인 총 10자리 형식으로 입력하세요. Spring 계좌 API는 URL의 `paper`/`real` 환경을 선택합니다.
+KIS 조회를 쓸 때는 `.env`에 모의·실전 자격증명을 각각 `KIS_PAPER_*`, `KIS_REAL_*`로 분리해 입력하세요. Python REST 시세는 `KIS_MARKET_DATA_ENABLED=true`, WebSocket 시세는 `KIS_WEBSOCKET_ENABLED=true`, Spring 계좌조회는 별도로 `KIS_ACCOUNT_READ_ENABLED=true`가 필요합니다. 모두 기본 `false`입니다. 계좌번호는 8자리 계좌번호와 2자리 상품코드를 붙인 총 10자리 형식으로 입력하세요. Spring 계좌 API는 URL의 `paper`/`real` 환경을 선택합니다.
 
 - Spring 상태: `http://localhost:8080/api/v1/health`
 - Python 상태: `http://localhost:8000/api/v1/health`

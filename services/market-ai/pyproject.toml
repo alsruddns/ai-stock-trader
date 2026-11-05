@@ -7,7 +7,7 @@ name = "ai-stock-trader-market-ai"
 version = "0.1.0"
 description = "Read-only market analysis service; no broker or order access"
 requires-python = ">=3.11"
-dependencies = ["fastapi>=0.115,<1", "httpx>=0.27,<1", "psycopg[binary]>=3.2,<4", "uvicorn[standard]>=0.30,<1"]
+dependencies = ["fastapi>=0.115,<1", "httpx>=0.27,<1", "psycopg[binary]>=3.2,<4", "uvicorn[standard]>=0.30,<1", "websockets>=13,<16"]
 
 [project.optional-dependencies]
 dev = ["httpx>=0.27,<1", "pytest>=8,<9"]

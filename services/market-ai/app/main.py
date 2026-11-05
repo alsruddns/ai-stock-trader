@@ -4,12 +4,15 @@ import os
 import re
 from datetime import datetime
 from decimal import Decimal
+import asyncio
+import json
 
-from fastapi import Depends, FastAPI, HTTPException, Path, Query
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, WebSocket, WebSocketDisconnect
 import psycopg
 from pydantic import BaseModel, Field
 from .kis import AccountBalance, Exchange, KisApiError, KisReadOnlyClient, KisSettings, Market, Quote
 from . import snapshot_store
+from . import kis_stream
 
 app = FastAPI(
     title="AI Stock Trader Market Analysis",
@@ -107,6 +110,55 @@ def get_quote(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KisApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.websocket("/api/v1/market/stream")
+async def stream_market_data(websocket: WebSocket) -> None:
+    """Relay one read-only KIS trade stream to a loopback client."""
+    settings = kis_stream.StreamSettings.from_environment()
+    if not settings.enabled:
+        await websocket.close(code=4403, reason="KIS WebSocket is disabled")
+        return
+    if not settings.kis.app_key or not settings.kis.app_secret:
+        await websocket.close(code=4403, reason="KIS credentials are not configured")
+        return
+
+    await websocket.accept()
+    try:
+        request = await websocket.receive_json()
+        if not isinstance(request, dict):
+            raise ValueError("subscription must be a JSON object")
+        market = request.get("market")
+        symbol = request.get("symbol")
+        exchange = request.get("exchange")
+        if not isinstance(symbol, str) or not isinstance(market, str) or (exchange is not None and not isinstance(exchange, str)):
+            raise ValueError("market, symbol, and optional exchange must be strings")
+        message = kis_stream.subscription_message("pending", market, symbol, exchange)
+        key = await asyncio.to_thread(kis_stream.approval_key, settings.kis)
+        message["header"]["approval_key"] = key
+
+        import websockets
+
+        async with websockets.connect(settings.websocket_url, ping_interval=30, close_timeout=3) as upstream:
+            await upstream.send(json.dumps(message, separators=(",", ":")))
+            await websocket.send_json({"kind": "subscribed", "market": market, "symbol": symbol.upper(), "exchange": exchange})
+            while True:
+                frame = await upstream.recv()
+                if isinstance(frame, bytes):
+                    frame = frame.decode("utf-8", errors="replace")
+                await websocket.send_json(kis_stream.normalize_stream_frame(frame))
+    except WebSocketDisconnect:
+        return
+    except ValueError as exc:
+        await websocket.send_json({"kind": "error", "message": str(exc)})
+        await websocket.close(code=4400)
+    except Exception:
+        # Upstream protocol details and credential-bearing data are intentionally not returned.
+        try:
+            await websocket.send_json({"kind": "error", "message": "KIS WebSocket stream is unavailable"})
+            await websocket.close(code=1011)
+        except Exception:
+            pass
 
 
 def _persist_snapshot(save) -> None:
