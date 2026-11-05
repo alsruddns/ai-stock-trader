@@ -109,6 +109,47 @@ class OrderServiceTest {
     }
 
     @Test
+    void configuredPaperCostsReduceCashAndAddBuyFeesToPositionCostBasis() {
+        OrderRecord buy = new OrderRecord(new OrderRequest(Market.KR, "005930", OrderSide.BUY, 10,
+                new BigDecimal("100"), Currency.KRW), idempotencyKey);
+        OrderRecord sell = new OrderRecord(new OrderRequest(Market.KR, "005930", OrderSide.SELL, 10,
+                new BigDecimal("110"), Currency.KRW), UUID.randomUUID());
+        ReflectionTestUtils.setField(buy, "id", 21L);
+        ReflectionTestUtils.setField(sell, "id", 22L);
+        PaperCashBalance cash = new PaperCashBalance(Currency.KRW, new BigDecimal("5000"));
+        PaperCostProperties properties = new PaperCostProperties(true, new BigDecimal("10"), new BigDecimal("20"),
+                new BigDecimal("1"), new BigDecimal("0"));
+        PaperTransactionCostCalculator calculator = new PaperTransactionCostCalculator(properties);
+        when(fills.findByFillKey(any())).thenReturn(Optional.empty());
+        when(orders.findByIdForUpdate(21L)).thenReturn(Optional.of(buy));
+        when(orders.findByIdForUpdate(22L)).thenReturn(Optional.of(sell));
+        when(positions.findInstrumentForUpdate(Market.KR, "005930", Currency.KRW)).thenReturn(Optional.empty());
+        when(positions.save(any(PaperPosition.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(cashBalances.findByCurrencyForUpdate(Currency.KRW)).thenReturn(Optional.of(cash));
+        when(cashBalances.save(any(PaperCashBalance.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fills.save(any(PaperFillRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orders.save(any(OrderRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        OrderService service = new OrderService(orders, safeConfig(), fills, positions, cashBalances,
+                strategyRisks, calculator);
+
+        service.recordPaperFill(21L, new PaperFillRequest(UUID.randomUUID(), 10, new BigDecimal("100")));
+        assertEquals(new BigDecimal("3999"), cash.getBalance());
+        var savedPosition = org.mockito.ArgumentCaptor.forClass(PaperPosition.class);
+        verify(positions).save(savedPosition.capture());
+        PaperPosition position = savedPosition.getValue();
+        assertEquals(new BigDecimal("100.100000"), position.getAverageCost());
+        when(positions.findInstrumentForUpdate(Market.KR, "005930", Currency.KRW)).thenReturn(Optional.of(position));
+        service.recordPaperFill(22L, new PaperFillRequest(UUID.randomUUID(), 10, new BigDecimal("110")));
+
+        assertEquals(new BigDecimal("5096"), cash.getBalance());
+        assertEquals(0, position.getQuantity());
+        var recordedFills = org.mockito.ArgumentCaptor.forClass(PaperFillRecord.class);
+        verify(fills, times(2)).save(recordedFills.capture());
+        assertEquals(new BigDecimal("1"), recordedFills.getAllValues().get(0).getTransactionCost());
+        assertEquals(new BigDecimal("3"), recordedFills.getAllValues().get(1).getTransactionCost());
+    }
+
+    @Test
     void strategyEntryFillPersistsStopAndTargetInSameServiceTransaction() {
         OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
         ReflectionTestUtils.setField(order, "id", 12L);

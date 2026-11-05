@@ -19,13 +19,19 @@ public class OrderService {
     private final PaperPositionRepository positions;
     private final PaperCashRepository cashBalances;
     private final PaperStrategyRiskRepository strategyRisks;
+    private final PaperTransactionCostCalculator costs;
     @Autowired
     public OrderService(OrderRepository orders, TradingSafetyProperties safety,
                         PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances,
-                        PaperStrategyRiskRepository strategyRisks) {
+                        PaperStrategyRiskRepository strategyRisks, PaperTransactionCostCalculator costs) {
         this.orders = orders; this.safety = safety; this.fills = fills;
         this.positions = positions; this.cashBalances = cashBalances;
-        this.strategyRisks = strategyRisks;
+        this.strategyRisks = strategyRisks; this.costs = costs;
+    }
+    public OrderService(OrderRepository orders, TradingSafetyProperties safety,
+                        PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances,
+                        PaperStrategyRiskRepository strategyRisks) {
+        this(orders, safety, fills, positions, cashBalances, strategyRisks, disabledCosts());
     }
     public OrderService(OrderRepository orders, TradingSafetyProperties safety,
                         PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances) {
@@ -82,6 +88,7 @@ public class OrderService {
         PaperCashBalance cash = cashBalances.findByCurrencyForUpdate(order.getCurrency())
                 .orElseThrow(() -> new IllegalStateException("Paper cash account is not initialized."));
         BigDecimal fillNotional = request.fillPrice().multiply(BigDecimal.valueOf(request.quantity()));
+        BigDecimal transactionCost = costs.calculate(order.getMarket(), order.getSide(), order.getCurrency(), fillNotional);
         if (order.getSide() == OrderSide.SELL) {
             PaperPosition position = positions.findInstrumentForUpdate(order.getMarket(), order.getSymbol(), order.getCurrency())
                     .orElseThrow(() -> new IllegalArgumentException("Paper sell requires an existing position."));
@@ -90,17 +97,23 @@ public class OrderService {
             }
             order.applyFill(request.quantity(), request.fillPrice());
             position.apply(order.getSide(), request.quantity(), request.fillPrice());
-            cash.credit(fillNotional);
+            cash.credit(fillNotional.subtract(transactionCost));
             positions.save(position);
             if (position.getQuantity() == 0 && strategyRisks != null) {
                 strategyRisks.deleteByPositionId(position.getId());
             }
         } else {
+            BigDecimal debit = fillNotional.add(transactionCost);
+            if (cash.getBalance().compareTo(debit) < 0) {
+                throw new IllegalArgumentException("Paper cash balance is insufficient after transaction costs.");
+            }
             order.applyFill(request.quantity(), request.fillPrice());
-            cash.debit(fillNotional);
+            cash.debit(debit);
             PaperPosition position = positions.findInstrumentForUpdate(order.getMarket(), order.getSymbol(), order.getCurrency())
                     .orElseGet(() -> new PaperPosition(order.getMarket(), order.getSymbol(), order.getCurrency()));
-            position.apply(order.getSide(), request.quantity(), request.fillPrice());
+            BigDecimal costPerShare = transactionCost.divide(BigDecimal.valueOf(request.quantity()), 6,
+                    java.math.RoundingMode.HALF_UP);
+            position.apply(order.getSide(), request.quantity(), request.fillPrice().add(costPerShare));
             PaperPosition savedPosition = positions.save(position);
             if (request.stopPrice() != null && strategyRisks != null) {
                 PaperStrategyRisk risk = strategyRisks.findByPositionId(savedPosition.getId())
@@ -110,7 +123,7 @@ public class OrderService {
             }
         }
         cashBalances.save(cash);
-        fills.save(new PaperFillRecord(order.getId(), request));
+        fills.save(new PaperFillRecord(order.getId(), request, transactionCost));
         return orders.save(order);
     }
 
@@ -209,6 +222,11 @@ public class OrderService {
         if (safety.liveTradingEnabled() || !"paper".equalsIgnoreCase(safety.mode())) {
             throw new IllegalStateException("Paper broker operations are disabled outside paper mode.");
         }
+    }
+
+    private static PaperTransactionCostCalculator disabledCosts() {
+        return new PaperTransactionCostCalculator(new PaperCostProperties(false, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO));
     }
 
     private boolean matches(OrderRecord existing, OrderRequest request) {

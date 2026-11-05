@@ -45,6 +45,7 @@ public class OperationsController {
     private final boolean kisPaperOrdersEnabled;
     private final KisOrderIntentRepository kisIntents;
     private final boolean kisRealAccountReadsEnabled;
+    private final boolean paperCostModelEnabled;
 
     public OperationsController(OrderRepository orders, PaperPositionRepository positions,
                                 PaperCashRepository cash, PaperFillRepository fills,
@@ -52,7 +53,8 @@ public class OperationsController {
                                 KisOrderIntentRepository kisIntents,
                                 @Value("${kis.account-read-enabled:false}") boolean kisAccountReadsEnabled,
                                 @Value("${kis.orders.paper-enabled:false}") boolean kisPaperOrdersEnabled,
-                                @Value("${kis.real-account-read-enabled:false}") boolean kisRealAccountReadsEnabled) {
+                                @Value("${kis.real-account-read-enabled:false}") boolean kisRealAccountReadsEnabled,
+                                @Value("${paper.costs.enabled:false}") boolean paperCostModelEnabled) {
         this.orders = orders;
         this.positions = positions;
         this.cash = cash;
@@ -62,6 +64,7 @@ public class OperationsController {
         this.kisAccountReadsEnabled = kisAccountReadsEnabled;
         this.kisPaperOrdersEnabled = kisPaperOrdersEnabled;
         this.kisRealAccountReadsEnabled = kisRealAccountReadsEnabled;
+        this.paperCostModelEnabled = paperCostModelEnabled;
     }
 
     @GetMapping("/summary")
@@ -81,6 +84,8 @@ public class OperationsController {
         openPositions.forEach(position -> costBasis.merge(position.currency(), position.costBasis(), BigDecimal::add));
         long fillsToday = fills.countByFilledAtAfter(dayStart);
         Map<String, BigDecimal> realizedPnlToday = realizedPnlSince(dayStart);
+        Map<String, BigDecimal> realizedNetPnlToday = realizedNetPnlSince(dayStart);
+        Map<String, BigDecimal> transactionCostsToday = transactionCostsSince(dayStart);
         int consecutiveLosingTrades = consecutiveLosingTrades();
         EnumMap<KisOrderStatus, Long> realOrderCounts = new EnumMap<>(KisOrderStatus.class);
         for (KisOrderStatus status : KisOrderStatus.values()) realOrderCounts.put(status, 0L);
@@ -92,7 +97,8 @@ public class OperationsController {
 
         return new OperationsSummary(now, safety.mode(), safety.liveTradingEnabled() ? "enabled" : "disabled",
                 false, kisAccountReadsEnabled, kisPaperOrdersEnabled, safety.realOrdersEnabled(),
-                kisRealAccountReadsEnabled, realOrderCounts, recentRealOrders, counts, consecutiveLosingTrades,
+                kisRealAccountReadsEnabled, realOrderCounts, paperCostModelEnabled, transactionCostsToday,
+                realizedNetPnlToday, recentRealOrders, counts, consecutiveLosingTrades,
                 counts.getOrDefault(OrderStatus.PENDING, 0L)
                 + counts.getOrDefault(OrderStatus.PARTIALLY_FILLED, 0L)
                 + counts.getOrDefault(OrderStatus.CANCEL_PENDING, 0L)
@@ -107,16 +113,17 @@ public class OperationsController {
             String key = trade.getMarket() + "|" + trade.getSymbol() + "|" + trade.getCurrency();
             Holding holding = holdings.computeIfAbsent(key, ignored -> new Holding());
             BigDecimal quantity = BigDecimal.valueOf(trade.getQuantity());
+            BigDecimal transactionCost = zeroIfNull(trade.getTransactionCost());
             if (OrderSide.BUY.name().equals(trade.getSide())) {
                 BigDecimal totalCost = holding.averageCost.multiply(BigDecimal.valueOf(holding.quantity))
-                        .add(trade.getFillPrice().multiply(quantity));
+                        .add(trade.getFillPrice().multiply(quantity)).add(transactionCost);
                 holding.quantity += trade.getQuantity();
                 holding.averageCost = totalCost.divide(BigDecimal.valueOf(holding.quantity), 6, java.math.RoundingMode.HALF_UP);
             } else if (OrderSide.SELL.name().equals(trade.getSide())) {
                 if (trade.getQuantity() > holding.quantity) {
                     throw new IllegalStateException("Paper fill history contains a sell larger than the recorded position.");
                 }
-                BigDecimal pnl = trade.getFillPrice().subtract(holding.averageCost).multiply(quantity);
+                BigDecimal pnl = trade.getFillPrice().subtract(holding.averageCost).multiply(quantity).subtract(transactionCost);
                 realizedBySellOrder.merge(trade.getOrderId(), pnl, BigDecimal::add);
                 holding.quantity -= trade.getQuantity();
                 if (holding.quantity == 0) holding.averageCost = BigDecimal.ZERO;
@@ -158,6 +165,52 @@ public class OperationsController {
         return realized;
     }
 
+    private Map<String, BigDecimal> realizedNetPnlSince(Instant cutoff) {
+        Map<String, Holding> holdings = new HashMap<>();
+        Map<String, BigDecimal> realized = zeroCurrencyMap();
+        for (PaperFillRepository.FillTradeView trade : fills.findAllWithTradeDetails()) {
+            String key = trade.getMarket() + "|" + trade.getSymbol() + "|" + trade.getCurrency();
+            Holding holding = holdings.computeIfAbsent(key, ignored -> new Holding());
+            BigDecimal quantity = BigDecimal.valueOf(trade.getQuantity());
+            BigDecimal transactionCost = zeroIfNull(trade.getTransactionCost());
+            if (OrderSide.BUY.name().equals(trade.getSide())) {
+                BigDecimal totalCost = holding.averageCost.multiply(BigDecimal.valueOf(holding.quantity))
+                        .add(trade.getFillPrice().multiply(quantity)).add(transactionCost);
+                holding.quantity += trade.getQuantity();
+                holding.averageCost = totalCost.divide(BigDecimal.valueOf(holding.quantity), 6, java.math.RoundingMode.HALF_UP);
+            } else if (OrderSide.SELL.name().equals(trade.getSide())) {
+                if (trade.getQuantity() > holding.quantity) {
+                    throw new IllegalStateException("Paper fill history contains a sell larger than the recorded position.");
+                }
+                if (!trade.getFilledAt().isBefore(cutoff)) {
+                    BigDecimal pnl = trade.getFillPrice().subtract(holding.averageCost).multiply(quantity).subtract(transactionCost);
+                    realized.merge(trade.getCurrency(), pnl, BigDecimal::add);
+                }
+                holding.quantity -= trade.getQuantity();
+                if (holding.quantity == 0) holding.averageCost = BigDecimal.ZERO;
+            }
+        }
+        return realized;
+    }
+
+    private Map<String, BigDecimal> transactionCostsSince(Instant cutoff) {
+        Map<String, BigDecimal> costs = zeroCurrencyMap();
+        for (PaperFillRepository.FillTradeView trade : fills.findAllWithTradeDetails()) {
+            if (!trade.getFilledAt().isBefore(cutoff)) {
+                costs.merge(trade.getCurrency(), zeroIfNull(trade.getTransactionCost()), BigDecimal::add);
+            }
+        }
+        return costs;
+    }
+
+    private static Map<String, BigDecimal> zeroCurrencyMap() {
+        return new HashMap<>(Map.of("KRW", BigDecimal.ZERO, "USD", BigDecimal.ZERO));
+    }
+
+    private static BigDecimal zeroIfNull(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
     private static final class Holding {
         private int quantity;
         private BigDecimal averageCost = BigDecimal.ZERO;
@@ -167,6 +220,8 @@ public class OperationsController {
                                     boolean paperAutomationEnabled, boolean kisAccountReadsEnabled,
                                     boolean kisPaperOrdersEnabled, boolean kisRealOrdersEnabled,
                                     boolean kisRealAccountReadsEnabled, Map<KisOrderStatus, Long> realOrderCounts,
+                                    boolean paperCostModelEnabled, Map<String, BigDecimal> paperTransactionCostsTodayByCurrency,
+                                    Map<String, BigDecimal> realizedPnlTodayNetByCurrency,
                                     List<RealOrderView> recentRealOrders, Map<OrderStatus, Long> orderCounts,
                                     int consecutiveLosingTrades, long openOrders, long fillsToday, long totalOrders,
                                     List<CashView> cashBalances, List<PositionView> positions,

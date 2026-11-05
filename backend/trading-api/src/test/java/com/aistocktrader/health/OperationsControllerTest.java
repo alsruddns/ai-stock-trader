@@ -46,7 +46,7 @@ class OperationsControllerTest {
 
         OperationsController controller = new OperationsController(orders, positions, cash, fills,
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")),
-                kisIntents, false, false, false);
+                kisIntents, false, false, false, false);
 
         var summary = controller.summary();
 
@@ -80,7 +80,7 @@ class OperationsControllerTest {
 
         var summary = new OperationsController(orders, positions, cash, fills,
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")),
-                kisIntents, false, false, false).summary();
+                kisIntents, false, false, false, false).summary();
 
         assertEquals(1, summary.consecutiveLosingTrades());
     }
@@ -107,12 +107,39 @@ class OperationsControllerTest {
 
         var summary = new OperationsController(orders, positions, cash, fills,
                 new TradingSafetyProperties("paper", false, BigDecimal.TEN, BigDecimal.TEN), kisIntents,
-                false, false, false).summary();
+                false, false, false, false).summary();
 
         assertEquals("paper", summary.tradingMode());
         assertEquals(1L, summary.realOrderCounts().get(KisOrderStatus.ACCEPTED));
         assertEquals("005930", summary.recentRealOrders().getFirst().symbol());
         assertEquals(KisOrderStatus.ACCEPTED, summary.recentRealOrders().getFirst().status());
+    }
+
+    @Test
+    void dailyNetPnlIncludesBuyAndSellCostsWhileGrossPnlRemainsAvailable() {
+        OrderRepository orders = mock(OrderRepository.class);
+        PaperPositionRepository positions = mock(PaperPositionRepository.class);
+        PaperCashRepository cash = mock(PaperCashRepository.class);
+        PaperFillRepository fills = mock(PaperFillRepository.class);
+        KisOrderIntentRepository kisIntents = emptyKisIntents();
+        Instant now = Instant.now();
+        when(orders.findAll()).thenReturn(List.of());
+        when(orders.findAll(any(Sort.class))).thenReturn(List.of());
+        when(positions.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0)).thenReturn(List.of());
+        when(cash.findAll()).thenReturn(List.of());
+        when(fills.countByFilledAtAfter(any())).thenReturn(1L);
+        var buyTrade = trade("BUY", 10, "100", now.minusSeconds(10), 1L, new BigDecimal("10"));
+        var sellTrade = trade("SELL", 4, "110", now, 2L, new BigDecimal("3"));
+        when(fills.findAllWithTradeDetails()).thenReturn(List.of(buyTrade, sellTrade));
+
+        var summary = new OperationsController(orders, positions, cash, fills,
+                new TradingSafetyProperties("paper", false, BigDecimal.TEN, BigDecimal.TEN), kisIntents,
+                false, false, false, true).summary();
+
+        assertEquals(new BigDecimal("40.000000"), summary.realizedPnlTodayGrossByCurrency().get("USD"));
+        assertEquals(new BigDecimal("33.000000"), summary.realizedPnlTodayNetByCurrency().get("USD"));
+        assertEquals(new BigDecimal("13"), summary.paperTransactionCostsTodayByCurrency().get("USD"));
+        assertEquals(true, summary.paperCostModelEnabled());
     }
 
     private static KisOrderIntentRepository emptyKisIntents() {
@@ -127,11 +154,17 @@ class OperationsControllerTest {
     }
 
     private static PaperFillRepository.FillTradeView trade(String side, int quantity, String price, Instant at, long orderId) {
+        return trade(side, quantity, price, at, orderId, BigDecimal.ZERO);
+    }
+
+    private static PaperFillRepository.FillTradeView trade(String side, int quantity, String price, Instant at,
+                                                            long orderId, BigDecimal transactionCost) {
         PaperFillRepository.FillTradeView trade = mock(PaperFillRepository.FillTradeView.class);
         when(trade.getOrderId()).thenReturn(orderId);
         when(trade.getFilledAt()).thenReturn(at);
         when(trade.getQuantity()).thenReturn(quantity);
         when(trade.getFillPrice()).thenReturn(new BigDecimal(price));
+        when(trade.getTransactionCost()).thenReturn(transactionCost);
         when(trade.getMarket()).thenReturn("US");
         when(trade.getSymbol()).thenReturn("AAPL");
         when(trade.getCurrency()).thenReturn("USD");

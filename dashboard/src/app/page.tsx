@@ -6,6 +6,7 @@ type Ops = {
   generatedAt: string; tradingMode: string; liveTrading: string; paperAutomationEnabled: boolean;
   kisAccountReadsEnabled: boolean; kisPaperOrdersEnabled: boolean; kisRealOrdersEnabled: boolean; kisRealAccountReadsEnabled: boolean;
   realOrderCounts: Record<string, number>;
+  paperCostModelEnabled: boolean; paperTransactionCostsTodayByCurrency: Record<string, string>; realizedPnlTodayNetByCurrency: Record<string, string>;
   recentRealOrders?: { market: string; symbol: string; side: string; quantity: number; filledQuantity: number; remainingQuantity: number; currency: string; status: string; createdAt: string; updatedAt: string }[];
   orderCounts: Record<string, number>;
   consecutiveLosingTrades: number;
@@ -54,7 +55,9 @@ export default function Dashboard() {
       <Metric title="미체결 주문" value={ops?.openOrders ?? "—"} caption="미체결·부분체결·확인 필요" />
       <Metric title="REAL 확인 필요" value={ops?.realOrderCounts?.UNKNOWN ?? 0} caption="자동 재전송 없이 대조 대기" />
       <Metric title="오늘 모의 체결" value={ops?.fillsToday ?? "—"} caption="한국 시간 기준" />
-      <Metric title="오늘 실현 손익 (비용 전)" value={`${money(ops?.realizedPnlTodayGrossByCurrency?.KRW ?? 0, "KRW")} · ${money(ops?.realizedPnlTodayGrossByCurrency?.USD ?? 0, "USD")}`} caption="가상 체결가와 평균 원가 기준" />
+      <Metric title="오늘 실현 손익 (총액)" value={`${money(ops?.realizedPnlTodayGrossByCurrency?.KRW ?? 0, "KRW")} · ${money(ops?.realizedPnlTodayGrossByCurrency?.USD ?? 0, "USD")}`} caption="수수료·세금 차감 전" />
+      <Metric title="오늘 실현 손익 (비용 후)" value={`${money(ops?.realizedPnlTodayNetByCurrency?.KRW ?? 0, "KRW")} · ${money(ops?.realizedPnlTodayNetByCurrency?.USD ?? 0, "USD")}`} caption={ops?.paperCostModelEnabled ? "입력된 paper 비용률 반영" : "비용 모형 비활성 · 총액과 동일"} />
+      <Metric title="오늘 paper 거래비용" value={`${money(ops?.paperTransactionCostsTodayByCurrency?.KRW ?? 0, "KRW")} · ${money(ops?.paperTransactionCostsTodayByCurrency?.USD ?? 0, "USD")}`} caption={ops?.paperCostModelEnabled ? "체결 시 기록된 추정비용" : "비용 모형 비활성"} />
       <Metric title="보유 원가 합계" value={`${money(ops?.positionCostBasisByCurrency?.KRW ?? 0, "KRW")} · ${money(ops?.positionCostBasisByCurrency?.USD ?? 0, "USD")}`} caption="통화별 취득 원가 · 시장 평가액 아님" />
     </section>
     <section className="panel signals-panel"><div className="panel-title"><div><p className="eyebrow">P5 STRATEGY PREVIEW</p><h2>종목별 판단 상태</h2></div><span className="tag">paper 진입 게이트 · 실계좌 잠금</span></div>
@@ -65,7 +68,7 @@ export default function Dashboard() {
         {ops?.cashBalances.length ? <div className="cash-list">{ops.cashBalances.map(item => <div className="cash-row" key={item.currency}><span>{item.currency}</span><strong>{money(item.balance, item.currency)}</strong></div>)}</div> : <Empty text="가상 현금 잔고가 아직 없습니다." />}
       </div>
       <div className="panel"><div className="panel-title"><div><p className="eyebrow">RISK SNAPSHOT</p><h2>운영 제한</h2></div><span className="tag green">실거래 주문 잠금</span></div>
-        <div className="risk-list"><RiskRow label="운영 모드" value={ops?.tradingMode.toUpperCase() ?? "PAPER"} /><RiskRow label="실거래 허용" value={ops?.liveTrading.toUpperCase() ?? "DISABLED"} /><RiskRow label="KIS 실주문 스위치" value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="KIS 실계좌 조회" value={ops?.kisRealAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="KIS 공통 계좌 조회" value={ops?.kisAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="KIS 모의 주문" value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="paper 자동매매" value={automationLabel(data?.paperSession?.automation_state)} /><RiskRow label="연속 손실 주문" value={`${ops?.consecutiveLosingTrades ?? 0}회`} /></div>
+        <div className="risk-list"><RiskRow label="운영 모드" value={ops?.tradingMode.toUpperCase() ?? "PAPER"} /><RiskRow label="실거래 허용" value={ops?.liveTrading.toUpperCase() ?? "DISABLED"} /><RiskRow label="KIS 실주문 스위치" value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="KIS 실계좌 조회" value={ops?.kisRealAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="KIS 공통 계좌 조회" value={ops?.kisAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="KIS 모의 주문" value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="paper 거래비용" value={ops?.paperCostModelEnabled ? "설정 적용" : "비활성"} /><RiskRow label="paper 자동매매" value={automationLabel(data?.paperSession?.automation_state)} /><RiskRow label="연속 손실 주문" value={`${ops?.consecutiveLosingTrades ?? 0}회`} /></div>
       </div>
     </section>
     <section className="two-col lower">
