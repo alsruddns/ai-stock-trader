@@ -59,4 +59,4 @@ LightGBM·XGBoost 후보는 `--market KR`과 `--market US`로 분리 학습하�
 
 ## Operations reporting
 
-Spring의 `/api/v1/operations/summary`는 저장된 paper 주문·체결·현금·포지션 상태를 요약합니다. 포지션 원가는 통화별 평균 취득원가이며 실시간 평가액이 아닙니다. `realizedPnlTodayGrossByCurrency`는 평균 원가 기준의 실현 손익으로, 수수료·세금 차감 전입니다. `scripts/export-daily-report.ps1`은 이 응답을 `.local/reports`에 날짜별 JSON으로 저장합니다. 대시보드는 Spring 및 Python 상태와 이 요약을 조회하며 주문·취소 기능을 제공하지 않습니다.
+Spring의 `/api/v1/operations/summary`는 paper 주문·체결·현금·포지션과 별도로 REAL 주문 의도별 상태·체결량을 반환합니다. REAL 계좌번호와 브로커 주문 식별자는 응답하지 않습니다. `kisRealOrdersEnabled`, `kisRealAccountReadsEnabled`, `realOrderCounts`, `recentRealOrders`는 운영 잠금 및 로컬 DB에 저장된 REAL 주문 의도 상태이며 실제 계좌 잔고를 뜻하지 않습니다. 포지션 원가는 통화별 평균 취득원가이며 실시간 평가액이 아닙니다. `realizedPnlTodayGrossByCurrency`는 평균 원가 기준의 paper 실현 손익으로, 수수료·세금 차감 전입니다. `scripts/export-daily-report.ps1`은 이 요약을 `.local/reports`에 날짜별 JSON으로 저장합니다. 대시보드는 조회 전용이며 주문·취소 기능을 제공하지 않습니다.

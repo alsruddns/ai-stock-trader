@@ -10,4 +10,4 @@ $report = Invoke-RestMethod -Uri "$ApiBaseUrl/api/v1/operations/summary" -Timeou
 $reportName = "operations-{0}.json" -f (Get-Date -Format "yyyy-MM-dd")
 $reportPath = Join-Path $reportDirectory $reportName
 $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $reportPath -Encoding utf8
-Write-Output "Saved local paper operations report: $reportPath"
+Write-Output "Saved local operations report: $reportPath"
