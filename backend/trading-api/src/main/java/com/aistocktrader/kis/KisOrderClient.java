@@ -122,6 +122,9 @@ public class KisOrderClient {
 
     public Optional<KisBrokerOrderSnapshot> reconcilePaperOrder(KisOrderIntent intent) {
         requirePaperOrdersEnabled();
+        if (intent.getEnvironment() != KisEnvironment.PAPER) {
+            throw new IllegalStateException("Paper reconciliation cannot access a real-environment order intent.");
+        }
         KisProperties.Account credentials = properties.credentials(KisEnvironment.PAPER);
         String account = credentials.accountNumber();
         LocalDate orderDate = intent.getCreatedAt().atZone(intent.getMarket() == Market.KR

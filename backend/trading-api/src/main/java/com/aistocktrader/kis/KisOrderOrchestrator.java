@@ -71,6 +71,7 @@ public class KisOrderOrchestrator {
             throw new IllegalStateException("KIS orders are locked outside paper mode.");
         }
         KisOrderIntent intent = intents.get(idempotencyKey);
+        requirePaperIntent(intent);
         if (intent.getStatus() == KisOrderStatus.CANCEL_PENDING || intent.getStatus() == KisOrderStatus.CANCELLED) {
             return KisOrderIntentResponse.from(intent);
         }
@@ -87,6 +88,7 @@ public class KisOrderOrchestrator {
 
     public KisOrderIntentResponse reconcilePaperOrder(UUID idempotencyKey) {
         KisOrderIntent intent = intents.get(idempotencyKey);
+        requirePaperIntent(intent);
         if (intent.getStatus() == KisOrderStatus.SUBMITTING) {
             intent = intents.markUnknown(idempotencyKey);
         }
@@ -140,6 +142,12 @@ public class KisOrderOrchestrator {
             case "AMS", "AMEX" -> "AMEX";
             default -> throw new IllegalArgumentException("US exchange must be NAS, NYS, or AMS.");
         };
+    }
+
+    private static void requirePaperIntent(KisOrderIntent intent) {
+        if (intent.getEnvironment() != KisEnvironment.PAPER) {
+            throw new IllegalStateException("Paper order operations cannot access a real-environment order intent.");
+        }
     }
 
     private static String extractCode(String message) {

@@ -35,6 +35,18 @@ class KisOrderClientTest {
     }
 
     @Test
+    void paperReconciliationRejectsRealIntentBeforeAnyBrokerRequest() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        var request = new com.aistocktrader.order.OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent realIntent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL, request, null);
+
+        assertThrows(IllegalStateException.class, () -> client(true, builder).reconcilePaperOrder(realIntent));
+        server.verify();
+    }
+
+    @Test
     void domesticPaperLimitOrderUsesPaperCredentialsAndLimitOnlyContract() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

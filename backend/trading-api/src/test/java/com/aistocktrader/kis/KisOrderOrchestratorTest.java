@@ -123,6 +123,22 @@ class KisOrderOrchestratorTest {
     }
 
     @Test
+    void paperCancelAndReconcileRejectRealIntentWithoutBrokerCalls() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent realIntent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, buyRequest(), null);
+        realIntent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+        when(intents.get(key)).thenReturn(realIntent);
+
+        assertThrows(IllegalStateException.class, () -> orchestrator.cancelPaperOrder(key, null));
+        assertThrows(IllegalStateException.class, () -> orchestrator.reconcilePaperOrder(key));
+
+        verify(orders, never()).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), anyString());
+        verify(orders, never()).reconcilePaperOrder(any());
+        verify(intents, never()).markCancelPending(key);
+    }
+
+    @Test
     void reconciliationUpdatesAcceptedOrderFromBrokerSnapshot() {
         UUID key = UUID.randomUUID();
         KisOrderIntent intent = new KisOrderIntent(key, "hash",
