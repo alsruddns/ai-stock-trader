@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import os
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -21,6 +22,23 @@ class PaperOpsLimits:
     max_open_positions: int = 3
     max_consecutive_losses: int = 3
     flatten_before_close_minutes: int = 5
+
+    @classmethod
+    def from_environment(cls) -> "PaperOpsLimits":
+        """Load local paper risk limits; malformed values fail closed at startup/use."""
+        try:
+            return cls(
+                max_quote_age_seconds=int(os.getenv("PAPER_MAX_QUOTE_AGE_SECONDS", "3")),
+                max_daily_loss_pct=Decimal(os.getenv("PAPER_DAILY_LOSS_LIMIT_PCT", "1.00")),
+                max_position_equity_pct=Decimal(os.getenv("PAPER_MAX_POSITION_EQUITY_PCT", "10.00")),
+                trade_risk_equity_pct=Decimal(os.getenv("PAPER_TRADE_RISK_EQUITY_PCT", "0.25")),
+                atr_stop_multiple=Decimal(os.getenv("PAPER_ATR_STOP_MULTIPLE", "1.5")),
+                max_open_positions=int(os.getenv("PAPER_MAX_OPEN_POSITIONS", "3")),
+                max_consecutive_losses=int(os.getenv("PAPER_MAX_CONSECUTIVE_LOSSES", "3")),
+                flatten_before_close_minutes=int(os.getenv("PAPER_FLATTEN_BEFORE_CLOSE_MINUTES", "5")),
+            )
+        except (ValueError, ArithmeticError) as exc:
+            raise ValueError("paper operation risk settings are invalid") from exc
 
     def __post_init__(self) -> None:
         if min(self.max_quote_age_seconds, self.max_open_positions, self.max_consecutive_losses) <= 0:
