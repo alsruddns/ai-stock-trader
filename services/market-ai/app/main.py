@@ -30,7 +30,7 @@ async def lifespan(_app):
 app = FastAPI(
     title="AI Stock Trader Market Analysis",
     version="0.1.0",
-    description="Read-only P1 analysis preview. It cannot place broker orders.",
+    description="Market analysis and opt-in local paper automation. It has no KIS order route.",
     lifespan=lifespan,
 )
 

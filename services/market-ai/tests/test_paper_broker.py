@@ -106,3 +106,14 @@ def test_daily_baseline_is_read_and_recorded_only_through_local_paper_routes() -
     assert seen[1].url.path.endswith("/risk-baselines/2026-11-05/KRW")
     assert seen[1].read().decode() == '{"equity":"1000000"}'
     client.close()
+
+
+def test_operations_summary_exposes_only_local_paper_risk_counters() -> None:
+    seen: list[httpx.Request] = []
+    client = httpx.Client(transport=httpx.MockTransport(lambda request: (
+        seen.append(request) or httpx.Response(200, json={"consecutiveLosingTrades": 2, "openOrders": 0})
+    )))
+    broker = SpringPaperBrokerClient(http_client=client)
+    assert broker.get_operations_summary()["consecutiveLosingTrades"] == 2
+    assert seen[0].url.path == "/api/v1/operations/summary"
+    client.close()

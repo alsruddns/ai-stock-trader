@@ -119,3 +119,65 @@ def test_exit_worker_uses_persisted_stop_and_submits_only_local_paper_exit() -> 
     assert trader.exit["exit_price"] == Decimal("98")
     assert trader.exit["quantity"] == 2
     assert trader.exit["position_opened_at"] == "2026-11-05T00:00:00Z"
+
+
+def test_daily_baseline_worker_captures_early_session_equity(monkeypatch) -> None:
+    class Broker:
+        recorded = None
+
+        def get_daily_risk_baselines(self, _session_date):
+            return []
+
+        def get_positions(self):
+            return []
+
+        def get_cash_balances(self):
+            return [{"currency": "KRW", "balance": "1000000"}]
+
+        def record_daily_risk_baseline(self, session_date, currency, equity):
+            self.recorded = (session_date, currency, equity)
+            return {"currency": currency, "equity": str(equity)}
+
+    now = datetime.now(ZoneInfo("UTC"))
+    monkeypatch.setattr("app.paper_runtime.exchange_session_window", lambda _market, _at: (now - timedelta(seconds=30), now + timedelta(hours=6)))
+    monkeypatch.setattr("app.paper_runtime.baseline_capture_open", lambda **_kwargs: True)
+    watch = parse_watchlist("KR:005930")[0]
+    bar = MinuteBar(now.astimezone(ZoneInfo("Asia/Seoul")), Decimal("70000"), Decimal("70100"),
+                    Decimal("69900"), Decimal("70000"), 1000, Decimal("5"))
+    broker = Broker()
+
+    result = PaperSessionFeedMonitor._capture_daily_baseline(
+        broker, watch, bar, {}, PaperOpsLimits()
+    )
+
+    assert result["state"] == "BASELINE_CAPTURED"
+    assert broker.recorded == (bar.timestamp.date(), "KRW", Decimal("1000000"))
+
+
+def test_daily_baseline_worker_blocks_when_any_held_position_lacks_a_fresh_mark(monkeypatch) -> None:
+    class Broker:
+        def get_daily_risk_baselines(self, _session_date):
+            return []
+
+        def get_positions(self):
+            return [{"currency": "KRW", "market": "KR", "symbol": "000660", "quantity": 1}]
+
+        def get_cash_balances(self):
+            return [{"currency": "KRW", "balance": "1000000"}]
+
+        def record_daily_risk_baseline(self, *_args):
+            raise AssertionError("must not persist an incomplete valuation")
+
+    now = datetime.now(ZoneInfo("UTC"))
+    monkeypatch.setattr("app.paper_runtime.exchange_session_window", lambda _market, _at: (now - timedelta(seconds=30), now + timedelta(hours=6)))
+    monkeypatch.setattr("app.paper_runtime.baseline_capture_open", lambda **_kwargs: True)
+    watch = parse_watchlist("KR:005930")[0]
+    bar = MinuteBar(now.astimezone(ZoneInfo("Asia/Seoul")), Decimal("70000"), Decimal("70100"),
+                    Decimal("69900"), Decimal("70000"), 1000, Decimal("5"))
+
+    result = PaperSessionFeedMonitor._capture_daily_baseline(
+        Broker(), watch, bar, {}, PaperOpsLimits()
+    )
+
+    assert result["state"] == "BLOCKED"
+    assert result["reason"] == "POSITION_QUOTE_MISSING"
