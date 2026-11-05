@@ -1,6 +1,15 @@
 package com.aistocktrader.health;
 
 import com.aistocktrader.config.TradingSafetyProperties;
+import com.aistocktrader.kis.KisEnvironment;
+import com.aistocktrader.kis.KisOrderIntent;
+import com.aistocktrader.kis.KisOrderIntentRepository;
+import com.aistocktrader.kis.KisOrderStatus;
+import com.aistocktrader.kis.KisOrderReceipt;
+import com.aistocktrader.order.Currency;
+import com.aistocktrader.order.Market;
+import com.aistocktrader.order.OrderRequest;
+import com.aistocktrader.order.OrderSide;
 import com.aistocktrader.order.OrderRepository;
 import com.aistocktrader.order.PaperCashRepository;
 import com.aistocktrader.order.PaperFillRepository;
@@ -11,6 +20,7 @@ import org.springframework.data.domain.Sort;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -24,6 +34,7 @@ class OperationsControllerTest {
         PaperPositionRepository positions = mock(PaperPositionRepository.class);
         PaperCashRepository cash = mock(PaperCashRepository.class);
         PaperFillRepository fills = mock(PaperFillRepository.class);
+        KisOrderIntentRepository kisIntents = emptyKisIntents();
         when(orders.findAll()).thenReturn(List.of());
         when(orders.findAll(any(Sort.class))).thenReturn(List.of());
         when(positions.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0)).thenReturn(List.of());
@@ -35,7 +46,7 @@ class OperationsControllerTest {
 
         OperationsController controller = new OperationsController(orders, positions, cash, fills,
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")),
-                false, false);
+                kisIntents, false, false, false);
 
         var summary = controller.summary();
 
@@ -50,6 +61,7 @@ class OperationsControllerTest {
         PaperPositionRepository positions = mock(PaperPositionRepository.class);
         PaperCashRepository cash = mock(PaperCashRepository.class);
         PaperFillRepository fills = mock(PaperFillRepository.class);
+        KisOrderIntentRepository kisIntents = emptyKisIntents();
         when(orders.findAll()).thenReturn(List.of());
         when(orders.findAll(any(Sort.class))).thenReturn(List.of());
         when(positions.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0)).thenReturn(List.of());
@@ -68,9 +80,46 @@ class OperationsControllerTest {
 
         var summary = new OperationsController(orders, positions, cash, fills,
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")),
-                false, false).summary();
+                kisIntents, false, false, false).summary();
 
         assertEquals(1, summary.consecutiveLosingTrades());
+    }
+
+    @Test
+    void operationsSummarySeparatelyExposesRealIntentStatusWithoutBrokerIdentifiers() {
+        OrderRepository orders = mock(OrderRepository.class);
+        PaperPositionRepository positions = mock(PaperPositionRepository.class);
+        PaperCashRepository cash = mock(PaperCashRepository.class);
+        PaperFillRepository fills = mock(PaperFillRepository.class);
+        KisOrderIntentRepository kisIntents = emptyKisIntents();
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1, new BigDecimal("70000"), Currency.KRW), null);
+        intent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "9001", "ORG01", "0", Instant.now()));
+        when(kisIntents.countStatusesByEnvironment(KisEnvironment.REAL))
+                .thenReturn(List.<Object[]>of(new Object[]{KisOrderStatus.ACCEPTED, 1L}));
+        when(kisIntents.findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.REAL)).thenReturn(List.of(intent));
+        when(orders.findAll()).thenReturn(List.of());
+        when(orders.findAll(any(Sort.class))).thenReturn(List.of());
+        when(positions.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0)).thenReturn(List.of());
+        when(cash.findAll()).thenReturn(List.of());
+        when(fills.countByFilledAtAfter(any())).thenReturn(0L);
+        when(fills.findAllWithTradeDetails()).thenReturn(List.of());
+
+        var summary = new OperationsController(orders, positions, cash, fills,
+                new TradingSafetyProperties("paper", false, BigDecimal.TEN, BigDecimal.TEN), kisIntents,
+                false, false, false).summary();
+
+        assertEquals("paper", summary.tradingMode());
+        assertEquals(1L, summary.realOrderCounts().get(KisOrderStatus.ACCEPTED));
+        assertEquals("005930", summary.recentRealOrders().getFirst().symbol());
+        assertEquals(KisOrderStatus.ACCEPTED, summary.recentRealOrders().getFirst().status());
+    }
+
+    private static KisOrderIntentRepository emptyKisIntents() {
+        KisOrderIntentRepository repository = mock(KisOrderIntentRepository.class);
+        when(repository.countStatusesByEnvironment(KisEnvironment.REAL)).thenReturn(List.of());
+        when(repository.findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.REAL)).thenReturn(List.of());
+        return repository;
     }
 
     private static PaperFillRepository.FillTradeView trade(String side, int quantity, String price, Instant at) {

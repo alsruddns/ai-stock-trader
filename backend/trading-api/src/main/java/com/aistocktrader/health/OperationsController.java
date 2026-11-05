@@ -1,6 +1,10 @@
 package com.aistocktrader.health;
 
 import com.aistocktrader.config.TradingSafetyProperties;
+import com.aistocktrader.kis.KisEnvironment;
+import com.aistocktrader.kis.KisOrderIntent;
+import com.aistocktrader.kis.KisOrderIntentRepository;
+import com.aistocktrader.kis.KisOrderStatus;
 import com.aistocktrader.order.OrderRecord;
 import com.aistocktrader.order.OrderRepository;
 import com.aistocktrader.order.OrderStatus;
@@ -39,19 +43,25 @@ public class OperationsController {
     private final TradingSafetyProperties safety;
     private final boolean kisAccountReadsEnabled;
     private final boolean kisPaperOrdersEnabled;
+    private final KisOrderIntentRepository kisIntents;
+    private final boolean kisRealAccountReadsEnabled;
 
     public OperationsController(OrderRepository orders, PaperPositionRepository positions,
                                 PaperCashRepository cash, PaperFillRepository fills,
                                 TradingSafetyProperties safety,
+                                KisOrderIntentRepository kisIntents,
                                 @Value("${kis.account-read-enabled:false}") boolean kisAccountReadsEnabled,
-                                @Value("${kis.orders.paper-enabled:false}") boolean kisPaperOrdersEnabled) {
+                                @Value("${kis.orders.paper-enabled:false}") boolean kisPaperOrdersEnabled,
+                                @Value("${kis.real-account-read-enabled:false}") boolean kisRealAccountReadsEnabled) {
         this.orders = orders;
         this.positions = positions;
         this.cash = cash;
         this.fills = fills;
         this.safety = safety;
+        this.kisIntents = kisIntents;
         this.kisAccountReadsEnabled = kisAccountReadsEnabled;
         this.kisPaperOrdersEnabled = kisPaperOrdersEnabled;
+        this.kisRealAccountReadsEnabled = kisRealAccountReadsEnabled;
     }
 
     @GetMapping("/summary")
@@ -72,9 +82,18 @@ public class OperationsController {
         long fillsToday = fills.countByFilledAtAfter(dayStart);
         Map<String, BigDecimal> realizedPnlToday = realizedPnlSince(dayStart);
         int consecutiveLosingTrades = consecutiveLosingTrades();
+        EnumMap<KisOrderStatus, Long> realOrderCounts = new EnumMap<>(KisOrderStatus.class);
+        for (KisOrderStatus status : KisOrderStatus.values()) realOrderCounts.put(status, 0L);
+        kisIntents.countStatusesByEnvironment(KisEnvironment.REAL).forEach(row ->
+                realOrderCounts.put((KisOrderStatus) row[0], ((Number) row[1]).longValue()));
+        List<RealOrderView> recentRealOrders = kisIntents
+                .findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.REAL).stream()
+                .map(RealOrderView::from).toList();
 
-        return new OperationsSummary(now, "paper", "disabled", false, kisAccountReadsEnabled,
-                kisPaperOrdersEnabled, counts, consecutiveLosingTrades, counts.getOrDefault(OrderStatus.PENDING, 0L)
+        return new OperationsSummary(now, safety.mode(), safety.liveTradingEnabled() ? "enabled" : "disabled",
+                false, kisAccountReadsEnabled, kisPaperOrdersEnabled, safety.realOrdersEnabled(),
+                kisRealAccountReadsEnabled, realOrderCounts, recentRealOrders, counts, consecutiveLosingTrades,
+                counts.getOrDefault(OrderStatus.PENDING, 0L)
                 + counts.getOrDefault(OrderStatus.PARTIALLY_FILLED, 0L)
                 + counts.getOrDefault(OrderStatus.CANCEL_PENDING, 0L)
                 + counts.getOrDefault(OrderStatus.UNKNOWN, 0L), fillsToday, allOrders.size(),
@@ -146,12 +165,24 @@ public class OperationsController {
 
     public record OperationsSummary(Instant generatedAt, String tradingMode, String liveTrading,
                                     boolean paperAutomationEnabled, boolean kisAccountReadsEnabled,
-                                    boolean kisPaperOrdersEnabled, Map<OrderStatus, Long> orderCounts,
+                                    boolean kisPaperOrdersEnabled, boolean kisRealOrdersEnabled,
+                                    boolean kisRealAccountReadsEnabled, Map<KisOrderStatus, Long> realOrderCounts,
+                                    List<RealOrderView> recentRealOrders, Map<OrderStatus, Long> orderCounts,
                                     int consecutiveLosingTrades, long openOrders, long fillsToday, long totalOrders,
                                     List<CashView> cashBalances, List<PositionView> positions,
                                     Map<String, BigDecimal> positionCostBasisByCurrency,
                                     Map<String, BigDecimal> realizedPnlTodayGrossByCurrency,
                                     List<OrderView> recentOrders) { }
+
+    public record RealOrderView(String market, String symbol, String side, int quantity, Integer filledQuantity,
+                                Integer remainingQuantity, String currency, KisOrderStatus status,
+                                Instant createdAt, Instant updatedAt) {
+        static RealOrderView from(KisOrderIntent item) {
+            return new RealOrderView(item.getMarket().name(), item.getSymbol(), item.getSide().name(),
+                    item.getQuantity(), item.getFilledQuantity(), item.getRemainingQuantity(),
+                    item.getCurrency().name(), item.getStatus(), item.getCreatedAt(), item.getUpdatedAt());
+        }
+    }
 
     public record CashView(String currency, BigDecimal balance) {
         static CashView from(PaperCashBalance item) { return new CashView(item.getCurrency().name(), item.getBalance()); }

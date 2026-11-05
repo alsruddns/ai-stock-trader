@@ -4,7 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 
 type Ops = {
   generatedAt: string; tradingMode: string; liveTrading: string; paperAutomationEnabled: boolean;
-  kisAccountReadsEnabled: boolean; kisPaperOrdersEnabled: boolean; orderCounts: Record<string, number>;
+  kisAccountReadsEnabled: boolean; kisPaperOrdersEnabled: boolean; kisRealOrdersEnabled: boolean; kisRealAccountReadsEnabled: boolean;
+  realOrderCounts: Record<string, number>;
+  recentRealOrders?: { market: string; symbol: string; side: string; quantity: number; filledQuantity: number; remainingQuantity: number; currency: string; status: string; createdAt: string; updatedAt: string }[];
+  orderCounts: Record<string, number>;
   consecutiveLosingTrades: number;
   openOrders: number; fillsToday: number; totalOrders: number;
   cashBalances: { currency: string; balance: string }[];
@@ -36,19 +39,20 @@ export default function Dashboard() {
   const states = ops?.orderCounts ?? {};
 
   return <main className="shell">
-    <header className="topbar"><div className="brand-mark">AT</div><div><p className="eyebrow">LOCAL TRADING SYSTEM</p><h1>운영 대시보드</h1></div><div className="top-actions"><span className="mode"><i /> PAPER MODE</span><button onClick={() => void load()} aria-label="새로고침">새로고침</button></div></header>
-    <section className="notice"><span className="notice-icon">!</span><div><strong>실거래 잠금 상태</strong><p>이 화면은 조회 전용입니다. 실계좌 주문은 잠겨 있고, paper 자동매매는 안전 조건을 통과한 경우 로컬 모의 장부에만 기록됩니다.</p></div><span className="locked">LIVE OFF</span></section>
+    <header className="topbar"><div className="brand-mark">AT</div><div><p className="eyebrow">LOCAL TRADING SYSTEM</p><h1>운영 대시보드</h1></div><div className="top-actions"><span className="mode"><i /> {ops?.tradingMode.toUpperCase() ?? "PAPER"} MODE</span><button onClick={() => void load()} aria-label="새로고침">새로고침</button></div></header>
+    <section className="notice"><span className="notice-icon">!</span><div><strong>{ops?.tradingMode === "real" && ops?.kisRealOrdersEnabled && ops?.liveTrading === "enabled" ? "실거래 설정 확인 필요" : "실거래 잠금 상태"}</strong><p>이 화면은 조회 전용입니다. KIS 실주문 스위치와 실거래 허용 여부를 표시하며, paper 자동매매는 안전 조건을 통과한 경우 로컬 모의 장부에만 기록됩니다.</p></div><span className="locked">{ops?.tradingMode === "real" && ops?.kisRealOrdersEnabled && ops?.liveTrading === "enabled" ? "LIVE CONFIG ON" : "LIVE OFF"}</span></section>
     {error && <div className="error">{error}</div>}
     <section className="section-head"><div><p className="eyebrow">SYSTEM STATUS</p><h2>서비스 및 안전 스위치</h2></div><span className="updated">갱신 {data ? time(data.generatedAt) : "확인 중"}</span></section>
     <section className="status-grid">
       <StatusCard title="주문·리스크 API" good={connected} value={connected ? "정상 연결" : "연결 안 됨"} detail="Spring Boot · localhost:8080" />
       <StatusCard title="시세·AI API" good={pythonConnected} value={pythonConnected ? "정상 연결" : "연결 안 됨"} detail="FastAPI · localhost:8000" />
-      <StatusCard title="실거래" good={false} value="비활성" detail="LIVE_TRADING_ENABLED=false" />
+      <StatusCard title="실거래 주문" good={false} value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} detail={`실주문 ${ops?.liveTrading.toUpperCase() ?? "DISABLED"} · KIS_REAL_ORDERS_ENABLED`} />
       <StatusCard title="KIS 모의 주문" good={false} value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} detail="별도 활성 스위치" />
       <StatusCard title="P5 시세 세션 모니터" good={data?.paperSession?.state === "RUNNING"} value={sessionLabel(data?.paperSession?.state)} detail={`${data?.paperSession?.subscriptions ?? 0}개 구독 · ${data?.paperSession?.bars_closed ?? 0}개 분봉 · 후보 ${Object.values(data?.paperSession?.decisions ?? {}).filter(item => item.signal === "BUY_CANDIDATE").length}개 · paper 자동매매 ${automationLabel(data?.paperSession?.automation_state)} · ${baselineLabel(data?.paperSession?.daily_baseline)}`} />
     </section>
     <section className="metric-grid">
       <Metric title="미체결 주문" value={ops?.openOrders ?? "—"} caption="미체결·부분체결·확인 필요" />
+      <Metric title="REAL 확인 필요" value={ops?.realOrderCounts?.UNKNOWN ?? 0} caption="자동 재전송 없이 대조 대기" />
       <Metric title="오늘 모의 체결" value={ops?.fillsToday ?? "—"} caption="한국 시간 기준" />
       <Metric title="오늘 실현 손익 (비용 전)" value={`${money(ops?.realizedPnlTodayGrossByCurrency?.KRW ?? 0, "KRW")} · ${money(ops?.realizedPnlTodayGrossByCurrency?.USD ?? 0, "USD")}`} caption="가상 체결가와 평균 원가 기준" />
       <Metric title="보유 원가 합계" value={`${money(ops?.positionCostBasisByCurrency?.KRW ?? 0, "KRW")} · ${money(ops?.positionCostBasisByCurrency?.USD ?? 0, "USD")}`} caption="통화별 취득 원가 · 시장 평가액 아님" />
@@ -61,7 +65,7 @@ export default function Dashboard() {
         {ops?.cashBalances.length ? <div className="cash-list">{ops.cashBalances.map(item => <div className="cash-row" key={item.currency}><span>{item.currency}</span><strong>{money(item.balance, item.currency)}</strong></div>)}</div> : <Empty text="가상 현금 잔고가 아직 없습니다." />}
       </div>
       <div className="panel"><div className="panel-title"><div><p className="eyebrow">RISK SNAPSHOT</p><h2>운영 제한</h2></div><span className="tag green">실거래 주문 잠금</span></div>
-        <div className="risk-list"><RiskRow label="운영 모드" value={ops?.tradingMode.toUpperCase() ?? "PAPER"} /><RiskRow label="실거래 주문" value={ops?.liveTrading.toUpperCase() ?? "DISABLED"} /><RiskRow label="KIS 잔고 조회" value={ops?.kisAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="KIS 모의 주문" value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="paper 자동매매" value={automationLabel(data?.paperSession?.automation_state)} /><RiskRow label="연속 손실 주문" value={`${ops?.consecutiveLosingTrades ?? 0}회`} /></div>
+        <div className="risk-list"><RiskRow label="운영 모드" value={ops?.tradingMode.toUpperCase() ?? "PAPER"} /><RiskRow label="실거래 허용" value={ops?.liveTrading.toUpperCase() ?? "DISABLED"} /><RiskRow label="KIS 실주문 스위치" value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="KIS 실계좌 조회" value={ops?.kisRealAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="KIS 공통 계좌 조회" value={ops?.kisAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="KIS 모의 주문" value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="paper 자동매매" value={automationLabel(data?.paperSession?.automation_state)} /><RiskRow label="연속 손실 주문" value={`${ops?.consecutiveLosingTrades ?? 0}회`} /></div>
       </div>
     </section>
     <section className="two-col lower">
@@ -71,6 +75,9 @@ export default function Dashboard() {
       <div className="panel"><div className="panel-title"><div><p className="eyebrow">ORDER LEDGER</p><h2>최근 모의 주문</h2></div><span className="count">{Object.values(states).reduce((a, b) => a + b, 0)}</span></div>
         {ops?.recentOrders.length ? <div className="table-wrap"><table><thead><tr><th>종목</th><th>구분</th><th>체결</th><th>상태</th></tr></thead><tbody>{ops.recentOrders.slice(0, 8).map(o => <tr key={o.id}><td><small>{o.market}</small><br /><span className="symbol">{o.symbol}</span></td><td className={o.side === "BUY" ? "buy" : "sell"}>{o.side === "BUY" ? "매수" : "매도"}</td><td>{o.filledQuantity}/{o.quantity}</td><td><span className={`order-state ${o.status.toLowerCase()}`}>{statusLabel(o.status)}</span></td></tr>)}</tbody></table></div> : <Empty text="기록된 paper 주문이 없습니다." />}
       </div>
+    </section>
+    <section className="panel"><div className="panel-title"><div><p className="eyebrow">REAL ORDER INTENTS</p><h2>실계좌 주문 의도</h2></div><span className="tag">주문별 상태 · 조회 전용</span></div>
+      {ops?.recentRealOrders?.length ? <div className="table-wrap"><table><thead><tr><th>시장·종목</th><th>구분</th><th>체결 / 주문</th><th>잔량</th><th>상태</th><th>갱신</th></tr></thead><tbody>{ops.recentRealOrders.map((o, index) => <tr key={`${o.market}-${o.symbol}-${o.createdAt}-${index}`}><td><small>{o.market}</small><br /><span className="symbol">{o.symbol}</span></td><td className={o.side === "BUY" ? "buy" : "sell"}>{o.side === "BUY" ? "매수" : "매도"}</td><td>{o.filledQuantity ?? 0}/{o.quantity}</td><td>{o.remainingQuantity ?? "—"}</td><td><span className={`order-state ${o.status.toLowerCase()}`}>{statusLabel(o.status)}</span></td><td>{time(o.updatedAt)}</td></tr>)}</tbody></table></div> : <Empty text="저장된 실계좌 주문 의도가 없습니다. 이 상태 표시는 계좌 잔고와 별도입니다." />}
     </section>
     <section className="panel models-panel"><div className="panel-title"><div><p className="eyebrow">MODEL GOVERNANCE</p><h2>AI 모델 승인 및 롤백</h2></div><span className="tag">주문 실행과 분리</span></div>
       <p className="model-note">모델 승인과 활성화는 시장별 paper 진입 후보 평가에 사용됩니다. AI 신호만으로 주문하지 않고, Spring paper 위험 게이트를 통과해야 로컬 모의 장부에 반영됩니다. KIS 실계좌 주문은 잠겨 있습니다.</p>
