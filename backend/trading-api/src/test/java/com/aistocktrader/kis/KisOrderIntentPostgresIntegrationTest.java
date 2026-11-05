@@ -5,6 +5,8 @@ import com.aistocktrader.order.IdempotencyConflictException;
 import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderRequest;
 import com.aistocktrader.order.OrderSide;
+import com.aistocktrader.order.OrderService;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +26,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class KisOrderIntentPostgresIntegrationTest {
     @Autowired KisOrderIntentStore store;
     @Autowired KisOrderIntentRepository repository;
+    @Autowired OrderService paperOrders;
+    @Autowired com.aistocktrader.order.OrderRepository paperOrderRepository;
+    @Autowired EntityManager entityManager;
 
     @Test
     void persistsAndReloadsPaperAndRealIntentsWithSameBrokerNumberAcrossEnvironments() {
@@ -61,6 +66,25 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(KisEnvironment.PAPER, repository.findById(key).orElseThrow().getEnvironment());
         } finally {
             repository.deleteById(key);
+        }
+    }
+
+    @Test
+    void pendingPaperOrderCanBeRecoveredByIdempotencyKeyAfterPersistenceContextIsCleared() {
+        UUID key = UUID.randomUUID();
+        try {
+            var submitted = paperOrders.submit(request(), key);
+            entityManager.clear();
+
+            var recovered = paperOrders.getPaperOrderByIdempotencyKey(key);
+            var retried = paperOrders.submit(request(), key);
+
+            assertEquals(submitted.getId(), recovered.getId());
+            assertEquals(submitted.getId(), retried.getId());
+            assertEquals(com.aistocktrader.order.OrderStatus.PENDING, recovered.getStatus());
+            assertEquals(1L, paperOrderRepository.findByIdempotencyKey(key).stream().count());
+        } finally {
+            paperOrderRepository.findByIdempotencyKey(key).ifPresent(paperOrderRepository::delete);
         }
     }
 

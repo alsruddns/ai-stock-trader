@@ -29,4 +29,4 @@ REAL 주문 상태의 읽기 전용 주기 대조는 `KIS_REAL_RECONCILIATION_EN
 
 ## 로컬 PostgreSQL 통합 테스트
 
-저장소 루트에서 `.\scripts\test-local-postgres-integration.ps1`을 실행하면 `.env`의 DB 설정으로 주문 의도 저장·재조회와 PAPER/REAL 환경 분리 테스트를 선택 실행합니다. 테스트는 KIS API를 호출하지 않으며, 스크립트는 환경변수를 현재 프로세스에서만 적용하고 실행 후 복구합니다. 기본 `mvnw test`에서는 해당 DB 통합 테스트를 건너뜁니다.
+저장소 루트에서 `.\scripts\test-local-postgres-integration.ps1`을 실행하면 `.env`의 DB 설정으로 PAPER/REAL 주문 의도 저장·재조회, 환경 격리, 멱등 키 복구 테스트를 선택 실행합니다. 테스트는 KIS API를 호출하지 않으며, 스크립트는 환경변수를 현재 프로세스에서만 적용하고 실행 후 복구합니다. 기본 `mvnw test`에서는 해당 DB 통합 테스트를 건너뜁니다.
