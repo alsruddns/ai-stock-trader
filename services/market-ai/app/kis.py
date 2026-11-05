@@ -22,6 +22,7 @@ PAPER_URL = "https://openapivts.koreainvestment.com:29443"
 DOMESTIC_QUOTE_PATH = "/uapi/domestic-stock/v1/quotations/inquire-price"
 OVERSEAS_QUOTE_PATH = "/uapi/overseas-price/v1/quotations/price"
 DOMESTIC_MINUTE_CHART_PATH = "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice"
+OVERSEAS_MINUTE_CHART_PATH = "/uapi/overseas-price/v1/quotations/inquire-time-itemchartprice"
 
 
 class KisApiError(RuntimeError):
@@ -336,6 +337,82 @@ class KisReadOnlyClient:
         bars.sort(key=lambda bar: bar.timestamp)
         if len(bars) > 120 or len({bar.timestamp for bar in bars}) != len(bars):
             raise KisApiError("KIS minute chart response exceeded the supported page contract")
+        return bars
+
+    def get_overseas_minute_bars(
+        self, symbol: str, exchange: Exchange, session_date: date | None = None,
+    ) -> list["MinuteBar"]:
+        """Fetch one bounded page of current US minute bars from KIS.
+
+        KIS overseas minute chart is cursor based rather than date-addressable. A
+        requested session date filters this latest page; it does not trigger an
+        unbounded historical pagination walk.
+        """
+        from .quant import MinuteBar
+
+        normalized_symbol = symbol.strip().upper()
+        if not (1 <= len(normalized_symbol) <= 16 and all(ch.isalnum() or ch in ".-" for ch in normalized_symbol)):
+            raise ValueError("US symbols may contain only letters, digits, dot, or hyphen")
+        if exchange not in {"NAS", "NYS", "AMS"}:
+            raise ValueError("exchange must be NAS, NYS, or AMS")
+        exchange_code = {"NAS": "NAS", "NYS": "NYS", "AMS": "AMS"}[exchange]
+        params = {
+            "AUTH": "", "EXCD": exchange_code, "SYMB": normalized_symbol,
+            "NMIN": "1", "PINC": "0", "NEXT": "", "NREC": "120", "FILL": "", "KEYB": "",
+        }
+        try:
+            response = self._get(
+                f"{self.settings.base_url}{OVERSEAS_MINUTE_CHART_PATH}",
+                headers={
+                    "authorization": f"Bearer {self._access_token()}", "appkey": self.settings.app_key,
+                    "appsecret": self.settings.app_secret, "tr_id": "HHDFS76950200", "custtype": "P",
+                },
+                params=params,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except KisApiError:
+            raise
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise KisApiError("KIS overseas minute chart request failed") from exc
+
+        if payload.get("rt_cd") != "0":
+            code = str(payload.get("msg_cd", "unknown"))[:32]
+            raise KisApiError(f"KIS rejected the overseas minute chart request (code {code})")
+        rows = payload.get("output2")
+        if not isinstance(rows, list):
+            raise KisApiError("KIS overseas minute chart response did not contain an output array")
+        bars: list[MinuteBar] = []
+        try:
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise ValueError("invalid row")
+                row_date = str(row.get("xymd", ""))
+                row_time = str(row.get("xhms", ""))
+                if len(row_date) != 8 or not row_date.isdigit() or len(row_time) != 6 or not row_time.isdigit():
+                    raise ValueError("invalid bar timestamp")
+                bar_date = datetime.strptime(row_date, "%Y%m%d").date()
+                if session_date is not None and bar_date != session_date:
+                    continue
+                timestamp = datetime.combine(bar_date, datetime_time(
+                    int(row_time[:2]), int(row_time[2:4]), int(row_time[4:]),
+                ), tzinfo=ZoneInfo("America/New_York"))
+                volume = _volume(row.get("evol", row.get("tvol")))
+                if volume is None:
+                    raise ValueError("missing bar volume")
+                bars.append(MinuteBar(
+                    timestamp=timestamp,
+                    open=_decimal(row.get("open"), "open") or Decimal(0),
+                    high=_decimal(row.get("high"), "high") or Decimal(0),
+                    low=_decimal(row.get("low"), "low") or Decimal(0),
+                    close=_decimal(row.get("last"), "close") or Decimal(0),
+                    volume=volume, spread_bps=None,
+                ))
+        except (ArithmeticError, TypeError, ValueError) as exc:
+            raise KisApiError("KIS overseas minute chart response contained invalid bar data") from exc
+        bars.sort(key=lambda bar: bar.timestamp)
+        if len(bars) > 120 or len({bar.timestamp for bar in bars}) != len(bars):
+            raise KisApiError("KIS overseas minute chart response exceeded the supported page contract")
         return bars
 
     def get_account_balance(self, market: Market, *, overseas_exchange: str = "NASD") -> AccountBalance:

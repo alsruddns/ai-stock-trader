@@ -139,7 +139,7 @@ class QuantBacktestResponse(BaseModel):
 class HistoricalMinuteBarsResponse(BaseModel):
     market: str
     symbol: str
-    session_date: date
+    session_date: date | None
     source: str
     spread_bps_available: bool
     bars: list[QuantBarRequest]
@@ -253,6 +253,37 @@ def get_domestic_minute_bars(
         return HistoricalMinuteBarsResponse(
             market="KR", symbol=symbol, session_date=session_date, source="KIS_REST_MINUTE_CHART",
             spread_bps_available=False,
+            bars=[QuantBarRequest(
+                timestamp=bar.timestamp, open=bar.open, high=bar.high, low=bar.low, close=bar.close,
+                volume=bar.volume, spread_bps=None,
+            ) for bar in bars],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KisSharedRateLimitUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except KisApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/market/bars/US/{symbol}", response_model=HistoricalMinuteBarsResponse)
+def get_overseas_minute_bars(
+    symbol: str = Path(pattern=r"^[A-Za-z0-9.-]{1,16}$"),
+    exchange: Exchange = Query(),
+    session_date: date | None = Query(default=None),
+    client: KisReadOnlyClient = Depends(get_kis_client),
+) -> HistoricalMinuteBarsResponse:
+    """Fetch one latest KIS US minute page (up to 120 bars), optionally date-filtered."""
+    normalized_symbol = symbol.upper()
+    try:
+        bars = client.get_overseas_minute_bars(normalized_symbol, exchange, session_date)
+        _persist_snapshot(lambda: snapshot_store.store_minute_bars(
+            "US", normalized_symbol, bars, source="KIS_REST_MINUTE_CHART",
+        ))
+        actual_session = session_date or (bars[0].timestamp.date() if bars else None)
+        return HistoricalMinuteBarsResponse(
+            market="US", symbol=normalized_symbol, session_date=actual_session,
+            source="KIS_REST_MINUTE_CHART", spread_bps_available=False,
             bars=[QuantBarRequest(
                 timestamp=bar.timestamp, open=bar.open, high=bar.high, low=bar.low, close=bar.close,
                 volume=bar.volume, spread_bps=None,

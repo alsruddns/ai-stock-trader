@@ -159,6 +159,34 @@ def test_domestic_minute_bars_route_exposes_missing_spread_explicitly() -> None:
         app.dependency_overrides.clear()
 
 
+def test_overseas_minute_bars_route_returns_latest_page_timezone_and_exchange() -> None:
+    class FakeKisClient:
+        def get_overseas_minute_bars(self, symbol, exchange, session_date):
+            assert symbol == "AAPL"
+            assert exchange == "NAS"
+            assert session_date == date(2026, 11, 5)
+            return [MinuteBar(
+                timestamp=datetime.fromisoformat("2026-11-05T09:30:00-05:00"), open=Decimal("100"),
+                high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
+            )]
+
+    app.dependency_overrides[get_kis_client] = lambda: FakeKisClient()
+    try:
+        response = client.get(
+            "/api/v1/market/bars/US/aapl?exchange=NAS&session_date=2026-11-05",
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["symbol"] == "AAPL"
+        assert body["session_date"] == "2026-11-05"
+        assert body["source"] == "KIS_REST_MINUTE_CHART"
+        assert body["spread_bps_available"] is False
+        assert body["bars"][0]["timestamp"] == "2026-11-05T09:30:00-05:00"
+        assert body["bars"][0]["spread_bps"] is None
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_account_balance_route_is_disabled_by_default(monkeypatch) -> None:
     monkeypatch.setenv("KIS_ACCOUNT_READ_ENABLED", "false")
     response = client.get("/api/v1/accounts/real/KR/balance")

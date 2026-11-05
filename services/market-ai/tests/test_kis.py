@@ -164,6 +164,58 @@ def test_domestic_minute_chart_rejects_malformed_kis_rows() -> None:
     client.close()
 
 
+def test_overseas_minute_chart_uses_official_bounded_contract_and_new_york_timezone() -> None:
+    requests_seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests_seen.append(request)
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        return httpx.Response(200, json={"rt_cd": "0", "output2": [
+            {"xymd": "20261105", "xhms": "093100", "open": "101.1", "high": "103.0",
+             "low": "100.5", "last": "102.5", "evol": "1200"},
+            {"xymd": "20261105", "xhms": "093000", "open": "100", "high": "101",
+             "low": "99", "last": "100.5", "evol": "1000"},
+            {"xymd": "20261104", "xhms": "155900", "open": "99", "high": "99",
+             "low": "98", "last": "98.5", "evol": "500"},
+        ]})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret"),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    from datetime import date
+
+    bars = client.get_overseas_minute_bars("aapl", "NAS", date(2026, 11, 5))
+    request = requests_seen[-1]
+    assert request.url.path.endswith("/inquire-time-itemchartprice")
+    assert request.headers["tr_id"] == "HHDFS76950200"
+    assert request.url.params["EXCD"] == "NAS"
+    assert request.url.params["SYMB"] == "AAPL"
+    assert request.url.params["NMIN"] == "1"
+    assert request.url.params["PINC"] == "0"
+    assert request.url.params["NREC"] == "120"
+    assert request.url.params["NEXT"] == ""
+    assert [bar.timestamp.isoformat() for bar in bars] == [
+        "2026-11-05T09:30:00-05:00", "2026-11-05T09:31:00-05:00",
+    ]
+    assert [bar.volume for bar in bars] == [1000, 1200]
+    assert all(bar.spread_bps is None for bar in bars)
+    client.close()
+
+
+def test_overseas_minute_chart_rejects_unsupported_exchange_before_network() -> None:
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret"),
+        http_client=httpx.Client(transport=httpx.MockTransport(
+            lambda request: pytest.fail("unsupported exchange must not make a request")
+        )),
+    )
+    with pytest.raises(ValueError, match="exchange must be"):
+        client.get_overseas_minute_bars("AAPL", "HKS")  # type: ignore[arg-type]
+    client.close()
+
+
 def test_invalid_kr_symbol_is_rejected_before_network_request() -> None:
     client = KisReadOnlyClient(
         KisSettings(True, "paper", "paper-key", "paper-secret"),
