@@ -41,6 +41,11 @@ public class KisOrderController {
         return KisOrderIntentResponse.from(intents.get(idempotencyKey));
     }
 
+    @PostMapping("/{idempotencyKey}/reconcile")
+    public ResponseEntity<KisOrderIntentResponse> reconcile(@PathVariable UUID idempotencyKey) {
+        return ResponseEntity.ok(orders.reconcilePaperOrder(idempotencyKey));
+    }
+
     @PostMapping("/{idempotencyKey}/cancel")
     public ResponseEntity<KisOrderIntentResponse> cancel(@PathVariable UUID idempotencyKey,
                                                          @RequestParam(required = false) String exchange) {

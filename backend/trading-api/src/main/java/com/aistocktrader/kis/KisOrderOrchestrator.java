@@ -38,7 +38,7 @@ public class KisOrderOrchestrator {
         String requestHash = hash(request, exchange);
         KisOrderIntentStore.PreparedIntent prepared;
         try {
-            prepared = intents.prepare(idempotencyKey, requestHash, request);
+            prepared = intents.prepare(idempotencyKey, requestHash, request, exchange);
         } catch (org.springframework.dao.DataIntegrityViolationException duplicateRace) {
             prepared = new KisOrderIntentStore.PreparedIntent(intents.get(idempotencyKey), false);
         }
@@ -82,6 +82,21 @@ public class KisOrderOrchestrator {
             // Keep CANCEL_PENDING; never send a second cancel without broker reconciliation.
         }
         return KisOrderIntentResponse.from(intents.get(idempotencyKey));
+    }
+
+    public KisOrderIntentResponse reconcilePaperOrder(UUID idempotencyKey) {
+        KisOrderIntent intent = intents.get(idempotencyKey);
+        if (intent.getStatus() == KisOrderStatus.SUBMITTING) {
+            intent = intents.markUnknown(idempotencyKey);
+        }
+        if (intent.getStatus() == KisOrderStatus.REJECTED || intent.getStatus() == KisOrderStatus.CANCELLED
+                || intent.getStatus() == KisOrderStatus.FILLED) return KisOrderIntentResponse.from(intent);
+        if (intent.getBrokerOrderNumber() == null || intent.getBrokerOrderNumber().isBlank()) {
+            return KisOrderIntentResponse.from(intent);
+        }
+        return orders.reconcilePaperOrder(intent).map(snapshot ->
+                KisOrderIntentResponse.from(intents.reconcile(idempotencyKey, snapshot)))
+                .orElseGet(() -> KisOrderIntentResponse.from(intents.get(idempotencyKey)));
     }
 
     private void reconcileAccount(OrderRequest request, String exchange) {

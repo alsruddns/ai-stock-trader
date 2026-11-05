@@ -13,6 +13,9 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
@@ -93,6 +96,34 @@ class KisOrderClientTest {
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         assertThrows(IllegalArgumentException.class, () -> client(true, builder).placePaperLimitOrder(
                 Market.US, "AAPL", OrderSide.BUY, 1, new BigDecimal("250.01"), Currency.USD, "NAS"));
+        server.verify();
+    }
+
+    @Test
+    void domesticReconciliationMapsPartialFillFromBrokerHistory() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_id", "VTTC0081R"))
+                .andExpect(queryParam("ODNO", "1234"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","ctx_area_fk100":"","ctx_area_nk100":"","output1":[
+                          {"odno":"1234","tot_ccld_qty":"1","rmn_qty":"1","avg_prvs":"70000","cncl_yn":"N","rjct_qty":"0"}
+                        ]}
+                        """, org.springframework.http.MediaType.APPLICATION_JSON));
+
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new com.aistocktrader.order.OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                        new BigDecimal("70000"), Currency.KRW), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+
+        KisBrokerOrderSnapshot snapshot = client(true, builder).reconcilePaperOrder(intent).orElseThrow();
+
+        assertEquals(1, snapshot.filledQuantity());
+        assertEquals(1, snapshot.remainingQuantity());
+        assertEquals(new BigDecimal("70000"), snapshot.averageFillPrice());
         server.verify();
     }
 
