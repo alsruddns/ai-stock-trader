@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.paper_ops import PaperOpsLimits, evaluate_paper_gate, exchange_session_window
+from app.paper_ops import PaperOpsLimits, evaluate_paper_gate, exchange_session_window, size_paper_order
 
 
 def _good_gate(now: datetime, quote_at: datetime | None = None, **overrides):
@@ -38,6 +38,37 @@ def test_us_calendar_uses_new_york_date_when_host_clock_is_korea_time() -> None:
     )
     assert state.session_open is True
     assert state.new_entries_allowed is True
+
+
+def test_order_sizing_respects_risk_position_cash_and_broker_notional_caps() -> None:
+    sized = size_paper_order(
+        price=Decimal("100"), atr=Decimal("2"), equity=Decimal("100000"),
+        available_cash=Decimal("9000"), max_order_notional=Decimal("10000"),
+    )
+    assert sized is not None
+    assert sized.quantity == 83  # 0.25% risk budget / (ATR * 1.5 stop distance)
+    assert sized.notional == Decimal("8300")
+    assert sized.notional <= Decimal("100000") * Decimal("0.10")
+    assert sized.notional <= Decimal("9000")
+
+    cash_limited = size_paper_order(
+        price=Decimal("100"), atr=Decimal("0.01"), equity=Decimal("100000"),
+        available_cash=Decimal("250"), max_order_notional=Decimal("10000"),
+    )
+    assert cash_limited is not None and cash_limited.quantity == 2
+
+    broker_limited = size_paper_order(
+        price=Decimal("100"), atr=Decimal("0.01"), equity=Decimal("100000"),
+        available_cash=Decimal("9000"), max_order_notional=Decimal("150"),
+    )
+    assert broker_limited is not None and broker_limited.quantity == 1
+
+
+def test_order_sizing_fails_closed_without_funds_or_positive_inputs() -> None:
+    assert size_paper_order(price=Decimal("100"), atr=Decimal("1"), equity=Decimal("0"),
+                            available_cash=Decimal("1000"), max_order_notional=Decimal("1000")) is None
+    assert size_paper_order(price=Decimal("100"), atr=Decimal("1"), equity=Decimal("1000"),
+                            available_cash=Decimal("0"), max_order_notional=Decimal("1000")) is None
 
 
 def test_new_entries_allowed_only_when_every_dependency_and_risk_gate_passes() -> None:
