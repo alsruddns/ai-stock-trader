@@ -90,7 +90,16 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/orders/paper `
   -Body '{"market":"KR","symbol":"005930","side":"BUY","quantity":1,"limitPrice":70000,"currency":"KRW"}'
 ```
 
-미리보기 주문은 `SIMULATED`로만 PostgreSQL에 기록됩니다. 같은 요청을 재전송할 때는 같은 `Idempotency-Key`를 보내 중복 기록을 막으세요. 다른 주문에는 새 UUID를 사용합니다. Spring과 Python은 기본적으로 `127.0.0.1`에만 바인딩되며, 인증이 없는 로컬 개발용 API이므로 외부 네트워크에 노출하지 마세요.
+주문은 `PENDING` 상태로 PostgreSQL에 기록됩니다. 모의 체결은 별도 paper 전용 API로 직접 기록하며, 주문 수량보다 많이 체결시키거나 보유 수량보다 많이 매도하지 못합니다. 주문 요청은 같은 `Idempotency-Key`, 체결 이벤트는 같은 `fillKey`로 재전송 중복을 막습니다. Spring과 Python은 기본적으로 `127.0.0.1`에만 바인딩되며, 인증이 없는 로컬 개발용 API이므로 외부 네트워크에 노출하지 마세요.
+
+수동 paper 체결과 가상 포지션 조회 예시:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/orders/paper/1/fills `
+  -ContentType 'application/json' `
+  -Body '{"fillKey":"d4f78a48-1600-4c60-95a8-8cc53dfec06c","quantity":1,"fillPrice":70000}'
+Invoke-RestMethod http://localhost:8080/api/v1/orders/paper/positions
+```
 
 ## 테스트
 
@@ -116,7 +125,7 @@ Docker를 선호하면 기존 PostgreSQL 대신 컨테이너 DB도 선택할 수
 ## 단계별 개발 순서
 
 - **P1 — 기반·KIS 읽기 전용 연결:** 완료. 국내·미국 시세, 국내·해외 잔고 스냅샷 API와 PostgreSQL 저장 구조를 추가했습니다. KIS 실제 연결은 로컬 `.env`에 각 환경 자격증명을 입력한 후 선택적으로 확인합니다.
-- **P2 — 주문·리스크 엔진:** 다음 단계. 상태 전이, paper broker, 모의 체결, 보유 포지션·잔고 동기화, 중복·부분체결·타임아웃·재시작 복구를 구현합니다.
+- **P2 — 주문·리스크 엔진:** 진행 중. 주문 상태 전이, 중복 방지, 모의 부분/전체 체결 기록과 보유 포지션 원가 집계를 추가했습니다. 다음으로 paper 현금잔고·주문 타임아웃/재시작 복구와 end-to-end 테스트를 진행합니다.
 - **P3 — 전략·백테스트:** VWAP/시초가 돌파 전략, 비용·슬리피지 모델, 과거 데이터 검증과 미래 데이터 누수 방지를 구현합니다.
 - **P4 — AI 모델:** 피처 생성, LightGBM/XGBoost 후보 비교, 모델 버전·학습 분리 검증을 구현합니다.
 - **P5 — 자동 모의매매:** 국내·미국 장 운영 시간, 신호·paper 주문 자동화, 체결 감시, 장 마감 처리와 장시간 안정성을 구현합니다.

@@ -3,6 +3,7 @@ package com.aistocktrader.order;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -15,5 +16,15 @@ public class OrderController {
     public OrderRecord paperOrder(@RequestHeader("Idempotency-Key") UUID idempotencyKey,
                                   @Valid @RequestBody OrderRequest request) {
         return service.submit(request, idempotencyKey);
+    }
+
+    @PostMapping("/paper/{orderId}/fills")
+    public OrderRecord recordPaperFill(@PathVariable Long orderId, @Valid @RequestBody PaperFillRequest request) {
+        return service.recordPaperFill(orderId, request);
+    }
+
+    @GetMapping("/paper/positions")
+    public List<PaperPosition> paperPositions() {
+        return service.paperPositions();
     }
 }

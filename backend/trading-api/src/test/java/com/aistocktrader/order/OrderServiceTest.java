@@ -8,6 +8,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.test.util.ReflectionTestUtils;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -15,6 +16,8 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
     @Mock OrderRepository orders;
+    @Mock PaperFillRepository fills;
+    @Mock PaperPositionRepository positions;
     private final UUID idempotencyKey = UUID.fromString("d8d449d8-f154-4c5a-b1d0-6ce69f790f51");
     private TradingSafetyProperties safeConfig() {
         return new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100"));
@@ -26,8 +29,8 @@ class OrderServiceTest {
     void persistsOnlySimulatedOrdersWithinTheNotionalLimit() {
         when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
         when(orders.save(any(OrderRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        OrderRecord result = new OrderService(orders, safeConfig()).submit(request(new BigDecimal("70000"), 2), idempotencyKey);
-        assertEquals("SIMULATED", result.getStatus());
+        OrderRecord result = service().submit(request(new BigDecimal("70000"), 2), idempotencyKey);
+        assertEquals(OrderStatus.PENDING, result.getStatus());
         assertEquals("005930", result.getSymbol());
         assertEquals(idempotencyKey, result.getIdempotencyKey());
         verify(orders).save(any(OrderRecord.class));
@@ -36,7 +39,7 @@ class OrderServiceTest {
     void rejectsAnOrderThatExceedsTheRiskLimitBeforePersistence() {
         when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
         assertThrows(IllegalArgumentException.class,
-                () -> new OrderService(orders, safeConfig()).submit(request(new BigDecimal("600000"), 2), idempotencyKey));
+                () -> service().submit(request(new BigDecimal("600000"), 2), idempotencyKey));
         verify(orders, never()).save(any());
     }
     @Test
@@ -44,7 +47,7 @@ class OrderServiceTest {
         OrderRequest request = request(new BigDecimal("70000"), 2);
         OrderRecord existing = new OrderRecord(request, idempotencyKey);
         when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.of(existing));
-        OrderRecord result = new OrderService(orders, safeConfig()).submit(request, idempotencyKey);
+        OrderRecord result = service().submit(request, idempotencyKey);
         assertSame(existing, result);
         verify(orders, never()).save(any());
     }
@@ -52,7 +55,7 @@ class OrderServiceTest {
     void rejectsReusingTheSameKeyForADifferentOrder() {
         OrderRecord existing = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
         when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.of(existing));
-        assertThrows(IdempotencyConflictException.class, () -> new OrderService(orders, safeConfig())
+        assertThrows(IdempotencyConflictException.class, () -> service()
                 .submit(request(new BigDecimal("71000"), 2), idempotencyKey));
         verify(orders, never()).save(any());
     }
@@ -62,5 +65,43 @@ class OrderServiceTest {
                 () -> new TradingSafetyProperties("paper", true, BigDecimal.TEN, BigDecimal.TEN));
         assertThrows(IllegalStateException.class,
                 () -> new TradingSafetyProperties("live", false, BigDecimal.TEN, BigDecimal.TEN));
+    }
+
+    @Test
+    void paperFillsAdvanceOrderStateAndUpdatePositionAtWeightedAverageCost() {
+        OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 3), idempotencyKey);
+        ReflectionTestUtils.setField(order, "id", 11L);
+        when(fills.findByFillKey(any())).thenReturn(Optional.empty());
+        when(orders.findByIdForUpdate(11L)).thenReturn(Optional.of(order));
+        when(positions.findInstrumentForUpdate(Market.KR, "005930", Currency.KRW)).thenReturn(Optional.empty());
+        when(positions.save(any(PaperPosition.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fills.save(any(PaperFillRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orders.save(any(OrderRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderRecord partial = service().recordPaperFill(11L,
+                new PaperFillRequest(UUID.randomUUID(), 1, new BigDecimal("69900")));
+        assertEquals(OrderStatus.PARTIALLY_FILLED, partial.getStatus());
+        assertEquals(1, partial.getFilledQuantity());
+        assertEquals(new BigDecimal("69900.000000"), partial.getAverageFillPrice());
+
+        order.applyFill(2, new BigDecimal("70200"));
+        assertEquals(OrderStatus.FILLED, order.getStatus());
+        assertEquals(3, order.getFilledQuantity());
+        assertEquals(new BigDecimal("70100.000000"), order.getAverageFillPrice());
+    }
+
+    @Test
+    void paperPositionPreventsSellingMoreThanHeld() {
+        PaperPosition position = new PaperPosition(Market.KR, "005930", Currency.KRW);
+        position.apply(OrderSide.BUY, 2, new BigDecimal("70000"));
+        assertEquals(2, position.getQuantity());
+        assertThrows(IllegalArgumentException.class,
+                () -> position.apply(OrderSide.SELL, 3, new BigDecimal("71000")));
+        position.apply(OrderSide.SELL, 2, new BigDecimal("71000"));
+        assertEquals(0, position.getQuantity());
+    }
+
+    private OrderService service() {
+        return new OrderService(orders, safeConfig(), fills, positions);
     }
 }
