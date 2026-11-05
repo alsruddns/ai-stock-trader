@@ -11,12 +11,16 @@ import com.aistocktrader.order.PaperCashRepository;
 import com.aistocktrader.order.PaperFillRepository;
 import com.aistocktrader.order.PaperFillRequest;
 import com.aistocktrader.order.PaperPositionRepository;
+import com.aistocktrader.TradingApiApplication;
 import org.springframework.transaction.annotation.Transactional;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ConfigurableApplicationContext;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -157,6 +161,31 @@ class KisOrderIntentPostgresIntegrationTest {
         assertEquals(0, settledCash.compareTo(recoveredCash));
         assertEquals(1, position.getQuantity());
         assertEquals(1L, paperFillRepository.findByFillKey(fillKey).stream().count());
+    }
+
+    @Test
+    void pendingPaperOrderCanBeRecoveredAfterSpringApplicationContextRestart() {
+        UUID key = UUID.randomUUID();
+        try {
+            Long submittedId;
+            try (ConfigurableApplicationContext firstRun = new SpringApplicationBuilder(TradingApiApplication.class)
+                    .web(WebApplicationType.NONE).properties("spring.main.banner-mode=off").run()) {
+                submittedId = firstRun.getBean(OrderService.class).submit(request(), key).getId();
+            }
+
+            try (ConfigurableApplicationContext restarted = new SpringApplicationBuilder(TradingApiApplication.class)
+                    .web(WebApplicationType.NONE).properties("spring.main.banner-mode=off").run()) {
+                OrderService restartedOrders = restarted.getBean(OrderService.class);
+                var recovered = restartedOrders.getPaperOrderByIdempotencyKey(key);
+                var replayed = restartedOrders.submit(request(), key);
+
+                assertEquals(submittedId, recovered.getId());
+                assertEquals(submittedId, replayed.getId());
+                assertEquals(com.aistocktrader.order.OrderStatus.PENDING, recovered.getStatus());
+            }
+        } finally {
+            paperOrderRepository.findByIdempotencyKey(key).ifPresent(paperOrderRepository::delete);
+        }
     }
 
     private static OrderRequest request() {
