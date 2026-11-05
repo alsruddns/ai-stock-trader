@@ -1,8 +1,13 @@
 import asyncio
+from collections import deque
+from datetime import datetime, timedelta
+from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from app.paper_runtime import PaperSessionFeedMonitor, parse_watchlist
+from app.quant import MinuteBar
 
 
 def test_watchlist_normalizes_and_deduplicates_valid_symbols() -> None:
@@ -38,3 +43,27 @@ def test_live_mode_blocks_paper_session_monitor(monkeypatch) -> None:
 
     assert runtime.status()["state"] == "BLOCKED"
     assert runtime.status()["last_error"] == "PAPER_MODE_REQUIRED"
+
+
+def test_closed_bars_update_non_executable_quant_decision_and_reset_each_session() -> None:
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    runtime._bars[watch.key] = deque(maxlen=5_000)
+    runtime._decisions[watch.key] = {}
+    start = datetime(2026, 11, 5, 9, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+
+    for index in range(20):
+        price = Decimal("70000")
+        runtime._record_closed_bar(watch, MinuteBar(start + timedelta(minutes=index), price, price, price,
+                                                   price, 1000, Decimal("5")))
+
+    decision = runtime.decisions()[watch.key]
+    assert decision["signal"] == "HOLD"
+    assert decision["reason"] == "STRATEGY_FILTERS_NOT_MET"
+    assert decision["bars_in_session"] == 20
+    assert decision["executable"] is False
+
+    next_session = datetime(2026, 11, 6, 9, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+    runtime._record_closed_bar(watch, MinuteBar(next_session, Decimal("70000"), Decimal("70000"),
+                                               Decimal("70000"), Decimal("70000"), 1000, Decimal("5")))
+    assert runtime.decisions()[watch.key]["bars_in_session"] == 1
