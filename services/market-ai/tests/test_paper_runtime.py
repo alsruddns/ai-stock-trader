@@ -158,3 +158,30 @@ def test_daily_baseline_worker_blocks_when_any_held_position_lacks_a_fresh_mark(
 
     assert result["state"] == "BLOCKED"
     assert result["reason"] == "POSITION_QUOTE_MISSING"
+
+
+def test_daily_baseline_worker_reports_existing_value_without_rewriting(monkeypatch) -> None:
+    class Broker:
+        def get_daily_risk_baselines(self, session_date):
+            return [{"currency": "KRW", "equity": "1000000", "sessionDate": session_date.isoformat()}]
+
+        def get_positions(self):
+            raise AssertionError("existing baseline requires no valuation")
+
+        def get_cash_balances(self):
+            raise AssertionError("existing baseline must remain immutable")
+
+        def record_daily_risk_baseline(self, *_args):
+            raise AssertionError("existing baseline must never be rewritten")
+
+    now = datetime.now(ZoneInfo("UTC"))
+    watch = parse_watchlist("KR:005930")[0]
+    bar = MinuteBar(now.astimezone(ZoneInfo("Asia/Seoul")), Decimal("70000"), Decimal("70100"),
+                    Decimal("69900"), Decimal("70000"), 1000, Decimal("5"))
+
+    result = PaperSessionFeedMonitor._capture_daily_baseline(
+        Broker(), watch, bar, {}, PaperOpsLimits()
+    )
+
+    assert result["state"] == "BASELINE_PRESENT"
+    assert result["session_date"] == bar.timestamp.date().isoformat()

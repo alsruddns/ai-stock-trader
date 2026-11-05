@@ -371,7 +371,8 @@ class PaperSessionFeedMonitor:
         try:
             baselines = broker.get_daily_risk_baselines(session_date)
             if any(str(row.get("currency", "")).upper() == currency for row in baselines):
-                return None
+                return {"state": "BASELINE_PRESENT", "currency": currency,
+                        "session_date": session_date.isoformat(), "executable": False}
             positions = broker.get_positions()
             cash_balances = broker.get_cash_balances()
         except PaperBrokerError:
