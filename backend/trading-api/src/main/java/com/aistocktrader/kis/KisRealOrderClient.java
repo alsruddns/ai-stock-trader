@@ -15,10 +15,16 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.util.UriComponentsBuilder;
 
 /** Real-account order adapter. Calls are impossible unless all production switches and read preflight gates are open. */
 @Component
@@ -117,6 +123,130 @@ public class KisRealOrderClient {
         post(path, trId, body, null, null, null);
     }
 
+    /** Read-only lookup for restart/timeout reconciliation. An absent broker row is never treated as rejection. */
+    public Optional<KisBrokerOrderSnapshot> reconcileRealOrder(KisOrderIntent intent) {
+        requireRealAccountReadEnabled();
+        if (intent == null || intent.getEnvironment() != KisEnvironment.REAL
+                || intent.getBrokerOrderNumber() == null || intent.getBrokerOrderNumber().isBlank()) {
+            return Optional.empty();
+        }
+        KisProperties.Account credentials = properties.credentials(KisEnvironment.REAL);
+        String account = credentials.accountNumber();
+        LocalDate orderDate = intent.getCreatedAt().atZone(intent.getMarket() == Market.KR
+                ? ZoneId.of("Asia/Seoul") : ZoneId.of("America/New_York")).toLocalDate();
+        String date = orderDate.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+        String continuation = "";
+        String nextSearch = "";
+        String nextKey = "";
+        for (int page = 0; page < 10; page++) {
+            MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+            params.add("CANO", account.substring(0, 8));
+            params.add("ACNT_PRDT_CD", account.substring(8));
+            String path;
+            String trId;
+            String rowsField;
+            if (intent.getMarket() == Market.KR) {
+                path = "/uapi/domestic-stock/v1/trading/inquire-daily-ccld";
+                trId = "TTTC0081R";
+                rowsField = "output1";
+                params.add("INQR_STRT_DT", date); params.add("INQR_END_DT", date);
+                params.add("SLL_BUY_DVSN_CD", "00"); params.add("PDNO", intent.getSymbol());
+                params.add("CCLD_DVSN", "00"); params.add("INQR_DVSN", "00");
+                params.add("INQR_DVSN_3", "00"); params.add("ORD_GNO_BRNO", "");
+                params.add("ODNO", intent.getBrokerOrderNumber()); params.add("INQR_DVSN_1", "");
+                params.add("EXCG_ID_DVSN_CD", "KRX");
+                params.add("CTX_AREA_FK100", nextSearch); params.add("CTX_AREA_NK100", nextKey);
+            } else {
+                path = "/uapi/overseas-stock/v1/trading/inquire-ccnl";
+                trId = "TTTS3035R";
+                rowsField = "output";
+                params.add("PDNO", intent.getSymbol()); params.add("ORD_STRT_DT", date); params.add("ORD_END_DT", date);
+                params.add("SLL_BUY_DVSN", "00"); params.add("CCLD_NCCS_DVSN", "00");
+                params.add("OVRS_EXCG_CD", usExchange(intent.getExchangeCode())); params.add("SORT_SQN", "DS");
+                // KIS documents this query as a date-range lookup; overseas order-number filters are not reliable.
+                params.add("ORD_DT", ""); params.add("ORD_GNO_BRNO", ""); params.add("ODNO", "");
+                params.add("CTX_AREA_FK200", nextSearch); params.add("CTX_AREA_NK200", nextKey);
+            }
+            BrokerQueryResponse query = get(path, trId, params, continuation, credentials);
+            JsonNode response = query.body();
+            if (!"0".equals(response.path("rt_cd").asText())) {
+                throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                        "KIS real order reconciliation failed (code " + safeCode(response.path("msg_cd").asText("unknown")) + ").");
+            }
+            JsonNode rows = response.path(rowsField);
+            if (rows.isArray()) {
+                for (JsonNode row : rows) {
+                    String brokerNumber = firstText(row, "odno", "ODNO");
+                    if (intent.getBrokerOrderNumber().equals(brokerNumber)) return parseSnapshot(row, intent);
+                }
+            }
+            continuation = query.continuation();
+            if (!"M".equalsIgnoreCase(continuation) && !"F".equalsIgnoreCase(continuation)) break;
+            continuation = "N";
+            if (intent.getMarket() == Market.KR) {
+                nextSearch = response.path("ctx_area_fk100").asText("");
+                nextKey = response.path("ctx_area_nk100").asText("");
+            } else {
+                nextSearch = response.path("ctx_area_fk200").asText("");
+                nextKey = response.path("ctx_area_nk200").asText("");
+            }
+        }
+        return Optional.empty();
+    }
+
+    private BrokerQueryResponse get(String path, String trId, MultiValueMap<String, String> params,
+                                   String continuation, KisProperties.Account credentials) {
+        try {
+            var uri = UriComponentsBuilder.fromUriString(KisEnvironment.REAL.baseUrl() + path);
+            params.forEach((key, values) -> values.forEach(value -> uri.queryParam(key, value)));
+            var response = http.get().uri(uri.build().encode().toUri())
+                    .header("authorization", "Bearer " + accessToken(credentials))
+                    .header("appkey", credentials.appKey()).header("appsecret", credentials.appSecret())
+                    .header("tr_id", trId).header("custtype", "P").header("tr_cont", continuation)
+                    .accept(MediaType.APPLICATION_JSON).retrieve().toEntity(JsonNode.class);
+            return new BrokerQueryResponse(response.getBody(), response.getHeaders().getFirst("tr_cont"));
+        } catch (KisApiException exception) {
+            throw exception;
+        } catch (ResourceAccessException | RestClientResponseException exception) {
+            throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS real order reconciliation request failed.");
+        }
+    }
+
+    private static Optional<KisBrokerOrderSnapshot> parseSnapshot(JsonNode row, KisOrderIntent intent) {
+        Integer filled = integer(row, "tot_ccld_qty", "ft_ccld_qty", "ccld_qty", "filled_qty");
+        Integer remaining = integer(row, "rmn_qty", "nccs_qty", "unfilled_qty", "remaining_qty");
+        if (filled == null && remaining == null) return Optional.empty();
+        if (filled == null) filled = Math.max(0, intent.getQuantity() - remaining);
+        if (remaining == null) remaining = Math.max(0, intent.getQuantity() - filled);
+        BigDecimal average = decimal(row, "avg_prvs", "ft_ccld_unpr3", "avg_ccld_unpr");
+        boolean cancelled = "Y".equalsIgnoreCase(firstText(row, "cncl_yn", "cncl_cfm_yn", "cancel_yn"));
+        Integer rejectedQuantity = integer(row, "rjct_qty", "rejected_qty");
+        return Optional.of(new KisBrokerOrderSnapshot(filled, remaining, average, cancelled,
+                rejectedQuantity != null && rejectedQuantity > 0));
+    }
+
+    private static Integer integer(JsonNode row, String... fields) {
+        String value = firstText(row, fields);
+        try { return value.isBlank() ? null : Integer.parseInt(value); }
+        catch (NumberFormatException ignored) { return null; }
+    }
+
+    private static BigDecimal decimal(JsonNode row, String... fields) {
+        String value = firstText(row, fields);
+        try { return value.isBlank() ? null : new BigDecimal(value); }
+        catch (NumberFormatException ignored) { return null; }
+    }
+
+    private static String firstText(JsonNode row, String... fields) {
+        for (String field : fields) {
+            String value = row.path(field).asText("");
+            if (!value.isBlank()) return value;
+        }
+        return "";
+    }
+
+    private record BrokerQueryResponse(JsonNode body, String continuation) { }
+
     private JsonNode post(String path, String trId, Map<String, String> body,
                           OrderRequest approvedRequest, String exchange, KisLiveRiskDecision riskDecision) {
         KisProperties.Account credentials = properties.credentials(KisEnvironment.REAL);
@@ -197,6 +327,15 @@ public class KisRealOrderClient {
         }
         if (!properties.accountReadEnabled() || !properties.realAccountReadEnabled()) {
             throw new IllegalStateException("Real KIS orders require both account-read switches for preflight.");
+        }
+        if (!properties.credentials(KisEnvironment.REAL).configured()) {
+            throw new IllegalStateException("Real KIS credentials are not configured.");
+        }
+    }
+
+    private void requireRealAccountReadEnabled() {
+        if (!properties.accountReadEnabled() || !properties.realAccountReadEnabled()) {
+            throw new IllegalStateException("Real KIS reconciliation requires both account-read switches.");
         }
         if (!properties.credentials(KisEnvironment.REAL).configured()) {
             throw new IllegalStateException("Real KIS credentials are not configured.");

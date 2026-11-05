@@ -80,4 +80,21 @@ class KisOrderIntentStoreTest {
         assertEquals(KisOrderStatus.UNKNOWN, paperIntent.getStatus());
         assertNull(paperIntent.getBrokerOrderNumber());
     }
+
+    @Test
+    void partiallyFilledOrderCanEnterCancelPendingState() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null);
+        intent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "7001", "ORG01", "0",
+                java.time.Instant.now()));
+        intent.reconcile(1, 2, new BigDecimal("70000"), false, false);
+        when(repository.findById(key)).thenReturn(Optional.of(intent));
+
+        KisOrderIntent updated = new KisOrderIntentStore(repository).markCancelPending(key);
+
+        assertEquals(KisOrderStatus.CANCEL_PENDING, updated.getStatus());
+        assertEquals(2, updated.getRemainingQuantity());
+    }
 }

@@ -65,7 +65,9 @@ public class KisOrderIntentStore {
     public KisOrderIntent markCancelPending(UUID key) {
         KisOrderIntent intent = repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
         if (intent.getStatus() == KisOrderStatus.CANCEL_PENDING || intent.getStatus() == KisOrderStatus.CANCELLED) return intent;
-        if (intent.getStatus() != KisOrderStatus.ACCEPTED) throw new IllegalStateException("Only accepted KIS orders can be cancelled.");
+        if (intent.getStatus() != KisOrderStatus.ACCEPTED && intent.getStatus() != KisOrderStatus.PARTIALLY_FILLED) {
+            throw new IllegalStateException("Only accepted or partially filled KIS orders can be cancelled.");
+        }
         intent.markCancelPending();
         return intent;
     }

@@ -143,6 +143,53 @@ class KisRealOrderClientTest {
     }
 
     @Test
+    void domesticRealReconciliationMatchesBrokerOrderAndReadsFillState() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_id", "TTTC0081R"))
+                .andExpect(queryParam("ODNO", "7001"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[{"odno":"7001","tot_ccld_qty":"1","rmn_qty":"0","avg_prvs":"70100","cncl_yn":"N"}]}
+                        """, MediaType.APPLICATION_JSON));
+        KisOrderIntent intent = realIntent(Market.KR, "005930", "7001", "ORG01", null, 1);
+
+        var snapshot = new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                .reconcileRealOrder(intent).orElseThrow();
+
+        assertEquals(1, snapshot.filledQuantity());
+        assertEquals(0, snapshot.remainingQuantity());
+        assertEquals(new BigDecimal("70100"), snapshot.averageFillPrice());
+        server.verify();
+    }
+
+    @Test
+    void overseasRealReconciliationUsesOfficialDateRangeQueryAndMatchesOrderLocally() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/overseas-stock/v1/trading/inquire-ccnl?")))
+                .andExpect(header("tr_id", "TTTS3035R"))
+                .andExpect(queryParam("OVRS_EXCG_CD", "NASD"))
+                .andExpect(queryParam("ODNO", ""))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output":[{"odno":"7111","ft_ccld_qty":"2","nccs_qty":"1","ft_ccld_unpr3":"10.25"}]}
+                        """, MediaType.APPLICATION_JSON));
+        KisOrderIntent intent = realIntent(Market.US, "AAPL", "7111", null, "NASD", 3);
+
+        var snapshot = new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                .reconcileRealOrder(intent).orElseThrow();
+
+        assertEquals(2, snapshot.filledQuantity());
+        assertEquals(1, snapshot.remainingQuantity());
+        assertEquals(new BigDecimal("10.25"), snapshot.averageFillPrice());
+        server.verify();
+    }
+
+    @Test
     void realOrderTimeoutIsMarkedUnknownAndNotAutomaticallyRetried() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -254,5 +301,17 @@ class KisRealOrderClientTest {
 
     private static String token() {
         return "{\"access_token\":\"real-token\",\"access_token_token_expired\":\"" + EXPIRY + "\"}";
+    }
+
+    private static KisOrderIntent realIntent(Market market, String symbol, String brokerNumber,
+                                             String brokerOrganizationNumber, String exchange, int quantity) {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(market, symbol, OrderSide.BUY, quantity,
+                market == Market.KR ? new BigDecimal("70000") : new BigDecimal("10"),
+                market == Market.KR ? Currency.KRW : Currency.USD);
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, exchange);
+        intent.accept(new KisOrderReceipt("real", market.name(), symbol, "BUY", brokerNumber,
+                brokerOrganizationNumber, "0", java.time.Instant.now()));
+        return intent;
     }
 }

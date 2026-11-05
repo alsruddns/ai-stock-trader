@@ -22,4 +22,4 @@ Java 빌드는 Gradle이 아닌 프로젝트 포함 Maven Wrapper를 사용합�
 
 ## 실전 주문 게이트
 
-기본은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`입니다. REAL 주문 어댑터는 REAL 자격정보와 전체/REAL 계좌 읽기 스위치, 세 주문 잠금, 해당 주문과 3초 이내에 결합된 서버 내부 위험 승인이 있어야만 요청을 보냅니다. 현재 어댑터는 아직 영속 주문 의도·체결 대조·재시작 복구 오케스트레이터에 연결되지 않아 운영 진입점이 없습니다. timeout/HTTP 오류는 주문 접수 여부 불명으로 처리하며 자동 재전송하지 않습니다. P6 검증이 완료될 때까지 세 주문 잠금을 열지 않습니다.
+기본은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`입니다. REAL 내부 오케스트레이터는 REAL 자격정보와 전체/REAL 계좌 읽기 스위치, 세 주문 잠금, 해당 주문과 3초 이내에 결합된 서버 내부 위험 승인이 있어야만 주문 요청을 보냅니다. 주문 의도를 먼저 DB에 기록하고, 부분체결 취소에는 잔량을 쓰며, 불명 결과는 자동 재전송하지 않습니다. 실계좌 체결 조회 메서드도 있지만 HTTP 운영 경로/감시 루프가 없어 자동 복구 작업은 아직 연결되지 않았습니다. P6의 paper 세션·장애 검증 전까지 세 주문 잠금을 열지 않습니다.
