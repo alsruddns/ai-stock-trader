@@ -89,10 +89,11 @@ function statusLabel(value: string) { return ({ PENDING: "대기", PARTIALLY_FIL
 function sessionLabel(value?: string) { return ({ RUNNING: "시세 수집 중", CONNECTING: "연결 중", RECONNECTING: "재연결 대기", BLOCKED: "설정 확인 필요", STOPPED: "중지", DISABLED: "비활성" } as Record<string, string>)[value ?? ""] ?? "확인 중"; }
 function signalLabel(value: string) { return value === "BUY_CANDIDATE" ? "AI·퀀트 후보" : "관망"; }
 function decisionReason(value: string) { return ({ WAITING_FOR_CLOSED_BARS: "닫힌 분봉 대기", INSUFFICIENT_SESSION_HISTORY: "세션 이력 부족", STRATEGY_FILTERS_NOT_MET: "퀀트 조건 미충족", AI_MODEL_NOT_APPROVED_FOR_MARKET: "시장 승인 모델 없음", AI_THRESHOLD_NOT_MET: "AI 기준 미달", AI_INFERENCE_UNAVAILABLE: "AI 추론 불가", BAR_SEQUENCE_INVALID: "분봉 순서 오류", QUANT_AND_APPROVED_AI_CANDIDATE: "퀀트 및 승인 AI 통과" } as Record<string, string>)[value] ?? value; }
-function automationLabel(value?: string) { return ({ EXIT_MONITORING: "감시 중", BASELINE_CAPTURED: "기준선 저장", FILLED: "paper 체결", PENDING: "paper 주문 대기", UNKNOWN: "확인 필요", BLOCKED: "차단", DISABLED: "잠금" } as Record<string, string>)[value ?? ""] ?? "잠금"; }
+function automationLabel(value?: string) { return ({ EXIT_MONITORING: "감시 중", BASELINE_CAPTURED: "기준선 저장", BASELINE_PRESENT: "기준선 확인", FILLED: "paper 체결", PENDING: "paper 주문 대기", UNKNOWN: "확인 필요", BLOCKED: "차단", DISABLED: "잠금" } as Record<string, string>)[value ?? ""] ?? "잠금"; }
 function baselineLabel(value?: { state?: string; currency?: string; equity?: string; reason?: string } | null) {
   if (!value) return "일일 기준선 대기";
   if (value.state === "BASELINE_CAPTURED") return `기준선 ${value.currency ?? "통화"} 저장`;
+  if (value.state === "BASELINE_PRESENT") return `기준선 ${value.currency ?? "통화"} 확인`;
   if (value.state === "BLOCKED") return `기준선 차단 · ${value.reason ?? "확인 필요"}`;
   return "일일 기준선 대기";
 }
