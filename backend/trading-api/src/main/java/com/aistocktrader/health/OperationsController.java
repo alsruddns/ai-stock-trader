@@ -107,7 +107,8 @@ public class OperationsController {
                 + counts.getOrDefault(OrderStatus.PARTIALLY_FILLED, 0L)
                 + counts.getOrDefault(OrderStatus.CANCEL_PENDING, 0L)
                 + counts.getOrDefault(OrderStatus.UNKNOWN, 0L), fillsToday, allOrders.size(),
-                cashBalances, openPositions, costBasis, realizedPnlToday, recentOrders);
+                cashBalances, openPositions, costBasis, realizedPnlToday, recentOrders,
+                new PaperPerformanceAnalyzer().analyze(fills.findAllWithTradeDetails()));
     }
 
     private int consecutiveLosingTrades() {
@@ -232,7 +233,8 @@ public class OperationsController {
                                     List<CashView> cashBalances, List<PositionView> positions,
                                     Map<String, BigDecimal> positionCostBasisByCurrency,
                                     Map<String, BigDecimal> realizedPnlTodayGrossByCurrency,
-                                    List<OrderView> recentOrders) { }
+                                    List<OrderView> recentOrders,
+                                    List<PaperPerformanceAnalyzer.InstrumentPerformance> paperPerformanceByInstrument) { }
 
     public record RealOrderView(String market, String symbol, String side, int quantity, Integer filledQuantity,
                                 Integer remainingQuantity, String currency, KisOrderStatus status,

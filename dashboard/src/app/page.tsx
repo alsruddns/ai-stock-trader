@@ -13,6 +13,7 @@ type Ops = {
   openOrders: number; fillsToday: number; totalOrders: number;
   cashBalances: { currency: string; balance: string }[];
   positions: { market: string; symbol: string; currency: string; quantity: number; averageCost: string; costBasis: string }[];
+  paperPerformanceByInstrument?: { market: string; symbol: string; currency: string; realizedSellOrders: number; wins: number; losses: number; netPnl: string; averageWin: string; averageLoss: string; winRate: string }[];
   positionCostBasisByCurrency: Record<string, string>; realizedPnlTodayGrossByCurrency: Record<string, string>;
   recentOrders: { id: number; market: string; symbol: string; side: string; quantity: number; filledQuantity: number; limitPrice: string; currency: string; status: string; createdAt: string }[];
 };
@@ -60,6 +61,10 @@ export default function Dashboard() {
       <Metric title="오늘 실현 손익 (비용 후)" value={`${money(ops?.realizedPnlTodayNetByCurrency?.KRW ?? 0, "KRW")} · ${money(ops?.realizedPnlTodayNetByCurrency?.USD ?? 0, "USD")}`} caption={ops?.paperCostModelEnabled ? "입력된 paper 비용률 반영" : "비용 모형 비활성 · 총액과 동일"} />
       <Metric title="오늘 paper 거래비용" value={`${money(ops?.paperTransactionCostsTodayByCurrency?.KRW ?? 0, "KRW")} · ${money(ops?.paperTransactionCostsTodayByCurrency?.USD ?? 0, "USD")}`} caption={ops?.paperCostModelEnabled ? "체결 시 기록된 추정비용" : "비용 모형 비활성"} />
       <Metric title="보유 원가 합계" value={`${money(ops?.positionCostBasisByCurrency?.KRW ?? 0, "KRW")} · ${money(ops?.positionCostBasisByCurrency?.USD ?? 0, "USD")}`} caption="통화별 취득 원가 · 시장 평가액 아님" />
+    </section>
+    <section className="panel signals-panel"><div className="panel-title"><div><p className="eyebrow">P7 PAPER PERFORMANCE</p><h2>종목별 누적 실현 성과</h2></div><span className="tag">모의 장부 · 비용 반영</span></div>
+      {ops?.paperPerformanceByInstrument?.length ? <div className="table-wrap"><table><thead><tr><th>시장</th><th>종목</th><th>매도 주문</th><th>승률</th><th>승 / 패</th><th>누적 순손익</th><th>평균 이익 / 손실</th></tr></thead><tbody>{ops.paperPerformanceByInstrument.map(item => <tr key={`${item.market}:${item.symbol}:${item.currency}`}><td>{item.market}</td><td className="symbol">{item.symbol}</td><td>{item.realizedSellOrders}</td><td>{percent(Number(item.winRate))}</td><td>{item.wins} / {item.losses}</td><td>{money(item.netPnl, item.currency)}</td><td>{money(item.averageWin, item.currency)} / {money(item.averageLoss, item.currency)}</td></tr>)}</tbody></table></div> : <Empty text="실현 매도 체결이 쌓이면 종목별 PAPER 성과가 표시됩니다." />}
+      <p className="audit-note">평균 원가 기준으로 매도 주문별 손익을 집계합니다. 비용 모델이 꺼져 있으면 거래비용은 0으로 기록됩니다. 이 통계는 전략·AI 모델별 성과나 실계좌 수익을 의미하지 않습니다.</p>
     </section>
     <section className="panel signals-panel"><div className="panel-title"><div><p className="eyebrow">P5 STRATEGY PREVIEW</p><h2>종목별 판단 상태</h2></div><span className="tag">paper 진입 게이트 · 실계좌 잠금</span></div>
       {Object.keys(data?.paperSession?.decisions ?? {}).length ? <div className="table-wrap"><table><thead><tr><th>시장</th><th>종목</th><th>판단</th><th>판단 사유</th><th>세션 분봉</th></tr></thead><tbody>{Object.entries(data?.paperSession?.decisions ?? {}).map(([key, item]) => <tr key={key}><td>{item.market}</td><td className="symbol">{item.symbol}{item.exchange ? ` · ${item.exchange}` : ""}</td><td>{signalLabel(item.signal)}</td><td>{decisionReason(item.reason)}</td><td>{item.bars_in_session}</td></tr>)}</tbody></table></div> : <Empty text="세션 모니터가 비활성이거나 아직 종목을 구독하지 않았습니다." />}
