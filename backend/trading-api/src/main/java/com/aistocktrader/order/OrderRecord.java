@@ -15,6 +15,10 @@ public class OrderRecord {
     private Market market;
     @Column(nullable = false, length = 24)
     private String symbol;
+    @Column(name = "strategy_id", length = 64)
+    private String strategyId;
+    @Column(name = "model_id", length = 96)
+    private String modelId;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 8)
     private OrderSide side;
     @Column(nullable = false)
@@ -39,12 +43,15 @@ public class OrderRecord {
     protected OrderRecord() {}
     public OrderRecord(OrderRequest request, UUID idempotencyKey) {
         market = request.market(); symbol = request.symbol().trim().toUpperCase(Locale.ROOT); side = request.side();
+        strategyId = request.strategyId(); modelId = request.modelId();
         quantity = request.quantity(); limitPrice = request.limitPrice(); currency = request.currency();
         status = OrderStatus.PENDING; this.idempotencyKey = idempotencyKey; createdAt = Instant.now(); updatedAt = createdAt;
     }
     public Long getId() { return id; }
     public Market getMarket() { return market; }
     public String getSymbol() { return symbol; }
+    public String getStrategyId() { return strategyId; }
+    public String getModelId() { return modelId; }
     public OrderSide getSide() { return side; }
     public int getQuantity() { return quantity; }
     public BigDecimal getLimitPrice() { return limitPrice; }

@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | GET | `/api/v1/health` | Paper/live-lock 상태 확인 |
 | GET | `/api/v1/operations/summary` | paper 현금·보유·주문·당일 체결의 로컬 운영 요약 |
-| POST | `/api/v1/orders/paper` | 로컬 paper 주문 생성 |
+| POST | `/api/v1/orders/paper` | 로컬 paper 주문 생성 (선택 `strategyId`, `modelId` 보존) |
 | GET | `/api/v1/orders/paper/{id}` | Paper 주문 상태 확인 |
 | GET | `/api/v1/orders/paper/by-idempotency/{key}` | 애매한 쓰기 결과 대조용 주문 조회 |
 | POST | `/api/v1/orders/paper/{id}/fills` | Paper 체결 기록 |
@@ -64,4 +64,4 @@ LightGBM·XGBoost 후보는 `--market KR`과 `--market US`로 분리 학습하�
 
 ## Operations reporting
 
-Spring의 `/api/v1/operations/summary`는 paper 주문·체결·현금·포지션과 별도로 REAL 주문 의도별 상태·체결량을 반환합니다. REAL 계좌번호와 브로커 주문 식별자는 응답하지 않습니다. `kisRealOrdersEnabled`, `kisRealAccountReadsEnabled`, `kisRealReconciliationEnabled`, `realOrderCounts`, `recentRealOrders`는 운영 잠금 및 로컬 DB의 REAL 주문 의도 상태이며 실제 계좌 잔고를 뜻하지 않습니다. 포지션 원가는 통화별 평균 취득원가이며 실시간 평가액이 아닙니다. `realizedPnlTodayGrossByCurrency`는 paper 실현 손익 총액이고, `realizedPnlTodayNetByCurrency`는 매수 비용을 평균원가에 반영하고 매도 비용을 차감합니다. `paperTransactionCostsTodayByCurrency`는 오늘 체결 건에 기록된 비용입니다. `PAPER_COST_MODEL_ENABLED=false`면 비용은 0으로 기록되어 총액과 순액이 같으므로, 비용률을 입력하고 설정을 켜기 전의 순손익은 비용 반영 수치가 아닙니다. `paperPerformanceByInstrument`는 종목별 매도 주문 수, 승·패, 승률, 평균 이익·손실, 누적 순실현손익을 포함합니다. 체결 원장을 평균원가로 재생하며 PAPER 장부 전용입니다. 전략·모델별 성과나 실계좌 수익은 뜻하지 않습니다. `scripts/export-daily-report.ps1`은 이 요약을 `.local/reports`에 날짜별 JSON으로 저장합니다. 대시보드는 조회 전용이며 주문·취소 기능을 제공하지 않습니다.
+Spring의 `/api/v1/operations/summary`는 paper 주문·체결·현금·포지션과 별도로 REAL 주문 의도별 상태·체결량을 반환합니다. REAL 계좌번호와 브로커 주문 식별자는 응답하지 않습니다. `kisRealOrdersEnabled`, `kisRealAccountReadsEnabled`, `kisRealReconciliationEnabled`, `realOrderCounts`, `recentRealOrders`는 운영 잠금 및 로컬 DB의 REAL 주문 의도 상태이며 실제 계좌 잔고를 뜻하지 않습니다. 포지션 원가는 통화별 평균 취득원가이며 실시간 평가액이 아닙니다. `realizedPnlTodayGrossByCurrency`는 paper 실현 손익 총액이고, `realizedPnlTodayNetByCurrency`는 매수 비용을 평균원가에 반영하고 매도 비용을 차감합니다. `paperTransactionCostsTodayByCurrency`는 오늘 체결 건에 기록된 비용입니다. `PAPER_COST_MODEL_ENABLED=false`면 비용은 0으로 기록되어 총액과 순액이 같으므로, 비용률을 입력하고 설정을 켜기 전의 순손익은 비용 반영 수치가 아닙니다. `paperPerformanceByInstrument`는 전략·AI 모델·시장·종목별 매도 주문 수, 승·패, 승률, 평균 이익·손실, 누적 순실현손익을 포함합니다. 자동 진입의 `strategyId`와 승인된 `modelId`를 PAPER 주문 및 손절·익절 상태에 저장하고 청산 주문으로 이어 붙입니다. 이 ID가 없는 과거·수동 주문은 `null`로 분류됩니다. 체결 원장을 평균원가로 재생하며 PAPER 장부 전용이므로 실계좌 수익이나 전략 우위를 뜻하지 않습니다. `scripts/export-daily-report.ps1`은 이 요약을 `.local/reports`에 날짜별 JSON으로 저장합니다. 대시보드는 조회 전용이며 주문·취소 기능을 제공하지 않습니다.

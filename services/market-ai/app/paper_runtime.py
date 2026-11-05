@@ -426,7 +426,8 @@ class PaperSessionFeedMonitor:
         return trader.submit_exit(market=watch.market, symbol=watch.symbol, currency=currency,
                                   quantity=quantity, position_opened_at=str(position.get("openedAt", "")),
                                   bar_timestamp=bar.timestamp,
-                                  exit_price=exit_candidate.price, reason=exit_candidate.reason)
+                                  exit_price=exit_candidate.price, reason=exit_candidate.reason,
+                                  strategy_id=position.get("strategyId"), model_id=position.get("modelId"))
 
     def _manage_strategy_entry(
         self, broker: SpringPaperBrokerClient, trader: PaperAutoTrader, watch: PaperWatch, bar: MinuteBar,
@@ -510,7 +511,7 @@ class PaperSessionFeedMonitor:
             market=watch.market, symbol=watch.symbol, currency=currency, signal="BUY_CANDIDATE",
             model_approved=is_approved_candidate, gate=gate, sizing=sizing, bar_timestamp=bar.timestamp,
             limit_price=bar.close, stop_price=bar.close - sizing.stop_distance, target_price=target,
-            exit_manager_ready=True,
+            exit_manager_ready=True, model_id=str(decision["model_id"]),
         )
         return trader.submit_entry(entry_decision)
 

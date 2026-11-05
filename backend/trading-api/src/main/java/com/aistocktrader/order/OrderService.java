@@ -65,7 +65,8 @@ public class OrderService {
             throw new IllegalArgumentException("Order exceeds the configured paper-trading notional limit.");
         }
         orders.insertIfIdempotencyKeyAbsent(request.market().name(), request.symbol().trim().toUpperCase(Locale.ROOT),
-                request.side().name(), request.quantity(), request.limitPrice(), request.currency().name(), idempotencyKey);
+                request.side().name(), request.quantity(), request.limitPrice(), request.currency().name(),
+                request.strategyId(), request.modelId(), idempotencyKey);
         var persisted = orders.findByIdempotencyKey(idempotencyKey)
                 .orElseThrow(() -> new IllegalStateException("Paper order insert did not produce a readable row."));
         if (!matches(persisted, request)) {
@@ -123,8 +124,9 @@ public class OrderService {
             PaperPosition savedPosition = positions.save(position);
             if (request.stopPrice() != null && strategyRisks != null) {
                 PaperStrategyRisk risk = strategyRisks.findByPositionId(savedPosition.getId())
-                        .orElseGet(() -> new PaperStrategyRisk(savedPosition.getId(), request.stopPrice(), request.targetPrice()));
-                risk.update(request.stopPrice(), request.targetPrice());
+                        .orElseGet(() -> new PaperStrategyRisk(savedPosition.getId(), request.stopPrice(), request.targetPrice(),
+                                order.getStrategyId(), order.getModelId()));
+                risk.update(request.stopPrice(), request.targetPrice(), order.getStrategyId(), order.getModelId());
                 strategyRisks.save(risk);
             }
         }
@@ -198,7 +200,8 @@ public class OrderService {
                         .filter(position -> position.getQuantity() > 0)
                         .map(position -> new StrategyPositionRiskView(position.getMarket().name(), position.getSymbol(),
                                 position.getCurrency().name(), position.getQuantity(), position.getAverageCost(),
-                                risk.getStopPrice(), risk.getTargetPrice(), risk.getOpenedAt(), risk.getUpdatedAt()))
+                                risk.getStopPrice(), risk.getTargetPrice(), risk.getOpenedAt(), risk.getUpdatedAt(),
+                                risk.getStrategyId(), risk.getModelId()))
                         .orElse(null))
                 .filter(java.util.Objects::nonNull)
                 .toList();
@@ -241,10 +244,12 @@ public class OrderService {
                 && existing.getSide() == request.side()
                 && existing.getQuantity() == request.quantity()
                 && existing.getLimitPrice().compareTo(request.limitPrice()) == 0
-                && existing.getCurrency() == request.currency();
+                && existing.getCurrency() == request.currency()
+                && java.util.Objects.equals(existing.getStrategyId(), request.strategyId())
+                && java.util.Objects.equals(existing.getModelId(), request.modelId());
     }
 
     public record StrategyPositionRiskView(String market, String symbol, String currency, int quantity,
                                            BigDecimal averageCost, BigDecimal stopPrice, BigDecimal targetPrice,
-                                           Instant openedAt, Instant updatedAt) { }
+                                           Instant openedAt, Instant updatedAt, String strategyId, String modelId) { }
 }

@@ -20,7 +20,8 @@ class FakeBroker:
         self.order = {"id": 17, "status": "PENDING", "filledQuantity": 0,
                       "market": kwargs["market"], "symbol": kwargs["symbol"], "side": kwargs["side"],
                       "quantity": kwargs["quantity"], "limit_price": kwargs["limit_price"],
-                      "currency": kwargs["currency"]}
+                      "currency": kwargs["currency"], "strategyId": kwargs.get("strategy_id"),
+                      "modelId": kwargs.get("model_id")}
         return self.order
 
     def record_fill(self, order_id, *, fill_key, quantity, fill_price, stop_price=None, target_price=None):

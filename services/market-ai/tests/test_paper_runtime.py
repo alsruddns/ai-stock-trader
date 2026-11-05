@@ -397,7 +397,8 @@ def test_exit_worker_uses_persisted_stop_and_submits_only_local_paper_exit() -> 
     class Broker:
         def get_strategy_positions(self):
             return [{"market": "KR", "symbol": "005930", "currency": "KRW", "quantity": 2,
-                     "stopPrice": "98", "targetPrice": "104", "openedAt": "2026-11-05T00:00:00Z"}]
+                     "stopPrice": "98", "targetPrice": "104", "openedAt": "2026-11-05T00:00:00Z",
+                     "strategyId": "ORB_VWAP", "modelId": "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]
 
     class Trader:
         def __init__(self):
@@ -419,6 +420,8 @@ def test_exit_worker_uses_persisted_stop_and_submits_only_local_paper_exit() -> 
     assert trader.exit["exit_price"] == Decimal("98")
     assert trader.exit["quantity"] == 2
     assert trader.exit["position_opened_at"] == "2026-11-05T00:00:00Z"
+    assert trader.exit["strategy_id"] == "ORB_VWAP"
+    assert trader.exit["model_id"] == "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 
 def test_daily_baseline_worker_captures_early_session_equity(monkeypatch) -> None:
@@ -517,6 +520,7 @@ class _EntryBroker:
         self.created_orders = 0
         self.recorded_fills = 0
         self.last_fill = None
+        self.last_order = None
 
     def get_positions(self):
         return []
@@ -533,10 +537,13 @@ class _EntryBroker:
     def get_order_by_idempotency_key(self, _key):
         return None
 
-    def submit_order(self, *, idempotency_key, market, symbol, side, quantity, limit_price, currency):
+    def submit_order(self, *, idempotency_key, market, symbol, side, quantity, limit_price, currency,
+                     strategy_id=None, model_id=None):
         self.created_orders += 1
-        return {"id": 8, "market": market, "symbol": symbol, "side": side, "quantity": quantity,
-                "limitPrice": str(limit_price), "currency": currency, "status": "PENDING", "filledQuantity": 0}
+        self.last_order = {"id": 8, "market": market, "symbol": symbol, "side": side, "quantity": quantity,
+                           "limitPrice": str(limit_price), "currency": currency, "strategyId": strategy_id,
+                           "modelId": model_id, "status": "PENDING", "filledQuantity": 0}
+        return self.last_order
 
     def record_fill(self, order_id, *, fill_key, quantity, fill_price, stop_price=None, target_price=None):
         self.recorded_fills += 1
@@ -590,6 +597,8 @@ def test_approved_candidate_enters_only_local_paper_ledger_after_risk_gates(monk
     assert broker.created_orders == 1
     assert broker.recorded_fills == 1
     assert Decimal(0) < broker.last_fill["stop_price"] < bar.close < broker.last_fill["target_price"]
+    assert broker.last_order["strategyId"] == "ORB_VWAP"
+    assert broker.last_order["modelId"] == "approved-kr-model"
 
 
 def test_stale_signal_bar_blocks_entry_before_reading_or_writing_broker(monkeypatch) -> None:

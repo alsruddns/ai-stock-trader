@@ -20,11 +20,14 @@ def test_paper_order_adapter_uses_idempotency_key_and_local_route() -> None:
     result = broker.submit_order(
         idempotency_key=UUID("d8d449d8-f154-4c5a-b1d0-6ce69f790f51"), market="KR",
         symbol="005930", side="BUY", quantity=1, limit_price=Decimal("70000"), currency="KRW",
+        strategy_id="ORB_VWAP", model_id="lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     )
     assert result["id"] == 42
     assert seen[0].url.path == "/api/v1/orders/paper"
     assert seen[0].headers["idempotency-key"] == "d8d449d8-f154-4c5a-b1d0-6ce69f790f51"
     assert seen[0].read().decode().find("70000") >= 0
+    assert '"strategyId":"ORB_VWAP"' in seen[0].read().decode()
+    assert '"modelId":"lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' in seen[0].read().decode()
     client.close()
 
 

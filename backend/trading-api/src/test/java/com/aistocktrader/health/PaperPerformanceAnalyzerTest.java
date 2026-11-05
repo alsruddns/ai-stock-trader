@@ -44,9 +44,31 @@ class PaperPerformanceAnalyzerTest {
                 trade(1L, "SELL", 1, "100", "0", "US", "AAPL", "USD", now))));
     }
 
+    @Test
+    void separatesOutcomesByStrategyAndModelAttribution() {
+        Instant now = Instant.now();
+        var result = analyzer.analyze(List.of(
+                trade(10L, "BUY", 2, "100", "0", "US", "AAPL", "USD", now, null, null),
+                trade(11L, "SELL", 1, "110", "0", "US", "AAPL", "USD", now.plusSeconds(1), "ORB_VWAP", "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                trade(12L, "SELL", 1, "90", "0", "US", "AAPL", "USD", now.plusSeconds(2), "ORB_VWAP", "xgboost-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")));
+
+        assertEquals(2, result.size());
+        assertEquals("lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", result.get(0).modelId());
+        assertEquals(new BigDecimal("10.000000"), result.get(0).netPnl());
+        assertEquals("xgboost-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", result.get(1).modelId());
+        assertEquals(new BigDecimal("-10.000000"), result.get(1).netPnl());
+    }
+
     private static PaperFillRepository.FillTradeView trade(long orderId, String side, int quantity,
                                                              String price, String cost, String market,
                                                              String symbol, String currency, Instant at) {
+        return trade(orderId, side, quantity, price, cost, market, symbol, currency, at, null, null);
+    }
+
+    private static PaperFillRepository.FillTradeView trade(long orderId, String side, int quantity,
+                                                             String price, String cost, String market,
+                                                             String symbol, String currency, Instant at,
+                                                             String strategyId, String modelId) {
         var row = mock(PaperFillRepository.FillTradeView.class);
         when(row.getOrderId()).thenReturn(orderId);
         when(row.getSide()).thenReturn(side);
@@ -57,6 +79,8 @@ class PaperPerformanceAnalyzerTest {
         when(row.getSymbol()).thenReturn(symbol);
         when(row.getCurrency()).thenReturn(currency);
         when(row.getFilledAt()).thenReturn(at);
+        when(row.getStrategyId()).thenReturn(strategyId);
+        when(row.getModelId()).thenReturn(modelId);
         return row;
     }
 }

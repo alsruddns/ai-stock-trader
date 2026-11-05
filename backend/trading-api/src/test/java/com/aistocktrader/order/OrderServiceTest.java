@@ -34,14 +34,31 @@ class OrderServiceTest {
         OrderRecord persisted = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
         when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty(), Optional.of(persisted));
         when(orders.insertIfIdempotencyKeyAbsent("KR", "005930", "BUY", 2,
-                new BigDecimal("70000"), "KRW", idempotencyKey)).thenReturn(1);
+                new BigDecimal("70000"), "KRW", null, null, idempotencyKey)).thenReturn(1);
         OrderRecord result = service().submit(request(new BigDecimal("70000"), 2), idempotencyKey);
         assertSame(persisted, result);
         assertEquals(OrderStatus.PENDING, result.getStatus());
         assertEquals("005930", result.getSymbol());
         assertEquals(idempotencyKey, result.getIdempotencyKey());
         verify(orders).insertIfIdempotencyKeyAbsent("KR", "005930", "BUY", 2,
-                new BigDecimal("70000"), "KRW", idempotencyKey);
+                new BigDecimal("70000"), "KRW", null, null, idempotencyKey);
+    }
+
+    @Test
+    void persistsStrategyAndModelAttributionAndIncludesItInIdempotencyMatching() {
+        OrderRequest attributed = new OrderRequest(Market.US, "AAPL", OrderSide.BUY, 1,
+                new BigDecimal("100"), Currency.USD, "ORB_VWAP", "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        OrderRecord persisted = new OrderRecord(attributed, idempotencyKey);
+        when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty(), Optional.of(persisted));
+        when(orders.insertIfIdempotencyKeyAbsent("US", "AAPL", "BUY", 1, new BigDecimal("100"), "USD",
+                "ORB_VWAP", "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey)).thenReturn(1);
+
+        OrderRecord result = service().submit(attributed, idempotencyKey);
+
+        assertEquals("ORB_VWAP", result.getStrategyId());
+        assertEquals("lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", result.getModelId());
+        verify(orders).insertIfIdempotencyKeyAbsent("US", "AAPL", "BUY", 1, new BigDecimal("100"), "USD",
+                "ORB_VWAP", "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey);
     }
     @Test
     void rejectsAnOrderThatExceedsTheRiskLimitBeforePersistence() {
@@ -66,7 +83,7 @@ class OrderServiceTest {
         OrderRecord committed = new OrderRecord(request, idempotencyKey);
         when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty(), Optional.of(committed));
         when(orders.insertIfIdempotencyKeyAbsent("KR", "005930", "BUY", 2,
-                new BigDecimal("70000"), "KRW", idempotencyKey)).thenReturn(0);
+                new BigDecimal("70000"), "KRW", null, null, idempotencyKey)).thenReturn(0);
 
         OrderRecord result = service().submit(request, idempotencyKey);
 
@@ -79,7 +96,7 @@ class OrderServiceTest {
         OrderRecord committed = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
         when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty(), Optional.of(committed));
         when(orders.insertIfIdempotencyKeyAbsent("KR", "005930", "BUY", 2,
-                new BigDecimal("71000"), "KRW", idempotencyKey)).thenReturn(0);
+                new BigDecimal("71000"), "KRW", null, null, idempotencyKey)).thenReturn(0);
 
         assertThrows(IdempotencyConflictException.class, () -> service().submit(
                 request(new BigDecimal("71000"), 2), idempotencyKey));

@@ -16,8 +16,9 @@ public interface OrderRepository extends JpaRepository<OrderRecord, Long> {
     @Transactional
     @Query(value = """
             INSERT INTO trade_order (market, symbol, side, quantity, filled_quantity, limit_price, currency,
+                                     strategy_id, model_id,
                                      status, idempotency_key, created_at, updated_at)
-            VALUES (:market, :symbol, :side, :quantity, 0, :limitPrice, :currency,
+            VALUES (:market, :symbol, :side, :quantity, 0, :limitPrice, :currency, :strategyId, :modelId,
                     'PENDING', :idempotencyKey, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (idempotency_key) DO NOTHING
             """, nativeQuery = true)
@@ -25,6 +26,8 @@ public interface OrderRepository extends JpaRepository<OrderRecord, Long> {
                                      @Param("side") String side, @Param("quantity") int quantity,
                                      @Param("limitPrice") java.math.BigDecimal limitPrice,
                                      @Param("currency") String currency,
+                                     @Param("strategyId") String strategyId,
+                                     @Param("modelId") String modelId,
                                      @Param("idempotencyKey") UUID idempotencyKey);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from OrderRecord o where o.status in :statuses and o.updatedAt < :cutoff")

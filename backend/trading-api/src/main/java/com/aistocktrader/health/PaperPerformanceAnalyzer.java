@@ -31,10 +31,11 @@ public final class PaperPerformanceAnalyzer {
                     throw new IllegalStateException("Paper fill history contains a sell larger than the recorded position.");
                 }
                 BigDecimal pnl = trade.getFillPrice().subtract(holding.averageCost).multiply(quantity).subtract(transactionCost);
-                SellOrder sell = sellOrders.computeIfAbsent(trade.getOrderId(), ignored ->
-                        new SellOrder(trade.getMarket(), trade.getSymbol(), trade.getCurrency()));
-                if (!sell.key.equals(key)) {
-                    throw new IllegalStateException("A paper sell order contains fills for more than one instrument.");
+                AttributionKey attribution = new AttributionKey(trade.getMarket(), trade.getSymbol(),
+                        trade.getCurrency(), trade.getStrategyId(), trade.getModelId());
+                SellOrder sell = sellOrders.computeIfAbsent(trade.getOrderId(), ignored -> new SellOrder(key, attribution));
+                if (!sell.instrumentKey.equals(key) || !sell.attribution.equals(attribution)) {
+                    throw new IllegalStateException("A paper sell order contains inconsistent instrument or strategy attribution.");
                 }
                 sell.pnl = sell.pnl.add(pnl);
                 holding.quantity -= trade.getQuantity();
@@ -42,13 +43,15 @@ public final class PaperPerformanceAnalyzer {
             }
         }
 
-        Map<String, Aggregate> totals = new LinkedHashMap<>();
-        sellOrders.values().forEach(sell -> totals.computeIfAbsent(sell.key, ignored -> new Aggregate()).add(sell.pnl));
+        Map<AttributionKey, Aggregate> totals = new LinkedHashMap<>();
+        sellOrders.values().forEach(sell -> totals.computeIfAbsent(sell.attribution, ignored -> new Aggregate()).add(sell.pnl));
         return totals.entrySet().stream().map(entry -> {
-            String[] parts = entry.getKey().split("\\|", 3);
-            return entry.getValue().toView(parts[0], parts[1], parts[2]);
+            AttributionKey key = entry.getKey();
+            return entry.getValue().toView(key.market, key.symbol, key.currency, key.strategyId, key.modelId);
         }).sorted(Comparator.comparing(InstrumentPerformance::market)
-                .thenComparing(InstrumentPerformance::symbol).thenComparing(InstrumentPerformance::currency)).toList();
+                .thenComparing(InstrumentPerformance::symbol).thenComparing(InstrumentPerformance::currency)
+                .thenComparing(item -> item.strategyId() == null ? "" : item.strategyId())
+                .thenComparing(item -> item.modelId() == null ? "" : item.modelId())).toList();
     }
 
     private static String key(String market, String symbol, String currency) {
@@ -63,10 +66,16 @@ public final class PaperPerformanceAnalyzer {
     }
 
     private static final class SellOrder {
-        private final String key;
+        private final String instrumentKey;
+        private final AttributionKey attribution;
         private BigDecimal pnl = BigDecimal.ZERO;
-        private SellOrder(String market, String symbol, String currency) { this.key = key(market, symbol, currency); }
+        private SellOrder(String instrumentKey, AttributionKey attribution) {
+            this.instrumentKey = instrumentKey;
+            this.attribution = attribution;
+        }
     }
+
+    private record AttributionKey(String market, String symbol, String currency, String strategyId, String modelId) { }
 
     private static final class Aggregate {
         private long realizedSellOrders;
@@ -83,17 +92,19 @@ public final class PaperPerformanceAnalyzer {
             else if (pnl.signum() < 0) { losses++; losingPnl = losingPnl.add(pnl); }
         }
 
-        private InstrumentPerformance toView(String market, String symbol, String currency) {
+        private InstrumentPerformance toView(String market, String symbol, String currency,
+                                             String strategyId, String modelId) {
             BigDecimal averageWin = wins == 0 ? BigDecimal.ZERO : winningPnl.divide(BigDecimal.valueOf(wins), 6, RoundingMode.HALF_UP);
             BigDecimal averageLoss = losses == 0 ? BigDecimal.ZERO : losingPnl.divide(BigDecimal.valueOf(losses), 6, RoundingMode.HALF_UP);
             BigDecimal winRate = realizedSellOrders == 0 ? BigDecimal.ZERO
                     : BigDecimal.valueOf(wins).divide(BigDecimal.valueOf(realizedSellOrders), 6, RoundingMode.HALF_UP);
-            return new InstrumentPerformance(market, symbol, currency, realizedSellOrders, wins, losses,
-                    netPnl, averageWin, averageLoss, winRate);
+            return new InstrumentPerformance(market, symbol, currency, strategyId, modelId,
+                    realizedSellOrders, wins, losses, netPnl, averageWin, averageLoss, winRate);
         }
     }
 
-    public record InstrumentPerformance(String market, String symbol, String currency, long realizedSellOrders,
-                                        long wins, long losses, BigDecimal netPnl, BigDecimal averageWin,
-                                        BigDecimal averageLoss, BigDecimal winRate) { }
+    public record InstrumentPerformance(String market, String symbol, String currency, String strategyId,
+                                        String modelId, long realizedSellOrders, long wins, long losses,
+                                        BigDecimal netPnl, BigDecimal averageWin, BigDecimal averageLoss,
+                                        BigDecimal winRate) { }
 }

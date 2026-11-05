@@ -35,15 +35,21 @@ class SpringPaperBrokerClient:
     def submit_order(
         self, *, idempotency_key: UUID, market: Market, symbol: str, side: Side,
         quantity: int, limit_price: Decimal, currency: Literal["KRW", "USD"],
+        strategy_id: str | None = None, model_id: str | None = None,
     ) -> dict:
         if quantity <= 0 or limit_price <= 0:
             raise ValueError("paper order quantity and limit price must be positive")
         try:
+            payload = {"market": market, "symbol": symbol, "side": side, "quantity": quantity,
+                       "limitPrice": str(limit_price), "currency": currency}
+            if strategy_id is not None:
+                payload["strategyId"] = strategy_id
+            if model_id is not None:
+                payload["modelId"] = model_id
             response = self._http.post(
                 f"{self.base_url}/api/v1/orders/paper",
                 headers={"Idempotency-Key": str(idempotency_key)},
-                json={"market": market, "symbol": symbol, "side": side, "quantity": quantity,
-                      "limitPrice": str(limit_price), "currency": currency},
+                json=payload,
             )
         except httpx.TimeoutException as exc:
             raise PaperBrokerOutcomeUnknown("paper order outcome is unknown; reconcile by idempotency key") from exc

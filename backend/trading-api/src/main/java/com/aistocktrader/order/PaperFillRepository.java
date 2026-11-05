@@ -13,7 +13,8 @@ public interface PaperFillRepository extends JpaRepository<PaperFillRecord, Long
     @Query(value = """
             SELECT f.order_id AS \"orderId\", f.filled_at AS \"filledAt\", f.quantity AS quantity,
                    f.fill_price AS \"fillPrice\", f.transaction_cost AS \"transactionCost\",
-                   o.market AS market, o.symbol AS symbol, o.currency AS currency, o.side AS side
+                   o.market AS market, o.symbol AS symbol, o.currency AS currency, o.side AS side,
+                   o.strategy_id AS "strategyId", o.model_id AS "modelId"
               FROM paper_fill f JOIN trade_order o ON o.id = f.order_id
              ORDER BY f.filled_at ASC, f.id ASC
             """, nativeQuery = true)
@@ -29,5 +30,7 @@ public interface PaperFillRepository extends JpaRepository<PaperFillRecord, Long
         String getSymbol();
         String getCurrency();
         String getSide();
+        String getStrategyId();
+        String getModelId();
     }
 }

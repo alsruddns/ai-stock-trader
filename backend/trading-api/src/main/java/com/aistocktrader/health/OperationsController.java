@@ -260,11 +260,11 @@ public class OperationsController {
 
     public record OrderView(long id, String market, String symbol, String side, int quantity,
                             int filledQuantity, BigDecimal limitPrice, String currency,
-                            String status, Instant createdAt) {
+                            String status, Instant createdAt, String strategyId, String modelId) {
         static OrderView from(OrderRecord item) {
             return new OrderView(item.getId(), item.getMarket().name(), item.getSymbol(), item.getSide().name(),
                     item.getQuantity(), item.getFilledQuantity(), item.getLimitPrice(), item.getCurrency().name(),
-                    item.getStatus().name(), item.getCreatedAt());
+                    item.getStatus().name(), item.getCreatedAt(), item.getStrategyId(), item.getModelId());
         }
     }
 }

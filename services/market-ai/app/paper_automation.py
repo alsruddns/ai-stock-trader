@@ -48,6 +48,8 @@ class PaperEntryDecision:
     stop_price: Decimal
     target_price: Decimal
     exit_manager_ready: bool
+    strategy_id: str = "ORB_VWAP"
+    model_id: str | None = None
 
 
 class PaperAutoTrader:
@@ -80,7 +82,7 @@ class PaperAutoTrader:
                 order = self._broker.submit_order(
                     idempotency_key=idempotency_key, market=decision.market, symbol=symbol, side="BUY",
                     quantity=decision.sizing.quantity, limit_price=decision.limit_price,
-                    currency=decision.currency,
+                    currency=decision.currency, strategy_id=decision.strategy_id, model_id=decision.model_id,
                 )
             order_id = int(order["id"])
             existing_price = order.get("limitPrice", order.get("limit_price"))
@@ -89,7 +91,9 @@ class PaperAutoTrader:
                     or str(order.get("side", "")).upper() != "BUY"
                     or int(order.get("quantity", -1)) != decision.sizing.quantity
                     or existing_price is None or Decimal(str(existing_price)) != decision.limit_price
-                    or str(order.get("currency", "")).upper() != decision.currency):
+                    or str(order.get("currency", "")).upper() != decision.currency
+                    or order.get("strategyId") != decision.strategy_id
+                    or order.get("modelId") != decision.model_id):
                 return {"state": "BLOCKED", "reason": "IDEMPOTENCY_ORDER_MISMATCH",
                         "order_id": order_id, "idempotency_key": str(idempotency_key), "executable": False}
             order_status = str(order.get("status", "")).upper()
@@ -119,6 +123,7 @@ class PaperAutoTrader:
     def submit_exit(
         self, *, market: Market, symbol: str, currency: str, quantity: int,
         position_opened_at: str, bar_timestamp: datetime, exit_price: Decimal, reason: str,
+        strategy_id: str | None = None, model_id: str | None = None,
     ) -> dict[str, object]:
         """Submit a deterministic local paper exit; exits do not depend on model availability."""
         readiness = PaperAutomationReadiness.from_environment()
@@ -138,6 +143,7 @@ class PaperAutoTrader:
                 order = self._broker.submit_order(
                     idempotency_key=idempotency_key, market=market, symbol=normalized_symbol, side="SELL",
                     quantity=quantity, limit_price=exit_price, currency=currency,
+                    strategy_id=strategy_id, model_id=model_id,
                 )
             order_id = int(order["id"])
             existing_price = order.get("limitPrice", order.get("limit_price"))
@@ -149,7 +155,9 @@ class PaperAutoTrader:
                     or int(order.get("quantity", -1)) != expected_order_quantity
                     or existing_price is None or Decimal(str(existing_price)) <= 0
                     or (not is_existing and Decimal(str(existing_price)) != exit_price)
-                    or str(order.get("currency", "")).upper() != currency):
+                    or str(order.get("currency", "")).upper() != currency
+                    or order.get("strategyId") != strategy_id
+                    or order.get("modelId") != model_id):
                 return {"state": "BLOCKED", "reason": "IDEMPOTENCY_ORDER_MISMATCH",
                         "order_id": order_id, "idempotency_key": str(idempotency_key), "executable": False}
             order_status = str(order.get("status", "")).upper()

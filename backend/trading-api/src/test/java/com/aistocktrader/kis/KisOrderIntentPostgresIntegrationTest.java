@@ -164,6 +164,37 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    @Transactional
+    void paperStrategyAndModelAttributionSurvivesEntryPositionAndExitFill() {
+        String modelId = "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        String symbol = String.format(java.util.Locale.ROOT, "%06d",
+                java.util.concurrent.ThreadLocalRandom.current().nextInt(100000, 1_000_000));
+        paperCashRepository.save(new PaperCashBalance(Currency.KRW, new BigDecimal("1000000")));
+        var buy = paperOrders.submit(new OrderRequest(Market.KR, symbol, OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW, "ORB_VWAP", modelId), UUID.randomUUID());
+        paperOrders.recordPaperFill(buy.getId(), new PaperFillRequest(UUID.randomUUID(), 1,
+                new BigDecimal("70000"), new BigDecimal("69000"), new BigDecimal("71000")));
+        entityManager.flush();
+        entityManager.clear();
+
+        var risk = paperOrders.paperStrategyRisks().stream()
+                .filter(item -> item.symbol().equals(symbol)).findFirst().orElseThrow();
+        assertEquals("ORB_VWAP", risk.strategyId());
+        assertEquals(modelId, risk.modelId());
+
+        var sell = paperOrders.submit(new OrderRequest(Market.KR, symbol, OrderSide.SELL, 1,
+                new BigDecimal("71000"), Currency.KRW, risk.strategyId(), risk.modelId()), UUID.randomUUID());
+        paperOrders.recordPaperFill(sell.getId(), new PaperFillRequest(UUID.randomUUID(), 1, new BigDecimal("71000")));
+        entityManager.flush();
+        entityManager.clear();
+
+        var sellFill = paperFillRepository.findAllWithTradeDetails().stream()
+                .filter(item -> item.getOrderId().equals(sell.getId())).findFirst().orElseThrow();
+        assertEquals("ORB_VWAP", sellFill.getStrategyId());
+        assertEquals(modelId, sellFill.getModelId());
+    }
+
+    @Test
     void pendingPaperOrderCanBeRecoveredAfterSpringApplicationContextRestart() {
         UUID key = UUID.randomUUID();
         try {

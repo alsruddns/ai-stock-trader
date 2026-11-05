@@ -17,6 +17,10 @@ public class PaperStrategyRisk {
     private BigDecimal stopPrice;
     @Column(name = "target_price", nullable = false, precision = 20, scale = 6)
     private BigDecimal targetPrice;
+    @Column(name = "strategy_id", length = 64)
+    private String strategyId;
+    @Column(name = "model_id", length = 96)
+    private String modelId;
     @Column(name = "opened_at", nullable = false)
     private Instant openedAt;
     @Column(name = "updated_at", nullable = false)
@@ -25,22 +29,37 @@ public class PaperStrategyRisk {
     protected PaperStrategyRisk() { }
 
     public PaperStrategyRisk(Long positionId, BigDecimal stopPrice, BigDecimal targetPrice) {
+        this(positionId, stopPrice, targetPrice, null, null);
+    }
+
+    public PaperStrategyRisk(Long positionId, BigDecimal stopPrice, BigDecimal targetPrice,
+                             String strategyId, String modelId) {
         this.positionId = positionId;
         this.stopPrice = stopPrice;
         this.targetPrice = targetPrice;
+        if (strategyId != null) this.strategyId = strategyId;
+        if (modelId != null) this.modelId = modelId;
         this.openedAt = Instant.now();
         this.updatedAt = openedAt;
     }
 
     public void update(BigDecimal stopPrice, BigDecimal targetPrice) {
+        update(stopPrice, targetPrice, strategyId, modelId);
+    }
+
+    public void update(BigDecimal stopPrice, BigDecimal targetPrice, String strategyId, String modelId) {
         this.stopPrice = stopPrice;
         this.targetPrice = targetPrice;
+        if (strategyId != null) this.strategyId = strategyId;
+        if (modelId != null) this.modelId = modelId;
         this.updatedAt = Instant.now();
     }
 
     public Long getPositionId() { return positionId; }
     public BigDecimal getStopPrice() { return stopPrice; }
     public BigDecimal getTargetPrice() { return targetPrice; }
+    public String getStrategyId() { return strategyId; }
+    public String getModelId() { return modelId; }
     public Instant getOpenedAt() { return openedAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }
