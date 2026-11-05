@@ -23,6 +23,9 @@ foreach ($line in Get-Content -LiteralPath $envPath) {
 if ($env:KIS_ACCOUNT_READ_ENABLED -ne 'true') {
     throw 'Set KIS_ACCOUNT_READ_ENABLED=true in .env before explicitly running paper account GET tests.'
 }
+if ($env:KIS_PAPER_ACCOUNT_READ_ENABLED -ne 'true') {
+    throw 'Set KIS_PAPER_ACCOUNT_READ_ENABLED=true in .env before explicitly running paper account GET tests.'
+}
 if (-not $env:KIS_PAPER_APP_KEY -or -not $env:KIS_PAPER_APP_SECRET -or
     -not $env:KIS_PAPER_ACCOUNT_NUMBER) {
     throw 'Configure the paper KIS key, secret, and account number in .env. Values are not displayed.'

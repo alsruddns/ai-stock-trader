@@ -1,12 +1,22 @@
 package com.aistocktrader.kis;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import java.time.Duration;
 
 @ConfigurationProperties(prefix = "kis")
-public record KisProperties(boolean accountReadEnabled, boolean snapshotPersistenceEnabled,
-                            Account paper, Account real,
-                            Duration connectTimeout, Duration readTimeout, Duration minRequestInterval) {
+public record KisProperties(boolean accountReadEnabled, boolean paperAccountReadEnabled,
+                            boolean realAccountReadEnabled, boolean snapshotPersistenceEnabled,
+                            Account paper, Account real, Duration connectTimeout,
+                            Duration readTimeout, Duration minRequestInterval) {
+    public KisProperties(boolean accountReadEnabled, boolean snapshotPersistenceEnabled,
+                         Account paper, Account real, Duration connectTimeout,
+                         Duration readTimeout, Duration minRequestInterval) {
+        this(accountReadEnabled, accountReadEnabled, false, snapshotPersistenceEnabled,
+                paper, real, connectTimeout, readTimeout, minRequestInterval);
+    }
+
+    @ConstructorBinding
     public KisProperties {
         paper = paper == null ? new Account("", "", "") : paper;
         real = real == null ? new Account("", "", "") : real;

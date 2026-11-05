@@ -66,7 +66,7 @@ class KisAccountClientTest {
     void realAndPaperTokensAndDomainsAreKeptSeparate() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        KisAccountClient client = new KisAccountClient(properties(true), builder, new ObjectMapper());
+        KisAccountClient client = new KisAccountClient(propertiesBothEnvironments(), builder, new ObjectMapper());
         server.expect(requestTo(PAPER_URL + "/oauth2/tokenP"))
                 .andRespond(withSuccess(token("paper-token"), MediaType.APPLICATION_JSON));
         server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/domestic-stock/")))
@@ -136,6 +136,36 @@ class KisAccountClientTest {
     }
 
     @Test
+    void realAccountReadsRequireTheirOwnEnvironmentSwitch() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisProperties separated = new KisProperties(true, true, false, false,
+                new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
+                new KisProperties.Account("real-key", "real-secret", "8765432101"),
+                Duration.ofSeconds(1), Duration.ofSeconds(1), Duration.ZERO);
+        KisAccountClient client = new KisAccountClient(separated, builder, new ObjectMapper());
+
+        KisApiException error = assertThrows(KisApiException.class,
+                () -> client.getBalance(KisEnvironment.REAL, Market.KR, null, null, null));
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, error.status());
+        server.verify();
+    }
+
+    @Test
+    void legacyGlobalReadSwitchDoesNotEnableRealAccountReads() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisAccountClient client = new KisAccountClient(properties(true), builder, new ObjectMapper());
+
+        KisApiException error = assertThrows(KisApiException.class,
+                () -> client.getBalance(KisEnvironment.REAL, Market.KR, null, null, null));
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, error.status());
+        server.verify();
+    }
+
+    @Test
     void rateLimitResponseIsReportedWithoutLeakingBrokerBody() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -171,6 +201,13 @@ class KisAccountClientTest {
 
     private KisProperties properties(boolean enabled) {
         return new KisProperties(enabled, false,
+                new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
+                new KisProperties.Account("real-key", "real-secret", "8765432101"),
+                Duration.ofSeconds(1), Duration.ofSeconds(1), Duration.ZERO);
+    }
+
+    private KisProperties propertiesBothEnvironments() {
+        return new KisProperties(true, true, true, false,
                 new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
                 new KisProperties.Account("real-key", "real-secret", "8765432101"),
                 Duration.ofSeconds(1), Duration.ofSeconds(1), Duration.ZERO);

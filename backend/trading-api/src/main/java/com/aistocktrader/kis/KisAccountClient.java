@@ -176,7 +176,9 @@ public class KisAccountClient {
     }
 
     private void requireEnabled(KisEnvironment environment) {
-        if (!properties.accountReadEnabled()) {
+        if (!properties.accountReadEnabled()
+                || (environment == KisEnvironment.PAPER && !properties.paperAccountReadEnabled())
+                || (environment == KisEnvironment.REAL && !properties.realAccountReadEnabled())) {
             throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE, "KIS account reads are disabled.");
         }
         if (!properties.credentials(environment).configured()) {

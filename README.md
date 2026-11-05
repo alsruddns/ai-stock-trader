@@ -9,7 +9,7 @@ Windows 로컬에서 실행하는 국내·미국 주식 자동매매 프로젝�
 - 검증이 끝난 `develop`만 PR로 `main`에 반영합니다.
 - 커밋 제목은 `Add : [업무명] 내용`, `Update : [업무명] 내용`, `Fix : [업무명] 내용` 형식을 사용합니다.
 
-> **안전 범위:** 기본값은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ORDERS_ENABLED=false`입니다. P6에는 모의 주문 어댑터 코드가 있지만 별도 스위치가 꺼져 있고 실주문 경로는 제공하지 않습니다. 실계좌 주문은 비활성화 상태로 유지합니다.
+> **안전 범위:** 기본값은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ACCOUNT_READ_ENABLED=false`, `KIS_REAL_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ORDERS_ENABLED=false`입니다. 계좌 조회는 전체 허용 스위치와 해당 환경 허용 스위치가 모두 켜져야 합니다. 실계좌 주문은 비활성화 상태로 유지합니다.
 
 ## 구성
 
@@ -68,7 +68,7 @@ python -m pip install -e ".[dev]"
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --env-file ../../.env
 ```
 
-KIS 조회를 쓸 때는 `.env`에 모의·실전 자격증명을 각각 `KIS_PAPER_*`, `KIS_REAL_*`로 분리해 입력하세요. Python REST 시세는 `KIS_MARKET_DATA_ENABLED=true`, WebSocket 시세는 `KIS_WEBSOCKET_ENABLED=true`, Spring 계좌조회는 별도로 `KIS_ACCOUNT_READ_ENABLED=true`가 필요합니다. 모두 기본 `false`입니다. 계좌번호는 8자리 계좌번호와 2자리 상품코드를 붙인 총 10자리 형식으로 입력하세요. Spring 계좌 API는 URL의 `paper`/`real` 환경을 선택합니다.
+KIS 조회를 쓸 때는 `.env`에 모의·실전 자격증명을 각각 `KIS_PAPER_*`, `KIS_REAL_*`로 분리해 입력하세요. Python REST 시세는 `KIS_MARKET_DATA_ENABLED=true`, WebSocket 시세는 `KIS_WEBSOCKET_ENABLED=true`가 필요합니다. Spring 계좌조회는 전체 잠금 `KIS_ACCOUNT_READ_ENABLED=true`와 대상별 허용값(`KIS_PAPER_ACCOUNT_READ_ENABLED=true` 또는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`)이 모두 필요합니다. 대상별 허용은 기본 `false`이며, PAPER 허용값은 이전 설정과 호환되도록 미설정 시 전체 스위치를 따릅니다. REAL 계좌 조회는 별도 허용값을 명시해야 합니다. 계좌번호는 8자리 계좌번호와 2자리 상품코드를 붙인 총 10자리 형식으로 입력하세요. Spring 계좌 API는 URL의 `paper`/`real` 환경을 선택합니다.
 
 - Spring 상태: `http://localhost:8080/api/v1/health`
 - Python 상태: `http://localhost:8000/api/v1/health`
