@@ -11,6 +11,18 @@ def _token_response() -> dict[str, str]:
     return {"access_token": "test-token", "access_token_token_expired": expiry}
 
 
+def test_kis_settings_repr_masks_app_credentials_and_account_number() -> None:
+    settings = KisSettings(True, "real", "app-key-sensitive", "app-secret-sensitive", "1234567801")
+
+    representation = repr(settings)
+
+    assert "app-key-sensitive" not in representation
+    assert "app-secret-sensitive" not in representation
+    assert "1234567801" not in representation
+    assert "********01" in representation
+    assert "credentials_configured=True" in representation
+
+
 def test_kis_rest_pacing_uses_paper_floor_and_serialized_slots(monkeypatch) -> None:
     moments = iter([100.0, 100.05])
     delays = []

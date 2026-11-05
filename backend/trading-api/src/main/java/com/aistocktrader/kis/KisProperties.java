@@ -38,5 +38,12 @@ public record KisProperties(boolean accountReadEnabled, boolean paperAccountRead
         public boolean configured() {
             return !appKey.isBlank() && !appSecret.isBlank() && accountNumber.matches("\\d{10}");
         }
+
+        @Override
+        public String toString() {
+            String maskedAccount = accountNumber.isBlank() ? "" : "*".repeat(Math.max(0, accountNumber.length() - 2))
+                    + accountNumber.substring(Math.max(0, accountNumber.length() - 2));
+            return "Account[appKey=***, appSecret=***, accountNumber=" + maskedAccount + "]";
+        }
     }
 }

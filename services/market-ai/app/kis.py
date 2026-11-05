@@ -37,6 +37,16 @@ class KisSettings:
     account_number: str = ""
     shared_rate_limit_enabled: bool = False
 
+    def __repr__(self) -> str:
+        account_hint = f"{'*' * max(0, len(self.account_number) - 2)}{self.account_number[-2:]}" if self.account_number else ""
+        return (
+            "KisSettings("
+            f"enabled={self.enabled!r}, environment={self.environment!r}, "
+            f"credentials_configured={bool(self.app_key and self.app_secret)!r}, "
+            f"account_number={account_hint!r}, "
+            f"shared_rate_limit_enabled={self.shared_rate_limit_enabled!r})"
+        )
+
     @classmethod
     def from_environment(cls, environment: Literal["paper", "real"] | None = None) -> "KisSettings":
         mode = (environment or os.getenv("KIS_ENVIRONMENT", "paper")).strip().lower()
