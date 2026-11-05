@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from datetime import date, datetime, time as datetime_time, timedelta
+from zoneinfo import ZoneInfo
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -57,6 +59,29 @@ def store_minute_bars(market: str, symbol: str, bars: list[MinuteBar], *, source
                 [(market, symbol.upper(), bar.timestamp, bar.open, bar.high, bar.low, bar.close,
                   bar.volume, bar.spread_bps, source) for bar in bars],
             )
+
+
+def load_session_minute_bars(market: str, symbol: str, session_date: date, *, limit: int = 5000) -> list[MinuteBar]:
+    """Load persisted closed bars for one local exchange session, oldest first."""
+    if market not in {"KR", "US"} or not symbol.strip() or not 1 <= limit <= 5000:
+        raise ValueError("market, symbol, and a bounded bar limit are required")
+    zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
+    session_start = datetime.combine(session_date, datetime_time.min, tzinfo=zone)
+    session_end = session_start + timedelta(days=1)
+    with _connect() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT bar_at, open_price, high_price, low_price, close_price, volume, spread_bps
+                   FROM market_minute_bar
+                   WHERE market = %s AND symbol = %s AND bar_at >= %s AND bar_at < %s
+                   ORDER BY bar_at DESC LIMIT %s""",
+                (market, symbol.upper(), session_start, session_end, limit),
+            )
+            rows = cursor.fetchall()
+    return [MinuteBar(
+        timestamp=row[0], open=row[1], high=row[2], low=row[3], close=row[4],
+        volume=int(row[5]), spread_bps=row[6],
+    ) for row in reversed(rows)]
 
 
 def store_account_balance(balance: AccountBalance) -> None:

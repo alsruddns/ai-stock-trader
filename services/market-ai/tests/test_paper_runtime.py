@@ -243,6 +243,70 @@ def test_mixed_paper_watchlist_uses_paper_kr_and_real_read_only_us_feeds(monkeyp
     assert status["orders_enabled"] is False
 
 
+def test_paper_monitor_restores_same_session_bars_before_connecting(monkeypatch) -> None:
+    from app import snapshot_store
+
+    watch = parse_watchlist("KR:005930")[0]
+    start = datetime.now(ZoneInfo("Asia/Seoul")).replace(hour=9, minute=0, second=0, microsecond=0)
+    restored = [MinuteBar(
+        start + timedelta(minutes=index), Decimal("100"), Decimal("100.5"), Decimal("99.5"),
+        Decimal("100"), 1000, Decimal("5"),
+    ) for index in range(21)]
+    monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-key")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-secret")
+    monkeypatch.setenv("PAPER_WATCHLIST", "KR:005930")
+    monkeypatch.setattr(snapshot_store, "enabled", lambda: True)
+    monkeypatch.setattr(snapshot_store, "load_session_minute_bars", lambda market, symbol, session_date: restored)
+    runtime = PaperSessionFeedMonitor()
+
+    async def hold_feed(_watches, _settings):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(runtime, "_run", hold_feed)
+
+    async def start_and_stop():
+        await runtime.start()
+        loaded = runtime.bars(watch)
+        status = runtime.status()
+        await runtime.stop()
+        return loaded, status
+
+    loaded, status = asyncio.run(start_and_stop())
+
+    assert loaded == tuple(restored)
+    assert status["restored_bars"] == 21
+    assert status["decisions"][watch.key]["bars_in_session"] == 21
+    assert status["orders_enabled"] is False
+
+
+def test_paper_monitor_fails_closed_when_persisted_bar_restore_fails(monkeypatch) -> None:
+    from app import snapshot_store
+
+    monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-key")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-secret")
+    monkeypatch.setenv("PAPER_WATCHLIST", "KR:005930")
+    monkeypatch.setattr(snapshot_store, "enabled", lambda: True)
+    monkeypatch.setattr(snapshot_store, "load_session_minute_bars", lambda *_args: (_ for _ in ()).throw(RuntimeError()))
+    runtime = PaperSessionFeedMonitor()
+
+    asyncio.run(runtime.start())
+
+    status = runtime.status()
+    assert status["state"] == "BLOCKED"
+    assert status["last_error"] == "PAPER_BAR_HISTORY_RESTORE_FAILED"
+    assert status["bar_storage_error"] == "POSTGRES_BAR_RESTORE_FAILED"
+    assert status["automation_error"] == "BAR_HISTORY_RESTORE_FAILED"
+    assert not runtime._stream_tasks
+
+
 def test_closed_bars_update_non_executable_quant_decision_and_reset_each_session() -> None:
     runtime = PaperSessionFeedMonitor()
     watch = parse_watchlist("KR:005930")[0]

@@ -8,6 +8,7 @@ from app.quant import MinuteBar
 class _FakeConnection:
     def __init__(self):
         self.calls = []
+        self.rows = []
 
     def __enter__(self):
         return self
@@ -20,6 +21,12 @@ class _FakeConnection:
 
     def executemany(self, query, rows):
         self.calls.append((query, list(rows)))
+
+    def execute(self, query, params):
+        self.calls.append((query, params))
+
+    def fetchall(self):
+        return self.rows
 
 
 def test_minute_bars_are_upserted_with_provenance_and_null_spread(monkeypatch) -> None:
@@ -42,3 +49,26 @@ def test_empty_minute_bar_batch_does_not_open_database(monkeypatch) -> None:
     monkeypatch.setattr(snapshot_store, "_connect", lambda: (_ for _ in ()).throw(AssertionError("unexpected DB call")))
 
     snapshot_store.store_minute_bars("KR", "005930", [], source="KIS_REST_MINUTE_CHART")
+
+
+def test_session_bar_restore_uses_local_exchange_date_and_returns_ascending(monkeypatch) -> None:
+    connection = _FakeConnection()
+    newer = (datetime.fromisoformat("2026-11-05T09:01:00-05:00"), Decimal("101"), Decimal("102"),
+             Decimal("100"), Decimal("101.5"), 1200, None)
+    older = (datetime.fromisoformat("2026-11-05T09:00:00-05:00"), Decimal("100"), Decimal("101"),
+             Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"))
+    connection.rows = [newer, older]
+    monkeypatch.setattr(snapshot_store, "_connect", lambda: connection)
+
+    bars = snapshot_store.load_session_minute_bars("US", "aapl", datetime.fromisoformat("2026-11-05").date())
+
+    query, params = connection.calls[0]
+    assert "bar_at >= %s AND bar_at < %s" in query
+    assert params[0:2] == ("US", "AAPL")
+    assert params[2].isoformat() == "2026-11-05T00:00:00-05:00"
+    assert params[3].isoformat() == "2026-11-06T00:00:00-05:00"
+    assert params[4] == 5000
+    assert [bar.timestamp.isoformat() for bar in bars] == [
+        "2026-11-05T09:00:00-05:00", "2026-11-05T09:01:00-05:00",
+    ]
+    assert bars[0].spread_bps == Decimal("4.5")

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from . import snapshot_store
 from .ai_pipeline import LocalModelRegistry
@@ -143,9 +144,32 @@ class PaperSessionFeedMonitor:
                 "evaluated_at": None, "executable": False,
             }
         if snapshot_store.enabled():
+            restored_count = 0
+            try:
+                for watch in watches:
+                    market_zone = ZoneInfo("Asia/Seoul" if watch.market == "KR" else "America/New_York")
+                    session_date = datetime.now(market_zone).date()
+                    restored = await asyncio.to_thread(
+                        snapshot_store.load_session_minute_bars,
+                        watch.market, watch.symbol, session_date,
+                    )
+                    if restored:
+                        self._bars[watch.key].extend(restored)
+                        self._evaluate_closed_history(watch, restored[-1])
+                        restored_count += len(restored)
+            except Exception:
+                self._set_status(
+                    state="BLOCKED", enabled=False, last_error="PAPER_BAR_HISTORY_RESTORE_FAILED",
+                    bar_storage_state="ERROR", bar_storage_error="POSTGRES_BAR_RESTORE_FAILED",
+                    automation_state="BLOCKED", automation_error="BAR_HISTORY_RESTORE_FAILED",
+                )
+                return
             self._bar_storage_queue = asyncio.Queue(maxsize=5_000)
             self._bar_storage_task = asyncio.create_task(self._bar_storage_loop())
-            self._set_status(bar_storage_state="RUNNING", bar_storage_error=None)
+            self._set_status(
+                bar_storage_state="RUNNING", bar_storage_error=None,
+                restored_bars=restored_count,
+            )
         else:
             self._set_status(bar_storage_state="DISABLED", bar_storage_error=None)
         readiness = PaperAutomationReadiness.from_environment()
@@ -510,6 +534,10 @@ class PaperSessionFeedMonitor:
         if history and history[-1].timestamp.date() != session_day:
             history.clear()
         history.append(bar)
+        self._evaluate_closed_history(watch, bar)
+
+    def _evaluate_closed_history(self, watch: PaperWatch, bar: MinuteBar) -> None:
+        history = self._bars[watch.key]
         signal = "HOLD"
         reason = "INSUFFICIENT_SESSION_HISTORY"
         model_id: str | None = None
