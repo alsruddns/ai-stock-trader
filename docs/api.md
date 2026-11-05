@@ -12,6 +12,7 @@
 | GET | `/api/v1/orders/paper/positions` | Paper 포지션 조회 |
 | GET | `/api/v1/kis/accounts/{paper\|real}/{KR\|US}/balance` | KIS 계좌 읽기 전용 잔고조회 |
 | WS | `/api/v1/market/stream` | KIS 국내·미국 실시간 체결 데이터 읽기 전용 릴레이 |
+| POST | `/api/v1/strategies/orb-vwap/backtest` | 전달된 단일 세션 봉 데이터의 ORB/VWAP 비용 반영 백테스트 |
 
 KIS API는 기본 잠금(`KIS_ACCOUNT_READ_ENABLED=false`)입니다. 종목별 매수가능액 확인 시 `symbol`과 `unitPrice`를 함께 전달합니다. 미국 조회의 `exchange`는 `NASD`, `NYSE`, `AMEX` 중 하나입니다. 계좌 API는 계좌번호, App Key, App Secret을 응답에 포함하지 않습니다.
 
@@ -36,3 +37,7 @@ Read timeout, HTTP 429 및 KIS rate-limit 오류는 안전한 오류 응답으�
 ```
 
 시세 전용이며 주문·체결통보 구독은 노출하지 않습니다. 공식 샘플의 모의 31000/실전 21000 포트와 `H0STCNT0`/`HDFSCNT0` 구독 ID를 사용합니다. 계정별 제공 데이터와 세션 제한은 실계정 연결 전에 해당 KIS 환경에서 검증해야 합니다.
+
+## Quant backtest
+
+`POST /api/v1/strategies/orb-vwap/backtest`는 클라이언트가 전달한 시간대 포함 1분봉 한 세션에 대해 ORB/VWAP/EMA/ATR·상대거래량·스프레드·거래대금 조건을 평가합니다. 진입은 신호 다음 봉의 시가부터, 수수료·슬리피지를 반영합니다. 같은 봉에서 손절과 목표가가 모두 닿으면 보수적으로 손절 우선 처리합니다. 데이터 공급·권리·정합성은 요청자가 책임지며 API는 저장하거나 주문하지 않습니다. 결과의 `executable`은 항상 `false`입니다.

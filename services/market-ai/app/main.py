@@ -2,7 +2,7 @@ from enum import StrEnum
 from functools import lru_cache
 import os
 import re
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 import asyncio
 import json
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from .kis import AccountBalance, Exchange, KisApiError, KisReadOnlyClient, KisSettings, Market, Quote
 from . import snapshot_store
 from . import kis_stream
+from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 
 app = FastAPI(
     title="AI Stock Trader Market Analysis",
@@ -45,6 +46,36 @@ class AnalysisRequest(BaseModel):
     market: str = Field(pattern="^(KR|US)$")
     symbol: str = Field(min_length=1, max_length=24)
     bars: list[Bar] = Field(min_length=2, max_length=500)
+
+
+class QuantBarRequest(BaseModel):
+    timestamp: datetime
+    open: Decimal = Field(gt=0)
+    high: Decimal = Field(gt=0)
+    low: Decimal = Field(gt=0)
+    close: Decimal = Field(gt=0)
+    volume: int = Field(ge=0)
+    spread_bps: Decimal | None = Field(default=None, ge=0)
+
+
+class QuantBacktestRequest(BaseModel):
+    market: Market
+    symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Za-z0-9.-]+$")
+    quantity: int = Field(default=1, gt=0, le=100_000)
+    bars: list[QuantBarRequest] = Field(min_length=1, max_length=5000)
+
+
+class QuantBacktestResponse(BaseModel):
+    market: str
+    symbol: str
+    session: date
+    trades: list[dict[str, object]]
+    gross_pnl: Decimal
+    costs: Decimal
+    net_pnl: Decimal
+    data_points: int
+    signals: int
+    executable: bool
 
 
 class AnalysisResponse(BaseModel):
@@ -215,4 +246,23 @@ def analyze_momentum(request: AnalysisRequest) -> AnalysisResponse:
         source="P1_SMA_PREVIEW",
         executable=False,
         reason="Experimental moving-average preview only; requires independent risk checks and paper validation.",
+    )
+
+
+@app.post("/api/v1/strategies/orb-vwap/backtest", response_model=QuantBacktestResponse)
+def backtest_orb_vwap_endpoint(request: QuantBacktestRequest) -> QuantBacktestResponse:
+    """Run a local, long-only one-session backtest. It never creates executable orders."""
+    try:
+        bars = [MinuteBar(
+            timestamp=item.timestamp, open=item.open, high=item.high, low=item.low,
+            close=item.close, volume=item.volume, spread_bps=item.spread_bps,
+        ) for item in request.bars]
+        result = backtest_orb_vwap(request.market, request.symbol, bars, QuantConfig(), quantity=request.quantity)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return QuantBacktestResponse(
+        market=result.market, symbol=result.symbol, session=result.session,
+        trades=[trade.__dict__ for trade in result.trades], gross_pnl=result.gross_pnl,
+        costs=result.costs, net_pnl=result.net_pnl, data_points=result.data_points,
+        signals=result.signals, executable=False,
     )
