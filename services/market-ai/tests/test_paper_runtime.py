@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.paper_runtime import PaperSessionFeedMonitor, parse_watchlist
+from app.paper_automation import PaperAutoTrader
 from app.paper_ops import PaperOpsLimits
 from app.quant import MinuteBar
 
@@ -208,3 +209,102 @@ def test_daily_baseline_worker_reports_existing_value_without_rewriting(monkeypa
 
     assert result["state"] == "BASELINE_PRESENT"
     assert result["session_date"] == bar.timestamp.date().isoformat()
+
+
+class _EntryBroker:
+    def __init__(self, *, cash: str = "1000000", baseline: str = "1000000") -> None:
+        self.cash = cash
+        self.baseline = baseline
+        self.created_orders = 0
+        self.recorded_fills = 0
+        self.last_fill = None
+
+    def get_positions(self):
+        return []
+
+    def get_cash_balances(self):
+        return [{"currency": "KRW", "balance": self.cash}]
+
+    def get_daily_risk_baselines(self, _session_date):
+        return [{"currency": "KRW", "equity": self.baseline}]
+
+    def get_operations_summary(self):
+        return {"consecutiveLosingTrades": 0, "openOrders": 0}
+
+    def get_order_by_idempotency_key(self, _key):
+        return None
+
+    def submit_order(self, *, idempotency_key, market, symbol, side, quantity, limit_price, currency):
+        self.created_orders += 1
+        return {"id": 8, "market": market, "symbol": symbol, "side": side, "quantity": quantity,
+                "limitPrice": str(limit_price), "currency": currency, "status": "PENDING", "filledQuantity": 0}
+
+    def record_fill(self, order_id, *, fill_key, quantity, fill_price, stop_price=None, target_price=None):
+        self.recorded_fills += 1
+        self.last_fill = {"quantity": quantity, "fill_price": fill_price,
+                          "stop_price": stop_price, "target_price": target_price}
+        return {"id": order_id, "status": "FILLED", "filledQuantity": quantity}
+
+    def close(self):
+        pass
+
+
+def _prepare_entry_runtime(monkeypatch, *, cash: str = "1000000", baseline: str = "1000000"):
+    monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "true")
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("KIS_PAPER_ORDERS_ENABLED", "false")
+    monkeypatch.setattr(
+        "app.paper_ops.exchange_session_window",
+        lambda _market, _at: (datetime.now(ZoneInfo("UTC")) - timedelta(hours=1),
+                              datetime.now(ZoneInfo("UTC")) + timedelta(hours=4)),
+    )
+    runtime = PaperSessionFeedMonitor()
+    runtime._set_status(state="RUNNING", enabled=True)
+    watch = parse_watchlist("KR:005930")[0]
+    runtime._bars[watch.key] = deque(maxlen=5_000)
+    now = datetime.now(ZoneInfo("UTC"))
+    start = now.astimezone(ZoneInfo("Asia/Seoul")) - timedelta(minutes=20)
+    for index in range(20):
+        price = Decimal("100")
+        runtime._bars[watch.key].append(MinuteBar(start + timedelta(minutes=index), price,
+                                                 price + Decimal("1"), price - Decimal("1"),
+                                                 price, 1000, Decimal("5")))
+    bar = MinuteBar(now.astimezone(ZoneInfo("Asia/Seoul")), Decimal("100"), Decimal("101"),
+                    Decimal("99"), Decimal("100"), 1000, Decimal("5"))
+    quote_at = datetime.now(ZoneInfo("UTC"))
+    quotes = {("KR", "005930"): (Decimal("100"), quote_at)}
+    broker = _EntryBroker(cash=cash, baseline=baseline)
+    return runtime, watch, bar, quotes, broker
+
+
+def test_approved_candidate_enters_only_local_paper_ledger_after_risk_gates(monkeypatch) -> None:
+    runtime, watch, bar, quotes, broker = _prepare_entry_runtime(monkeypatch)
+    trader = PaperAutoTrader(broker)
+
+    result = runtime._manage_strategy_entry(
+        broker, trader, watch, bar, {"signal": "BUY_CANDIDATE", "model_id": "approved-kr-model"},
+        quotes, PaperOpsLimits(),
+    )
+
+    assert result["state"] == "FILLED"
+    assert broker.created_orders == 1
+    assert broker.recorded_fills == 1
+    assert Decimal(0) < broker.last_fill["stop_price"] < bar.close < broker.last_fill["target_price"]
+
+
+def test_daily_loss_limit_blocks_candidate_before_any_paper_order_write(monkeypatch) -> None:
+    runtime, watch, bar, quotes, broker = _prepare_entry_runtime(
+        monkeypatch, cash="989000", baseline="1000000"
+    )
+    trader = PaperAutoTrader(broker)
+
+    result = runtime._manage_strategy_entry(
+        broker, trader, watch, bar, {"signal": "BUY_CANDIDATE", "model_id": "approved-kr-model"},
+        quotes, PaperOpsLimits(),
+    )
+
+    assert result["state"] == "BLOCKED"
+    assert "DAILY_LOSS_LIMIT" in result["reason"]
+    assert broker.created_orders == 0
+    assert broker.recorded_fills == 0
