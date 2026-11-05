@@ -9,6 +9,8 @@ import os
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from .quant import MinuteBar
+
 Market = Literal["KR", "US"]
 
 
@@ -55,6 +57,29 @@ class PaperOrderSizing:
     notional: Decimal
     stop_distance: Decimal
     risk_budget: Decimal
+
+
+@dataclass(frozen=True)
+class PaperExitCandidate:
+    price: Decimal
+    reason: str
+
+
+def evaluate_paper_exit(
+    bar: MinuteBar, *, stop_price: Decimal, target_price: Decimal, flatten_required: bool = False,
+) -> PaperExitCandidate | None:
+    """Evaluate stop-first exits on a completed bar; gap-through fills use the worse open."""
+    if not (Decimal(0) < stop_price < target_price):
+        raise ValueError("paper exit stop and target levels are invalid")
+    if bar.open <= stop_price or bar.low <= stop_price:
+        return PaperExitCandidate(min(bar.open, stop_price), "ATR_STOP")
+    if bar.open >= target_price:
+        return PaperExitCandidate(bar.open, "TAKE_PROFIT_GAP")
+    if bar.high >= target_price:
+        return PaperExitCandidate(target_price, "TAKE_PROFIT")
+    if flatten_required:
+        return PaperExitCandidate(bar.close, "SESSION_END")
+    return None
 
 
 def size_paper_order(

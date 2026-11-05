@@ -3,7 +3,9 @@ from decimal import Decimal
 
 import pytest
 
-from app.paper_ops import PaperOpsLimits, evaluate_paper_gate, exchange_session_window, size_paper_order
+from app.paper_ops import (PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate,
+                           exchange_session_window, size_paper_order)
+from app.quant import MinuteBar
 
 
 def _good_gate(now: datetime, quote_at: datetime | None = None, **overrides):
@@ -96,6 +98,29 @@ def test_malformed_paper_risk_setting_fails_closed(monkeypatch) -> None:
     monkeypatch.setenv("PAPER_DAILY_LOSS_LIMIT_PCT", "not-a-number")
     with pytest.raises(ValueError, match="risk settings are invalid"):
         PaperOpsLimits.from_environment()
+
+
+def test_paper_exit_uses_stop_first_and_worse_open_for_gaps() -> None:
+    at = datetime(2026, 11, 5, 10, 0, tzinfo=timezone.utc)
+    both_touched = MinuteBar(at, Decimal("100"), Decimal("105"), Decimal("95"), Decimal("102"), 1000, Decimal("5"))
+    stop = evaluate_paper_exit(both_touched, stop_price=Decimal("98"), target_price=Decimal("104"))
+    assert stop is not None and stop.reason == "ATR_STOP" and stop.price == Decimal("98")
+
+    gap_down = MinuteBar(at, Decimal("95"), Decimal("101"), Decimal("94"), Decimal("100"), 1000, Decimal("5"))
+    gap_stop = evaluate_paper_exit(gap_down, stop_price=Decimal("98"), target_price=Decimal("104"))
+    assert gap_stop is not None and gap_stop.price == Decimal("95")
+
+
+def test_paper_exit_handles_target_gap_session_flatten_and_hold() -> None:
+    at = datetime(2026, 11, 5, 10, 0, tzinfo=timezone.utc)
+    gap_up = MinuteBar(at, Decimal("105"), Decimal("106"), Decimal("100"), Decimal("105"), 1000, Decimal("5"))
+    target = evaluate_paper_exit(gap_up, stop_price=Decimal("98"), target_price=Decimal("104"))
+    assert target is not None and target.reason == "TAKE_PROFIT_GAP" and target.price == Decimal("105")
+
+    quiet = MinuteBar(at, Decimal("100"), Decimal("102"), Decimal("99"), Decimal("101"), 1000, Decimal("5"))
+    close = evaluate_paper_exit(quiet, stop_price=Decimal("98"), target_price=Decimal("104"), flatten_required=True)
+    assert close is not None and close.reason == "SESSION_END" and close.price == Decimal("101")
+    assert evaluate_paper_exit(quiet, stop_price=Decimal("98"), target_price=Decimal("104")) is None
 
 
 def test_new_entries_allowed_only_when_every_dependency_and_risk_gate_passes() -> None:

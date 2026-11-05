@@ -57,3 +57,17 @@ def test_lookup_by_idempotency_key_supports_safe_reconciliation() -> None:
     broker = SpringPaperBrokerClient(http_client=http)
     assert broker.get_order_by_idempotency_key(key) is None
     http.close()
+
+
+def test_fill_adapter_includes_atomic_strategy_exit_levels() -> None:
+    seen: list[httpx.Request] = []
+    client = httpx.Client(transport=httpx.MockTransport(lambda request: (
+        seen.append(request) or httpx.Response(200, json={"id": 12, "status": "FILLED"})
+    )))
+    broker = SpringPaperBrokerClient(http_client=client)
+    broker.record_fill(12, fill_key=UUID(int=9), quantity=2, fill_price=Decimal("100"),
+                       stop_price=Decimal("98"), target_price=Decimal("104"))
+
+    assert seen[0].read().decode().find('"stopPrice":"98"') >= 0
+    assert seen[0].read().decode().find('"targetPrice":"104"') >= 0
+    client.close()
