@@ -329,6 +329,8 @@ async def stream_market_data(websocket: WebSocket) -> None:
             await websocket.send_json({"kind": "subscribed", "market": market, "symbol": symbol.upper(), "exchange": exchange})
             while True:
                 frame = await upstream.recv()
+                if await kis_stream.reply_to_pingpong(upstream, frame):
+                    continue
                 if isinstance(frame, bytes):
                     frame = frame.decode("utf-8", errors="replace")
                 await websocket.send_json(kis_stream.normalize_stream_frame(frame))

@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 from . import snapshot_store
 from .ai_pipeline import LocalModelRegistry
-from .kis_stream import StreamSettings, approval_key, normalize_stream_frame, subscription_message
+from .kis_stream import StreamSettings, approval_key, normalize_stream_frame, reply_to_pingpong, subscription_message
 from .market_stream import MinuteBarAggregator, parse_trade_frame
 from .quant import MinuteBar, QuantConfig, _atr, orb_vwap_entry_candidate
 from .paper_automation import PaperAutomationReadiness, PaperAutoTrader, PaperEntryDecision
@@ -278,6 +278,8 @@ class PaperSessionFeedMonitor:
                         await upstream.send(self._subscription_json(key, watch))
                     self._set_connection_state(environment, "RUNNING")
                     async for frame in upstream:
+                        if await reply_to_pingpong(upstream, frame):
+                            continue
                         self._consume(frame, watches)
             except asyncio.CancelledError:
                 raise

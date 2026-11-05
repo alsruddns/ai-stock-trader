@@ -6,7 +6,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 
@@ -86,6 +86,29 @@ def subscription_message(key: str, market: Market, symbol: str, exchange: str | 
         "header": {"approval_key": key, "custtype": "P", "tr_type": "1", "content-type": "utf-8"},
         "body": {"input": {"tr_id": tr_id, "tr_key": tr_key}},
     }
+
+
+def is_pingpong_frame(frame: str | bytes) -> bool:
+    """Return whether a KIS control frame requests a WebSocket Pong response."""
+    if isinstance(frame, bytes):
+        frame = frame.decode("utf-8", errors="replace")
+    try:
+        message = json.loads(frame)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    if not isinstance(message, dict):
+        return False
+    header = message.get("header")
+    return isinstance(header, dict) and header.get("tr_id") == "PINGPONG"
+
+
+async def reply_to_pingpong(upstream: Any, frame: str | bytes) -> bool:
+    """Echo KIS PINGPONG control data in a WebSocket Pong frame."""
+    if not is_pingpong_frame(frame):
+        return False
+    payload = frame if isinstance(frame, bytes) else frame.encode("utf-8")
+    await upstream.pong(payload)
+    return True
 
 
 def normalize_stream_frame(frame: str) -> dict[str, str]:

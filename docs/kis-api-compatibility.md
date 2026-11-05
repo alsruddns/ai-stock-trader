@@ -18,6 +18,10 @@ The official sample lists `NASD`, `NYSE`, and `AMEX` for PAPER balance lookups; 
 - This source review is not an authenticated KIS integration test. In the current local environment credentials are not configured; Spring and Python return `503` with an account-read-disabled message before making a KIS request.
 - This project has not enabled live orders. The read-only account path must not be used as evidence that order submission, market data entitlement, or fill reconciliation is verified.
 
+## WebSocket market data
+
+The official KIS WebSocket sample answers a JSON `PINGPONG` message by sending its payload back as a WebSocket Pong frame. Both the local quote relay and the PAPER session monitor now do this and skip the control message in the trade-tick parser. This was checked against the [official KIS WebSocket sample](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/websocket/python/ops_ws_sample.py). Live feed connectivity still requires an authenticated account-level smoke test.
+
 ## Official references
 
 - [KIS official domestic stock balance example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_balance/inquire_balance.py)

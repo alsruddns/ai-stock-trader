@@ -52,7 +52,7 @@ Paper 주문 응답이 타임아웃되면 `GET /api/v1/orders/paper/by-idempoten
 {"market":"US","symbol":"AAPL","exchange":"NAS"}
 ```
 
-시세 전용이며 주문·체결통보 구독은 노출하지 않습니다. 공식 샘플의 모의 31000/실전 21000 포트와 `H0STCNT0`/`HDFSCNT0` 구독 ID를 사용합니다. 계정별 제공 데이터와 세션 제한은 실계정 연결 전에 해당 KIS 환경에서 검증해야 합니다.
+시세 전용이며 주문·체결통보 구독은 노출하지 않습니다. 공식 샘플의 모의 31000/실전 21000 포트와 `H0STCNT0`/`HDFSCNT0` 구독 ID를 사용합니다. KIS가 `PINGPONG` 제어 메시지를 보낼 때 상류 WebSocket에 Pong으로 응답하며, PAPER 세션 감시기도 같은 처리를 합니다. 계정별 제공 데이터와 세션 제한은 실계정 연결 전에 해당 KIS 환경에서 검증해야 합니다.
 
 ## Quant backtest
 

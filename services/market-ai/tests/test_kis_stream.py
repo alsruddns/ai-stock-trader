@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timezone
 
 import httpx
@@ -7,7 +8,10 @@ import pytest
 
 from app.kis import KisApiError, KisSettings
 from app.kis_rate_limit import SharedRateLimitUnavailable
-from app.kis_stream import StreamSettings, approval_key, normalize_stream_frame, subscription_message
+from app.kis_stream import (
+    StreamSettings, approval_key, is_pingpong_frame, normalize_stream_frame,
+    reply_to_pingpong, subscription_message,
+)
 
 
 def test_approval_key_uses_environment_specific_url_and_official_payload() -> None:
@@ -72,6 +76,32 @@ def test_frame_normalizer_bounds_and_redacts_control_payload() -> None:
     assert control == {"kind": "control", "code": "PINGPONG", "message": "ok"}
     with pytest.raises(KisApiError, match="size"):
         normalize_stream_frame("x" * 100_001)
+
+
+def test_kis_pingpong_control_frame_is_answered_as_websocket_pong() -> None:
+    class FakeUpstream:
+        def __init__(self) -> None:
+            self.pong_payload: bytes | None = None
+
+        async def pong(self, payload: bytes) -> None:
+            self.pong_payload = payload
+
+    frame = '{"header":{"tr_id":"PINGPONG"},"body":{"rt_cd":"0"}}'
+    upstream = FakeUpstream()
+
+    assert is_pingpong_frame(frame)
+    assert asyncio.run(reply_to_pingpong(upstream, frame)) is True
+    assert upstream.pong_payload == frame.encode("utf-8")
+
+
+def test_non_pingpong_control_frame_does_not_send_pong() -> None:
+    class FakeUpstream:
+        async def pong(self, _payload: bytes) -> None:
+            pytest.fail("subscription replies must not be treated as keepalives")
+
+    frame = '{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0"}}'
+    assert not is_pingpong_frame(frame)
+    assert asyncio.run(reply_to_pingpong(FakeUpstream(), frame)) is False
 
 
 def test_stream_url_selects_distinct_paper_and_real_ports() -> None:
