@@ -38,7 +38,6 @@ public class OrderService {
         this(orders, safety, fills, positions, cashBalances, null);
     }
 
-    @Transactional
     public OrderRecord submit(OrderRequest request, UUID idempotencyKey) {
         if (safety.liveTradingEnabled() || !"paper".equalsIgnoreCase(safety.mode())) {
             throw new IllegalStateException("Only paper orders are available.");
@@ -65,7 +64,14 @@ public class OrderService {
         if (notional.compareTo(limit) > 0) {
             throw new IllegalArgumentException("Order exceeds the configured paper-trading notional limit.");
         }
-        return orders.save(new OrderRecord(request, idempotencyKey));
+        orders.insertIfIdempotencyKeyAbsent(request.market().name(), request.symbol().trim().toUpperCase(Locale.ROOT),
+                request.side().name(), request.quantity(), request.limitPrice(), request.currency().name(), idempotencyKey);
+        var persisted = orders.findByIdempotencyKey(idempotencyKey)
+                .orElseThrow(() -> new IllegalStateException("Paper order insert did not produce a readable row."));
+        if (!matches(persisted, request)) {
+            throw new IdempotencyConflictException("Idempotency-Key was concurrently used for a different order.");
+        }
+        return persisted;
     }
 
     @Transactional

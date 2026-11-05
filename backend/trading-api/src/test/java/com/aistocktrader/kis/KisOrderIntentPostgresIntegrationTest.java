@@ -16,6 +16,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -84,6 +87,33 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(com.aistocktrader.order.OrderStatus.PENDING, recovered.getStatus());
             assertEquals(1L, paperOrderRepository.findByIdempotencyKey(key).stream().count());
         } finally {
+            paperOrderRepository.findByIdempotencyKey(key).ifPresent(paperOrderRepository::delete);
+        }
+    }
+
+    @Test
+    void concurrentPaperSubmissionsWithTheSameKeyResolveToOnePersistedOrder() throws Exception {
+        UUID key = UUID.randomUUID();
+        var executor = Executors.newFixedThreadPool(2);
+        var start = new CountDownLatch(1);
+        try {
+            var first = executor.submit(() -> {
+                start.await();
+                return paperOrders.submit(request(), key);
+            });
+            var second = executor.submit(() -> {
+                start.await();
+                return paperOrders.submit(request(), key);
+            });
+            start.countDown();
+
+            var firstResult = first.get(15, TimeUnit.SECONDS);
+            var secondResult = second.get(15, TimeUnit.SECONDS);
+
+            assertEquals(firstResult.getId(), secondResult.getId());
+            assertEquals(1L, paperOrderRepository.findByIdempotencyKey(key).stream().count());
+        } finally {
+            executor.shutdownNow();
             paperOrderRepository.findByIdempotencyKey(key).ifPresent(paperOrderRepository::delete);
         }
     }

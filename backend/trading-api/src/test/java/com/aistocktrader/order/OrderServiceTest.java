@@ -31,13 +31,17 @@ class OrderServiceTest {
     }
     @Test
     void persistsOnlySimulatedOrdersWithinTheNotionalLimit() {
-        when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
-        when(orders.save(any(OrderRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        OrderRecord persisted = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
+        when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty(), Optional.of(persisted));
+        when(orders.insertIfIdempotencyKeyAbsent("KR", "005930", "BUY", 2,
+                new BigDecimal("70000"), "KRW", idempotencyKey)).thenReturn(1);
         OrderRecord result = service().submit(request(new BigDecimal("70000"), 2), idempotencyKey);
+        assertSame(persisted, result);
         assertEquals(OrderStatus.PENDING, result.getStatus());
         assertEquals("005930", result.getSymbol());
         assertEquals(idempotencyKey, result.getIdempotencyKey());
-        verify(orders).save(any(OrderRecord.class));
+        verify(orders).insertIfIdempotencyKeyAbsent("KR", "005930", "BUY", 2,
+                new BigDecimal("70000"), "KRW", idempotencyKey);
     }
     @Test
     void rejectsAnOrderThatExceedsTheRiskLimitBeforePersistence() {
@@ -54,6 +58,31 @@ class OrderServiceTest {
         OrderRecord result = service().submit(request, idempotencyKey);
         assertSame(existing, result);
         verify(orders, never()).save(any());
+    }
+
+    @Test
+    void resolvesConcurrentSameKeyInsertByReturningTheCommittedOrder() {
+        OrderRequest request = request(new BigDecimal("70000"), 2);
+        OrderRecord committed = new OrderRecord(request, idempotencyKey);
+        when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty(), Optional.of(committed));
+        when(orders.insertIfIdempotencyKeyAbsent("KR", "005930", "BUY", 2,
+                new BigDecimal("70000"), "KRW", idempotencyKey)).thenReturn(0);
+
+        OrderRecord result = service().submit(request, idempotencyKey);
+
+        assertSame(committed, result);
+        verify(orders, times(2)).findByIdempotencyKey(idempotencyKey);
+    }
+
+    @Test
+    void rejectsConcurrentSameKeyInsertWhenCommittedRequestDiffers() {
+        OrderRecord committed = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
+        when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty(), Optional.of(committed));
+        when(orders.insertIfIdempotencyKeyAbsent("KR", "005930", "BUY", 2,
+                new BigDecimal("71000"), "KRW", idempotencyKey)).thenReturn(0);
+
+        assertThrows(IdempotencyConflictException.class, () -> service().submit(
+                request(new BigDecimal("71000"), 2), idempotencyKey));
     }
 
     @Test
