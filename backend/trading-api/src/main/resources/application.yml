@@ -1,0 +1,19 @@
+server:
+  port: 8080
+  address: ${SERVER_ADDRESS:127.0.0.1}
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/ai_stock_trader}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+trading:
+  mode: ${TRADING_MODE:paper}
+  live-trading-enabled: ${LIVE_TRADING_ENABLED:false}
+  max-order-notional-krw: ${MAX_ORDER_NOTIONAL_KRW:1000000}
+  max-order-notional-usd: ${MAX_ORDER_NOTIONAL_USD:100}

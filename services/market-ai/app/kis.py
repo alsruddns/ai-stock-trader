@@ -1,0 +1,209 @@
+"""Read-only KIS REST quote client. This module contains no order or account APIs."""
+
+from __future__ import annotations
+
+import os
+import threading
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
+from typing import Any, Literal
+
+import httpx
+
+Market = Literal["KR", "US"]
+Exchange = Literal["NAS", "NYS", "AMS"]
+
+REAL_URL = "https://openapi.koreainvestment.com:9443"
+PAPER_URL = "https://openapivts.koreainvestment.com:29443"
+DOMESTIC_QUOTE_PATH = "/uapi/domestic-stock/v1/quotations/inquire-price"
+OVERSEAS_QUOTE_PATH = "/uapi/overseas-price/v1/quotations/price"
+
+
+class KisApiError(RuntimeError):
+    """Safe, non-sensitive error intended for application logging/handling."""
+
+
+@dataclass(frozen=True)
+class KisSettings:
+    enabled: bool
+    environment: Literal["paper", "real"]
+    app_key: str
+    app_secret: str
+
+    @classmethod
+    def from_environment(cls) -> "KisSettings":
+        mode = os.getenv("KIS_ENVIRONMENT", "paper").strip().lower()
+        if mode not in {"paper", "real"}:
+            raise ValueError("KIS_ENVIRONMENT must be paper or real")
+        return cls(
+            enabled=os.getenv("KIS_MARKET_DATA_ENABLED", "false").strip().lower() == "true",
+            environment=mode,  # type: ignore[arg-type]
+            app_key=os.getenv("KIS_APP_KEY", "").strip(),
+            app_secret=os.getenv("KIS_APP_SECRET", "").strip(),
+        )
+
+    @property
+    def base_url(self) -> str:
+        return PAPER_URL if self.environment == "paper" else REAL_URL
+
+
+@dataclass(frozen=True)
+class Quote:
+    market: Market
+    symbol: str
+    exchange: str | None
+    currency: str
+    price: Decimal
+    change: Decimal | None
+    change_percent: Decimal | None
+    volume: int | None
+    retrieved_at: datetime
+    source: str = "KIS_REST_SNAPSHOT"
+
+
+def _decimal(value: Any, field: str) -> Decimal | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise KisApiError(f"KIS returned an invalid {field} value") from exc
+    if not parsed.is_finite():
+        raise KisApiError(f"KIS returned an invalid {field} value")
+    return parsed
+
+
+def _volume(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise KisApiError("KIS returned an invalid volume value") from exc
+
+
+class KisReadOnlyClient:
+    """Small blocking HTTP client for one-shot market quote snapshots."""
+
+    def __init__(self, settings: KisSettings, *, http_client: httpx.Client | None = None):
+        if not settings.app_key or not settings.app_secret:
+            raise ValueError("KIS app key and secret are required")
+        self.settings = settings
+        self._http = http_client or httpx.Client(timeout=httpx.Timeout(8.0, connect=3.0))
+        self._token: str | None = None
+        self._token_expires_at: datetime | None = None
+        self._token_lock = threading.Lock()
+
+    def _access_token(self) -> str:
+        now = datetime.now(timezone.utc)
+        if self._token and self._token_expires_at and now + timedelta(minutes=5) < self._token_expires_at:
+            return self._token
+
+        with self._token_lock:
+            now = datetime.now(timezone.utc)
+            if self._token and self._token_expires_at and now + timedelta(minutes=5) < self._token_expires_at:
+                return self._token
+            try:
+                response = self._http.post(
+                    f"{self.settings.base_url}/oauth2/tokenP",
+                    json={
+                        "grant_type": "client_credentials",
+                        "appkey": self.settings.app_key,
+                        "appsecret": self.settings.app_secret,
+                    },
+                    headers={"content-type": "application/json"},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                token = payload.get("access_token")
+                expiry = payload.get("access_token_token_expired")
+                if not token or not expiry:
+                    raise KisApiError("KIS token response was missing required fields")
+                # KIS token expiry strings are supplied in Korea local time (UTC+09:00).
+                local_expiry = datetime.strptime(expiry, "%Y-%m-%d %H:%M:%S").replace(
+                    tzinfo=timezone(timedelta(hours=9))
+                )
+                self._token = token
+                self._token_expires_at = local_expiry.astimezone(timezone.utc)
+                return token
+            except KisApiError:
+                raise
+            except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
+                raise KisApiError("KIS authentication failed; check credentials and environment") from exc
+
+    def get_quote(self, market: Market, symbol: str, exchange: Exchange | None = None) -> Quote:
+        normalized_symbol = symbol.strip().upper()
+        if not normalized_symbol:
+            raise ValueError("symbol is required")
+        if market == "KR":
+            if exchange is not None:
+                raise ValueError("exchange is only used for US symbols")
+            if not (normalized_symbol.isdigit() and len(normalized_symbol) == 6):
+                raise ValueError("KR symbols must be six digits")
+            path = DOMESTIC_QUOTE_PATH
+            tr_id = "FHKST01010100"
+            params = {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": normalized_symbol}
+        elif market == "US":
+            if exchange is None:
+                raise ValueError("US quotes require exchange NAS, NYS, or AMS")
+            path = OVERSEAS_QUOTE_PATH
+            tr_id = "HHDFS00000300"
+            params = {"AUTH": "", "EXCD": exchange, "SYMB": normalized_symbol}
+        else:
+            raise ValueError("market must be KR or US")
+
+        try:
+            response = self._http.get(
+                f"{self.settings.base_url}{path}",
+                headers={
+                    "authorization": f"Bearer {self._access_token()}",
+                    "appkey": self.settings.app_key,
+                    "appsecret": self.settings.app_secret,
+                    "tr_id": tr_id,
+                    "custtype": "P",
+                },
+                params=params,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except KisApiError:
+            raise
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise KisApiError("KIS quote request failed") from exc
+
+        if payload.get("rt_cd") != "0":
+            code = str(payload.get("msg_cd", "unknown"))[:32]
+            raise KisApiError(f"KIS rejected the quote request (code {code})")
+        output = payload.get("output")
+        if not isinstance(output, dict):
+            raise KisApiError("KIS quote response did not contain an output object")
+
+        if market == "KR":
+            price = _decimal(output.get("stck_prpr"), "price")
+            currency = "KRW"
+            change = _decimal(output.get("prdy_vrss"), "change")
+            change_percent = _decimal(output.get("prdy_ctrt"), "change percent")
+            volume = _volume(output.get("acml_vol"))
+        else:
+            price = _decimal(output.get("last"), "price")
+            currency = "USD"
+            change = _decimal(output.get("diff"), "change")
+            change_percent = _decimal(output.get("rate"), "change percent")
+            volume = _volume(output.get("tvol"))
+        if price is None or price <= 0:
+            raise KisApiError("KIS quote response did not contain a valid price")
+        return Quote(
+            market=market,
+            symbol=normalized_symbol,
+            exchange=exchange,
+            currency=currency,
+            price=price,
+            change=change,
+            change_percent=change_percent,
+            volume=volume,
+            retrieved_at=datetime.now(timezone.utc),
+        )
+
+    def close(self) -> None:
+        self._http.close()

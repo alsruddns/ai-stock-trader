@@ -1,0 +1,117 @@
+from enum import StrEnum
+from functools import lru_cache
+import re
+from datetime import datetime
+from decimal import Decimal
+
+from fastapi import Depends, FastAPI, HTTPException, Path, Query
+from pydantic import BaseModel, Field
+from .kis import Exchange, KisApiError, KisReadOnlyClient, KisSettings, Market, Quote
+
+app = FastAPI(
+    title="AI Stock Trader Market Analysis",
+    version="0.1.0",
+    description="Read-only P1 analysis preview. It cannot place broker orders.",
+)
+
+
+@lru_cache
+def get_kis_client() -> KisReadOnlyClient:
+    settings = KisSettings.from_environment()
+    if not settings.enabled:
+        raise HTTPException(status_code=503, detail="KIS market data is disabled")
+    if not settings.app_key or not settings.app_secret:
+        raise HTTPException(status_code=503, detail="KIS market data credentials are not configured")
+    return KisReadOnlyClient(settings)
+
+
+class Signal(StrEnum):
+    BUY = "BUY"
+    SELL = "SELL"
+    HOLD = "HOLD"
+
+
+class Bar(BaseModel):
+    close: float = Field(gt=0)
+
+
+class AnalysisRequest(BaseModel):
+    market: str = Field(pattern="^(KR|US)$")
+    symbol: str = Field(min_length=1, max_length=24)
+    bars: list[Bar] = Field(min_length=2, max_length=500)
+
+
+class AnalysisResponse(BaseModel):
+    market: str
+    symbol: str
+    signal: Signal
+    confidence: float = Field(ge=0, le=1)
+    source: str
+    executable: bool
+    reason: str
+
+
+class QuoteResponse(BaseModel):
+    market: Market
+    symbol: str
+    exchange: str | None
+    currency: str
+    price: Decimal
+    change: Decimal | None
+    change_percent: Decimal | None
+    volume: int | None
+    retrieved_at: datetime
+    source: str
+
+
+@app.get("/api/v1/health")
+def health() -> dict[str, str | bool]:
+    settings = KisSettings.from_environment()
+    return {
+        "status": "ok",
+        "mode": "read-only-preview",
+        "broker_connected": False,
+        "kis_market_data_enabled": settings.enabled,
+    }
+
+
+@app.get("/api/v1/market/quotes/{market}/{symbol}", response_model=QuoteResponse)
+def get_quote(
+    market: Market,
+    symbol: str = Path(pattern=r"^[A-Za-z0-9.-]{1,16}$"),
+    exchange: Exchange | None = Query(default=None),
+    client: KisReadOnlyClient = Depends(get_kis_client),
+) -> Quote:
+    if market == "US" and exchange is None:
+        raise HTTPException(status_code=422, detail="US quotes require exchange=NAS, NYS, or AMS")
+    if market == "KR" and not re.fullmatch(r"\d{6}", symbol):
+        raise HTTPException(status_code=422, detail="KR symbols must be six digits")
+    try:
+        return client.get_quote(market, symbol, exchange)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KisApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/analysis/momentum", response_model=AnalysisResponse)
+def analyze_momentum(request: AnalysisRequest) -> AnalysisResponse:
+    """A transparent SMA crossover preview. This is not an AI prediction or trade instruction."""
+    closes = [bar.close for bar in request.bars]
+    short_window = min(5, len(closes) - 1)
+    short_average = sum(closes[-short_window:]) / short_window
+    long_average = sum(closes) / len(closes)
+    signal = Signal.HOLD
+    if short_average > long_average * 1.002:
+        signal = Signal.BUY
+    elif short_average < long_average * 0.998:
+        signal = Signal.SELL
+    return AnalysisResponse(
+        market=request.market,
+        symbol=request.symbol.strip().upper(),
+        signal=signal,
+        confidence=0.0,
+        source="P1_SMA_PREVIEW",
+        executable=False,
+        reason="Experimental moving-average preview only; requires independent risk checks and paper validation.",
+    )

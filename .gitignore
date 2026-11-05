@@ -1,0 +1,26 @@
+# Local secrets and machine-specific settings
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Java / Maven
+**/target/
+.mvn/wrapper/maven-wrapper.jar
+
+# Python
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+**/*.py[cod]
+**/*.egg-info/
+
+# Local data and editor files
+data/
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+Desktop.ini
