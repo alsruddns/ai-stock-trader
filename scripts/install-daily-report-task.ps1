@@ -10,7 +10,13 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $runnerPath = Join-Path $PSScriptRoot "run-daily-report-task.ps1"
 $runAt = [DateTime]::Today.Add([TimeSpan]::ParseExact($DailyTime, "hh\:mm", [Globalization.CultureInfo]::InvariantCulture))
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$powerShellPath = Join-Path $PSHOME "powershell.exe"
+$powerShellPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+if (-not (Test-Path -LiteralPath $powerShellPath)) {
+    $powerShellPath = Join-Path $PSHOME "pwsh.exe"
+}
+if (-not (Test-Path -LiteralPath $powerShellPath)) {
+    throw "No PowerShell executable was found for the scheduled report task."
+}
 $action = New-ScheduledTaskAction -Execute $powerShellPath `
     -Argument "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runnerPath`"" `
     -WorkingDirectory $repoRoot
