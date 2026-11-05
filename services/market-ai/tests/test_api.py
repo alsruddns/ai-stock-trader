@@ -14,6 +14,13 @@ def test_health_discloses_read_only_mode() -> None:
     assert response.json()["mode"] == "read-only-preview"
     assert response.json()["paper_automation_enabled"] is False
     assert response.json()["live_trading_enabled"] is False
+    assert response.json()["paper_session_monitor"] == "DISABLED"
+
+
+def test_paper_session_status_is_monitor_only() -> None:
+    response = client.get("/api/v1/paper/session")
+    assert response.status_code == 200
+    assert response.json()["orders_enabled"] is False
 
 
 def test_model_governance_endpoint_is_read_only_for_execution(monkeypatch, tmp_path) -> None:
