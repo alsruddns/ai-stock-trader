@@ -36,6 +36,17 @@ def test_feed_monitor_remains_disabled_without_explicit_opt_in(monkeypatch) -> N
     assert status["automation_state"] == "DISABLED"
 
 
+def test_websocket_reconnect_backoff_survives_short_lived_connections() -> None:
+    delay = 1
+    delays = []
+    for _ in range(5):
+        delay = PaperSessionFeedMonitor._next_reconnect_delay(delay, connected_seconds=2)
+        delays.append(delay)
+
+    assert delays == [2, 4, 8, 16, 30]
+    assert PaperSessionFeedMonitor._next_reconnect_delay(30, connected_seconds=60) == 1
+
+
 def test_live_mode_blocks_paper_session_monitor(monkeypatch) -> None:
     monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
     monkeypatch.setenv("TRADING_MODE", "paper")

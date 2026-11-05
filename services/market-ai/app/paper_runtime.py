@@ -157,23 +157,35 @@ class PaperSessionFeedMonitor:
     async def _run(self, watches: tuple[PaperWatch, ...], settings: StreamSettings) -> None:
         delay = 1
         while True:
+            connected_at: float | None = None
             try:
                 key = await asyncio.to_thread(approval_key, settings.kis)
                 import websockets
 
                 async with websockets.connect(settings.websocket_url, ping_interval=30, close_timeout=3) as upstream:
+                    connected_at = asyncio.get_running_loop().time()
                     for watch in watches:
                         await upstream.send(self._subscription_json(key, watch))
                     self._set_status(state="RUNNING", last_error=None)
-                    delay = 1
                     async for frame in upstream:
                         self._consume(frame, watches)
             except asyncio.CancelledError:
                 raise
             except Exception:
+                connected_seconds = (asyncio.get_running_loop().time() - connected_at
+                                     if connected_at is not None else 0)
+                delay = self._next_reconnect_delay(delay, connected_seconds)
                 self._set_status(state="RECONNECTING", last_error="KIS_STREAM_UNAVAILABLE")
                 await asyncio.sleep(delay)
-                delay = min(delay * 2, 30)
+
+    @staticmethod
+    def _next_reconnect_delay(current_delay: int, connected_seconds: float, *, stable_seconds: int = 60) -> int:
+        """Keep exponential backoff across flapping connections; reset only after a stable session."""
+        if current_delay < 1 or connected_seconds < 0 or stable_seconds < 1:
+            raise ValueError("reconnect timing values must be positive")
+        if connected_seconds >= stable_seconds:
+            return 1
+        return min(current_delay * 2, 30)
 
     @staticmethod
     def _subscription_json(key: str, watch: PaperWatch) -> str:
