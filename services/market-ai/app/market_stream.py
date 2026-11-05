@@ -65,7 +65,7 @@ def parse_trade_frame(frame: str, market: str, exchange: str | None = None) -> l
         width, zone = 46, "Asia/Seoul"
         get_tick = lambda row: TradeTick(
             market="KR", symbol=row[0], timestamp=_parse_time(row[33], row[1], zone),
-            price=_number(row[2], "price"), volume=abs(int(row[12])),
+            price=_number(row[2], "price"), volume=abs(int(row[12])),  # CNTG_VOL, not ACML_VOL
             ask=_number(row[10], "ask"), bid=_number(row[11], "bid"),
         )
     elif market == "US" and tr_id == "HDFSCNT0":
@@ -74,7 +74,7 @@ def parse_trade_frame(frame: str, market: str, exchange: str | None = None) -> l
         width, zone = 26, "America/New_York"
         get_tick = lambda row: TradeTick(
             market="US", symbol=row[1], timestamp=_parse_time(row[3], row[5], zone),
-            price=_number(row[11], "price"), volume=abs(int(row[19])),
+            price=_number(row[11], "price"), volume=abs(int(row[19])),  # per-trade execution volume
             ask=_number(row[16], "ask"), bid=_number(row[15], "bid"),
         )
     else:

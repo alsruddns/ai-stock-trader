@@ -26,6 +26,22 @@ def test_parse_domestic_trade_frame_extracts_market_only_fields() -> None:
     assert tick.spread_bps is not None
 
 
+def test_parse_domestic_multi_record_frame_uses_trade_volume_not_cumulative_volume() -> None:
+    rows = []
+    for time_value, trade_volume, cumulative_volume in (
+        ("100101", "3", "1000"),
+        ("100102", "5", "1005"),
+    ):
+        fields = ["0"] * 46
+        fields[0], fields[1], fields[2] = "005930", time_value, "73500"
+        fields[10], fields[11] = "73510", "73500"
+        fields[12], fields[13], fields[33] = trade_volume, cumulative_volume, "20261105"
+        rows.extend(fields)
+    ticks = parse_trade_frame("0|H0STCNT0|2|" + "^".join(rows), "KR")
+
+    assert [tick.volume for tick in ticks] == [3, 5]
+
+
 def test_parse_overseas_trade_frame_uses_exchange_local_timestamp() -> None:
     frame = _frame("HDFSCNT0", 26, {
         0: "DNAS", 1: "AAPL", 2: "2", 3: "20261105", 4: "20261105", 5: "093001",
@@ -36,6 +52,7 @@ def test_parse_overseas_trade_frame_uses_exchange_local_timestamp() -> None:
     assert tick.symbol == "AAPL"
     assert tick.timestamp.isoformat() == "2026-11-05T09:30:01-05:00"
     assert tick.price == Decimal("231.5")
+    assert tick.volume == 4
 
 
 def test_encrypted_or_wrong_market_frames_are_rejected() -> None:
