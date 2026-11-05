@@ -2,6 +2,8 @@ import asyncio
 from collections import deque
 from datetime import datetime, timedelta
 from decimal import Decimal
+import sys
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -45,6 +47,45 @@ def test_websocket_reconnect_backoff_survives_short_lived_connections() -> None:
 
     assert delays == [2, 4, 8, 16, 30]
     assert PaperSessionFeedMonitor._next_reconnect_delay(30, connected_seconds=60) == 1
+
+
+def test_websocket_run_keeps_backoff_across_repeated_short_connections(monkeypatch) -> None:
+    class DroppingConnection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send(self, _message):
+            pass
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise RuntimeError("simulated disconnect")
+
+    delays = []
+
+    async def record_sleep(delay):
+        delays.append(delay)
+        if len(delays) == 5:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr("app.paper_runtime.approval_key", lambda _settings: "mock-approval")
+    monkeypatch.setitem(sys.modules, "websockets", SimpleNamespace(
+        connect=lambda *_args, **_kwargs: DroppingConnection(),
+    ))
+    monkeypatch.setattr("app.paper_runtime.asyncio.sleep", record_sleep)
+
+    runtime = PaperSessionFeedMonitor()
+    settings = SimpleNamespace(kis=object(), websocket_url="ws://mock.invalid")
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(runtime._run((), settings))
+
+    assert delays == [2, 4, 8, 16, 30]
+    assert runtime.status()["state"] == "RECONNECTING"
 
 
 def test_live_mode_blocks_paper_session_monitor(monkeypatch) -> None:
