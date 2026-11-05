@@ -11,6 +11,7 @@ $marketAiStdout = Join-Path $logDirectory 'market-ai.stdout.log'
 $marketAiStderr = Join-Path $logDirectory 'market-ai.stderr.log'
 $backendProcess = $null
 $marketAiProcess = $null
+$loadedEnvironmentNames = @()
 
 function Write-TaskLog {
     param([string]$Message)
@@ -46,12 +47,18 @@ function Stop-ServiceProcess {
     }
 }
 
-try {
+function Import-LocalEnvironment {
     if (-not (Test-Path -LiteralPath $envPath)) {
         throw 'Missing local .env file.'
     }
-    New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
-
+    $environmentHashBefore = (Get-FileHash -LiteralPath $envPath -Algorithm SHA256).Hash
+    foreach ($name in $script:loadedEnvironmentNames) {
+        [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+    }
+    $script:loadedEnvironmentNames = @()
+    foreach ($item in Get-ChildItem Env:KIS_* -ErrorAction SilentlyContinue) {
+        [Environment]::SetEnvironmentVariable($item.Name, $null, 'Process')
+    }
     foreach ($line in Get-Content -LiteralPath $envPath) {
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
@@ -64,18 +71,28 @@ try {
             $value = $value.Substring(1, $value.Length - 2)
         }
         [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+        $script:loadedEnvironmentNames += $name
     }
-
     if (-not $env:POSTGRES_PASSWORD -or $env:POSTGRES_PASSWORD -eq 'replace_with_your_local_postgres_password') {
         throw 'Local PostgreSQL password is not configured.'
     }
     $env:TRADING_MODE = 'paper'
     $env:LIVE_TRADING_ENABLED = 'false'
     $env:KIS_REAL_ORDERS_ENABLED = 'false'
+    $environmentHashAfter = (Get-FileHash -LiteralPath $envPath -Algorithm SHA256).Hash
+    if ($environmentHashAfter -ne $environmentHashBefore) {
+        throw 'Local .env changed while configuration was being loaded.'
+    }
+    return $environmentHashAfter
+}
+
+try {
+    New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     Write-ProcessState
 
     while ($true) {
         try {
+            $environmentHash = Import-LocalEnvironment
             $powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
             if (-not (Test-Path -LiteralPath $powerShellPath)) { $powerShellPath = (Get-Process -Id $PID).Path }
             $backendRunner = Join-Path $PSScriptRoot 'start-local.ps1'
@@ -133,6 +150,11 @@ try {
 
             while ($true) {
                 Start-Sleep -Seconds 2
+                $currentEnvironmentHash = (Get-FileHash -LiteralPath $envPath -Algorithm SHA256).Hash
+                if ($currentEnvironmentHash -ne $environmentHash) {
+                    Write-TaskLog 'Local .env changed; restarting APIs to reload configuration.'
+                    throw 'Local .env changed.'
+                }
                 if ($backendProcess.HasExited) { throw "Spring Boot stopped unexpectedly (code $($backendProcess.ExitCode))." }
                 if ($marketAiProcess.HasExited) { throw "Python market-ai stopped unexpectedly (code $($marketAiProcess.ExitCode))." }
             }
