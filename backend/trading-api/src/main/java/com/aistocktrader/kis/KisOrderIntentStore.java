@@ -1,0 +1,62 @@
+package com.aistocktrader.kis;
+
+import com.aistocktrader.order.OrderRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.NoSuchElementException;
+import java.util.UUID;
+
+@Service
+public class KisOrderIntentStore {
+    private final KisOrderIntentRepository repository;
+    public KisOrderIntentStore(KisOrderIntentRepository repository) { this.repository = repository; }
+
+    @Transactional
+    public PreparedIntent prepare(UUID key, String hash, OrderRequest request) {
+        var existing = repository.findById(key);
+        if (existing.isPresent()) {
+            KisOrderIntent intent = existing.get();
+            if (!intent.getRequestHash().equals(hash)) throw new com.aistocktrader.order.IdempotencyConflictException("Idempotency-Key was already used for a different KIS order.");
+            return new PreparedIntent(intent, false);
+        }
+        return new PreparedIntent(repository.saveAndFlush(new KisOrderIntent(key, hash, request)), true);
+    }
+
+    @Transactional
+    public KisOrderIntent accept(UUID key, KisOrderReceipt receipt) {
+        KisOrderIntent intent = repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
+        intent.accept(receipt);
+        return intent;
+    }
+
+    @Transactional
+    public KisOrderIntent markUnknown(UUID key) {
+        KisOrderIntent intent = repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
+        intent.markUnknown();
+        return intent;
+    }
+
+    @Transactional
+    public KisOrderIntent reject(UUID key, String code) {
+        KisOrderIntent intent = repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
+        intent.reject(code);
+        return intent;
+    }
+
+    @Transactional
+    public KisOrderIntent markCancelPending(UUID key) {
+        KisOrderIntent intent = repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
+        if (intent.getStatus() == KisOrderStatus.CANCEL_PENDING || intent.getStatus() == KisOrderStatus.CANCELLED) return intent;
+        if (intent.getStatus() != KisOrderStatus.ACCEPTED) throw new IllegalStateException("Only accepted KIS orders can be cancelled.");
+        intent.markCancelPending();
+        return intent;
+    }
+
+    @Transactional(readOnly = true)
+    public KisOrderIntent get(UUID key) {
+        return repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
+    }
+
+    public record PreparedIntent(KisOrderIntent intent, boolean createdNow) { }
+}

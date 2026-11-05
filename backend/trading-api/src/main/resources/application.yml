@@ -22,6 +22,8 @@ paper:
   starting-cash-usd: ${PAPER_STARTING_CASH_USD:0}
   order-timeout-seconds: ${PAPER_ORDER_TIMEOUT_SECONDS:0}
 kis:
+  orders:
+    paper-enabled: ${KIS_PAPER_ORDERS_ENABLED:false}
   account-read-enabled: ${KIS_ACCOUNT_READ_ENABLED:false}
   snapshot-persistence-enabled: ${KIS_SNAPSHOT_PERSISTENCE_ENABLED:false}
   paper:
