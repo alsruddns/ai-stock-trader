@@ -1,20 +1,19 @@
 package com.aistocktrader.kis;
 
 import com.aistocktrader.order.Market;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
-import org.springframework.web.client.RestClient;
-
-import java.time.Duration;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /** Explicit opt-in only: performs read-only paper account GET requests. */
 @EnabledIfEnvironmentVariable(named = "RUN_KIS_PAPER_ACCOUNT_INTEGRATION_TESTS", matches = "true")
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class KisPaperAccountIntegrationTest {
-    private static KisAccountClient client;
+    @Autowired private KisAccountClient client;
 
     @BeforeAll
     static void configure() {
@@ -24,11 +23,6 @@ class KisPaperAccountIntegrationTest {
         assertTrue(paper.configured(), "Paper KIS credentials must be configured for this opt-in test.");
         assertEquals("true", System.getenv("KIS_ACCOUNT_READ_ENABLED"),
                 "Set KIS_ACCOUNT_READ_ENABLED=true only when intentionally running this read-only test.");
-        KisProperties properties = new KisProperties(true, false, paper,
-                new KisProperties.Account("", "", ""), Duration.ofSeconds(3),
-                Duration.ofSeconds(8), Duration.ofMillis(100));
-        RestClient.Builder builder = new KisHttpConfiguration().kisRestClientBuilder(properties);
-        client = new KisAccountClient(properties, builder, new ObjectMapper());
     }
 
     @Test
