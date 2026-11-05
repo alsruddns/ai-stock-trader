@@ -17,6 +17,8 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -49,5 +51,33 @@ class KisOrderIntentStoreTest {
 
         assertFalse(prepared.createdNow());
         assertSame(paperIntent, prepared.intent());
+    }
+
+    @Test
+    void receiptFromWrongEnvironmentIsKeptUnknownForManualReconciliation() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent paperIntent = new KisOrderIntent(key, "hash", request, null);
+
+        paperIntent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "broker-1", "org-1",
+                "0", java.time.Instant.now()));
+
+        assertEquals(KisOrderStatus.UNKNOWN, paperIntent.getStatus());
+        assertNull(paperIntent.getBrokerOrderNumber());
+    }
+
+    @Test
+    void receiptForDifferentSymbolOrSideCannotMarkIntentAccepted() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent paperIntent = new KisOrderIntent(key, "hash", request, null);
+
+        paperIntent.accept(new KisOrderReceipt("paper", "KR", "000660", "SELL", "broker-1", "org-1",
+                "0", java.time.Instant.now()));
+
+        assertEquals(KisOrderStatus.UNKNOWN, paperIntent.getStatus());
+        assertNull(paperIntent.getBrokerOrderNumber());
     }
 }

@@ -76,9 +76,23 @@ public class KisOrderIntent {
     }
 
     public void accept(KisOrderReceipt receipt) {
+        if (!matches(receipt)) {
+            markUnknown();
+            return;
+        }
         status = KisOrderStatus.ACCEPTED; brokerOrderNumber = receipt.brokerOrderNumber();
         brokerOrganizationNumber = receipt.brokerOrganizationNumber(); brokerResponseCode = receipt.responseCode();
         updatedAt = Instant.now();
+    }
+
+    private boolean matches(KisOrderReceipt receipt) {
+        return receipt != null
+                && environment.label().equalsIgnoreCase(receipt.environment())
+                && market.name().equalsIgnoreCase(receipt.market())
+                && symbol.equalsIgnoreCase(receipt.symbol())
+                && side.name().equalsIgnoreCase(receipt.side())
+                && receipt.brokerOrderNumber() != null && !receipt.brokerOrderNumber().isBlank()
+                && "0".equals(receipt.responseCode());
     }
 
     public void markUnknown() { status = KisOrderStatus.UNKNOWN; updatedAt = Instant.now(); }
