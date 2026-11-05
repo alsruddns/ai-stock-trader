@@ -6,6 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 import asyncio
 import json
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Path, Query, WebSocket, WebSocketDisconnect
 import psycopg
@@ -15,11 +16,22 @@ from . import snapshot_store
 from . import kis_stream
 from .ai_pipeline import LocalModelRegistry
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
+from .paper_runtime import paper_session_monitor
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    await paper_session_monitor.start()
+    try:
+        yield
+    finally:
+        await paper_session_monitor.stop()
 
 app = FastAPI(
     title="AI Stock Trader Market Analysis",
     version="0.1.0",
     description="Read-only P1 analysis preview. It cannot place broker orders.",
+    lifespan=lifespan,
 )
 
 
@@ -120,19 +132,21 @@ class AccountBalanceResponse(BaseModel):
 @app.get("/api/v1/health")
 def health() -> dict[str, str | bool]:
     settings = KisSettings.from_environment()
-    paper_automation = (
-        os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true"
-        and os.getenv("TRADING_MODE", "paper").strip().lower() == "paper"
-        and os.getenv("LIVE_TRADING_ENABLED", "false").strip().lower() != "true"
-    )
     return {
         "status": "ok",
         "mode": "read-only-preview",
         "broker_connected": False,
         "kis_market_data_enabled": settings.enabled,
-        "paper_automation_enabled": paper_automation,
+        "paper_session_monitor": paper_session_monitor.status()["state"],
+        "paper_automation_enabled": False,
         "live_trading_enabled": False,
     }
+
+
+@app.get("/api/v1/paper/session")
+def paper_session_status() -> dict[str, object]:
+    """Expose the local paper feed monitor without secrets or order controls."""
+    return paper_session_monitor.status()
 
 
 @app.get("/api/v1/market/quotes/{market}/{symbol}", response_model=QuoteResponse)
