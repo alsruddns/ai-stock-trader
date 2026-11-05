@@ -13,7 +13,8 @@ type Ops = {
   recentOrders: { id: number; market: string; symbol: string; side: string; quantity: number; filledQuantity: number; limitPrice: string; currency: string; status: string; createdAt: string }[];
 };
 type Model = { model_id: string; market?: string; model_type?: string; approved?: boolean; active?: boolean; integrity_error?: boolean; test_metrics?: Record<string, number> };
-type Payload = { generatedAt: string; springConnected: boolean; pythonConnected: boolean; operations: Ops | null; marketAi: Record<string, unknown> | null; paperSession: { state: string; enabled: boolean; subscriptions: number; ticks_received: number; bars_closed: number; orders_enabled: false; decisions?: Record<string, { signal: string; reason: string }> } | null; aiModels: { models: Model[]; governance_events: Record<string, string>[]; executable: false } | null };
+type Decision = { market: string; symbol: string; exchange: string | null; signal: string; reason: string; bars_in_session: number; evaluated_at: string | null; model_id?: string | null; executable: false };
+type Payload = { generatedAt: string; springConnected: boolean; pythonConnected: boolean; operations: Ops | null; marketAi: Record<string, unknown> | null; paperSession: { state: string; enabled: boolean; subscriptions: number; ticks_received: number; bars_closed: number; orders_enabled: false; decisions?: Record<string, Decision> } | null; aiModels: { models: Model[]; governance_events: Record<string, string>[]; executable: false } | null };
 
 const money = (value: string | number, currency: string) => new Intl.NumberFormat("ko-KR", { style: "currency", currency, maximumFractionDigits: currency === "KRW" ? 0 : 2 }).format(Number(value));
 const time = (value: string) => new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "medium" }).format(new Date(value));
@@ -52,6 +53,9 @@ export default function Dashboard() {
       <Metric title="오늘 실현 손익 (비용 전)" value={`${money(ops?.realizedPnlTodayGrossByCurrency?.KRW ?? 0, "KRW")} · ${money(ops?.realizedPnlTodayGrossByCurrency?.USD ?? 0, "USD")}`} caption="가상 체결가와 평균 원가 기준" />
       <Metric title="보유 원가 합계" value={`${money(ops?.positionCostBasisByCurrency?.KRW ?? 0, "KRW")} · ${money(ops?.positionCostBasisByCurrency?.USD ?? 0, "USD")}`} caption="통화별 취득 원가 · 시장 평가액 아님" />
     </section>
+    <section className="panel signals-panel"><div className="panel-title"><div><p className="eyebrow">P5 STRATEGY PREVIEW</p><h2>종목별 판단 상태</h2></div><span className="tag">비실행 · 주문 잠금</span></div>
+      {Object.keys(data?.paperSession?.decisions ?? {}).length ? <div className="table-wrap"><table><thead><tr><th>시장</th><th>종목</th><th>판단</th><th>판단 사유</th><th>세션 분봉</th></tr></thead><tbody>{Object.entries(data?.paperSession?.decisions ?? {}).map(([key, item]) => <tr key={key}><td>{item.market}</td><td className="symbol">{item.symbol}{item.exchange ? ` · ${item.exchange}` : ""}</td><td>{signalLabel(item.signal)}</td><td>{decisionReason(item.reason)}</td><td>{item.bars_in_session}</td></tr>)}</tbody></table></div> : <Empty text="세션 모니터가 비활성이거나 아직 종목을 구독하지 않았습니다." />}
+    </section>
     <section className="two-col">
       <div className="panel"><div className="panel-title"><div><p className="eyebrow">PAPER ACCOUNT</p><h2>가상 현금</h2></div><span className="tag">실계좌 잔고 아님</span></div>
         {ops?.cashBalances.length ? <div className="cash-list">{ops.cashBalances.map(item => <div className="cash-row" key={item.currency}><span>{item.currency}</span><strong>{money(item.balance, item.currency)}</strong></div>)}</div> : <Empty text="가상 현금 잔고가 아직 없습니다." />}
@@ -83,3 +87,5 @@ function RiskRow({ label, value }: { label: string; value: string }) { return <d
 function Empty({ text }: { text: string }) { return <div className="empty">{text}</div>; }
 function statusLabel(value: string) { return ({ PENDING: "대기", PARTIALLY_FILLED: "부분체결", FILLED: "체결", REJECTED: "거부", CANCEL_PENDING: "취소 확인", CANCELLED: "취소", EXPIRED: "만료", UNKNOWN: "확인 필요" } as Record<string, string>)[value] ?? value; }
 function sessionLabel(value?: string) { return ({ RUNNING: "시세 수집 중", CONNECTING: "연결 중", RECONNECTING: "재연결 대기", BLOCKED: "설정 확인 필요", STOPPED: "중지", DISABLED: "비활성" } as Record<string, string>)[value ?? ""] ?? "확인 중"; }
+function signalLabel(value: string) { return value === "BUY_CANDIDATE" ? "AI·퀀트 후보" : "관망"; }
+function decisionReason(value: string) { return ({ WAITING_FOR_CLOSED_BARS: "닫힌 분봉 대기", INSUFFICIENT_SESSION_HISTORY: "세션 이력 부족", STRATEGY_FILTERS_NOT_MET: "퀀트 조건 미충족", AI_MODEL_NOT_APPROVED_FOR_MARKET: "시장 승인 모델 없음", AI_THRESHOLD_NOT_MET: "AI 기준 미달", AI_INFERENCE_UNAVAILABLE: "AI 추론 불가", BAR_SEQUENCE_INVALID: "분봉 순서 오류", QUANT_AND_APPROVED_AI_CANDIDATE: "퀀트 및 승인 AI 통과" } as Record<string, string>)[value] ?? value; }
