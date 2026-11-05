@@ -123,3 +123,52 @@ def test_existing_idempotency_record_with_changed_order_terms_is_not_filled(monk
 
     assert result["reason"] == "IDEMPOTENCY_ORDER_MISMATCH"
     assert broker.submit_calls == broker.fill_calls == 0
+
+
+def test_paper_exit_reconciles_unknown_fill_without_creating_a_second_sell_order(monkeypatch) -> None:
+    _enable_paper_automation(monkeypatch)
+    class UnknownFirstFillBroker(FakeBroker):
+        def __init__(self):
+            super().__init__()
+            self.unknown_once = True
+
+        def record_fill(self, *args, **kwargs):
+            if self.unknown_once:
+                self.unknown_once = False
+                self.fill_calls += 1
+                raise PaperBrokerOutcomeUnknown("unknown")
+            return super().record_fill(*args, **kwargs)
+
+    broker = UnknownFirstFillBroker()
+    trader = PaperAutoTrader(broker)
+    args = {"market": "KR", "symbol": "005930", "currency": "KRW", "quantity": 2,
+            "position_opened_at": "2026-11-05T00:00:00Z",
+            "bar_timestamp": datetime(2026, 11, 5, 10, 1, tzinfo=timezone.utc),
+            "exit_price": Decimal("98000"), "reason": "ATR_STOP"}
+
+    first = trader.submit_exit(**args)
+    second = trader.submit_exit(**{**args, "bar_timestamp": datetime(2026, 11, 5, 10, 2, tzinfo=timezone.utc),
+                                   "exit_price": Decimal("97000")})
+
+    assert first["state"] == "UNKNOWN"
+    assert second["state"] == "FILLED"
+    assert first["idempotency_key"] == second["idempotency_key"]
+    assert broker.order["side"] == "SELL"
+    assert broker.submit_calls == 1
+    assert broker.fill_calls == 2
+    assert broker.order["fillPrice"] == Decimal("98000")
+
+
+def test_paper_exit_rejects_unknown_reasons_before_broker_access(monkeypatch) -> None:
+    _enable_paper_automation(monkeypatch)
+    broker = FakeBroker()
+
+    result = PaperAutoTrader(broker).submit_exit(
+        market="KR", symbol="005930", currency="KRW", quantity=1,
+        position_opened_at="2026-11-05T00:00:00Z",
+        bar_timestamp=datetime(2026, 11, 5, 10, 1, tzinfo=timezone.utc),
+        exit_price=Decimal("98000"), reason="MANUAL",
+    )
+
+    assert result["reason"] == "UNSUPPORTED_EXIT_REASON"
+    assert broker.submit_calls == broker.fill_calls == 0
