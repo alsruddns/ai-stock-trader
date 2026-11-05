@@ -116,6 +116,8 @@ class KisRealOrderClientTest {
                 .andExpect(jsonPath("$.KRX_FWDG_ORD_ORGNO").value("ORG01"))
                 .andExpect(jsonPath("$.ORGN_ODNO").value("7001"))
                 .andExpect(jsonPath("$.RVSE_CNCL_DVSN_CD").value("02"))
+                .andExpect(jsonPath("$.ORD_QTY").value("0"))
+                .andExpect(jsonPath("$.QTY_ALL_ORD_YN").value("Y"))
                 .andRespond(withSuccess("{\"rt_cd\":\"0\",\"msg_cd\":\"MCA00000\",\"output\":{\"ODNO\":\"7003\"}}",
                         MediaType.APPLICATION_JSON));
 

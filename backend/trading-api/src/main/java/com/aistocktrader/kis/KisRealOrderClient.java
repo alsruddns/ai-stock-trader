@@ -110,7 +110,7 @@ public class KisRealOrderClient {
             trId = "TTTC0013U";
             body = Map.of("CANO", account.substring(0, 8), "ACNT_PRDT_CD", account.substring(8),
                     "KRX_FWDG_ORD_ORGNO", brokerOrganizationNumber, "ORGN_ODNO", brokerOrderNumber,
-                    "ORD_DVSN", "00", "RVSE_CNCL_DVSN_CD", "02", "ORD_QTY", Integer.toString(remainingQuantity),
+                    "ORD_DVSN", "00", "RVSE_CNCL_DVSN_CD", "02", "ORD_QTY", "0",
                     "ORD_UNPR", "0", "QTY_ALL_ORD_YN", "Y", "EXCG_ID_DVSN_CD", "KRX");
         } else {
             path = OVERSEAS_CANCEL_PATH;
