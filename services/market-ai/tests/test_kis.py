@@ -105,8 +105,8 @@ def test_non_successful_kis_response_fails_closed() -> None:
             "output2": {"dnca_tot_amt": "100000", "secret_field": "do-not-return"},
         }),
         ("US", "real", "/uapi/overseas-stock/v1/trading/inquire-balance", "TTTS3012R", {
-            "rt_cd": "0", "output1": {"frcr_dncl_amt_2": "50.00"},
-            "output2": [{"ovrs_pdno": "AAPL", "ovrs_cblc_qty": "1", "CANO": "do-not-return"}],
+            "rt_cd": "0", "output1": [{"ovrs_pdno": "AAPL", "ovrs_cblc_qty": "1", "CANO": "do-not-return"}],
+            "output2": {"frcr_dncl_amt_2": "50.00", "secret_field": "do-not-return"},
         }),
     ],
 )
@@ -182,12 +182,12 @@ def test_overseas_account_balance_uses_200_cursor_fields_for_continuation() -> N
         if len(market_requests) == 1:
             return httpx.Response(200, headers={"tr_cont": "M"}, json={
                 "rt_cd": "0", "output1": [{"ovrs_pdno": "AAPL", "ovrs_cblc_qty": "1"}],
-                "output2": {"frcr_dncl_amt_2": "50.00"},
+                "output2": {"unverified_field": "50.00"},
                 "ctx_area_fk200": "next-fk", "ctx_area_nk200": "next-nk",
             })
         return httpx.Response(200, headers={"tr_cont": "N"}, json={
             "rt_cd": "0", "output1": [{"ovrs_pdno": "MSFT", "ovrs_cblc_qty": "2"}],
-            "output2": {"frcr_dncl_amt_2": "50.00"},
+            "output2": {"unverified_field": "50.00"},
         })
 
     client = KisReadOnlyClient(
@@ -197,7 +197,7 @@ def test_overseas_account_balance_uses_200_cursor_fields_for_continuation() -> N
     balance = client.get_account_balance("US")
 
     assert [position["ovrs_pdno"] for position in balance.positions] == ["AAPL", "MSFT"]
-    assert balance.summary["frcr_dncl_amt_2"] == "50.00"
+    assert "frcr_dncl_amt_2" not in balance.summary
     assert market_requests[1].url.params["CTX_AREA_FK200"] == "next-fk"
     assert market_requests[1].url.params["CTX_AREA_NK200"] == "next-nk"
     client.close()

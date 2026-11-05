@@ -79,18 +79,11 @@ public class KisAccountClient {
                 Map.of("CANO", cano, "ACNT_PRDT_CD", product, "OVRS_EXCG_CD", validExchange,
                         "TR_CRCY_CD", "USD", "CTX_AREA_FK200", "", "CTX_AREA_NK200", ""),
                 "output1", "output2", "CTX_AREA_FK200", "CTX_AREA_NK200");
-        JsonNode cashResponse = get(environment, "/uapi/overseas-stock/v1/trading/inquire-present-balance",
-                environment == KisEnvironment.PAPER ? "VTRP6504R" : "CTRP6504R",
-                Map.of("CANO", cano, "ACNT_PRDT_CD", product, "WCRC_FRCR_DVSN_CD", "02",
-                        "NATN_CD", "840", "TR_MKET_CD", "00", "INQR_DVSN_CD", "00"));
-        // KIS's paper present-balance response normally exposes output3 only. Do not
-        // interpret total asset valuation (tot_asst_amt) as cash or buying power.
-        JsonNode cashSummary = environment == KisEnvironment.PAPER
-                ? firstOrSelf(cashResponse.path("output3"))
-                : findCurrency(cashResponse.path("output2"), "USD");
-        BigDecimal cash = firstAmount(balance.path("output2"), "frcr_dncl_amt_2");
-        if (cash == null) cash = firstAmount(cashSummary, "frcr_drwg_psbl_amt_1", "frcr_dncl_amt_2");
-        BigDecimal orderable = firstAmount(cashSummary, "frcr_ord_psbl_amt1", "ord_psbl_frcr_amt");
+        // The public KIS sample confirms output1/output2 shapes, but does not define
+        // a stable cash-balance field. Keep cash unknown until an authoritative field
+        // mapping is verified; never treat total assets or an unverified field as cash.
+        BigDecimal cash = null;
+        BigDecimal orderable = null;
         if (symbol != null && unitPrice != null) {
             JsonNode buyingPower = get(environment, "/uapi/overseas-stock/v1/trading/inquire-psamount",
                     environment == KisEnvironment.PAPER ? "VTTS3007R" : "TTTS3007R",
@@ -286,13 +279,6 @@ public class KisAccountClient {
 
     private JsonNode firstOrSelf(JsonNode node) {
         return node.isArray() ? node.isEmpty() ? mapper.createObjectNode() : node.get(0) : node;
-    }
-
-    private JsonNode findCurrency(JsonNode rows, String currency) {
-        if (rows.isArray()) {
-            for (JsonNode row : rows) if (currency.equalsIgnoreCase(value(row, "crcy_cd"))) return row;
-        }
-        return firstOrSelf(rows);
     }
 
     private BigDecimal firstAmount(JsonNode node, String... fields) {

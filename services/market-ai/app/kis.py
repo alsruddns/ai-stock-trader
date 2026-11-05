@@ -301,7 +301,7 @@ class KisReadOnlyClient:
         if not isinstance(summary, dict) or not isinstance(rows, list):
             raise KisApiError("KIS account response was missing balance fields")
         # Return only explicitly allowed business fields; never expose account numbers or raw payloads.
-        summary_keys = ("dnca_tot_amt", "tot_evlu_amt", "nass_amt", "frcr_dncl_amt_2", "tot_pftrt", "evlu_pfls_smtl_amt")
+        summary_keys = ("dnca_tot_amt", "tot_evlu_amt", "nass_amt", "tot_pftrt", "evlu_pfls_smtl_amt")
         position_keys = ("pdno", "prdt_name", "hldg_qty", "ord_psbl_qty", "pchs_avg_pric", "prpr", "evlu_amt", "evlu_pfls_amt", "evlu_pfls_rt", "ovrs_pdno", "ovrs_item_name", "ovrs_cblc_qty", "ord_psbl_qty", "avg_unpr3", "now_pric2", "ovrs_stck_evlu_amt", "frcr_evlu_pfls_amt")
         return AccountBalance(
             environment=self.settings.environment,
