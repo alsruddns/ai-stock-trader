@@ -101,6 +101,36 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    @Transactional
+    void persistsRealCancelRejectionUntilLaterBrokerReconciliationRestoresOpenOrder() {
+        UUID key = UUID.randomUUID();
+        try {
+            store.prepare(key, hash("real-cancel-rejected"), KisEnvironment.REAL, request(), null);
+            store.accept(key, receipt("real", "IR" + UUID.randomUUID().toString().replace("-", "").substring(0, 16)));
+            store.markCancelPending(key);
+            store.recordCancelRejection(key, "EGW00201");
+            entityManager.flush();
+            entityManager.clear();
+
+            KisOrderIntent rejected = repository.findById(key).orElseThrow();
+            assertEquals(KisEnvironment.REAL, rejected.getEnvironment());
+            assertEquals(KisOrderStatus.CANCEL_PENDING, rejected.getStatus());
+            assertEquals("EGW00201", rejected.getBrokerResponseCode());
+
+            store.reconcile(key, new KisBrokerOrderSnapshot(0, 1, null, false, false));
+            entityManager.flush();
+            entityManager.clear();
+
+            KisOrderIntent recovered = repository.findById(key).orElseThrow();
+            assertEquals(KisOrderStatus.ACCEPTED, recovered.getStatus());
+            assertEquals(1, recovered.getRemainingQuantity());
+            assertEquals("EGW00201", recovered.getBrokerResponseCode());
+        } finally {
+            repository.deleteById(key);
+        }
+    }
+
+    @Test
     void durableIdempotencyRejectsCrossEnvironmentKeyReuse() {
         UUID key = UUID.randomUUID();
         OrderRequest request = request();
