@@ -132,13 +132,14 @@ class KisOrderIntentPostgresIntegrationTest {
     @Transactional
     void mockBrokerCancelIsConfirmedByReconciliationAndPersistsCancelledState() {
         UUID key = UUID.randomUUID();
-        OrderRequest order = request();
+        OrderRequest order = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
+                new BigDecimal("70000"), Currency.KRW);
         String brokerNumber = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
-        var snapshot = new KisBrokerOrderSnapshot(0, 0, null, true, false);
+        var snapshot = new KisBrokerOrderSnapshot(1, 0, new BigDecimal("70000"), true, false);
         when(kisAccountClient.getBalance(KisEnvironment.PAPER, Market.KR, order.symbol(), order.limitPrice(), ""))
                 .thenReturn(new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR, "KRW",
-                        new BigDecimal("100000"), new BigDecimal("100000"), List.of(), Instant.now(), "test"));
-        when(kisOrderClient.placePaperLimitOrder(Market.KR, order.symbol(), OrderSide.BUY, 1,
+                        new BigDecimal("500000"), new BigDecimal("500000"), List.of(), Instant.now(), "test"));
+        when(kisOrderClient.placePaperLimitOrder(Market.KR, order.symbol(), OrderSide.BUY, 3,
                 order.limitPrice(), Currency.KRW, null))
                 .thenReturn(receipt("paper", brokerNumber));
         when(kisOrderClient.reconcilePaperOrder(any(KisOrderIntent.class))).thenReturn(Optional.of(snapshot));
@@ -156,8 +157,9 @@ class KisOrderIntentPostgresIntegrationTest {
 
             assertEquals(KisOrderStatus.CANCELLED, cancelled.status());
             assertEquals(KisOrderStatus.CANCELLED, persisted.getStatus());
-            assertEquals(0, persisted.getFilledQuantity());
+            assertEquals(1, persisted.getFilledQuantity());
             assertEquals(0, persisted.getRemainingQuantity());
+            assertEquals(0, persisted.getAverageFillPrice().compareTo(new BigDecimal("70000")));
             verify(kisOrderClient, times(1)).cancelPaperOrder(Market.KR, order.symbol(), brokerNumber,
                     "ITORG01", 0, "");
             verify(kisOrderClient, times(1)).reconcilePaperOrder(any(KisOrderIntent.class));
