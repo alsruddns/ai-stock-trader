@@ -702,6 +702,8 @@ class LocalModelRegistry:
             metadata = self.manifest(model_id)
             if metadata.get("approved") is True:
                 raise ValueError("approved models cannot be rewritten with new evaluation evidence")
+            if metadata.get("heldout_evaluation") is not None:
+                raise ValueError("candidate already has independent holdout evidence and cannot be re-evaluated")
             if metadata.get("market") != market or metadata.get("training_config", {}).get("symbol") != symbol:
                 raise ValueError("evaluation market and symbol must match the candidate")
             if not self._supports_current_features(metadata):

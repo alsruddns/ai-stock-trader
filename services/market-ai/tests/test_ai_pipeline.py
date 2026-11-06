@@ -462,6 +462,18 @@ def test_model_approval_rejects_holdout_evidence_for_a_different_artifact(tmp_pa
     assert registry.active_approved_model("KR") is None
 
 
+def test_candidate_cannot_be_re_evaluated_on_multiple_holdout_sets(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "2" * 32
+    _write_candidate(registry, model_id)
+
+    with pytest.raises(ValueError, match="already has independent holdout evidence"):
+        registry.evaluate_candidate(
+            model_id, {}, market="KR", symbol="005930", dataset_sha256="f" * 64,
+            dataset_provenance=_provenance("f" * 64),
+        )
+
+
 def test_model_approval_rejects_label_cost_below_backtest_round_trip_cost(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)
     model_id = "lightgbm-" + "6" * 32
