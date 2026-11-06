@@ -21,6 +21,7 @@ if (-not $ConfirmPaperOrderAndCancel) {
 if ($LimitPrice -le 0) { throw 'LimitPrice must be positive.' }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'lib/kis-paper-order-preflight.ps1')
 $envPath = Join-Path $repoRoot '.env_local'
 if (-not (Test-Path -LiteralPath $envPath)) { $envPath = Join-Path $repoRoot '.env' }
 if (-not (Test-Path -LiteralPath $envPath)) { throw 'Missing ignored .env_local or .env file.' }
@@ -85,24 +86,7 @@ $quote = Get-LocalApi "$MarketAiApiBaseUrl$quotePath"
 if ([decimal]$quote.price -le 0 -or $quote.market -ne $Market -or $quote.symbol -ne $normalizedSymbol) {
     throw 'Fresh market quote did not match the requested instrument.'
 }
-$quoteRetrievedAt = [DateTime]::MinValue
-try {
-    if ($quote.retrieved_at -is [DateTime]) {
-        $quoteRetrievedAt = $quote.retrieved_at.ToUniversalTime()
-    } else {
-        $quoteRetrievedAt = [DateTime]::Parse(
-            [string]$quote.retrieved_at,
-            [Globalization.CultureInfo]::InvariantCulture,
-            [Globalization.DateTimeStyles]::RoundtripKind
-        ).ToUniversalTime()
-    }
-} catch {
-    throw 'Quote timestamp is missing or invalid; no PAPER order was submitted.'
-}
-$quoteAge = [DateTime]::UtcNow - $quoteRetrievedAt
-if ($quoteAge -lt [TimeSpan]::FromSeconds(-5) -or $quoteAge -gt [TimeSpan]::FromSeconds(60)) {
-    throw 'Quote is outside the allowed freshness window; no PAPER order was submitted.'
-}
+Assert-KisPaperQuoteFresh -Quote $quote
 if ($LimitPrice -gt ([decimal]$quote.price * [decimal]0.95)) {
     throw 'LimitPrice must be at least 5% below the latest quote to reduce immediate-fill risk.'
 }
