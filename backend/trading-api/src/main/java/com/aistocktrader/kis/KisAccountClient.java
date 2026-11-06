@@ -169,7 +169,8 @@ public class KisAccountClient {
                     : HttpStatus.BAD_GATEWAY;
             throw new KisApiException(status, status == HttpStatus.TOO_MANY_REQUESTS
                     ? "KIS rate limit reached; wait before requesting again."
-                    : "KIS account request failed; check the environment and KIS status.");
+                    : "KIS account request failed (HTTP " + ex.getStatusCode().value()
+                    + "); check the environment and KIS status.");
         } catch (ResourceAccessException ex) {
             boolean timeout = causedByTimeout(ex);
             throw new KisApiException(timeout ? HttpStatus.GATEWAY_TIMEOUT : HttpStatus.BAD_GATEWAY,
