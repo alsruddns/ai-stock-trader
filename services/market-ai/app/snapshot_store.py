@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, time as datetime_time, timedelta
+from datetime import date, datetime, time as datetime_time, timezone
 from zoneinfo import ZoneInfo
 
 import psycopg
 from psycopg.types.json import Jsonb
 
 from .kis import AccountBalance, Quote
+from .market_calendar import exchange_session_window
 from .quant import MinuteBar
 
 
@@ -44,6 +45,16 @@ def store_minute_bars(market: str, symbol: str, bars: list[MinuteBar], *, source
         raise ValueError("market, symbol, and source are required")
     if not bars:
         return
+    regular_session_bars = []
+    for bar in bars:
+        window = exchange_session_window(market, bar.timestamp)
+        if window is None:
+            continue
+        timestamp = bar.timestamp.astimezone(timezone.utc)
+        if window[0] <= timestamp < window[1]:
+            regular_session_bars.append(bar)
+    if not regular_session_bars:
+        return
     with _connect() as connection:
         with connection.cursor() as cursor:
             cursor.executemany(
@@ -57,7 +68,7 @@ def store_minute_bars(market: str, symbol: str, bars: list[MinuteBar], *, source
                  volume = EXCLUDED.volume, spread_bps = EXCLUDED.spread_bps,
                  source = EXCLUDED.source, stored_at = now()""",
                 [(market, symbol.upper(), bar.timestamp, bar.open, bar.high, bar.low, bar.close,
-                  bar.volume, bar.spread_bps, source) for bar in bars],
+                  bar.volume, bar.spread_bps, source) for bar in regular_session_bars],
             )
 
 
@@ -66,8 +77,11 @@ def load_session_minute_bars(market: str, symbol: str, session_date: date, *, li
     if market not in {"KR", "US"} or not symbol.strip() or not 1 <= limit <= 5000:
         raise ValueError("market, symbol, and a bounded bar limit are required")
     zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
-    session_start = datetime.combine(session_date, datetime_time.min, tzinfo=zone)
-    session_end = session_start + timedelta(days=1)
+    session_noon = datetime.combine(session_date, datetime_time(hour=12), tzinfo=zone)
+    window = exchange_session_window(market, session_noon)
+    if window is None:
+        return []
+    session_start, session_end = window
     with _connect() as connection:
         with connection.cursor() as cursor:
             cursor.execute(

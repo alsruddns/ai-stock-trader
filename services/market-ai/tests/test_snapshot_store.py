@@ -45,6 +45,30 @@ def test_minute_bars_are_upserted_with_provenance_and_null_spread(monkeypatch) -
                      1000, None, "KIS_REST_MINUTE_CHART")]
 
 
+def test_minute_bar_persistence_drops_premarket_and_afterhours(monkeypatch) -> None:
+    connection = _FakeConnection()
+    monkeypatch.setattr(snapshot_store, "_connect", lambda: connection)
+    before_open = MinuteBar(
+        timestamp=datetime.fromisoformat("2026-11-05T08:59:00+09:00"), open=Decimal("100"),
+        high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
+    )
+    at_open = MinuteBar(
+        timestamp=datetime.fromisoformat("2026-11-05T09:00:00+09:00"), open=Decimal("100"),
+        high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
+    )
+    after_close = MinuteBar(
+        timestamp=datetime.fromisoformat("2026-11-05T15:30:00+09:00"), open=Decimal("100"),
+        high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
+    )
+
+    snapshot_store.store_minute_bars("KR", "005930", [before_open, at_open, after_close],
+                                     source="KIS_PAPER_WEBSOCKET")
+
+    _, rows = connection.calls[0]
+    assert len(rows) == 1
+    assert rows[0][2] == at_open.timestamp
+
+
 def test_empty_minute_bar_batch_does_not_open_database(monkeypatch) -> None:
     monkeypatch.setattr(snapshot_store, "_connect", lambda: (_ for _ in ()).throw(AssertionError("unexpected DB call")))
 
@@ -65,8 +89,8 @@ def test_session_bar_restore_uses_local_exchange_date_and_returns_ascending(monk
     query, params = connection.calls[0]
     assert "bar_at >= %s AND bar_at < %s" in query
     assert params[0:2] == ("US", "AAPL")
-    assert params[2].isoformat() == "2026-11-05T00:00:00-05:00"
-    assert params[3].isoformat() == "2026-11-06T00:00:00-05:00"
+    assert params[2].isoformat() == "2026-11-05T14:30:00+00:00"
+    assert params[3].isoformat() == "2026-11-05T21:00:00+00:00"
     assert params[4] == 5000
     assert [bar.timestamp.isoformat() for bar in bars] == [
         "2026-11-05T09:00:00-05:00", "2026-11-05T09:01:00-05:00",
