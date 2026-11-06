@@ -27,6 +27,6 @@ $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
 
 if ($PSCmdlet.ShouldProcess("Current Windows user", "Register daily task '$TaskName' at $DailyTime")) {
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
-        -Principal $principal -Settings $settings -Description "Exports the local PAPER and operations summary to .local/reports." -Force | Out-Null
+        -Principal $principal -Settings $settings -Description "Exports local PAPER operations, Python AI status, market sessions, and stored data quality to .local/reports; read-only." -Force | Out-Null
     Write-Output "Registered '$TaskName' for daily local time $DailyTime. The current Windows user must be signed in and Spring Boot must be running."
 }
