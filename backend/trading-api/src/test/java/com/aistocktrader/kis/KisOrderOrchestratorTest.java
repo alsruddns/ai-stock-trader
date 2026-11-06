@@ -8,6 +8,7 @@ import com.aistocktrader.order.OrderSide;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -75,6 +76,32 @@ class KisOrderOrchestratorTest {
         assertEquals(KisOrderStatus.REJECTED, response.status());
         assertEquals("PREFLIGHT_BLOCKED", response.responseCode());
         verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(), any(), any(), anyString());
+    }
+
+    @Test
+    void brokerRejectionPersistsOnlyTheDelimitedSafeResponseCode() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = buyRequest();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", request, null);
+        when(intents.prepare(any(), anyString(), any(), nullable(String.class)))
+                .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
+        when(accounts.getBalance(any(), any(), any(), any(), nullable(String.class))).thenReturn(
+                new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR, "KRW", new BigDecimal("100000"),
+                        new BigDecimal("100000"), List.of(), Instant.now(), "test"));
+        when(orders.placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(),
+                any(), any(), nullable(String.class))).thenThrow(new KisApiException(HttpStatus.BAD_GATEWAY,
+                "KIS rejected the paper order (code EGW00201)."));
+        when(intents.reject(key, "EGW00201")).thenAnswer(invocation -> {
+            intent.reject(invocation.getArgument(1));
+            return intent;
+        });
+
+        KisOrderIntentResponse response = orchestrator.submitPaperOrder(key, request, null);
+
+        assertEquals(KisOrderStatus.REJECTED, response.status());
+        assertEquals("EGW00201", response.responseCode());
+        verify(orders).placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(),
+                any(), any(), nullable(String.class));
     }
 
     @Test
