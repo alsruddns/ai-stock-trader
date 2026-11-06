@@ -50,7 +50,15 @@ Set-Location .\services\market-ai
 
 ### KIS PAPER 주문 수명주기 통합 확인
 
-실제 KIS PAPER 주문·취소 통합 확인은 기본 실행이 잠긴 `scripts/test-kis-paper-order-lifecycle.ps1`을 사용합니다. `.env_local`에서 `KIS_PAPER_ORDERS_ENABLED=true`로 설정하고 서비스를 재시작한 뒤 `-ConfirmPaperOrderAndCancel`을 명시해야 요청합니다. 1주 매수 지정가만 허용하며 KIS 스냅샷의 `retrieved_at`이 현재 시각 기준 60초 이내이고, 최근 시세보다 5% 이상 낮은 가격, 설정 한도와 별도 PAPER 테스트 한도(국내 10만원/미국 100달러) 안에서만 진행합니다. 시각이 없거나 잘못됐거나 60초를 초과한 시세에서는 주문을 보내지 않습니다. 응답이 끊기면 새 주문을 보내지 않고 같은 멱등 키를 조회하며, 즉시 취소 후 상태를 대조합니다. PAPER 주문은 모의 계좌 상태를 바꾸므로 실행 전에 종목·가격·잔고를 확인하고, 체결되면 모의 포지션을 직접 정리하세요. 실전 주문·REAL 대조·PAPER 자동매매는 비활성 상태여야 합니다. 시험 스크립트는 읽은 `.env_local` 항목을 호출 셸에 남기지 않고 종료 시 원래 프로세스 환경을 복원합니다. 시험 후에는 `.env_local`의 PAPER 주문 스위치를 `false`로 되돌리고 서비스를 재시작해야 합니다.
+실제 KIS PAPER 주문·취소 통합 확인은 `scripts/test-kis-paper-order-lifecycle-isolated.ps1`을 사용합니다. 이 스크립트는 `.env_local`의 PAPER/REAL 주문 및 자동매매 잠금이 모두 `false`인 것을 확인하고, 별도 loopback 포트(기본 8081)에 임시 Spring Boot 프로세스를 시작합니다. PAPER 주문만 그 프로세스에서 허용하고 REAL 키·계좌번호는 빈 값으로 덮어씁니다. 테스트 종료 시 임시 프로세스를 끄고 호출 PowerShell 환경을 복원하며 `.env_local`을 수정하지 않습니다. 우선 `-PreflightOnly`로 확인하고, 장중 실제 1주 주문·즉시 취소를 검증할 때만 `-ConfirmPaperOrderAndCancel`을 명시합니다. 두 모드는 상호 배타적입니다.
+
+```powershell
+.\scripts\test-kis-paper-order-lifecycle-isolated.ps1 -Market KR -Symbol 069500 -LimitPrice 75000 -PreflightOnly
+```
+
+실제 모의 주문·취소는 같은 인수에 `-PreflightOnly` 대신 `-ConfirmPaperOrderAndCancel`을 지정해야 합니다.
+
+1주 매수 지정가만 허용하며 KIS 시세와 종목별 주문가능금액의 `retrieved_at`이 현재 시각 기준 60초 이내이고, 최근 시세보다 5% 이상 낮은 가격, 설정 한도와 별도 PAPER 테스트 한도(국내 10만원/미국 100달러) 안에서만 진행합니다. 시세·계좌 조회가 누락되거나 오래됐거나 잔액이 부족하면 주문 전에 중단합니다. Spring은 POST 직전 주문가능금액을 다시 조회합니다. 응답이 끊기면 새 주문을 보내지 않고 같은 멱등 키를 조회하며, 즉시 취소 후 상태를 대조합니다. PAPER 주문은 모의 계좌 상태를 바꾸므로 체결되면 모의 포지션을 정리하세요. 시험 로그는 `.local/logs`에 보관됩니다.
 
 주문을 보내지 않고 현재 PAPER 시세와 종목별 주문가능금액만 읽기 전용으로 확인하려면 `.env_local`의 주문 잠금을 그대로 둔 채 `scripts/test-kis-paper-order-lifecycle.ps1`에 `-PreflightOnly`를 전달합니다. 예: `-Market KR -Symbol 069500 -LimitPrice 75000 -PreflightOnly`. 이 모드는 주문 잠금이 꺼져 있는 Spring 설정만 허용하고, 시세와 계좌 확인이 모두 최신·충분할 때만 통과합니다.
 

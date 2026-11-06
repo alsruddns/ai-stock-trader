@@ -6,6 +6,7 @@ param(
     [string]$SpringApiBaseUrl = 'http://127.0.0.1:8080',
     [string]$MarketAiApiBaseUrl = 'http://127.0.0.1:8000',
     [switch]$PreflightOnly,
+    [switch]$EnablePaperOrdersForThisRun,
     [switch]$ConfirmPaperOrderAndCancel
 )
 
@@ -44,10 +45,18 @@ foreach ($line in Get-Content -LiteralPath $envPath) {
     [Environment]::SetEnvironmentVariable($name, $value, 'Process')
 }
 
+if ($EnablePaperOrdersForThisRun) {
+    $env:KIS_PAPER_ORDERS_ENABLED = 'true'
+    $env:KIS_REAL_APP_KEY = ''
+    $env:KIS_REAL_APP_SECRET = ''
+    $env:KIS_REAL_ACCOUNT_NUMBER = ''
+    $env:KIS_REAL_ACCOUNT_READ_ENABLED = 'false'
+}
+
 if ($env:KIS_ENVIRONMENT -ne 'paper' -or $env:TRADING_MODE -ne 'paper' -or
     $env:LIVE_TRADING_ENABLED -ne 'false' -or
-    ($PreflightOnly -and $env:KIS_PAPER_ORDERS_ENABLED -ne 'false') -or
-    (-not $PreflightOnly -and $env:KIS_PAPER_ORDERS_ENABLED -ne 'true') -or
+    ($PreflightOnly -and -not $EnablePaperOrdersForThisRun -and $env:KIS_PAPER_ORDERS_ENABLED -ne 'false') -or
+    (($ConfirmPaperOrderAndCancel -or $EnablePaperOrdersForThisRun) -and $env:KIS_PAPER_ORDERS_ENABLED -ne 'true') -or
     $env:KIS_REAL_ORDERS_ENABLED -ne 'false' -or $env:KIS_REAL_RECONCILIATION_ENABLED -ne 'false' -or
     $env:PAPER_AUTOTRADING_ENABLED -ne 'false') {
     throw 'Requires PAPER mode, the matching PAPER order switch, and live orders, REAL reconciliation, and paper automation disabled.'
@@ -79,7 +88,7 @@ function Get-Intent([string]$Id) {
 }
 
 $operations = Get-LocalApi "$SpringApiBaseUrl/api/v1/operations/summary"
-$expectedPaperOrdersEnabled = -not $PreflightOnly
+$expectedPaperOrdersEnabled = $env:KIS_PAPER_ORDERS_ENABLED -eq 'true'
 if ($operations.tradingMode -ne 'paper' -or $operations.liveTrading -ne 'disabled' -or
     ([bool]$operations.kisPaperOrdersEnabled -ne $expectedPaperOrdersEnabled) -or $operations.kisRealOrdersEnabled -or
     $operations.kisRealReconciliationEnabled -or $operations.paperAutomationEnabled) {
