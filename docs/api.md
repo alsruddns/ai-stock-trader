@@ -27,6 +27,8 @@
 
 `GET /api/v1/market/sessions/{market}`는 `market`이 `KR` 또는 `US`일 때 거래소 캘린더가 확인한 현지 세션 날짜와 UTC 개장·폐장 시각, 조회 시점의 장중 여부를 반환합니다. 휴장일에는 `is_session=false`와 빈 개장·폐장 시각을 돌려줍니다. 캘린더를 검증할 수 없으면 HTTP 503으로 닫습니다. 이 endpoint는 읽기 전용 세션 정보이며 주문 승인이 아닙니다.
 
+Next.js `GET /api/operations`는 이 endpoint를 KR·US 각각 조회해 `marketSessions.KR` 및 `marketSessions.US`로 대시보드에 전달합니다. 한쪽 캘린더를 확인할 수 없으면 해당 값은 `null`이고 UI에는 "판정 불가"가 표시됩니다.
+
 모델 `approve`, `activate`, `rollback` 변경 요청은 `.env`에 설정한 `MODEL_GOVERNANCE_TOKEN`을 `X-Model-Governance-Token` 헤더로 전달해야 합니다. 토큰 미설정 시 `503`, 불일치 시 `403`을 반환합니다. 토큰은 응답과 감사 기록에 저장되지 않습니다.
 
 DB 접근 또는 트랜잭션 커밋 실패는 HTTP `503`과 일반 오류 메시지를 반환합니다. 응답에는 DB 드라이버 세부 내용이나 비밀값을 포함하지 않습니다. 클라이언트는 주문 완료로 간주하지 말고 idempotency key로 결과를 조회해야 합니다.
