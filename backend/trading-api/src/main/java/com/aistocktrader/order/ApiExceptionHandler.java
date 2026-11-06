@@ -6,6 +6,7 @@ import java.util.NoSuchElementException;
 import com.aistocktrader.kis.KisApiException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.TransactionSystemException;
 
 @RestControllerAdvice
@@ -40,7 +41,8 @@ public class ApiExceptionHandler {
                 .body(Map.of("error", exception.getMessage()));
     }
 
-    @ExceptionHandler({DataAccessException.class, TransactionSystemException.class})
+    @ExceptionHandler({DataAccessException.class, TransactionSystemException.class,
+            CannotCreateTransactionException.class})
     public ResponseEntity<Map<String, String>> databaseUnavailable(Exception exception) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(Map.of("error", "Local database is unavailable; no order result was confirmed."));

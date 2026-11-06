@@ -37,6 +37,8 @@ REAL 주문 상태의 읽기 전용 주기 대조는 `KIS_REAL_RECONCILIATION_EN
 
 별도 Java 프로세스 종료 후 복구까지 점검하려면 `.\scripts\test-paper-process-restart.ps1`을 실행합니다. 로컬 PostgreSQL에 고유 멱등 키의 PAPER 대기 주문을 만든 뒤 Spring JVM을 종료하고 새 JVM에서 동일 주문을 조회·재제출해 ID와 상태가 유지되는지 확인한 후 주문을 취소합니다. 이 스크립트는 KIS API를 호출하지 않습니다.
 
+PostgreSQL 프로세스 장애를 격리된 임시 인스턴스로 점검하려면 `.\scripts\test-postgres-outage-recovery.ps1`을 실행합니다. 이 스크립트는 Windows PostgreSQL 16 바이너리를 사용해 임시 클러스터를 만들고, 해당 DB와만 연결하는 Spring API를 띄워 대기 PAPER 주문 저장, DB 중단 시 안전한 HTTP 503, DB 재시작 후 주문 복구를 확인합니다. 설치된 `localhost:5432` DB와 KIS API는 사용하지 않으며, 실전·모의 KIS 주문과 실전 계좌조회는 잠금이 확인된 경우에만 진행됩니다.
+
 ## 과거 데이터 백테스트와 학습
 
 데이터 권한을 확인한 1분봉 CSV는 다음 열을 사용합니다: `timestamp,open,high,low,close,volume,spread_bps,symbol`. `timestamp`는 `2026-11-05T09:00:00+09:00`처럼 시간대 오프셋을 포함해야 하며, 한 CSV에는 한 종목만 넣고 세션 안에서 시간순으로 정렬합니다. `spread_bps`가 없으면 해당 봉은 전략의 스프레드 필터를 통과하지 않습니다. `symbol` 열을 넣으면 요청한 종목과 값이 일치하는지도 확인합니다.

@@ -3,6 +3,7 @@ package com.aistocktrader.order;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.TransactionSystemException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -24,5 +25,9 @@ class ApiExceptionHandlerTest {
 
         var commitFailure = handler.databaseUnavailable(new TransactionSystemException("commit failed"));
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, commitFailure.getStatusCode());
+
+        var connectionFailure = handler.databaseUnavailable(
+                new CannotCreateTransactionException("database connection failed"));
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, connectionFailure.getStatusCode());
     }
 }
