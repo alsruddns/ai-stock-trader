@@ -189,7 +189,7 @@ class KisRealOrderClientTest {
                 .andExpect(header("tr_id", "TTTC0081R"))
                 .andExpect(queryParam("ODNO", "7001"))
                 .andRespond(withSuccess("""
-                        {"rt_cd":"0","output1":[{"odno":"7001","tot_ccld_qty":"1","rmn_qty":"0","avg_prvs":"70100","cncl_yn":"N"}]}
+                        {"rt_cd":"0","output1":[{"odno":"7001","pdno":"005930","sll_buy_dvsn_cd":"02","ord_gno_brno":"ORG01","tot_ccld_qty":"1","rmn_qty":"0","avg_prvs":"70100","cncl_yn":"N"}]}
                         """, MediaType.APPLICATION_JSON));
         KisOrderIntent intent = realIntent(Market.KR, "005930", "7001", "ORG01", null, 1);
 
@@ -203,13 +203,32 @@ class KisRealOrderClientTest {
     }
 
     @Test
+    void realReconciliationRejectsSameOrderNumberForDifferentSymbolOrSide() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[
+                          {"odno":"7001","pdno":"000660","sll_buy_dvsn_cd":"02","ord_gno_brno":"ORG01","tot_ccld_qty":"1","rmn_qty":"0"}
+                        ]}
+                        """, MediaType.APPLICATION_JSON));
+        KisOrderIntent intent = realIntent(Market.KR, "005930", "7001", "ORG01", null, 1);
+
+        assertTrue(new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                .reconcileRealOrder(intent).isEmpty());
+        server.verify();
+    }
+
+    @Test
     void realReconciliationReservesSharedRateLimitBeforeHttpGet() throws Exception {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         server.expect(requestTo(org.hamcrest.Matchers.containsString(
                         "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
                 .andExpect(header("tr_id", "TTTC0081R"))
-                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"output1\":[{\"odno\":\"7001\",\"tot_ccld_qty\":\"0\",\"rmn_qty\":\"1\"}]}",
+                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"output1\":[{\"odno\":\"7001\",\"pdno\":\"005930\",\"sll_buy_dvsn_cd\":\"02\",\"ord_gno_brno\":\"ORG01\",\"tot_ccld_qty\":\"0\",\"rmn_qty\":\"1\"}]}",
                         MediaType.APPLICATION_JSON));
         KisRestRateLimiter limiter = mock(KisRestRateLimiter.class);
         KisAccessTokenProvider tokens = mock(KisAccessTokenProvider.class);
@@ -256,7 +275,7 @@ class KisRealOrderClientTest {
                 .andExpect(queryParam("OVRS_EXCG_CD", "NASD"))
                 .andExpect(queryParam("ODNO", ""))
                 .andRespond(withSuccess("""
-                        {"rt_cd":"0","output":[{"odno":"7111","ft_ccld_qty":"2","nccs_qty":"1","ft_ccld_unpr3":"10.25"}]}
+                        {"rt_cd":"0","output":[{"odno":"7111","pdno":"AAPL","sll_buy_dvsn":"02","ft_ccld_qty":"2","nccs_qty":"1","ft_ccld_unpr3":"10.25"}]}
                         """, MediaType.APPLICATION_JSON));
         KisOrderIntent intent = realIntent(Market.US, "AAPL", "7111", null, "NASD", 3);
 

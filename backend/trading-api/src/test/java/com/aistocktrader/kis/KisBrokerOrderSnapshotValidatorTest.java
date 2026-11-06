@@ -4,35 +4,44 @@ import com.aistocktrader.order.Currency;
 import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderRequest;
 import com.aistocktrader.order.OrderSide;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class KisBrokerOrderSnapshotValidatorTest {
-    private final KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.PAPER,
-            new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3, new BigDecimal("70000"), Currency.KRW), null);
+    private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void acceptsConsistentOpenAndTerminalSnapshots() {
-        assertTrue(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
-                new KisBrokerOrderSnapshot(1, 2, new BigDecimal("70000"), false, false)));
-        assertTrue(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
-                new KisBrokerOrderSnapshot(2, 0, new BigDecimal("70000"), true, false)));
-        assertTrue(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
-                new KisBrokerOrderSnapshot(0, 0, null, false, true)));
+    void brokerIdentityMustMatchSymbolSideAndWhenPresentOrganization() throws Exception {
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                        new BigDecimal("70000"), Currency.KRW), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+
+        assertTrue(matches(intent, "{\"pdno\":\"005930\",\"sll_buy_dvsn_cd\":\"02\",\"ord_gno_brno\":\"ORG01\"}"));
+        assertFalse(matches(intent, "{\"pdno\":\"000660\",\"sll_buy_dvsn_cd\":\"02\",\"ord_gno_brno\":\"ORG01\"}"));
+        assertFalse(matches(intent, "{\"pdno\":\"005930\",\"sll_buy_dvsn_cd\":\"01\",\"ord_gno_brno\":\"ORG01\"}"));
+        assertFalse(matches(intent, "{\"pdno\":\"005930\",\"sll_buy_dvsn_cd\":\"02\",\"ord_gno_brno\":\"ORG02\"}"));
+        assertFalse(matches(intent, "{\"pdno\":\"005930\",\"ord_gno_brno\":\"ORG01\"}"));
     }
 
     @Test
-    void rejectsMissingQuantityAndContradictoryTerminalFlags() {
-        assertFalse(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
-                new KisBrokerOrderSnapshot(1, 1, new BigDecimal("70000"), false, false)));
-        assertFalse(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
-                new KisBrokerOrderSnapshot(0, 1, null, true, false)));
-        assertFalse(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
-                new KisBrokerOrderSnapshot(0, 0, null, true, true)));
+    void matchingIdentityAllowsUnavailableOptionalBrokerOrganization() throws Exception {
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new OrderRequest(Market.US, "AAPL", OrderSide.SELL, 1,
+                        new BigDecimal("100"), Currency.USD), "NASD");
+        intent.accept(new KisOrderReceipt("real", "US", "AAPL", "SELL", "5678", "ORG02", "0", Instant.now()));
+
+        assertTrue(matches(intent, "{\"pdno\":\"AAPL\",\"sll_buy_dvsn\":\"01\"}"));
+    }
+
+    private boolean matches(KisOrderIntent intent, String json) throws Exception {
+        return KisBrokerOrderSnapshotValidator.matchesBrokerIdentity(mapper.readTree(json), intent);
     }
 }

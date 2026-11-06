@@ -256,7 +256,10 @@ public class KisRealOrderClient {
             if (rows.isArray()) {
                 for (JsonNode row : rows) {
                     String brokerNumber = firstText(row, "odno", "ODNO");
-                    if (intent.getBrokerOrderNumber().equals(brokerNumber)) return parseSnapshot(row, intent);
+                    if (intent.getBrokerOrderNumber().equals(brokerNumber)) {
+                        if (!KisBrokerOrderSnapshotValidator.matchesBrokerIdentity(row, intent)) return Optional.empty();
+                        return parseSnapshot(row, intent);
+                    }
                 }
             }
             continuation = query.continuation();
