@@ -116,6 +116,29 @@ class KisOrderClientTest {
     }
 
     @Test
+    void overseasPaperCancelUsesPaperTransactionAndFullRemainingQuantityContract() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/uapi/overseas-stock/v1/trading/order-rvsecncl"))
+                .andExpect(method(HttpMethod.POST)).andExpect(header("tr_id", "VTTT1004U"))
+                .andExpect(jsonPath("$.OVRS_EXCG_CD").value("NASD"))
+                .andExpect(jsonPath("$.PDNO").value("AAPL"))
+                .andExpect(jsonPath("$.ORGN_ODNO").value("5678"))
+                .andExpect(jsonPath("$.RVSE_CNCL_DVSN_CD").value("02"))
+                .andExpect(jsonPath("$.ORD_QTY").value("0"))
+                .andExpect(jsonPath("$.OVRS_ORD_UNPR").value("0"))
+                .andExpect(jsonPath("$.ORD_SVR_DVSN_CD").value("0"))
+                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"msg_cd\":\"0\",\"output\":{}}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+
+        assertDoesNotThrow(() -> client(true, builder).cancelPaperOrder(
+                Market.US, "AAPL", "5678", null, 1, "NAS"));
+        server.verify();
+    }
+
+    @Test
     void paperOrderSwitchIsOffByDefaultAndNeverAttemptsNetwork() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -168,6 +191,37 @@ class KisOrderClientTest {
         assertEquals(1, snapshot.filledQuantity());
         assertEquals(1, snapshot.remainingQuantity());
         assertEquals(new BigDecimal("70000"), snapshot.averageFillPrice());
+        server.verify();
+    }
+
+    @Test
+    void overseasPaperReconciliationQueriesTheMockWholeDayAndMatchesOrderLocally() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/overseas-stock/v1/trading/inquire-ccnl?")))
+                .andExpect(header("tr_id", "VTTS3035R"))
+                .andExpect(queryParam("PDNO", ""))
+                .andExpect(queryParam("SLL_BUY_DVSN", "00"))
+                .andExpect(queryParam("CCLD_NCCS_DVSN", "00"))
+                .andExpect(queryParam("OVRS_EXCG_CD", ""))
+                .andExpect(queryParam("ODNO", ""))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output":[
+                          {"odno":"5678","ft_ccld_qty":"1","nccs_qty":"1","ft_ccld_unpr3":"231.59"}
+                        ]}
+                        """, org.springframework.http.MediaType.APPLICATION_JSON));
+        var request = new com.aistocktrader.order.OrderRequest(Market.US, "AAPL", OrderSide.BUY, 2,
+                new BigDecimal("231.59"), Currency.USD);
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", request, "NASD");
+        intent.accept(new KisOrderReceipt("paper", "US", "AAPL", "BUY", "5678", "", "0", Instant.now()));
+
+        KisBrokerOrderSnapshot snapshot = client(true, builder).reconcilePaperOrder(intent).orElseThrow();
+
+        assertEquals(1, snapshot.filledQuantity());
+        assertEquals(1, snapshot.remainingQuantity());
+        assertEquals(new BigDecimal("231.59"), snapshot.averageFillPrice());
         server.verify();
     }
 
