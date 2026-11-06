@@ -80,6 +80,7 @@ $previousTicks = $initialTicks
 $startedAtUtc = [DateTimeOffset]::UtcNow
 $sessionOpenBarsBaseline = $null
 $awaitingSessionOpenBaseline = [bool]($exchangeSession -and $startedAtUtc -lt $exchangeSession.open_utc)
+$lastPreOpenBars = if ($awaitingSessionOpenBaseline) { $initialBars } else { $null }
 $initialReceiveAt = if ($Feed) { $initial.last_tick_received_at_by_feed.$Feed } else { $initial.last_tick_received_at }
 if ($Feed -and $initialReceiveAt) {
     $initialReceivedAtUtc = [DateTimeOffset]::Parse([string]$initialReceiveAt).ToUniversalTime()
@@ -170,10 +171,19 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
     }
 
     $currentBars = if ($Feed) { [int]$latest.bars_closed_by_feed.$Feed } else { [int]$latest.bars_closed }
-    if ($awaitingSessionOpenBaseline -and $sampledAtUtc -ge $exchangeSession.open_utc) {
-        # Exclude any premarket bars when measuring the regular session's completed bars.
-        $sessionOpenBarsBaseline = $currentBars
-        $awaitingSessionOpenBaseline = $false
+    if ($exchangeSession) {
+        # Keep the last pre-open count. The first poll after open may already include
+        # the opening minute, which must count toward a complete regular session.
+        $baselineState = Update-ExchangeSessionOpenBarsBaseline `
+            $awaitingSessionOpenBaseline $sampledAtUtc $exchangeSession.open_utc `
+            $currentBars $lastPreOpenBars $initialBars
+        $awaitingSessionOpenBaseline = $baselineState.awaiting
+        if ($null -ne $baselineState.baseline) {
+            $sessionOpenBarsBaseline = $baselineState.baseline
+        }
+        if ($sampledAtUtc -lt $exchangeSession.open_utc) {
+            $lastPreOpenBars = $currentBars
+        }
     }
     $sessionBarCount = Get-ExchangeSessionBarsDelta $currentBars $initialBars $sessionOpenBarsBaseline
     $sessionBarsDelta = $sessionBarCount.delta

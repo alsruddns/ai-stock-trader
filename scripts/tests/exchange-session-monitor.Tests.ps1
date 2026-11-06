@@ -54,4 +54,16 @@ Describe 'Exchange session monitor calendar boundaries' {
         $count.baseline | Should Be 40
         $count.delta | Should Be 390
     }
+
+    It 'keeps the final pre-open count so the first post-open bar is counted' {
+        $open = [DateTimeOffset]::Parse('2026-11-06T14:30:00Z')
+        $preOpen = Update-ExchangeSessionOpenBarsBaseline $true $open.AddSeconds(-15) $open 157 157 157
+        $preOpen.awaiting | Should Be $true
+        $preOpen.baseline | Should Be 157
+
+        $afterOpen = Update-ExchangeSessionOpenBarsBaseline $preOpen.awaiting $open.AddSeconds(15) $open 158 $preOpen.baseline 157
+        $afterOpen.awaiting | Should Be $false
+        $afterOpen.baseline | Should Be 157
+        (Get-ExchangeSessionBarsDelta 547 157 $afterOpen.baseline).delta | Should Be 390
+    }
 }

@@ -43,6 +43,24 @@ function Test-ExchangeSessionNoTickThresholdApplies([string]$SessionPhase) {
     return $SessionPhase -in @('CONTINUOUS', 'NOT_APPLICABLE')
 }
 
+function Update-ExchangeSessionOpenBarsBaseline(
+    [bool]$AwaitingSessionOpenBaseline,
+    [DateTimeOffset]$SampledAt,
+    [DateTimeOffset]$SessionOpen,
+    [int]$CurrentBars,
+    $LastPreOpenBars,
+    [int]$InitialBars
+) {
+    if (-not $AwaitingSessionOpenBaseline) {
+        return [pscustomobject]@{ awaiting = $false; baseline = $null }
+    }
+    if ($SampledAt.ToUniversalTime() -lt $SessionOpen.ToUniversalTime()) {
+        return [pscustomobject]@{ awaiting = $true; baseline = $CurrentBars }
+    }
+    $baseline = if ($null -ne $LastPreOpenBars) { [int]$LastPreOpenBars } else { $InitialBars }
+    return [pscustomobject]@{ awaiting = $false; baseline = $baseline }
+}
+
 function Get-ExchangeSessionBarsDelta([int]$CurrentBars, [int]$InitialBars, $SessionOpenBarsBaseline) {
     $baseline = if ($null -ne $SessionOpenBarsBaseline) { [int]$SessionOpenBarsBaseline } else { $InitialBars }
     if ($CurrentBars -lt $baseline) {
