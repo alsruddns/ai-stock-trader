@@ -52,7 +52,7 @@ Set-Location .\services\market-ai
 
 실제 KIS PAPER 주문·취소 통합 확인은 `scripts/test-kis-paper-order-lifecycle-isolated.ps1`을 사용합니다. 이 스크립트는 `.env_local`의 PAPER/REAL 주문 및 자동매매 잠금이 모두 `false`인 것을 확인하고, 별도 loopback 포트(기본 8081)에 임시 Spring Boot 프로세스를 시작합니다. PAPER 주문만 그 프로세스에서 허용하고 REAL 키·계좌번호는 빈 값으로 덮어씁니다. 테스트 종료 시 임시 프로세스를 끄고 호출 PowerShell 환경을 복원하며 `.env_local`을 수정하지 않습니다. 우선 `-PreflightOnly`로 확인하고, 장중 실제 1주 주문·즉시 취소를 검증할 때만 `-ConfirmPaperOrderAndCancel`을 명시합니다. 두 모드는 상호 배타적입니다.
 
-주문 제출 모드는 Python의 `/api/v1/market/sessions/{KR|US}`에서 받은 최근 거래소 캘린더 확인을 요구합니다. 휴장일·장외·캘린더 오류·5분 이내 폐장·오래된 세션 응답이면 주문 전에 중단합니다. 읽기 전용 `-PreflightOnly`는 장외에서도 실행할 수 있습니다.
+주문 제출 모드는 Python의 `/api/v1/market/sessions/{market}` (`market=KR` 또는 `US`)에서 받은 최근 거래소 캘린더 확인을 요구합니다. 휴장일·장외·캘린더 오류·5분 이내 폐장·오래된 세션 응답이면 주문 전에 중단합니다. 읽기 전용 `-PreflightOnly`는 장외에서도 실행할 수 있습니다.
 
 ```powershell
 .\scripts\test-kis-paper-order-lifecycle-isolated.ps1 -Market KR -Symbol 069500 -LimitPrice 75000 -PreflightOnly

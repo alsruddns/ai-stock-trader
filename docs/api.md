@@ -25,7 +25,7 @@
 
 `GET /api/v1/health`와 `GET /api/v1/paper/session`은 `kr_calendar_compatibility`를 제공합니다. `COMPATIBLE`은 `pandas<3.1` 및 `exchange-calendars>=4.13.1`을 뜻합니다. `PANDAS_UNSUPPORTED`, `EXCHANGE_CALENDAR_UNSUPPORTED`, `DEPENDENCIES_MISSING`, `VERSION_UNKNOWN`이면 PAPER 세션 게이트가 신규 진입과 청산 판단을 차단합니다. 이 필드는 시세 연결이나 주문 가능 여부를 뜻하지 않습니다.
 
-`GET /api/v1/market/sessions/{KR|US}`는 거래소 캘린더가 확인한 현지 세션 날짜와 UTC 개장·폐장 시각, 조회 시점의 장중 여부를 반환합니다. 휴장일에는 `is_session=false`와 빈 개장·폐장 시각을 돌려줍니다. 캘린더를 검증할 수 없으면 HTTP 503으로 닫습니다. 이 endpoint는 읽기 전용 세션 정보이며 주문 승인이 아닙니다.
+`GET /api/v1/market/sessions/{market}`는 `market`이 `KR` 또는 `US`일 때 거래소 캘린더가 확인한 현지 세션 날짜와 UTC 개장·폐장 시각, 조회 시점의 장중 여부를 반환합니다. 휴장일에는 `is_session=false`와 빈 개장·폐장 시각을 돌려줍니다. 캘린더를 검증할 수 없으면 HTTP 503으로 닫습니다. 이 endpoint는 읽기 전용 세션 정보이며 주문 승인이 아닙니다.
 
 모델 `approve`, `activate`, `rollback` 변경 요청은 `.env`에 설정한 `MODEL_GOVERNANCE_TOKEN`을 `X-Model-Governance-Token` 헤더로 전달해야 합니다. 토큰 미설정 시 `503`, 불일치 시 `403`을 반환합니다. 토큰은 응답과 감사 기록에 저장되지 않습니다.
 
