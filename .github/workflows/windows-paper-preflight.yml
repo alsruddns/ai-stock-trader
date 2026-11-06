@@ -47,7 +47,7 @@ jobs:
           }
 
           $sessionResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -PassThru
-          if ($sessionResult.FailedCount -gt 0 -or $sessionResult.PassedCount -ne 9) {
+          if ($sessionResult.FailedCount -gt 0 -or $sessionResult.PassedCount -ne 11) {
             throw "Exchange session monitor tests failed: passed=$($sessionResult.PassedCount), failed=$($sessionResult.FailedCount)."
           }
 

@@ -125,3 +125,26 @@ def test_multi_symbol_session_load_uses_single_read_only_query(monkeypatch) -> N
     assert list(result) == ["AAPL", "MSFT"]
     assert result["AAPL"][0].spread_bps == Decimal("4.5")
     assert result["MSFT"][0].spread_bps is None
+
+
+def test_multi_symbol_source_counts_are_read_only_and_grouped_by_symbol(monkeypatch) -> None:
+    connection = _FakeConnection()
+    connection.rows = [
+        ("AAPL", "KIS_REAL_US_WEBSOCKET", 390),
+        ("AAPL", "KIS_REST_MINUTE_CHART", 2),
+        ("MSFT", "KIS_REAL_US_WEBSOCKET", 390),
+    ]
+    monkeypatch.setattr(snapshot_store, "_connect", lambda: connection)
+
+    result = snapshot_store.load_session_minute_bar_source_counts(
+        "US", ["aapl", "msft", "AAPL"], datetime.fromisoformat("2026-11-05").date(),
+    )
+
+    assert connection.calls[0] == ("SET TRANSACTION READ ONLY", None)
+    query, params = connection.calls[1]
+    assert "GROUP BY symbol, source" in query
+    assert params[0:2] == ("US", ["AAPL", "MSFT"])
+    assert result == {
+        "AAPL": {"KIS_REAL_US_WEBSOCKET": 390, "KIS_REST_MINUTE_CHART": 2},
+        "MSFT": {"KIS_REAL_US_WEBSOCKET": 390},
+    }

@@ -61,7 +61,7 @@ function Update-ExchangeSessionOpenBarsBaseline(
     return [pscustomobject]@{ awaiting = $false; baseline = $baseline }
 }
 
-function Assert-ExchangeSessionQuality($Quality, [string]$Market, [string]$SessionDate, [string[]]$Symbols, [int]$ExpectedBars) {
+function Assert-ExchangeSessionQuality($Quality, [string]$Market, [string]$SessionDate, [string[]]$Symbols, [int]$ExpectedBars, [string]$ExpectedSource) {
     if (-not $Quality -or $Quality.market -ne $Market -or $Quality.session_date -ne $SessionDate) {
         throw 'Stored market-data quality did not match the monitored exchange session.'
     }
@@ -83,6 +83,16 @@ function Assert-ExchangeSessionQuality($Quality, [string]$Market, [string]$Sessi
             [double]$row.spread_coverage_percent -ne 100) {
             throw "Stored market-data quality is incomplete for $Market $symbol."
         }
+        $sourceCounts = $row.source_counts
+        if (-not $sourceCounts) {
+            throw "Stored market-data provenance is missing for $Market $symbol."
+        }
+        $sourceProperties = @($sourceCounts.PSObject.Properties)
+        if ($sourceProperties.Count -ne 1 -or
+            $sourceProperties[0].Name -ne $ExpectedSource -or
+            [int]$sourceProperties[0].Value -ne $ExpectedBars) {
+            throw "Stored market-data provenance is incomplete or unexpected for $Market $symbol."
+        }
         [pscustomobject]@{
             market = $Market
             symbol = $symbol
@@ -92,6 +102,7 @@ function Assert-ExchangeSessionQuality($Quality, [string]$Market, [string]$Sessi
             observed_bars = [int]$row.observed_bars
             spread_bars = [int]$row.spread_bars
             spread_coverage_percent = [double]$row.spread_coverage_percent
+            source_counts = @{ $ExpectedSource = [int]$sourceProperties[0].Value }
         }
     }
     return @($verified)

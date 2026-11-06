@@ -252,11 +252,12 @@ if ($RequireSessionClose) {
         'symbols=' + [Uri]::EscapeDataString($_)
     })
     $qualityUrl = "${ApiBaseUrl}/api/v1/market/session-quality/${market}?" + ($query -join '&')
+    $expectedSource = if ($Feed -eq 'paper') { 'KIS_PAPER_WEBSOCKET' } else { 'KIS_REAL_US_WEBSOCKET' }
     try {
         $quality = Invoke-RestMethod -Uri $qualityUrl -TimeoutSec 10
-        $sessionQualityEvidence = @(Assert-ExchangeSessionQuality $quality $market $sessionDate $symbols $MinimumBarsDelta)
+        $sessionQualityEvidence = @(Assert-ExchangeSessionQuality $quality $market $sessionDate $symbols $MinimumBarsDelta $expectedSource)
     } catch {
-        throw 'The monitored session passed its live-feed checks, but stored-session completeness/spread verification failed.'
+        throw 'The monitored session passed its live-feed checks, but stored-session completeness, spread, or provenance verification failed.'
     }
 }
 $evidence = [ordered]@{

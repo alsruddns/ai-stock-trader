@@ -260,6 +260,7 @@ async def market_session_quality(
     evaluated_at = datetime.now(timezone.utc)
     report = _session_quality_report(normalized_market, normalized_symbol, session_date, [], evaluated_at)
     if report["status"] == "NON_SESSION":
+        report["source_counts"] = {}
         return report
     if not snapshot_store.enabled():
         raise HTTPException(status_code=503, detail="Market snapshot persistence is disabled")
@@ -269,7 +270,16 @@ async def market_session_quality(
         )
     except psycopg.Error as exc:
         raise HTTPException(status_code=503, detail="Stored market data is unavailable") from exc
-    return _session_quality_report(normalized_market, normalized_symbol, session_date, bars, evaluated_at)
+    report = _session_quality_report(normalized_market, normalized_symbol, session_date, bars, evaluated_at)
+    try:
+        source_counts = await asyncio.to_thread(
+            snapshot_store.load_session_minute_bar_source_counts,
+            normalized_market, [normalized_symbol], session_date,
+        )
+    except psycopg.Error as exc:
+        raise HTTPException(status_code=503, detail="Stored market-data provenance is unavailable") from exc
+    report["source_counts"] = source_counts.get(normalized_symbol, {})
+    return report
 
 
 @app.get("/api/v1/market/session-quality/{market}")
@@ -303,6 +313,7 @@ async def market_session_quality_batch(
     ]
     if empty_reports and empty_reports[0]["status"] == "NON_SESSION":
         bars_by_symbol = {symbol: [] for symbol in normalized_symbols}
+        source_counts_by_symbol = {symbol: {} for symbol in normalized_symbols}
     else:
         if not snapshot_store.enabled():
             raise HTTPException(status_code=503, detail="Market snapshot persistence is disabled")
@@ -313,11 +324,20 @@ async def market_session_quality_batch(
             )
         except psycopg.Error as exc:
             raise HTTPException(status_code=503, detail="Stored market data is unavailable") from exc
+        try:
+            source_counts_by_symbol = await asyncio.to_thread(
+                snapshot_store.load_session_minute_bar_source_counts,
+                normalized_market, normalized_symbols, session_date,
+            )
+        except psycopg.Error as exc:
+            raise HTTPException(status_code=503, detail="Stored market-data provenance is unavailable") from exc
     reports = [
         _session_quality_report(
             normalized_market, symbol, session_date, bars_by_symbol.get(symbol, []), evaluated_at,
         ) for symbol in normalized_symbols
     ]
+    for report in reports:
+        report["source_counts"] = source_counts_by_symbol.get(str(report["symbol"]), {})
     return {"market": normalized_market, "session_date": session_date.isoformat(), "sessions": reports}
 
 

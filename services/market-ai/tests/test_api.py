@@ -100,6 +100,8 @@ def test_session_quality_endpoint_audits_persisted_bars_read_only(monkeypatch) -
     monkeypatch.setattr(main.snapshot_store, "enabled", lambda: True)
     monkeypatch.setattr(main.snapshot_store, "load_session_minute_bars",
                         lambda market, symbol, session_date: bars)
+    monkeypatch.setattr(main.snapshot_store, "load_session_minute_bar_source_counts",
+                        lambda market, symbols, session_date: {"AAPL": {"KIS_REAL_US_WEBSOCKET": 390}})
 
     response = client.get(
         "/api/v1/market/session-quality/US/AAPL?session_date=2026-11-05",
@@ -110,6 +112,7 @@ def test_session_quality_endpoint_audits_persisted_bars_read_only(monkeypatch) -
     assert body["status"] == "COMPLETE"
     assert body["observed_bars"] == 390
     assert body["spread_coverage_percent"] == 100
+    assert body["source_counts"] == {"KIS_REAL_US_WEBSOCKET": 390}
 
 
 def test_session_quality_endpoint_fails_closed_when_persistence_disabled(monkeypatch) -> None:
@@ -163,6 +166,11 @@ def test_session_quality_batch_endpoint_audits_all_symbols_with_one_store_call(m
         return {"005930": bars, "069500": bars[:379]}
 
     monkeypatch.setattr(main.snapshot_store, "load_session_minute_bars_for_symbols", load)
+    monkeypatch.setattr(main.snapshot_store, "load_session_minute_bar_source_counts",
+                        lambda market, symbols, session_date: {
+                            "005930": {"KIS_PAPER_WEBSOCKET": 380},
+                            "069500": {"KIS_REST_MINUTE_CHART": 379},
+                        })
     response = client.get(
         "/api/v1/market/session-quality/KR?symbols=005930&symbols=069500&session_date=2026-11-05",
     )
@@ -171,6 +179,7 @@ def test_session_quality_batch_endpoint_audits_all_symbols_with_one_store_call(m
     assert len(calls) == 1
     assert [item["symbol"] for item in response.json()["sessions"]] == ["005930", "069500"]
     assert [item["status"] for item in response.json()["sessions"]] == ["COMPLETE", "INCOMPLETE"]
+    assert response.json()["sessions"][0]["source_counts"] == {"KIS_PAPER_WEBSOCKET": 380}
 
 
 def test_session_quality_batch_can_select_latest_closed_session(monkeypatch) -> None:
@@ -184,6 +193,8 @@ def test_session_quality_batch_can_select_latest_closed_session(monkeypatch) -> 
         return {"005930": []}
 
     monkeypatch.setattr(main.snapshot_store, "load_session_minute_bars_for_symbols", load)
+    monkeypatch.setattr(main.snapshot_store, "load_session_minute_bar_source_counts",
+                        lambda market, symbols, session_date: {"005930": {"KIS_PAPER_WEBSOCKET": 0}})
     response = client.get(
         "/api/v1/market/session-quality/KR?symbols=005930&latest_closed=true",
     )

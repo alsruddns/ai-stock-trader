@@ -138,6 +138,41 @@ def load_session_minute_bars_for_symbols(
     return result
 
 
+def load_session_minute_bar_source_counts(
+    market: str, symbols: list[str], session_date: date,
+) -> dict[str, dict[str, int]]:
+    """Count persisted bar provenance per watched symbol for one local session."""
+    if market not in {"KR", "US"} or not 1 <= len(symbols) <= 50:
+        raise ValueError("market and 1 to 50 symbols are required")
+    normalized_symbols = list(dict.fromkeys(symbol.strip().upper() for symbol in symbols))
+    if any(not symbol for symbol in normalized_symbols):
+        raise ValueError("symbols must not be empty")
+    zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
+    session_noon = datetime.combine(session_date, datetime_time(hour=12), tzinfo=zone)
+    window = exchange_continuous_session_window(market, session_noon)
+    result = {symbol: {} for symbol in normalized_symbols}
+    if window is None:
+        return result
+    session_start, session_end = window
+    with _connect() as connection:
+        connection.execute("SET TRANSACTION READ ONLY", None)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT symbol, source, count(*)
+                   FROM market_minute_bar
+                   WHERE market = %s AND symbol = ANY(%s) AND bar_at >= %s AND bar_at < %s
+                   GROUP BY symbol, source
+                   ORDER BY symbol, source""",
+                (market, normalized_symbols, session_start, session_end),
+            )
+            rows = cursor.fetchall()
+    for symbol, source, count in rows:
+        normalized_symbol = str(symbol).upper()
+        if normalized_symbol in result:
+            result[normalized_symbol][str(source)] = int(count)
+    return result
+
+
 def store_account_balance(balance: AccountBalance) -> None:
     with _connect() as connection:
         connection.execute(

@@ -74,12 +74,42 @@ Describe 'Exchange session monitor calendar boundaries' {
                 full_session_complete=$true; expected_bars=390; completed_minutes=390
                 observed_bars=390; observed_completed_bars=390; missing_bars=0
                 off_grid_bars=0; duplicate_bars=0; spread_bars=390; spread_coverage_percent=100.0
+                source_counts=[pscustomobject]@{ KIS_REAL_US_WEBSOCKET = 390 }
             })
         }
-        $verified = @(Assert-ExchangeSessionQuality $quality 'US' '2026-11-06' @('AAPL') 390)
+        $verified = @(Assert-ExchangeSessionQuality $quality 'US' '2026-11-06' @('AAPL') 390 'KIS_REAL_US_WEBSOCKET')
         $verified.Count | Should Be 1
         $verified[0].status | Should Be 'COMPLETE'
         $verified[0].spread_coverage_percent | Should Be 100.0
+        $verified[0].source_counts.KIS_REAL_US_WEBSOCKET | Should Be 390
+    }
+
+    It 'rejects a complete session stored under a different source' {
+        $quality = @{ market='US'; session_date='2026-11-06'; sessions=@(@{
+            market='US'; symbol='AAPL'; session_date='2026-11-06'; status='COMPLETE'
+            full_session_complete=$true; expected_bars=390; completed_minutes=390
+            observed_bars=390; observed_completed_bars=390; missing_bars=0
+            off_grid_bars=0; duplicate_bars=0; spread_bars=390; spread_coverage_percent=100.0
+            source_counts=[pscustomobject]@{ KIS_REST_MINUTE_CHART = 390 }
+        }) }
+        $didThrow = $false
+        try { Assert-ExchangeSessionQuality $quality 'US' '2026-11-06' @('AAPL') 390 'KIS_REAL_US_WEBSOCKET' | Out-Null }
+        catch { $didThrow = $true }
+        $didThrow | Should Be $true
+    }
+
+    It 'rejects mixed provenance even when the total bar count is complete' {
+        $quality = @{ market='US'; session_date='2026-11-06'; sessions=@(@{
+            market='US'; symbol='AAPL'; session_date='2026-11-06'; status='COMPLETE'
+            full_session_complete=$true; expected_bars=390; completed_minutes=390
+            observed_bars=390; observed_completed_bars=390; missing_bars=0
+            off_grid_bars=0; duplicate_bars=0; spread_bars=390; spread_coverage_percent=100.0
+            source_counts=[pscustomobject]@{ KIS_REAL_US_WEBSOCKET = 389; KIS_REST_MINUTE_CHART = 1 }
+        }) }
+        $didThrow = $false
+        try { Assert-ExchangeSessionQuality $quality 'US' '2026-11-06' @('AAPL') 390 'KIS_REAL_US_WEBSOCKET' | Out-Null }
+        catch { $didThrow = $true }
+        $didThrow | Should Be $true
     }
 
     It 'rejects a complete bar count when a stored minute is missing' {
@@ -92,7 +122,7 @@ Describe 'Exchange session monitor calendar boundaries' {
             })
         }
         $didThrow = $false
-        try { Assert-ExchangeSessionQuality $quality 'US' '2026-11-06' @('AAPL') 390 | Out-Null }
+        try { Assert-ExchangeSessionQuality $quality 'US' '2026-11-06' @('AAPL') 390 'KIS_REAL_US_WEBSOCKET' | Out-Null }
         catch { $didThrow = $true }
         $didThrow | Should Be $true
     }
@@ -102,9 +132,9 @@ Describe 'Exchange session monitor calendar boundaries' {
         $noSymbol = @{ market='US'; session_date='2026-11-06'; sessions=@() }
         $dateThrew = $false
         $symbolThrew = $false
-        try { Assert-ExchangeSessionQuality $wrongDate 'US' '2026-11-06' @('AAPL') 390 | Out-Null }
+        try { Assert-ExchangeSessionQuality $wrongDate 'US' '2026-11-06' @('AAPL') 390 'KIS_REAL_US_WEBSOCKET' | Out-Null }
         catch { $dateThrew = $true }
-        try { Assert-ExchangeSessionQuality $noSymbol 'US' '2026-11-06' @('AAPL') 390 | Out-Null }
+        try { Assert-ExchangeSessionQuality $noSymbol 'US' '2026-11-06' @('AAPL') 390 'KIS_REAL_US_WEBSOCKET' | Out-Null }
         catch { $symbolThrew = $true }
         $dateThrew | Should Be $true
         $symbolThrew | Should Be $true
