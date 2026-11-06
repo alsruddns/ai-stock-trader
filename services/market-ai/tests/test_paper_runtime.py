@@ -438,6 +438,57 @@ def test_closed_bars_update_non_executable_quant_decision_and_reset_each_session
     assert runtime.decisions()[watch.key]["bars_in_session"] == 1
 
 
+@pytest.mark.parametrize(("timestamp", "expected_reason"), [
+    ("2026-11-06T09:29:00-05:00", "OUTSIDE_REGULAR_SESSION"),
+    ("2026-11-06T16:00:00-05:00", "OUTSIDE_REGULAR_SESSION"),
+    ("2026-11-05T15:20:00+09:00", "OUTSIDE_REGULAR_SESSION"),
+    ("2026-11-07T10:00:00-05:00", "MARKET_CLOSED"),
+])
+def test_strategy_history_excludes_premarket_postmarket_krx_auction_and_holidays(
+    timestamp: str, expected_reason: str,
+) -> None:
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("US:AAPL:NAS")[0] if "-05:00" in timestamp else parse_watchlist("KR:005930")[0]
+    runtime._bars[watch.key] = deque([
+        MinuteBar(datetime.fromisoformat("2026-11-05T09:30:00-05:00"),
+                  Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"), 1000, Decimal("5"))
+    ])
+    runtime._decisions[watch.key] = {}
+    bar = MinuteBar(datetime.fromisoformat(timestamp), Decimal("100"), Decimal("101"),
+                    Decimal("99"), Decimal("100"), 1000, Decimal("5"))
+
+    runtime._record_closed_bar(watch, bar)
+
+    decision = runtime.decisions()[watch.key]
+    assert not runtime._bars[watch.key]
+    assert decision["signal"] == "HOLD"
+    assert decision["reason"] == expected_reason
+    assert decision["bars_in_session"] == 0
+    assert decision["executable"] is False
+
+
+def test_regular_open_starts_strategy_history_at_first_continuous_minute() -> None:
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("US:AAPL:NAS")[0]
+    runtime._bars[watch.key] = deque(maxlen=5_000)
+    runtime._decisions[watch.key] = {}
+
+    premarket = MinuteBar(datetime.fromisoformat("2026-11-06T09:29:00-05:00"),
+                          Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"), 1000, Decimal("5"))
+    runtime._record_closed_bar(watch, premarket)
+    start = datetime.fromisoformat("2026-11-06T09:30:00-05:00")
+    for index in range(20):
+        price = Decimal("100")
+        runtime._record_closed_bar(watch, MinuteBar(
+            start + timedelta(minutes=index), price, price, price, price, 1000, Decimal("5"),
+        ))
+
+    decision = runtime.decisions()[watch.key]
+    assert decision["bars_in_session"] == 20
+    assert decision["reason"] != "BAR_SEQUENCE_INVALID"
+    assert runtime._bars[watch.key][0].timestamp == start
+
+
 def test_quant_candidate_is_held_without_an_active_approved_market_model(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("AI_MODEL_REGISTRY_PATH", str(tmp_path / "models"))
     runtime = PaperSessionFeedMonitor()

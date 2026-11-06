@@ -24,6 +24,7 @@ from .market_stream import MinuteBarAggregator, parse_trade_frame
 from .quant import MinuteBar, QuantConfig, _atr, orb_vwap_entry_candidate
 from .paper_automation import PaperAutomationReadiness, PaperAutoTrader, PaperEntryDecision
 from .paper_broker import PaperBrokerError, SpringPaperBrokerClient
+from .market_calendar import exchange_continuous_session_window
 from .paper_ops import PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate, exchange_session_window, size_paper_order
 from .paper_risk import baseline_capture_open, daily_loss_percent, paper_equity_snapshot
 
@@ -570,6 +571,24 @@ class PaperSessionFeedMonitor:
 
     def _record_closed_bar(self, watch: PaperWatch, bar: MinuteBar) -> None:
         history = self._bars[watch.key]
+        try:
+            window = exchange_continuous_session_window(watch.market, bar.timestamp)
+        except RuntimeError:
+            history.clear()
+            reason = "MARKET_CALENDAR_UNAVAILABLE"
+            window = None
+        else:
+            reason = "MARKET_CLOSED" if window is None else "OUTSIDE_REGULAR_SESSION"
+        if window is None or not window[0] <= bar.timestamp.astimezone(timezone.utc) < window[1]:
+            # Premarket, postmarket, holidays, and the KRX closing auction must never
+            # contaminate the contiguous regular-session strategy history.
+            history.clear()
+            self._decisions[watch.key] = {
+                "market": watch.market, "symbol": watch.symbol, "exchange": watch.exchange,
+                "signal": "HOLD", "reason": reason, "bars_in_session": 0,
+                "evaluated_at": bar.timestamp.isoformat(), "model_id": None, "executable": False,
+            }
+            return
         session_day = bar.timestamp.date()
         if history and history[-1].timestamp.date() != session_day:
             history.clear()
