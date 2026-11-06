@@ -110,12 +110,15 @@ class KisLiveOrderRiskGateTest {
         KisAccountSnapshot.Position missingValuation = new KisAccountSnapshot.Position("005930", "Samsung",
                 BigDecimal.ONE, BigDecimal.ONE, new BigDecimal("70000"), new BigDecimal("71000"),
                 null, null, null);
+        KisAccountSnapshot.Position missingSymbol = new KisAccountSnapshot.Position("", "Samsung",
+                BigDecimal.ONE, BigDecimal.ONE, new BigDecimal("70000"), new BigDecimal("71000"),
+                new BigDecimal("71000"), null, null);
         KisAccountSnapshot.Position negativeValuation = new KisAccountSnapshot.Position("005930", "Samsung",
                 BigDecimal.ONE, BigDecimal.ONE, new BigDecimal("70000"), new BigDecimal("71000"),
                 BigDecimal.ONE.negate(), null, null);
 
         for (KisAccountSnapshot.Position invalidPosition : List.of(missingQuantity, negativeQuantity,
-                missingValuation, negativeValuation)) {
+                missingValuation, missingSymbol, negativeValuation)) {
             KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null,
                     account(KisEnvironment.REAL, "KRW", "100000", List.of(invalidPosition)),
                     new KisLiveRiskContext(true, true, true, true, false,

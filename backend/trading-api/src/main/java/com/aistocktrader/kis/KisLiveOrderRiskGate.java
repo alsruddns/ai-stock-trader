@@ -46,6 +46,7 @@ public class KisLiveOrderRiskGate {
         boolean matchingCurrency = accountCurrencyMatches(request.currency(), account.currency());
         boolean positionsValid = account.positions() != null
                 && account.positions().stream().noneMatch(position -> position == null
+                        || position.symbol() == null || position.symbol().isBlank()
                         || position.quantity() == null || position.quantity().signum() < 0
                         || (position.quantity().signum() > 0 && (position.evaluationAmount() == null
                         || position.evaluationAmount().signum() < 0)));
