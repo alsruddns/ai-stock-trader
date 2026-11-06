@@ -17,6 +17,24 @@ import static org.mockito.Mockito.*;
 
 class KisRestRateLimiterTest {
     @Test
+    void reservesIndependentConservativeTokenIssueSlotUsingOnlyAppKeyFingerprint() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForObject(anyString(), eq(Timestamp.class), any(Object[].class)))
+                .thenReturn(Timestamp.from(Instant.now().minusSeconds(1)));
+        KisRestRateLimiter limiter = new KisRestRateLimiter(jdbc);
+
+        limiter.acquireToken(KisEnvironment.PAPER, "local-test-app-key");
+
+        var captor = org.mockito.ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).queryForObject(contains("kis_token_issue_rate_limit_slot"),
+                eq(Timestamp.class), captor.capture());
+        Object[] parameters = captor.getValue();
+        assertArrayEquals(new Object[]{"PAPER", sha256("local-test-app-key")}, parameters);
+        verify(jdbc, never()).queryForObject(contains("kis_rest_rate_limit_slot"),
+                eq(Timestamp.class), any(Object[].class));
+    }
+
+    @Test
     void reservesSharedPostgresSlotUsingOnlyAppKeyFingerprint() throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForObject(anyString(), eq(Timestamp.class), any(Object[].class)))

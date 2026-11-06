@@ -21,6 +21,8 @@ import java.util.concurrent.ConcurrentHashMap;
 final class KisRestRateLimiter {
     private static final long PAPER_FLOOR_MILLIS = 1_000;
     private static final long REAL_FLOOR_MILLIS = 100;
+    private static final long TOKEN_ISSUE_FLOOR_MILLIS = 60_000;
+    private static final long LOCAL_TOKEN_ISSUE_FLOOR_MILLIS = 1_000;
     private static final String RESERVE_SLOT_SQL = """
             INSERT INTO kis_rest_rate_limit_slot (environment, app_key_sha256, next_request_at)
             VALUES (?, ?, clock_timestamp() + interval '1 second' * ?)
@@ -29,6 +31,15 @@ final class KisRestRateLimiter {
                                      + interval '1 second' * ?,
                 updated_at = clock_timestamp()
             RETURNING next_request_at - interval '1 second' * ? AS reserved_at
+            """;
+    private static final String RESERVE_TOKEN_SLOT_SQL = """
+            INSERT INTO kis_token_issue_rate_limit_slot (environment, app_key_sha256, next_request_at)
+            VALUES (?, ?, clock_timestamp() + interval '1 minute')
+            ON CONFLICT (environment, app_key_sha256) DO UPDATE
+            SET next_request_at = GREATEST(kis_token_issue_rate_limit_slot.next_request_at, clock_timestamp())
+                                     + interval '1 minute',
+                updated_at = clock_timestamp()
+            RETURNING next_request_at - interval '1 minute' AS reserved_at
             """;
     private static final Map<String, Object> LOCKS = new ConcurrentHashMap<>();
     private static final Map<String, Instant> NEXT_SLOT = new ConcurrentHashMap<>();
@@ -57,6 +68,27 @@ final class KisRestRateLimiter {
             reserved = jdbc.queryForObject(RESERVE_SLOT_SQL, Timestamp.class,
                     environment.name(), fingerprint, intervalMillis / 1_000.0,
                     intervalMillis / 1_000.0, intervalMillis / 1_000.0);
+        } catch (DataAccessException exception) {
+            throw unavailable();
+        }
+        if (reserved == null) throw unavailable();
+        long delayMillis = Duration.between(Instant.now(), reserved.toInstant()).toMillis();
+        if (delayMillis > 0) Thread.sleep(delayMillis);
+    }
+
+    /** Token requests share a conservative one-per-minute slot across both services and environments. */
+    void acquireToken(KisEnvironment environment, String appKey) throws InterruptedException {
+        if (appKey == null || appKey.isBlank()) throw unavailable();
+        String fingerprint = sha256(appKey);
+        if (jdbc == null) {
+            // Local fallback exists only for directly constructed tests; production always uses shared DB pacing.
+            acquireLocally(environment, "token:" + appKey, LOCAL_TOKEN_ISSUE_FLOOR_MILLIS);
+            return;
+        }
+        final Timestamp reserved;
+        try {
+            reserved = jdbc.queryForObject(RESERVE_TOKEN_SLOT_SQL, Timestamp.class,
+                    environment.name(), fingerprint);
         } catch (DataAccessException exception) {
             throw unavailable();
         }

@@ -12,7 +12,11 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import httpx
-from .kis_rate_limit import SharedRateLimitUnavailable, wait_for_kis_rest_slot
+from .kis_rate_limit import (
+    SharedRateLimitUnavailable,
+    wait_for_kis_rest_slot,
+    wait_for_kis_token_slot,
+)
 
 Market = Literal["KR", "US"]
 Exchange = Literal["NAS", "NYS", "AMS"]
@@ -137,6 +141,7 @@ class KisReadOnlyClient:
         self._rest_min_interval = max(default_interval, requested_interval)
         self._rest_slot_lock = threading.Lock()
         self._next_rest_slot = 0.0
+        self._next_token_slot = 0.0
         self._token: str | None = None
         self._token_expires_at: datetime | None = None
         self._token_lock = threading.Lock()
@@ -160,6 +165,21 @@ class KisReadOnlyClient:
         self._wait_for_rest_slot()
         return self._http.get(url, headers=headers, params=params)
 
+    def _wait_for_token_slot(self) -> None:
+        if self.settings.shared_rate_limit_enabled:
+            try:
+                wait_for_kis_token_slot(self.settings.environment, self.settings.app_key)
+            except SharedRateLimitUnavailable as exc:
+                raise KisSharedRateLimitUnavailable("shared KIS token pacing is unavailable") from exc
+            return
+        with self._rest_slot_lock:
+            now = time.monotonic()
+            slot = max(now, self._next_token_slot)
+            delay = slot - now
+            if delay > 0:
+                time.sleep(delay)
+            self._next_token_slot = slot + 60.0
+
     def _access_token(self) -> str:
         now = datetime.now(timezone.utc)
         if self._token and self._token_expires_at and now + timedelta(minutes=5) < self._token_expires_at:
@@ -170,7 +190,7 @@ class KisReadOnlyClient:
             if self._token and self._token_expires_at and now + timedelta(minutes=5) < self._token_expires_at:
                 return self._token
             try:
-                self._wait_for_rest_slot()
+                self._wait_for_token_slot()
                 response = self._http.post(
                     f"{self.settings.base_url}/oauth2/tokenP",
                     json={

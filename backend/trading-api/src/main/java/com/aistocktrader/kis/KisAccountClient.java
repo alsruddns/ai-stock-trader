@@ -27,25 +27,30 @@ import java.util.concurrent.ConcurrentHashMap;
 /** KIS read-only account adapter. No order or amend/cancel routes exist in this client. */
 @Component
 public class KisAccountClient {
-    private static final String TOKEN_PATH = "/oauth2/tokenP";
     private final KisProperties properties;
     private final RestClient http;
     private final ObjectMapper mapper;
     private final KisRestRateLimiter rateLimiter;
-    private final Map<KisEnvironment, CachedToken> tokens = new ConcurrentHashMap<>();
-    private final Map<KisEnvironment, Object> tokenLocks = new ConcurrentHashMap<>();
+    private final KisAccessTokenProvider tokenProvider;
 
     public KisAccountClient(KisProperties properties, RestClient.Builder builder, ObjectMapper mapper) {
         this(properties, builder, mapper, new KisRestRateLimiter());
     }
 
-    @Autowired
     public KisAccountClient(KisProperties properties, RestClient.Builder builder, ObjectMapper mapper,
                             KisRestRateLimiter rateLimiter) {
+        this(properties, builder, mapper, rateLimiter,
+                new KisAccessTokenProvider(properties, builder, rateLimiter));
+    }
+
+    @Autowired
+    public KisAccountClient(KisProperties properties, RestClient.Builder builder, ObjectMapper mapper,
+                            KisRestRateLimiter rateLimiter, KisAccessTokenProvider tokenProvider) {
         this.properties = properties;
         this.http = builder.build();
         this.mapper = mapper;
         this.rateLimiter = rateLimiter;
+        this.tokenProvider = tokenProvider;
     }
 
     public KisAccountSnapshot getBalance(KisEnvironment environment, Market market,
@@ -184,46 +189,7 @@ public class KisAccountClient {
     }
 
     private String accessToken(KisEnvironment environment) {
-        CachedToken cached = tokens.get(environment);
-        if (cached != null && cached.expiresAt().isAfter(Instant.now().plusSeconds(300))) return cached.value();
-        synchronized (tokenLocks.computeIfAbsent(environment, ignored -> new Object())) {
-            cached = tokens.get(environment);
-            if (cached != null && cached.expiresAt().isAfter(Instant.now().plusSeconds(300))) return cached.value();
-            KisProperties.Account credentials = properties.credentials(environment);
-            try {
-                throttle(environment);
-                JsonNode payload = http.post().uri(environment.baseUrl() + TOKEN_PATH)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body(Map.of("grant_type", "client_credentials", "appkey", credentials.appKey(),
-                                "appsecret", credentials.appSecret()))
-                        .retrieve().body(JsonNode.class);
-                String token = payload == null ? "" : payload.path("access_token").asText();
-                String expiry = payload == null ? "" : payload.path("access_token_token_expired").asText();
-                if (token.isBlank() || expiry.isBlank()) {
-                    throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS authentication response was incomplete.");
-                }
-                Instant expiresAt = LocalDateTime.parse(expiry.replace(" ", "T"))
-                        .toInstant(ZoneOffset.ofHours(9));
-                tokens.put(environment, new CachedToken(token, expiresAt));
-                return token;
-            } catch (KisApiException ex) {
-                throw ex;
-            } catch (RestClientResponseException ex) {
-                throw new KisApiException(ex.getStatusCode().value() == 429
-                        ? HttpStatus.TOO_MANY_REQUESTS : HttpStatus.BAD_GATEWAY,
-                        "KIS authentication failed; check the selected environment and credentials.");
-            } catch (ResourceAccessException ex) {
-                boolean timeout = causedByTimeout(ex);
-                throw new KisApiException(timeout ? HttpStatus.GATEWAY_TIMEOUT : HttpStatus.BAD_GATEWAY,
-                        timeout ? "KIS authentication request timed out." : "KIS authentication service is unreachable.");
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE, "KIS authentication was interrupted.");
-            } catch (RuntimeException ex) {
-                throw new KisApiException(HttpStatus.BAD_GATEWAY,
-                        "KIS authentication failed; check the selected environment and credentials.");
-            }
-        }
+        return tokenProvider.accessToken(environment);
     }
 
     private void requireEnabled(KisEnvironment environment) {
@@ -312,6 +278,5 @@ public class KisAccountClient {
         return false;
     }
 
-    private record CachedToken(String value, Instant expiresAt) {}
     private record ApiPage(JsonNode body, String continuation) {}
 }

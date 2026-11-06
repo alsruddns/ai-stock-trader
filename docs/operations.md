@@ -30,6 +30,8 @@ paper ledger 비용 추정은 `PAPER_COST_MODEL_ENABLED=false`가 기본입니�
 
 실제 KIS PAPER 주문·취소 통합 확인은 기본 실행이 잠긴 `scripts/test-kis-paper-order-lifecycle.ps1`을 사용합니다. `.env_local`에서 `KIS_PAPER_ORDERS_ENABLED=true`로 설정하고 서비스를 재시작한 뒤 `-ConfirmPaperOrderAndCancel`을 명시해야 요청합니다. 1주 매수 지정가만 허용하며 최근 시세보다 5% 이상 낮은 가격, 설정 한도와 별도 PAPER 테스트 한도(국내 10만원/미국 100달러) 안에서만 진행합니다. 응답이 끊기면 새 주문을 보내지 않고 같은 멱등 키를 조회하며, 즉시 취소 후 상태를 대조합니다. PAPER 주문은 모의 계좌 상태를 바꾸므로 실행 전에 종목·가격·잔고를 확인하고, 체결되면 모의 포지션을 직접 정리하세요. 실전 주문·REAL 대조·PAPER 자동매매는 비활성 상태여야 합니다.
 
+KIS 접근 토큰 요청은 Spring과 Python이 PostgreSQL `kis_token_issue_rate_limit_slot`에서 환경·앱키 SHA-256 지문을 기준으로 함께 예약합니다. 토큰 요청은 보수적으로 앱키별 최소 60초 간격이며, 일반 REST 요청은 별도 제한 슬롯을 사용합니다. 이 마이그레이션은 Spring 기동 시 Flyway가 적용합니다.
+
 ## 실전 주문 게이트
 
 기본은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`입니다. REAL 내부 오케스트레이터는 REAL 자격정보와 전체/REAL 계좌 읽기 스위치, 세 주문 잠금, 해당 주문과 3초 이내에 결합된 서버 내부 위험 승인이 있어야만 주문 요청을 보냅니다. 주문 의도를 먼저 DB에 기록하고, 부분체결 취소에는 잔량을 쓰며, 불명 결과는 자동 재전송하지 않습니다. 주기적 실계좌 체결 조회는 별도 잠금으로 기본 비활성입니다. UNKNOWN 중 주문번호가 없는 건은 자동 추측·재주문하지 않습니다. P6의 paper 세션·장애 검증 전까지 세 주문 잠금을 열지 않습니다.

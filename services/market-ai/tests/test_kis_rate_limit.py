@@ -55,6 +55,18 @@ def test_shared_rate_slot_uses_postgres_time_and_app_key_fingerprint(monkeypatch
     assert "local-test-app-key" not in cursor.statement
 
 
+def test_shared_token_slot_uses_separate_one_minute_app_key_fingerprint(monkeypatch):
+    cursor = _Cursor(datetime.now(timezone.utc) - timedelta(seconds=1))
+    monkeypatch.setattr(kis_rate_limit.psycopg, "connect", lambda **_kwargs: _Connection(cursor))
+
+    kis_rate_limit.wait_for_kis_token_slot("paper", "local-test-app-key")
+
+    assert "kis_token_issue_rate_limit_slot" in cursor.statement
+    assert "interval '1 minute'" in cursor.statement
+    assert cursor.parameters == ("PAPER", sha256(b"local-test-app-key").hexdigest())
+    assert "local-test-app-key" not in cursor.statement
+
+
 def test_shared_rate_slot_database_failure_is_reported_without_falling_back(monkeypatch):
     def unavailable(**_kwargs):
         raise kis_rate_limit.psycopg.OperationalError("database unavailable")

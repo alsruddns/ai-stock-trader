@@ -25,7 +25,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 /** Internal paper-only KIS order adapter. No public trading controller uses it in this phase. */
 @Component
@@ -40,22 +39,30 @@ public class KisOrderClient {
     private final TradingSafetyProperties safety;
     private final RestClient http;
     private final KisRestRateLimiter rateLimiter;
-    private volatile CachedToken token;
+    private final KisAccessTokenProvider tokenProvider;
 
     public KisOrderClient(KisProperties properties, KisOrderProperties orderProperties,
                           TradingSafetyProperties safety, RestClient.Builder builder) {
         this(properties, orderProperties, safety, builder, new KisRestRateLimiter());
     }
 
-    @Autowired
     public KisOrderClient(KisProperties properties, KisOrderProperties orderProperties,
                           TradingSafetyProperties safety, RestClient.Builder builder,
                           KisRestRateLimiter rateLimiter) {
+        this(properties, orderProperties, safety, builder, rateLimiter,
+                new KisAccessTokenProvider(properties, builder, rateLimiter));
+    }
+
+    @Autowired
+    public KisOrderClient(KisProperties properties, KisOrderProperties orderProperties,
+                          TradingSafetyProperties safety, RestClient.Builder builder,
+                          KisRestRateLimiter rateLimiter, KisAccessTokenProvider tokenProvider) {
         this.properties = properties;
         this.orderProperties = orderProperties;
         this.safety = safety;
         this.http = builder.build();
         this.rateLimiter = rateLimiter;
+        this.tokenProvider = tokenProvider;
     }
 
     public KisOrderReceipt placePaperLimitOrder(Market market, String symbol, OrderSide side,
@@ -202,7 +209,7 @@ public class KisOrderClient {
             var uriBuilder = UriComponentsBuilder.fromUriString(KisEnvironment.PAPER.baseUrl() + path);
             params.forEach((key, values) -> values.forEach(value -> uriBuilder.queryParam(key, value)));
             var response = http.get().uri(uriBuilder.build().encode().toUri())
-                    .header("authorization", "Bearer " + accessToken(credentials))
+                    .header("authorization", "Bearer " + tokenProvider.accessToken(KisEnvironment.PAPER))
                     .header("appkey", credentials.appKey()).header("appsecret", credentials.appSecret())
                     .header("tr_id", trId).header("custtype", "P").header("tr_cont", continuation)
                     .accept(MediaType.APPLICATION_JSON).retrieve().toEntity(JsonNode.class);
@@ -250,7 +257,7 @@ public class KisOrderClient {
     private JsonNode post(String path, String trId, Map<String, String> body) {
         KisProperties.Account credentials = properties.credentials(KisEnvironment.PAPER);
         try {
-            String bearer = accessToken(credentials);
+            String bearer = tokenProvider.accessToken(KisEnvironment.PAPER);
             rateLimiter.acquire(KisEnvironment.PAPER, credentials.appKey(), properties.minRequestInterval());
             JsonNode response = http.post().uri(KisEnvironment.PAPER.baseUrl() + path)
                     .contentType(MediaType.APPLICATION_JSON).accept(MediaType.APPLICATION_JSON)
@@ -273,37 +280,6 @@ public class KisOrderClient {
             throw new KisOrderOutcomeUnknownException("KIS paper order outcome is unknown; reconcile broker orders before taking further action.", ex);
         } catch (RestClientResponseException ex) {
             throw new KisOrderOutcomeUnknownException("KIS paper order outcome is unknown; reconcile broker orders before taking further action.", ex);
-        }
-    }
-
-    private String accessToken(KisProperties.Account credentials) {
-        CachedToken current = token;
-        if (current != null && Instant.now().plusSeconds(300).isBefore(current.expiresAt())) return current.value();
-        synchronized (this) {
-            current = token;
-            if (current != null && Instant.now().plusSeconds(300).isBefore(current.expiresAt())) return current.value();
-            try {
-                rateLimiter.acquire(KisEnvironment.PAPER, credentials.appKey(), properties.minRequestInterval());
-                JsonNode response = http.post().uri(KisEnvironment.PAPER.baseUrl() + "/oauth2/tokenP")
-                        .contentType(MediaType.APPLICATION_JSON).body(Map.of("grant_type", "client_credentials",
-                                "appkey", credentials.appKey(), "appsecret", credentials.appSecret()))
-                        .retrieve().body(JsonNode.class);
-                if (response == null || response.path("access_token").asText().isBlank()) {
-                    throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "KIS authentication response was incomplete.");
-                }
-                Instant expires = LocalDateTime.parse(response.path("access_token_token_expired").asText().replace(" ", "T"))
-                        .toInstant(ZoneOffset.ofHours(9));
-                token = new CachedToken(response.path("access_token").asText(), expires);
-                return token.value();
-            } catch (KisApiException ex) {
-                throw ex;
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                throw new KisApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
-                        "KIS authentication was interrupted.");
-            } catch (RuntimeException ex) {
-                throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "KIS authentication failed; check paper credentials.");
-            }
         }
     }
 
@@ -344,6 +320,4 @@ public class KisOrderClient {
     private static String safeCode(String code) {
         return code.matches("[A-Za-z0-9_-]{1,32}") ? code : "unknown";
     }
-
-    private record CachedToken(String value, Instant expiresAt) { }
 }

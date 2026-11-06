@@ -39,20 +39,26 @@ public class KisRealOrderClient {
     private final TradingSafetyProperties safety;
     private final RestClient http;
     private final KisRestRateLimiter rateLimiter;
-    private final Object tokenLock = new Object();
-    private volatile CachedToken token;
+    private final KisAccessTokenProvider tokenProvider;
 
     public KisRealOrderClient(KisProperties properties, TradingSafetyProperties safety, RestClient.Builder builder) {
         this(properties, safety, builder, new KisRestRateLimiter());
     }
 
-    @Autowired
     public KisRealOrderClient(KisProperties properties, TradingSafetyProperties safety, RestClient.Builder builder,
                               KisRestRateLimiter rateLimiter) {
+        this(properties, safety, builder, rateLimiter,
+                new KisAccessTokenProvider(properties, builder, rateLimiter));
+    }
+
+    @Autowired
+    public KisRealOrderClient(KisProperties properties, TradingSafetyProperties safety, RestClient.Builder builder,
+                              KisRestRateLimiter rateLimiter, KisAccessTokenProvider tokenProvider) {
         this.properties = properties;
         this.safety = safety;
         this.http = builder.build();
         this.rateLimiter = rateLimiter;
+        this.tokenProvider = tokenProvider;
     }
 
     public KisOrderReceipt placeRealLimitOrder(Market market, String symbol, OrderSide side,
@@ -207,7 +213,7 @@ public class KisRealOrderClient {
             var uri = UriComponentsBuilder.fromUriString(KisEnvironment.REAL.baseUrl() + path);
             params.forEach((key, values) -> values.forEach(value -> uri.queryParam(key, value)));
             var response = http.get().uri(uri.build().encode().toUri())
-                    .header("authorization", "Bearer " + accessToken(credentials))
+                    .header("authorization", "Bearer " + tokenProvider.accessToken(KisEnvironment.REAL))
                     .header("appkey", credentials.appKey()).header("appsecret", credentials.appSecret())
                     .header("tr_id", trId).header("custtype", "P").header("tr_cont", continuation)
                     .accept(MediaType.APPLICATION_JSON).retrieve().toEntity(JsonNode.class);
@@ -257,7 +263,7 @@ public class KisRealOrderClient {
     private JsonNode post(String path, String trId, Map<String, String> body,
                           OrderRequest approvedRequest, String exchange, KisLiveRiskDecision riskDecision) {
         KisProperties.Account credentials = properties.credentials(KisEnvironment.REAL);
-        String accessToken = accessToken(credentials); // Token failure occurs before any order request.
+        String accessToken = tokenProvider.accessToken(KisEnvironment.REAL); // Token failure occurs before any order request.
         if (approvedRequest != null && (riskDecision == null || !riskDecision.approves(approvedRequest, exchange))) {
             throw riskApprovalRequired();
         }
@@ -291,41 +297,6 @@ public class KisRealOrderClient {
 
     private static IllegalStateException riskApprovalRequired() {
         return new IllegalStateException("A fresh live risk approval for this exact order is required before a real order.");
-    }
-
-    private String accessToken(KisProperties.Account credentials) {
-        CachedToken cached = token;
-        if (cached != null && cached.expiresAt().isAfter(Instant.now().plusSeconds(300))) return cached.value();
-        synchronized (tokenLock) {
-            cached = token;
-            if (cached != null && cached.expiresAt().isAfter(Instant.now().plusSeconds(300))) return cached.value();
-            try {
-                throttle();
-                JsonNode response = http.post().uri(KisEnvironment.REAL.baseUrl() + "/oauth2/tokenP")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body(Map.of("grant_type", "client_credentials", "appkey", credentials.appKey(),
-                                "appsecret", credentials.appSecret()))
-                        .retrieve().body(JsonNode.class);
-                if (response == null || response.path("access_token").asText().isBlank()) {
-                    throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS authentication response was incomplete.");
-                }
-                Instant expiry = LocalDateTime.parse(response.path("access_token_token_expired").asText().replace(" ", "T"))
-                        .toInstant(ZoneOffset.ofHours(9));
-                token = new CachedToken(response.path("access_token").asText(), expiry);
-                return token.value();
-            } catch (KisApiException exception) {
-                throw exception;
-            } catch (ResourceAccessException | RestClientResponseException exception) {
-                throw new KisApiException(HttpStatus.BAD_GATEWAY,
-                        "KIS authentication failed; check real-account connectivity and credentials.");
-            } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
-                throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE, "KIS authentication was interrupted.");
-            } catch (RuntimeException exception) {
-                throw new KisApiException(HttpStatus.BAD_GATEWAY,
-                        "KIS authentication failed; check real-account connectivity and credentials.");
-            }
-        }
     }
 
     private void requireRealOrdersEnabled() {
@@ -385,5 +356,4 @@ public class KisRealOrderClient {
         return code != null && code.matches("[A-Za-z0-9_-]{1,32}") ? code : "unknown";
     }
 
-    private record CachedToken(String value, Instant expiresAt) { }
 }
