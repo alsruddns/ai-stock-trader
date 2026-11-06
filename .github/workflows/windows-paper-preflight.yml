@@ -1,0 +1,45 @@
+name: Windows PAPER preflight checks
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  paper-order-preflight:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check PowerShell syntax and PAPER preflight rules
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pester = Get-Module Pester -ListAvailable | Where-Object { $_.Version -eq [version]'3.4.0' } | Select-Object -First 1
+          if ($null -eq $pester) {
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Install-Module -Name Pester -RequiredVersion 3.4.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          }
+          Import-Module Pester -RequiredVersion 3.4.0 -Force
+
+          $scriptFiles = @(
+            'scripts/test-kis-paper-order-lifecycle.ps1',
+            'scripts/test-kis-paper-order-lifecycle-isolated.ps1',
+            'scripts/lib/kis-paper-order-preflight.ps1'
+          )
+          foreach ($scriptFile in $scriptFiles) {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $scriptFile), [ref]$tokens, [ref]$parseErrors
+            ) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              $parseErrors | ForEach-Object { Write-Error "$scriptFile`: $($_.Message)" }
+            }
+          }
+
+          $result = Invoke-Pester -Path 'scripts/tests/kis-paper-order-preflight.Tests.ps1' -PassThru
+          if ($result.FailedCount -gt 0 -or $result.PassedCount -ne 10) {
+            throw "PAPER preflight tests failed: passed=$($result.PassedCount), failed=$($result.FailedCount)."
+          }
