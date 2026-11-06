@@ -31,6 +31,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /** Opt-in local PostgreSQL persistence test. Does not make KIS network requests. */
@@ -125,6 +126,28 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(KisOrderStatus.ACCEPTED, recovered.getStatus());
             assertEquals(1, recovered.getRemainingQuantity());
             assertEquals("EGW00201", recovered.getBrokerResponseCode());
+        } finally {
+            repository.deleteById(key);
+        }
+    }
+
+    @Test
+    @Transactional
+    void persistsSubmissionRejectionCodeWithoutBrokerOrderIdentifiers() {
+        UUID key = UUID.randomUUID();
+        try {
+            store.prepare(key, hash("submit-rejected"), KisEnvironment.PAPER, request(), null);
+            store.reject(key, "EGW00201");
+            entityManager.flush();
+            entityManager.clear();
+
+            KisOrderIntent rejected = repository.findById(key).orElseThrow();
+            assertEquals(KisEnvironment.PAPER, rejected.getEnvironment());
+            assertEquals(KisOrderStatus.REJECTED, rejected.getStatus());
+            assertEquals("EGW00201", rejected.getBrokerResponseCode());
+            assertEquals(0, rejected.getFilledQuantity());
+            assertEquals(1, rejected.getRemainingQuantity());
+            assertNull(rejected.getBrokerOrderNumber());
         } finally {
             repository.deleteById(key);
         }
