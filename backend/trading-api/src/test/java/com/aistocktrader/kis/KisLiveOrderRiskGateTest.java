@@ -123,6 +123,18 @@ class KisLiveOrderRiskGateTest {
     }
 
     @Test
+    void nonKisAccountSnapshotSourceCannotAuthorizeLiveAssessment() {
+        KisAccountSnapshot nonKisSource = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
+                new BigDecimal("100000"), new BigDecimal("100000"), List.of(), Instant.now(), "PAPER_LEDGER");
+        KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null, nonKisSource,
+                new KisLiveRiskContext(true, true, true, true, false, 0,
+                        BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100")));
+
+        assertFalse(result.approved());
+        assertTrue(result.reasons().contains("KIS_ACCOUNT_SOURCE_REQUIRED"));
+    }
+
+    @Test
     void callerCannotMarkAnOldOrFutureDatedAccountSnapshotAsFresh() {
         KisLiveRiskContext healthy = new KisLiveRiskContext(true, true, true, true, false, 0,
                 BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"));

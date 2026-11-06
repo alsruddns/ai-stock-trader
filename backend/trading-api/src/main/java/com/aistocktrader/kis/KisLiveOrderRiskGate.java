@@ -16,6 +16,7 @@ import java.util.List;
 public class KisLiveOrderRiskGate {
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     private static final Duration MAX_ACCOUNT_SNAPSHOT_AGE = Duration.ofSeconds(5);
+    private static final String REQUIRED_ACCOUNT_SOURCE = "KIS_READ_ONLY_REST";
     private final TradingSafetyProperties tradingLimits;
     private final KisLiveRiskLimits limits;
 
@@ -40,11 +41,13 @@ public class KisLiveOrderRiskGate {
             reasons.add("VALID_US_EXCHANGE_REQUIRED");
         }
         boolean realAccount = account.environment() == KisEnvironment.REAL;
+        boolean trustedAccountSource = REQUIRED_ACCOUNT_SOURCE.equals(account.source());
         boolean matchingMarket = account.market() == request.market();
         boolean matchingCurrency = accountCurrencyMatches(request.currency(), account.currency());
         boolean positionsValid = account.positions() != null
                 && account.positions().stream().noneMatch(position -> position == null);
         if (!realAccount) reasons.add("REAL_ACCOUNT_REQUIRED");
+        if (!trustedAccountSource) reasons.add("KIS_ACCOUNT_SOURCE_REQUIRED");
         if (!matchingMarket) reasons.add("ACCOUNT_MARKET_MISMATCH");
         if (!matchingCurrency) reasons.add("ACCOUNT_CURRENCY_MISMATCH");
         if (!positionsValid) reasons.add("ACCOUNT_POSITIONS_INVALID");
@@ -55,7 +58,7 @@ public class KisLiveOrderRiskGate {
         if (!context.marketOpen()) reasons.add("MARKET_CLOSED");
         if (context.unresolvedOrderExists()) reasons.add("UNRESOLVED_ORDER_EXISTS");
         if (context.totalOpenPositions() < 0) reasons.add("OPEN_POSITION_COUNT_INVALID");
-        if (!realAccount || !matchingMarket || !matchingCurrency || !positionsValid
+        if (!realAccount || !trustedAccountSource || !matchingMarket || !matchingCurrency || !positionsValid
                 || !context.accountSnapshotFresh() || !isFreshAccountSnapshot(account)
                 || context.totalOpenPositions() < 0) {
             return decision(false, reasons, request, exchange);
