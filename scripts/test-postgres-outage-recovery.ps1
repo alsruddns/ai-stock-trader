@@ -158,6 +158,34 @@ try {
     $orderId = [long]$created.id
     if ($created.status -ne 'PENDING') { throw 'The test PAPER order was not persisted as pending.' }
 
+    $amendmentKey = [guid]::NewGuid().ToString()
+    $amendmentBody = @{ quantity = 2; limitPrice = 2 } | ConvertTo-Json -Compress
+    $amended = Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/orders/paper/$orderId/amend" `
+        -Headers @{ 'Idempotency-Key' = $amendmentKey } -ContentType 'application/json' `
+        -Body $amendmentBody -TimeoutSec 10
+    if ([long]$amended.id -ne $orderId -or [int]$amended.quantity -ne 2 -or
+        [decimal]$amended.limitPrice -ne 2 -or $amended.status -ne 'PENDING') {
+        throw 'The PAPER order amendment did not persist the new quantity and limit price.'
+    }
+    $amendedRetry = Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/orders/paper/$orderId/amend" `
+        -Headers @{ 'Idempotency-Key' = $amendmentKey } -ContentType 'application/json' `
+        -Body $amendmentBody -TimeoutSec 10
+    if ([int]$amendedRetry.quantity -ne 2 -or [decimal]$amendedRetry.limitPrice -ne 2) {
+        throw 'An identical PAPER amendment retry did not return the amended order.'
+    }
+    try {
+        Invoke-WebRequest -Method Post -Uri "$baseUrl/api/v1/orders/paper/$orderId/amend" `
+            -Headers @{ 'Idempotency-Key' = $amendmentKey } -ContentType 'application/json' `
+            -Body (@{ quantity = 3; limitPrice = 3 } | ConvertTo-Json -Compress) -TimeoutSec 10 | Out-Null
+        throw 'An amendment key unexpectedly accepted different values.'
+    } catch {
+        $statusCode = 0
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+        if ($statusCode -ne 409) { throw "Conflicting amendment did not return HTTP 409 (observed status $statusCode)." }
+    }
+
     Write-Output 'Stopping isolated PostgreSQL to simulate an outage.'
     Stop-TestDatabase
     $outageResponse = $null
@@ -184,12 +212,13 @@ try {
     Start-TestDatabase
     $recovered = Invoke-RestMethod -Method Get `
         -Uri "$baseUrl/api/v1/orders/paper/by-idempotency/$key" -TimeoutSec 10
-    if ([long]$recovered.id -ne $orderId -or $recovered.status -ne 'PENDING') {
-        throw 'Persisted PAPER order did not recover after PostgreSQL restarted.'
+    if ([long]$recovered.id -ne $orderId -or $recovered.status -ne 'PENDING' -or
+        [int]$recovered.quantity -ne 2 -or [decimal]$recovered.limitPrice -ne 2) {
+        throw 'Persisted PAPER order and its amendment did not recover after PostgreSQL restarted.'
     }
     Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/orders/paper/$orderId/cancel" -TimeoutSec 10 | Out-Null
     $orderId = $null
-    Write-Output 'PASS: Isolated PostgreSQL outage returned safe HTTP 503; database restart recovered the persisted PAPER order. No KIS request was made.'
+    Write-Output 'PASS: Isolated PostgreSQL applied migrations, persisted an idempotent PAPER amendment, rejected conflicting reuse, returned safe HTTP 503 during outage, and recovered the amended order after restart. No KIS request was made.'
 } finally {
     if ($orderId -and $apiProcess -and -not $apiProcess.HasExited) {
         try { Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/orders/paper/$orderId/cancel" -TimeoutSec 3 | Out-Null } catch { }
