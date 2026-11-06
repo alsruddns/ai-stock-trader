@@ -82,6 +82,16 @@ public class KisOrderOrchestrator {
                     intent.getBrokerOrganizationNumber(), 0, normalizedExchange);
         } catch (KisOrderOutcomeUnknownException ex) {
             // Keep CANCEL_PENDING; never send a second cancel without broker reconciliation.
+        } catch (KisApiException ex) {
+            // A broker-declared rejection is definitive. Read the order once to restore its
+            // observed state; if that query fails, retain CANCEL_PENDING and never resend.
+            intent = intents.recordCancelRejection(idempotencyKey, extractCode(ex.getMessage()));
+            try {
+                KisBrokerOrderSnapshot snapshot = orders.reconcilePaperOrder(intent).orElse(null);
+                if (snapshot != null) intent = intents.reconcile(idempotencyKey, snapshot);
+            } catch (KisApiException ignored) {
+                // Preserve the explicit rejection code and pending state for a later GET-only reconciliation.
+            }
         }
         return KisOrderIntentResponse.from(intents.get(idempotencyKey));
     }

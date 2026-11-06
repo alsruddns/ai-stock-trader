@@ -190,6 +190,84 @@ class KisOrderOrchestratorTest {
     }
 
     @Test
+    void rejectedCancelReconcilesOnceAndRestoresObservedOpenOrderState() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+        when(intents.get(key)).thenReturn(intent);
+        when(intents.recordCancelRejection(key, "EGW00123"))
+                .thenAnswer(invocation -> {
+                    intent.recordCancelRejection(invocation.getArgument(1));
+                    return intent;
+                });
+        when(orders.reconcilePaperOrder(intent)).thenReturn(Optional.of(new KisBrokerOrderSnapshot(0, 1, null, false, false)));
+        when(intents.reconcile(key, new KisBrokerOrderSnapshot(0, 1, null, false, false))).thenAnswer(invocation -> {
+            KisBrokerOrderSnapshot snapshot = invocation.getArgument(1);
+            intent.reconcile(snapshot.filledQuantity(), snapshot.remainingQuantity(), snapshot.averageFillPrice(),
+                    snapshot.cancelled(), snapshot.rejected());
+            return intent;
+        });
+        when(intents.markCancelPending(key)).thenAnswer(invocation -> {
+            intent.markCancelPending();
+            return intent;
+        });
+        when(intents.get(key)).thenReturn(intent);
+        org.mockito.Mockito.doThrow(new KisApiException(HttpStatus.BAD_GATEWAY,
+                "KIS rejected the paper order (code EGW00123)."))
+                .when(orders).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
+                        org.mockito.ArgumentMatchers.anyInt(), anyString());
+
+        KisOrderIntentResponse response = orchestrator.cancelPaperOrder(key, null);
+
+        assertEquals(KisOrderStatus.ACCEPTED, response.status());
+        assertEquals(0, response.filledQuantity());
+        assertEquals(1, response.remainingQuantity());
+        assertEquals("EGW00123", response.responseCode());
+        verify(orders).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), anyString());
+        verify(orders).reconcilePaperOrder(intent);
+        verify(intents).reconcile(key, new KisBrokerOrderSnapshot(0, 1, null, false, false));
+    }
+
+    @Test
+    void rejectedCancelRemainsPendingUntilLaterReadOnlyReconciliationConfirmsOpenOrder() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+        when(intents.get(key)).thenReturn(intent);
+        when(intents.markCancelPending(key)).thenAnswer(invocation -> {
+            intent.markCancelPending();
+            return intent;
+        });
+        when(intents.recordCancelRejection(key, "EGW00201")).thenAnswer(invocation -> {
+            intent.recordCancelRejection(invocation.getArgument(1));
+            return intent;
+        });
+        when(orders.reconcilePaperOrder(intent))
+                .thenThrow(new KisApiException(HttpStatus.BAD_GATEWAY, "KIS order reconciliation failed (code EGW00201)."))
+                .thenReturn(Optional.of(new KisBrokerOrderSnapshot(0, 1, null, false, false)));
+        when(intents.reconcile(key, new KisBrokerOrderSnapshot(0, 1, null, false, false))).thenAnswer(invocation -> {
+            KisBrokerOrderSnapshot snapshot = invocation.getArgument(1);
+            intent.reconcile(snapshot.filledQuantity(), snapshot.remainingQuantity(), snapshot.averageFillPrice(),
+                    snapshot.cancelled(), snapshot.rejected());
+            return intent;
+        });
+        org.mockito.Mockito.doThrow(new KisApiException(HttpStatus.BAD_GATEWAY,
+                "KIS rejected the paper order (code EGW00201)."))
+                .when(orders).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
+                        org.mockito.ArgumentMatchers.anyInt(), anyString());
+
+        KisOrderIntentResponse afterRejectedCancel = orchestrator.cancelPaperOrder(key, null);
+        assertEquals(KisOrderStatus.CANCEL_PENDING, afterRejectedCancel.status());
+        assertEquals("EGW00201", afterRejectedCancel.responseCode());
+
+        KisOrderIntentResponse afterLaterReconciliation = orchestrator.reconcilePaperOrder(key);
+        assertEquals(KisOrderStatus.ACCEPTED, afterLaterReconciliation.status());
+        assertEquals(1, afterLaterReconciliation.remainingQuantity());
+        assertEquals("EGW00201", afterLaterReconciliation.responseCode());
+    }
+
+    @Test
     void ambiguousSubmitWithoutBrokerNumberIsNeverMatchedByGuessing() {
         UUID key = UUID.randomUUID();
         KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);

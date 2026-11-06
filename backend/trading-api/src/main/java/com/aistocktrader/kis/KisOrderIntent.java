@@ -96,20 +96,30 @@ public class KisOrderIntent {
     }
 
     public void markUnknown() { status = KisOrderStatus.UNKNOWN; updatedAt = Instant.now(); }
-    public void markCancelPending() { status = KisOrderStatus.CANCEL_PENDING; updatedAt = Instant.now(); }
+    public void markCancelPending() {
+        status = KisOrderStatus.CANCEL_PENDING;
+        brokerResponseCode = "0"; // Clear a prior cancel rejection before starting a new attempt.
+        updatedAt = Instant.now();
+    }
     public void reject(String code) { status = KisOrderStatus.REJECTED; brokerResponseCode = code; updatedAt = Instant.now(); }
     public void reconcile(int filled, int remaining, BigDecimal averagePrice, boolean cancelled, boolean rejected) {
         if (filled < 0 || remaining < 0 || filled > quantity || filled + remaining > quantity) return;
         boolean cancellationRequested = status == KisOrderStatus.CANCEL_PENDING;
+        boolean cancellationRejected = cancellationRequested && brokerResponseCode != null
+                && !"0".equals(brokerResponseCode);
         filledQuantity = filled;
         remainingQuantity = remaining;
         averageFillPrice = averagePrice;
         if (rejected && filled == 0) status = KisOrderStatus.REJECTED;
         else if (filled == quantity) status = KisOrderStatus.FILLED;
         else if (cancelled && remaining == 0) status = KisOrderStatus.CANCELLED;
-        else if (cancellationRequested && remaining > 0) status = KisOrderStatus.CANCEL_PENDING;
+        else if (cancellationRequested && !cancellationRejected && remaining > 0) status = KisOrderStatus.CANCEL_PENDING;
         else if (filled > 0) status = KisOrderStatus.PARTIALLY_FILLED;
         else status = KisOrderStatus.ACCEPTED;
+        updatedAt = Instant.now();
+    }
+    public void recordCancelRejection(String code) {
+        if (code != null && code.matches("[A-Za-z0-9_-]{1,32}")) brokerResponseCode = code;
         updatedAt = Instant.now();
     }
     public UUID getIdempotencyKey() { return idempotencyKey; }
