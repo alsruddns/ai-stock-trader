@@ -2,12 +2,13 @@ from enum import StrEnum
 import os
 import re
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 import asyncio
 import json
 import hmac
 from contextlib import asynccontextmanager
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, WebSocket, WebSocketDisconnect
 import psycopg
@@ -18,7 +19,7 @@ from . import snapshot_store
 from . import kis_stream
 from .ai_pipeline import LocalModelRegistry
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
-from .paper_ops import korean_calendar_compatibility
+from .paper_ops import exchange_session_window, korean_calendar_compatibility
 from .paper_runtime import paper_session_monitor
 
 _KIS_CLIENTS: dict[str, KisReadOnlyClient] = {}
@@ -208,6 +209,27 @@ def paper_session_status() -> dict[str, object]:
     status = paper_session_monitor.status()
     status["kr_calendar_compatibility"] = korean_calendar_compatibility()
     return status
+
+
+@app.get("/api/v1/market/sessions/{market}")
+def market_session_status(market: Market = Path()) -> dict[str, object]:
+    """Return exchange-calendar verified session times for local order preflight."""
+    now = datetime.now(timezone.utc)
+    zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
+    try:
+        window = exchange_session_window(market, now)
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Market calendar could not verify this session")
+    opened, closed = window if window else (None, None)
+    return {
+        "market": market,
+        "session_date": now.astimezone(zone).date().isoformat(),
+        "is_session": window is not None,
+        "is_open": bool(window and opened <= now < closed),
+        "open_at": opened.isoformat() if opened else None,
+        "close_at": closed.isoformat() if closed else None,
+        "evaluated_at": now.isoformat(),
+    }
 
 
 @app.get("/api/v1/market/quotes/{market}/{symbol}", response_model=QuoteResponse)

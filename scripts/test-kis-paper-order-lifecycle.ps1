@@ -131,6 +131,9 @@ if ($PreflightOnly) {
     exit 0
 }
 
+$marketSession = Get-LocalApi "$MarketAiApiBaseUrl/api/v1/market/sessions/$Market"
+Assert-KisPaperSessionOpen -Session $marketSession -Market $Market
+
 $idempotencyKey = [guid]::NewGuid().ToString()
 $order = @{
     market = $Market

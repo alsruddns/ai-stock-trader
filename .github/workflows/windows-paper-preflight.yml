@@ -40,6 +40,6 @@ jobs:
           }
 
           $result = Invoke-Pester -Path 'scripts/tests/kis-paper-order-preflight.Tests.ps1' -PassThru
-          if ($result.FailedCount -gt 0 -or $result.PassedCount -ne 10) {
+          if ($result.FailedCount -gt 0 -or $result.PassedCount -ne 17) {
             throw "PAPER preflight tests failed: passed=$($result.PassedCount), failed=$($result.FailedCount)."
           }

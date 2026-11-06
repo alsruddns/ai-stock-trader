@@ -48,6 +48,47 @@ def test_paper_session_status_is_monitor_only() -> None:
     }
 
 
+def test_market_session_endpoint_reports_calendar_verified_open_window(monkeypatch) -> None:
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(main, "exchange_session_window", lambda _market, _now: (now - timedelta(minutes=30), now + timedelta(hours=1)))
+    response = client.get("/api/v1/market/sessions/KR")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["market"] == "KR"
+    assert body["is_session"] is True
+    assert body["is_open"] is True
+    assert body["open_at"] is not None
+    assert body["close_at"] is not None
+    assert body["evaluated_at"].endswith("+00:00")
+
+
+def test_market_session_endpoint_reports_exchange_holiday(monkeypatch) -> None:
+    monkeypatch.setattr(main, "exchange_session_window", lambda _market, _now: None)
+    response = client.get("/api/v1/market/sessions/US")
+    assert response.status_code == 200
+    assert response.json()["is_session"] is False
+    assert response.json()["is_open"] is False
+    assert response.json()["open_at"] is None
+    assert response.json()["close_at"] is None
+
+
+def test_market_session_endpoint_fails_closed_when_calendar_unavailable(monkeypatch) -> None:
+    def unavailable(_market, _now):
+        raise RuntimeError("calendar unavailable")
+
+    monkeypatch.setattr(main, "exchange_session_window", unavailable)
+    response = client.get("/api/v1/market/sessions/KR")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Market calendar could not verify this session"
+
+
+def test_market_session_endpoint_rejects_unknown_market() -> None:
+    response = client.get("/api/v1/market/sessions/EU")
+    assert response.status_code == 422
+
+
 def test_model_governance_endpoint_is_read_only_for_execution(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("AI_MODEL_REGISTRY_PATH", str(tmp_path))
     response = client.get("/api/v1/ai/models")

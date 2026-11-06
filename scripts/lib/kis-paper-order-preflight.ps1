@@ -66,3 +66,28 @@ function Assert-KisPaperOrderableFunds {
         throw 'PAPER account has insufficient orderable funds for this one-share test; no order was submitted.'
     }
 }
+
+function Assert-KisPaperSessionOpen {
+    param(
+        [Parameter(Mandatory)] [object]$Session,
+        [Parameter(Mandatory)] [ValidateSet('KR', 'US')] [string]$Market,
+        [DateTimeOffset]$Now = [DateTimeOffset]::UtcNow
+    )
+
+    try {
+        $evaluatedAt = [DateTimeOffset]::Parse([string]$Session.evaluated_at)
+        $closeAt = [DateTimeOffset]::Parse([string]$Session.close_at)
+    } catch {
+        throw 'Exchange session response is missing valid timezone-aware timestamps.'
+    }
+    $ageSeconds = ($Now.ToUniversalTime() - $evaluatedAt.ToUniversalTime()).TotalSeconds
+    if ($Session.market -ne $Market -or $Session.is_session -ne $true -or $Session.is_open -ne $true) {
+        throw 'Exchange calendar does not confirm an open session for the requested market.'
+    }
+    if ($ageSeconds -lt -2 -or $ageSeconds -gt 10) {
+        throw 'Exchange session confirmation is stale or from the future.'
+    }
+    if (($closeAt.ToUniversalTime() - $Now.ToUniversalTime()).TotalMinutes -lt 5) {
+        throw 'PAPER smoke order is blocked within five minutes of the exchange close.'
+    }
+}

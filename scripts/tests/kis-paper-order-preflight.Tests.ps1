@@ -91,3 +91,64 @@ Describe 'KIS PAPER quote freshness preflight' {
         $staleThrew | Should Be $true
     }
 }
+
+Describe 'KIS PAPER exchange session preflight' {
+    $now = [DateTimeOffset]::Parse('2026-11-06T08:30:00Z')
+    $openSession = @{
+        market = 'KR'; is_session = $true; is_open = $true
+        evaluated_at = '2026-11-06T08:30:00Z'; close_at = '2026-11-06T09:30:00Z'
+    }
+
+    function Test-SessionAssertionThrows($Session, [string]$Market, [DateTimeOffset]$Now) {
+        try {
+            Assert-KisPaperSessionOpen -Session $Session -Market $Market -Now $Now
+            return $false
+        } catch {
+            return $true
+        }
+    }
+
+    It 'accepts a fresh calendar-confirmed open session with time to cancel' {
+        Test-SessionAssertionThrows -Session $openSession -Market KR -Now $now | Should Be $false
+    }
+
+    It 'rejects an exchange holiday' {
+        $holiday = $openSession.Clone()
+        $holiday.is_session = $false
+        $holiday.is_open = $false
+        $holiday.open_at = $null
+        $holiday.close_at = $null
+        Test-SessionAssertionThrows -Session $holiday -Market KR -Now $now | Should Be $true
+    }
+
+    It 'rejects a closed session' {
+        $closed = $openSession.Clone()
+        $closed.is_open = $false
+        Test-SessionAssertionThrows -Session $closed -Market KR -Now $now | Should Be $true
+    }
+
+    It 'rejects another market session' {
+        Test-SessionAssertionThrows -Session $openSession -Market US -Now $now | Should Be $true
+    }
+
+    It 'rejects stale or future calendar confirmations' {
+        $stale = $openSession.Clone()
+        $stale.evaluated_at = $now.AddSeconds(-11).ToString('o')
+        $future = $openSession.Clone()
+        $future.evaluated_at = $now.AddSeconds(3).ToString('o')
+        Test-SessionAssertionThrows -Session $stale -Market KR -Now $now | Should Be $true
+        Test-SessionAssertionThrows -Session $future -Market KR -Now $now | Should Be $true
+    }
+
+    It 'rejects a session within five minutes of the close' {
+        $ending = $openSession.Clone()
+        $ending.close_at = $now.AddMinutes(4).ToString('o')
+        Test-SessionAssertionThrows -Session $ending -Market KR -Now $now | Should Be $true
+    }
+
+    It 'rejects missing timestamps' {
+        $missing = $openSession.Clone()
+        $missing.close_at = $null
+        Test-SessionAssertionThrows -Session $missing -Market KR -Now $now | Should Be $true
+    }
+}
