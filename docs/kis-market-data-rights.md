@@ -21,6 +21,7 @@
 ## 프로젝트 적용
 
 - KIS 시세의 로컬 캡처는 사용자의 개인 계좌 운용 범위에서만 실행하고 외부로 전송하거나 공개하지 않습니다.
+- 2026-11-06 Windows 로컬 점검에서 `.env_local`의 `SERVER_ADDRESS=127.0.0.1`, 실행 중인 Spring `8080` 및 Python `8000` 리스너가 모두 loopback으로 확인됐습니다. Python Uvicorn과 Next.js dashboard도 `127.0.0.1`에 바인딩합니다. `.env_local`은 Git ignore 대상입니다. 이 점검은 현재 로컬 접근 범위만 확인하며, KIS의 저장·백테스트·학습 권한을 추가로 부여하지 않습니다.
 - 학습과 백테스트는 데이터 권리 확인 파일이 명시적으로 검증된 CSV에서만 허용됩니다.
 - `rights_reviewed` 또는 `local_storage`, `backtesting`, `model_training`을 확인 없이 `true`로 설정하지 않습니다.
 - KIS 답변이 저장·백테스트를 허용하고 학습까지 명시적으로 확인하지 않는 경우, 허용된 목적만 기록합니다. 모델 학습 승인은 계속 차단합니다.
