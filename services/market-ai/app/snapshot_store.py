@@ -100,6 +100,44 @@ def load_session_minute_bars(market: str, symbol: str, session_date: date, *, li
     ) for row in reversed(rows)]
 
 
+def load_session_minute_bars_for_symbols(
+    market: str, symbols: list[str], session_date: date,
+) -> dict[str, list[MinuteBar]]:
+    """Load up to 50 symbols in one read-only query for dashboard quality summaries."""
+    if market not in {"KR", "US"} or not 1 <= len(symbols) <= 50:
+        raise ValueError("market and 1 to 50 symbols are required")
+    normalized_symbols = list(dict.fromkeys(symbol.strip().upper() for symbol in symbols))
+    if any(not symbol for symbol in normalized_symbols):
+        raise ValueError("symbols must not be empty")
+    zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
+    session_noon = datetime.combine(session_date, datetime_time(hour=12), tzinfo=zone)
+    window = exchange_continuous_session_window(market, session_noon)
+    result = {symbol: [] for symbol in normalized_symbols}
+    if window is None:
+        return result
+    session_start, session_end = window
+    with _connect() as connection:
+        connection.execute("SET TRANSACTION READ ONLY", None)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT symbol, bar_at, open_price, high_price, low_price, close_price, volume, spread_bps
+                   FROM market_minute_bar
+                   WHERE market = %s AND symbol = ANY(%s) AND bar_at >= %s AND bar_at < %s
+                   ORDER BY symbol, bar_at""",
+                (market, normalized_symbols, session_start, session_end),
+            )
+            rows = cursor.fetchall()
+    for row in rows:
+        symbol = str(row[0]).upper()
+        if symbol not in result:
+            continue
+        result[symbol].append(MinuteBar(
+            timestamp=row[1], open=row[2], high=row[3], low=row[4], close=row[5],
+            volume=int(row[6]), spread_bps=row[7],
+        ))
+    return result
+
+
 def store_account_balance(balance: AccountBalance) -> None:
     with _connect() as connection:
         connection.execute(

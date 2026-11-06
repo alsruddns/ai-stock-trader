@@ -137,6 +137,55 @@ def test_session_quality_endpoint_rejects_symbol_from_wrong_market() -> None:
     assert response.status_code == 422
 
 
+def test_session_quality_endpoint_fails_closed_when_exchange_calendar_is_unavailable(monkeypatch) -> None:
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("calendar unavailable")
+
+    monkeypatch.setattr(main, "audit_minute_bar_session", unavailable)
+    response = client.get(
+        "/api/v1/market/session-quality/US/AAPL?session_date=2026-11-06",
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Exchange calendar is unavailable"
+
+
+def test_session_quality_batch_endpoint_audits_all_symbols_with_one_store_call(monkeypatch) -> None:
+    bars = [MinuteBar(
+        timestamp=datetime(2026, 11, 5, 9, 0, tzinfo=ZoneInfo("Asia/Seoul")) + timedelta(minutes=index),
+        open=Decimal("100"), high=Decimal("101"), low=Decimal("99"), close=Decimal("100"),
+        volume=1000, spread_bps=Decimal("5"),
+    ) for index in range(380)]
+    monkeypatch.setattr(main.snapshot_store, "enabled", lambda: True)
+    calls = []
+
+    def load(market, symbols, session_date):
+        calls.append((market, symbols, session_date))
+        return {"005930": bars, "069500": bars[:379]}
+
+    monkeypatch.setattr(main.snapshot_store, "load_session_minute_bars_for_symbols", load)
+    response = client.get(
+        "/api/v1/market/session-quality/KR?symbols=005930&symbols=069500&session_date=2026-11-05",
+    )
+
+    assert response.status_code == 200
+    assert len(calls) == 1
+    assert [item["symbol"] for item in response.json()["sessions"]] == ["005930", "069500"]
+    assert [item["status"] for item in response.json()["sessions"]] == ["COMPLETE", "INCOMPLETE"]
+
+
+def test_session_quality_batch_endpoint_limits_symbols_and_rejects_mixed_market_codes() -> None:
+    too_many = client.get(
+        "/api/v1/market/session-quality/US?" + "&".join(
+            f"symbols=SYM{index:02d}" for index in range(51)
+        ) + "&session_date=2026-11-05",
+    )
+    wrong_market = client.get(
+        "/api/v1/market/session-quality/US?symbols=005930&session_date=2026-11-05",
+    )
+    assert too_many.status_code == 422
+    assert wrong_market.status_code == 422
+
+
 def test_model_governance_endpoint_is_read_only_for_execution(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("AI_MODEL_REGISTRY_PATH", str(tmp_path))
     response = client.get("/api/v1/ai/models")

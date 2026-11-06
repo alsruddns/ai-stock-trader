@@ -97,6 +97,8 @@ PostgreSQL에 저장된 특정 거래일 분봉의 완전성과 스프레드 포
 
 같은 감사 결과는 Python API `GET /api/v1/market/session-quality/{market}/{symbol}?session_date=YYYY-MM-DD`에서도 조회할 수 있습니다. 이 경로는 PostgreSQL의 읽기 전용 분봉만 확인하며, 저장 기능이 꺼져 있으면 `503`으로 닫힙니다. 거래소 비영업일은 DB를 조회하지 않고 `NON_SESSION`으로 반환합니다.
 
+감시 중인 시장의 여러 종목을 한 번에 감사하려면 `GET /api/v1/market/session-quality/{market}?symbols=005930&symbols=069500&session_date=YYYY-MM-DD`를 사용합니다. 이 API는 종목 수를 최대 50개로 제한하고 단일 읽기 전용 DB 쿼리로 결과를 묶습니다. 운영 대시보드는 현재 구독 종목의 분봉 완전성·누락 수·스프레드 포함률을 보여 주며, API나 저장소가 응답하지 않으면 품질을 확인 불가로 표시합니다.
+
 ```powershell
 .\services\market-ai\.venv\Scripts\python.exe .\scripts\backtest-quant.py .\data\licensed-bars.csv --market KR --symbol 005930 --commission-bps 5 --slippage-bps 5
 .\services\market-ai\.venv\Scripts\python.exe .\scripts\train-ai-models.py .\data\licensed-bars.csv --market KR --symbol 005930 --commission-bps 5 --slippage-bps 5

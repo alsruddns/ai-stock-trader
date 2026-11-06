@@ -102,3 +102,26 @@ def test_session_bar_restore_uses_local_exchange_date_and_returns_ascending(monk
         "2026-11-05T09:00:00-05:00", "2026-11-05T09:01:00-05:00",
     ]
     assert bars[0].spread_bps == Decimal("4.5")
+
+
+def test_multi_symbol_session_load_uses_single_read_only_query(monkeypatch) -> None:
+    connection = _FakeConnection()
+    connection.rows = [
+        ("AAPL", datetime.fromisoformat("2026-11-05T09:30:00-05:00"), Decimal("100"), Decimal("101"),
+         Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5")),
+        ("MSFT", datetime.fromisoformat("2026-11-05T09:30:00-05:00"), Decimal("200"), Decimal("201"),
+         Decimal("199"), Decimal("200.5"), 500, None),
+    ]
+    monkeypatch.setattr(snapshot_store, "_connect", lambda: connection)
+
+    result = snapshot_store.load_session_minute_bars_for_symbols(
+        "US", ["aapl", "msft", "AAPL"], datetime.fromisoformat("2026-11-05").date(),
+    )
+
+    assert connection.calls[0] == ("SET TRANSACTION READ ONLY", None)
+    query, params = connection.calls[1]
+    assert "symbol = ANY(%s)" in query
+    assert params[0:2] == ("US", ["AAPL", "MSFT"])
+    assert list(result) == ["AAPL", "MSFT"]
+    assert result["AAPL"][0].spread_bps == Decimal("4.5")
+    assert result["MSFT"][0].spread_bps is None

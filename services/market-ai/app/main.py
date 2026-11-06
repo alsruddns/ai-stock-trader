@@ -189,6 +189,17 @@ class AccountBalanceResponse(BaseModel):
     source: str
 
 
+def _session_quality_report(
+    market: str, symbol: str, session_date: date, bars: list[MinuteBar], evaluated_at: datetime,
+) -> dict[str, object]:
+    try:
+        return audit_minute_bar_session(market, symbol, session_date, bars, evaluated_at=evaluated_at)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Exchange calendar is unavailable") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="Stored market data could not be validated") from exc
+
+
 @app.get("/api/v1/health")
 def health() -> dict[str, str | bool]:
     settings = KisSettings.from_environment()
@@ -246,9 +257,7 @@ async def market_session_quality(
             or (normalized_market == "US" and not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,15}", normalized_symbol))):
         raise HTTPException(status_code=422, detail="Symbol format does not match the selected market")
     evaluated_at = datetime.now(timezone.utc)
-    report = audit_minute_bar_session(
-        normalized_market, normalized_symbol, session_date, [], evaluated_at=evaluated_at,
-    )
+    report = _session_quality_report(normalized_market, normalized_symbol, session_date, [], evaluated_at)
     if report["status"] == "NON_SESSION":
         return report
     if not snapshot_store.enabled():
@@ -259,9 +268,46 @@ async def market_session_quality(
         )
     except psycopg.Error as exc:
         raise HTTPException(status_code=503, detail="Stored market data is unavailable") from exc
-    return audit_minute_bar_session(
-        normalized_market, normalized_symbol, session_date, bars, evaluated_at=evaluated_at,
-    )
+    return _session_quality_report(normalized_market, normalized_symbol, session_date, bars, evaluated_at)
+
+
+@app.get("/api/v1/market/session-quality/{market}")
+async def market_session_quality_batch(
+    market: Market = Path(),
+    symbols: list[str] = Query(),
+    session_date: date = Query(),
+) -> dict[str, object]:
+    """Audit the watched symbols for one market with a single read-only DB query."""
+    normalized_market = str(market).upper()
+    if not 1 <= len(symbols) <= 50:
+        raise HTTPException(status_code=422, detail="Provide 1 to 50 symbols")
+    normalized_symbols = list(dict.fromkeys(symbol.strip().upper() for symbol in symbols))
+    pattern = r"\d{6}" if normalized_market == "KR" else r"[A-Z][A-Z0-9.-]{0,15}"
+    if any(not re.fullmatch(pattern, symbol) for symbol in normalized_symbols):
+        raise HTTPException(status_code=422, detail="Symbol format does not match the selected market")
+    evaluated_at = datetime.now(timezone.utc)
+    empty_reports = [
+        _session_quality_report(normalized_market, symbol, session_date, [], evaluated_at)
+        for symbol in normalized_symbols
+    ]
+    if empty_reports and empty_reports[0]["status"] == "NON_SESSION":
+        bars_by_symbol = {symbol: [] for symbol in normalized_symbols}
+    else:
+        if not snapshot_store.enabled():
+            raise HTTPException(status_code=503, detail="Market snapshot persistence is disabled")
+        try:
+            bars_by_symbol = await asyncio.to_thread(
+                snapshot_store.load_session_minute_bars_for_symbols,
+                normalized_market, normalized_symbols, session_date,
+            )
+        except psycopg.Error as exc:
+            raise HTTPException(status_code=503, detail="Stored market data is unavailable") from exc
+    reports = [
+        _session_quality_report(
+            normalized_market, symbol, session_date, bars_by_symbol.get(symbol, []), evaluated_at,
+        ) for symbol in normalized_symbols
+    ]
+    return {"market": normalized_market, "session_date": session_date.isoformat(), "sessions": reports}
 
 
 @app.get("/api/v1/market/quotes/{market}/{symbol}", response_model=QuoteResponse)

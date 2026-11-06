@@ -23,7 +23,9 @@ type Ops = {
 type Model = { model_id: string; market?: string; model_type?: string; approved?: boolean; active?: boolean; integrity_error?: boolean; feature_compatible?: boolean; data_rights_verified?: boolean; approval_evidence_verified?: boolean; artifact_sha256?: string; dataset_sha256?: string; test_metrics?: Record<string, number>; quant_baseline_test_metrics?: Record<string, number>; quant_backtest_test_metrics?: Record<string, string | number>; ai_quant_backtest_test_metrics?: Record<string, string | number>; training_config?: Record<string, string | number> };
 type Decision = { market: string; symbol: string; exchange: string | null; signal: string; reason: string; bars_in_session: number; evaluated_at: string | null; model_id?: string | null; executable: false };
 type MarketSession = { market: "KR" | "US"; session_date: string; is_session: boolean; is_open: boolean; open_at: string | null; close_at: string | null; evaluated_at: string };
-type Payload = { generatedAt: string; springConnected: boolean; pythonConnected: boolean; operations: Ops | null; marketAi: Record<string, unknown> | null; paperSession: { state: string; enabled: boolean; subscriptions: number; ticks_received: number; bars_closed: number; orders_enabled: false; kr_calendar_compatibility?: string; stream_connections?: Record<string, string>; automation_state?: string; automation_error?: string | null; daily_baseline?: { state?: string; currency?: string; equity?: string; reason?: string } | null; decisions?: Record<string, Decision> } | null; marketSessions?: { KR: MarketSession | null; US: MarketSession | null }; aiModels: { models: Model[]; governance_events: Record<string, string>[]; executable: false } | null };
+type SessionQuality = { market: string; symbol: string; status: string; expected_bars: number; observed_bars: number; missing_bars: number; spread_bars: number; spread_coverage_percent: number | null; full_session_complete: boolean };
+type SessionQualityBatch = { market: string; session_date: string; sessions: SessionQuality[] };
+type Payload = { generatedAt: string; springConnected: boolean; pythonConnected: boolean; operations: Ops | null; marketAi: Record<string, unknown> | null; paperSession: { state: string; enabled: boolean; subscriptions: number; ticks_received: number; bars_closed: number; orders_enabled: false; kr_calendar_compatibility?: string; stream_connections?: Record<string, string>; automation_state?: string; automation_error?: string | null; daily_baseline?: { state?: string; currency?: string; equity?: string; reason?: string } | null; decisions?: Record<string, Decision> } | null; marketSessions?: { KR: MarketSession | null; US: MarketSession | null }; marketDataQuality?: { KR: SessionQualityBatch | null; US: SessionQualityBatch | null }; aiModels: { models: Model[]; governance_events: Record<string, string>[]; executable: false } | null };
 
 const money = (value: string | number, currency: string) => new Intl.NumberFormat("ko-KR", { style: "currency", currency, maximumFractionDigits: currency === "KRW" ? 0 : 2 }).format(Number(value));
 const percent = (value?: number) => value == null ? "—" : `${(value * 100).toFixed(1)}%`;
@@ -46,6 +48,18 @@ export default function Dashboard() {
   const connected = data?.springConnected ?? false;
   const pythonConnected = data?.pythonConnected ?? false;
   const states = ops?.orderCounts ?? {};
+  const qualitySessions = [
+    ...(data?.marketDataQuality?.KR?.sessions ?? []),
+    ...(data?.marketDataQuality?.US?.sessions ?? []),
+  ];
+  const qualityBySymbol = new Map(qualitySessions.map((item) => [`${item.market}:${item.symbol}`, item]));
+  const completeQualityCount = qualitySessions.filter((item) => item.full_session_complete && item.spread_bars > 0).length;
+  const qualitySummary = qualitySessions.length
+    ? `${completeQualityCount}/${qualitySessions.length}개 종목이 전체 봉과 스프레드 자료 보유`
+    : "저장 품질을 확인할 수 없음";
+  const qualityDetails = qualitySessions.slice(0, 3).map((item) =>
+    `${item.market} ${item.symbol} ${item.status} · ${item.observed_bars}/${item.expected_bars}봉 · spread ${item.spread_coverage_percent ?? "—"}%`,
+  ).join(" / ");
 
   return <main className="shell">
     <header className="topbar"><div className="brand-mark">AT</div><div><p className="eyebrow">LOCAL TRADING SYSTEM</p><h1>운영 대시보드</h1></div><div className="top-actions"><span className="mode"><i /> {ops?.tradingMode.toUpperCase() ?? "PAPER"} MODE</span><button onClick={() => void load()} aria-label="새로고침">새로고침</button></div></header>
@@ -56,6 +70,7 @@ export default function Dashboard() {
       <StatusCard title="주문·리스크 API" good={connected} value={connected ? "정상 연결" : "연결 안 됨"} detail="Spring Boot · localhost:8080" />
       <StatusCard title="시세·AI API" good={pythonConnected} value={pythonConnected ? "정상 연결" : "연결 안 됨"} detail="FastAPI · localhost:8000" />
       <StatusCard title="P5 KR·US 거래 세션" good={Boolean(data?.marketSessions?.KR && data?.marketSessions?.US)} value={`KR ${marketSessionLabel(data?.marketSessions?.KR)} · US ${marketSessionLabel(data?.marketSessions?.US)}`} detail={`거래일 ${data?.marketSessions?.KR?.session_date ?? "미확인"} · XKRX 캘린더 ${calendarLabel(data?.paperSession?.kr_calendar_compatibility)} · 판정 불가 시 진입 차단`} />
+      <StatusCard title="P3 저장 분봉 품질" good={qualitySessions.length > 0 && completeQualityCount === qualitySessions.length} value={qualitySummary} detail={qualityDetails || "정규장 세션 날짜에 대한 PostgreSQL 자료가 필요합니다."} />
       <StatusCard title="실거래 주문" good={false} value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} detail={`실주문 ${ops?.liveTrading.toUpperCase() ?? "DISABLED"} · KIS_REAL_ORDERS_ENABLED`} />
       <StatusCard title="KIS 모의 주문" good={false} value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} detail="별도 활성 스위치" />
       <StatusCard title="KIS 자격정보 설정" good={ops?.kisPaperCredentialsConfigured ?? false} value={ops?.kisPaperCredentialsConfigured ? "PAPER 값 입력됨" : "PAPER 값 미설정"} detail={`실계좌 ${ops?.kisRealCredentialsConfigured ? "입력됨" : "미설정"} · 계좌조회 스위치 PAPER ${ops?.kisAccountReadsEnabled && ops?.kisPaperAccountReadsEnabled ? "켜짐" : "잠금"} / REAL ${ops?.kisAccountReadsEnabled && ops?.kisRealAccountReadsEnabled ? "켜짐" : "잠금"} · 인증 성공 여부 아님`} />
@@ -75,7 +90,7 @@ export default function Dashboard() {
       <p className="audit-note">매수 체결의 평균 원가와 체결비용으로 계산하고, 청산 주문에 보존된 전략·모델 ID로 분류합니다. 기대손익은 매도 주문별 평균 순손익, 손익비는 총이익÷총손실, 실현 하락폭은 누적 실현 손익 경로의 최대 고점 대비 하락액입니다. 미분류·과거 기록은 구분되며, 실계좌 수익이나 평가손익을 뜻하지 않습니다.</p>
     </section>
     <section className="panel signals-panel"><div className="panel-title"><div><p className="eyebrow">P5 STRATEGY PREVIEW</p><h2>종목별 판단 상태</h2></div><span className="tag">paper 진입 게이트 · 실계좌 잠금</span></div>
-      {Object.keys(data?.paperSession?.decisions ?? {}).length ? <div className="table-wrap"><table><thead><tr><th>시장</th><th>종목</th><th>판단</th><th>판단 사유</th><th>세션 분봉</th></tr></thead><tbody>{Object.entries(data?.paperSession?.decisions ?? {}).map(([key, item]) => <tr key={key}><td>{item.market}</td><td className="symbol">{item.symbol}{item.exchange ? ` · ${item.exchange}` : ""}</td><td>{signalLabel(item.signal)}</td><td>{decisionReason(item.reason)}</td><td>{item.bars_in_session}</td></tr>)}</tbody></table></div> : <Empty text="세션 모니터가 비활성이거나 아직 종목을 구독하지 않았습니다." />}
+      {Object.keys(data?.paperSession?.decisions ?? {}).length ? <div className="table-wrap"><table><thead><tr><th>시장</th><th>종목</th><th>판단</th><th>판단 사유</th><th>수신 분봉</th><th>저장 품질</th></tr></thead><tbody>{Object.entries(data?.paperSession?.decisions ?? {}).map(([key, item]) => { const quality = qualityBySymbol.get(`${item.market}:${item.symbol}`); return <tr key={key}><td>{item.market}</td><td className="symbol">{item.symbol}{item.exchange ? ` · ${item.exchange}` : ""}</td><td>{signalLabel(item.signal)}</td><td>{decisionReason(item.reason)}</td><td>{item.bars_in_session}</td><td>{quality ? `${quality.status} · ${quality.observed_bars}/${quality.expected_bars} · spread ${quality.spread_coverage_percent ?? "—"}%` : "판정 불가"}</td></tr>; })}</tbody></table></div> : <Empty text="세션 모니터가 비활성이거나 아직 종목을 구독하지 않았습니다." />}
     </section>
     <section className="two-col">
       <div className="panel"><div className="panel-title"><div><p className="eyebrow">PAPER ACCOUNT</p><h2>가상 현금</h2></div><span className="tag">실계좌 잔고 아님</span></div>
