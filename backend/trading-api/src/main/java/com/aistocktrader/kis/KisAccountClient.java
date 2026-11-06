@@ -123,8 +123,11 @@ public class KisAccountClient {
         for (int pageNumber = 0; pageNumber < 20; pageNumber++) {
             ApiPage page = getPage(environment, path, trId, params, continuation);
             JsonNode payload = page.body();
-            if (pageNumber == 0) summary = firstOrSelf(payload.path(summaryField));
+            if (pageNumber == 0) summary = requiredSummary(payload.path(summaryField));
             JsonNode rows = payload.path(positionsField);
+            if (rows.isMissingNode() || rows.isNull() || (!rows.isArray() && !rows.isObject())) {
+                throw malformedAccountResponse();
+            }
             if (rows.isArray()) rows.forEach(positions::add);
             else if (rows.isObject()) positions.add(rows);
 
@@ -241,13 +244,16 @@ public class KisAccountClient {
 
     private List<KisAccountSnapshot.Position> mapPositions(JsonNode rows, Market market) {
         List<KisAccountSnapshot.Position> positions = new ArrayList<>();
-        if (!rows.isArray()) return positions;
+        if (!rows.isArray()) throw malformedAccountResponse();
         for (JsonNode row : rows) {
             String symbol = value(row, market == Market.KR ? "pdno" : "ovrs_pdno");
-            if (symbol.isBlank()) continue;
+            BigDecimal quantity = amount(row, market == Market.KR ? "hldg_qty" : "ovrs_cblc_qty");
+            if (symbol.isBlank() || quantity == null || quantity.signum() < 0) {
+                throw malformedAccountResponse();
+            }
             positions.add(new KisAccountSnapshot.Position(symbol,
                     value(row, market == Market.KR ? "prdt_name" : "ovrs_item_name"),
-                    amount(row, market == Market.KR ? "hldg_qty" : "ovrs_cblc_qty"),
+                    quantity,
                     amount(row, market == Market.KR ? "ord_psbl_qty" : "ord_psbl_qty"),
                     amount(row, market == Market.KR ? "pchs_avg_pric" : "pchs_avg_pric"),
                     amount(row, market == Market.KR ? "prpr" : "now_pric2"),
@@ -256,6 +262,21 @@ public class KisAccountClient {
                     amount(row, market == Market.KR ? "evlu_pfls_rt" : "evlu_pfls_rt")));
         }
         return positions;
+    }
+
+    private JsonNode requiredSummary(JsonNode summary) {
+        JsonNode result = summary;
+        if (summary.isArray()) {
+            if (summary.isEmpty()) throw malformedAccountResponse();
+            result = summary.get(0);
+        }
+        if (!result.isObject() || result.isNull()) throw malformedAccountResponse();
+        return result;
+    }
+
+    private static KisApiException malformedAccountResponse() {
+        return new KisApiException(HttpStatus.BAD_GATEWAY,
+                "KIS account response is incomplete or malformed.");
     }
 
     private JsonNode firstOrSelf(JsonNode node) {

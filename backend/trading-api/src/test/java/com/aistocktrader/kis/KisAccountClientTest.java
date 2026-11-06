@@ -118,6 +118,48 @@ class KisAccountClientTest {
     }
 
     @Test
+    void missingPositionRowsRejectTheBalanceInsteadOfAppearingAsAnEmptyAccount() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisAccountClient client = new KisAccountClient(properties(true), builder, new ObjectMapper());
+        server.expect(requestTo(PAPER_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token("paper-token"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(
+                        PAPER_URL + "/uapi/domestic-stock/v1/trading/inquire-balance?")))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output2":[{"dnca_tot_amt":"1000000","nass_amt":"1000000"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        KisApiException error = assertThrows(KisApiException.class,
+                () -> client.getBalance(KisEnvironment.PAPER, Market.KR, null, null, null));
+
+        assertEquals(HttpStatus.BAD_GATEWAY, error.status());
+        assertFalse(error.getMessage().contains("1000000"));
+        server.verify();
+    }
+
+    @Test
+    void unidentifiedPositionRejectsTheWholeBalanceInsteadOfDroppingThatHolding() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisAccountClient client = new KisAccountClient(properties(true), builder, new ObjectMapper());
+        server.expect(requestTo(PAPER_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token("paper-token"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(
+                        PAPER_URL + "/uapi/domestic-stock/v1/trading/inquire-balance?")))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[{"pdno":"","hldg_qty":"1"}],
+                         "output2":[{"dnca_tot_amt":"1000000","nass_amt":"1000000"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        KisApiException error = assertThrows(KisApiException.class,
+                () -> client.getBalance(KisEnvironment.PAPER, Market.KR, null, null, null));
+
+        assertEquals(HttpStatus.BAD_GATEWAY, error.status());
+        server.verify();
+    }
+
+    @Test
     void realAndPaperTokensAndDomainsAreKeptSeparate() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

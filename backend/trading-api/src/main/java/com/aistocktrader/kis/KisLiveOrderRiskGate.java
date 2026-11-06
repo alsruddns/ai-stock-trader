@@ -46,7 +46,9 @@ public class KisLiveOrderRiskGate {
         boolean matchingCurrency = accountCurrencyMatches(request.currency(), account.currency());
         boolean positionsValid = account.positions() != null
                 && account.positions().stream().noneMatch(position -> position == null
-                        || position.quantity() == null || position.quantity().signum() < 0);
+                        || position.quantity() == null || position.quantity().signum() < 0
+                        || (position.quantity().signum() > 0 && (position.evaluationAmount() == null
+                        || position.evaluationAmount().signum() < 0)));
         int totalOpenPositions = positionsValid ? (int) account.positions().stream()
                 .filter(position -> position.quantity().signum() > 0).count() : 0;
         if (!realAccount) reasons.add("REAL_ACCOUNT_REQUIRED");

@@ -38,6 +38,8 @@ PAPER 장부 주문 정정은 동일 주문의 `Idempotency-Key`별로 한 번�
 
 KIS API는 기본 잠금(`KIS_ACCOUNT_READ_ENABLED=false`)입니다. 조회를 열려면 전체 스위치와 환경별 스위치를 모두 설정해야 합니다. REAL 조회에는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`가 추가로 필요하며 기본값은 false입니다. 종목별 매수가능액 확인 시 `symbol`과 `unitPrice`를 함께 전달합니다. 미국 조회의 `exchange`는 PAPER·REAL 공통 지원 코드인 `NASD`, `NYSE`, `AMEX` 중 하나입니다. KIS 공식 예제의 REAL 전용 추가 코드 `NAS`는 현재 경로에서 허용하지 않습니다. 계좌 API는 계좌번호, App Key, App Secret을 응답에 포함하지 않습니다.
 
+국내·미국 계좌 조회는 KIS 잔고 응답에 보유목록(`output1`)과 요약(`output2`)이 유효한 배열 또는 객체로 포함되어야 성공합니다. 보유 종목 행에 종목번호나 수량이 없거나 유효하지 않으면 전체 조회를 HTTP `502`로 거부하며, 부분 목록을 빈 계좌로 표시하지 않습니다. REAL 주문 위험검사는 보유수량이 양수인 종목에 평가금액이 없거나 음수인 계좌 스냅샷도 거부합니다.
+
 ## KIS REST 요청 범위
 
 국내·미국 잔고 및 현재가 경로와 PAPER/REAL 거래 ID는 [KIS API compatibility](kis-api-compatibility.md)에 공식 예제 대조 기록과 함께 정리했습니다. 현재가는 REST 스냅샷이며, 실시간 체결 데이터는 별도 WebSocket 경로를 사용합니다. 해당 문서 검토는 계좌 인증 연동 성공을 의미하지 않습니다.
