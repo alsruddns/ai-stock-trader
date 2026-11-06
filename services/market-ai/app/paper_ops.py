@@ -116,6 +116,25 @@ class PaperGateState:
     reasons: tuple[str, ...]
 
 
+def korean_calendar_compatibility() -> str:
+    """Report whether installed ops dependencies are safe for XKRX sessions."""
+    try:
+        import exchange_calendars as calendars
+        import pandas as pd
+    except ImportError:
+        return "DEPENDENCIES_MISSING"
+    try:
+        pandas_version = tuple(int(part) for part in pd.__version__.split(".")[:2])
+        calendar_version = tuple(int(part) for part in calendars.__version__.split(".")[:3])
+    except ValueError:
+        return "VERSION_UNKNOWN"
+    if pandas_version >= (3, 1):
+        return "PANDAS_UNSUPPORTED"
+    if calendar_version < (4, 13, 1):
+        return "EXCHANGE_CALENDAR_UNSUPPORTED"
+    return "COMPATIBLE"
+
+
 def exchange_session_window(market: Market, now: datetime) -> tuple[datetime, datetime] | None:
     """Return the official exchange calendar open/close in UTC; unsupported dates fail closed."""
     if now.tzinfo is None:
@@ -129,12 +148,11 @@ def exchange_session_window(market: Market, now: datetime) -> tuple[datetime, da
     if calendar_name is None:
         raise ValueError("market must be KR or US")
     if market == "KR":
-        try:
-            pandas_version = tuple(int(part) for part in pd.__version__.split(".")[:2])
-        except ValueError as exc:
-            raise RuntimeError("Korean market calendar cannot verify the installed pandas version") from exc
-        if pandas_version >= (3, 1):
+        compatibility = korean_calendar_compatibility()
+        if compatibility == "PANDAS_UNSUPPORTED":
             raise RuntimeError("Korean market calendar requires pandas<3.1 until XKRX offset support is fixed")
+        if compatibility != "COMPATIBLE":
+            raise RuntimeError("Korean market calendar dependencies are unavailable or unsupported")
     exchange_zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
     label = pd.Timestamp(now.astimezone(exchange_zone).date())
     try:

@@ -21,6 +21,10 @@
 | POST | `/api/v1/ai/models/{model_id}/activate` | 승인된 advisory 모델 활성화 |
 | POST | `/api/v1/ai/models/{model_id}/rollback` | 승인된 이전 모델로 advisory 포인터 복구 |
 
+## Python 시세·AI API
+
+`GET /api/v1/health`와 `GET /api/v1/paper/session`은 `kr_calendar_compatibility`를 제공합니다. `COMPATIBLE`은 `pandas<3.1` 및 `exchange-calendars>=4.13.1`을 뜻합니다. `PANDAS_UNSUPPORTED`, `EXCHANGE_CALENDAR_UNSUPPORTED`, `DEPENDENCIES_MISSING`, `VERSION_UNKNOWN`이면 PAPER 세션 게이트가 신규 진입과 청산 판단을 차단합니다. 이 필드는 시세 연결이나 주문 가능 여부를 뜻하지 않습니다.
+
 모델 `approve`, `activate`, `rollback` 변경 요청은 `.env`에 설정한 `MODEL_GOVERNANCE_TOKEN`을 `X-Model-Governance-Token` 헤더로 전달해야 합니다. 토큰 미설정 시 `503`, 불일치 시 `403`을 반환합니다. 토큰은 응답과 감사 기록에 저장되지 않습니다.
 
 DB 접근 또는 트랜잭션 커밋 실패는 HTTP `503`과 일반 오류 메시지를 반환합니다. 응답에는 DB 드라이버 세부 내용이나 비밀값을 포함하지 않습니다. 클라이언트는 주문 완료로 간주하지 말고 idempotency key로 결과를 조회해야 합니다.

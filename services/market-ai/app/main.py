@@ -18,6 +18,7 @@ from . import snapshot_store
 from . import kis_stream
 from .ai_pipeline import LocalModelRegistry
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
+from .paper_ops import korean_calendar_compatibility
 from .paper_runtime import paper_session_monitor
 
 _KIS_CLIENTS: dict[str, KisReadOnlyClient] = {}
@@ -195,6 +196,7 @@ def health() -> dict[str, str | bool]:
         "broker_connected": False,
         "kis_market_data_enabled": settings.enabled,
         "paper_session_monitor": paper_session_monitor.status()["state"],
+        "kr_calendar_compatibility": korean_calendar_compatibility(),
         "paper_automation_enabled": False,
         "live_trading_enabled": False,
     }
@@ -203,7 +205,9 @@ def health() -> dict[str, str | bool]:
 @app.get("/api/v1/paper/session")
 def paper_session_status() -> dict[str, object]:
     """Expose the local paper feed monitor without secrets or order controls."""
-    return paper_session_monitor.status()
+    status = paper_session_monitor.status()
+    status["kr_calendar_compatibility"] = korean_calendar_compatibility()
+    return status
 
 
 @app.get("/api/v1/market/quotes/{market}/{symbol}", response_model=QuoteResponse)

@@ -19,10 +19,33 @@ def test_health_discloses_read_only_mode() -> None:
     assert response.json()["paper_session_monitor"] == "DISABLED"
 
 
+def test_health_reports_korean_calendar_compatibility(monkeypatch) -> None:
+    import pandas as pd
+
+    monkeypatch.setattr(pd, "__version__", "3.1.1")
+    response = client.get("/api/v1/health")
+    assert response.status_code == 200
+    assert response.json()["kr_calendar_compatibility"] == "PANDAS_UNSUPPORTED"
+
+
+def test_health_rejects_old_exchange_calendar_dependency(monkeypatch) -> None:
+    import exchange_calendars as calendars
+    import pandas as pd
+
+    monkeypatch.setattr(calendars, "__version__", "4.13.0")
+    monkeypatch.setattr(pd, "__version__", "3.0.6")
+    response = client.get("/api/v1/health")
+    assert response.status_code == 200
+    assert response.json()["kr_calendar_compatibility"] == "EXCHANGE_CALENDAR_UNSUPPORTED"
+
+
 def test_paper_session_status_is_monitor_only() -> None:
     response = client.get("/api/v1/paper/session")
     assert response.status_code == 200
     assert response.json()["orders_enabled"] is False
+    assert response.json()["kr_calendar_compatibility"] in {
+        "COMPATIBLE", "PANDAS_UNSUPPORTED", "EXCHANGE_CALENDAR_UNSUPPORTED", "DEPENDENCIES_MISSING", "VERSION_UNKNOWN",
+    }
 
 
 def test_model_governance_endpoint_is_read_only_for_execution(monkeypatch, tmp_path) -> None:
