@@ -389,6 +389,7 @@ class KisReadOnlyClient:
         the earliest returned bar; overlapping bars are accepted only when identical.
         """
         from .quant import MinuteBar
+        from .market_calendar import exchange_continuous_session_window
 
         if not 1 <= max_pages <= 6:
             raise ValueError("max_pages must be between 1 and 6")
@@ -399,20 +400,26 @@ class KisReadOnlyClient:
                 or int(end_time[2:4]) > 59 or int(end_time[4:]) > 59):
             raise ValueError("end_time must use HHMMSS")
 
-        session_open = datetime_time(9, 0)
+        session_window = exchange_continuous_session_window(
+            "KR", datetime.combine(session_date, datetime_time(12), tzinfo=ZoneInfo("Asia/Seoul")),
+        )
+        if session_window is None:
+            return []
+        session_open, session_close = session_window
         bars_by_timestamp: dict[datetime, MinuteBar] = {}
         cursor = end_time
         for page_number in range(max_pages):
             page = self.get_domestic_minute_bars(symbol, session_date, cursor)
             for bar in page:
-                if bar.timestamp.date() != session_date or not (session_open <= bar.timestamp.time()):
+                timestamp_utc = bar.timestamp.astimezone(timezone.utc)
+                if not (session_open <= timestamp_utc < session_close):
                     continue
                 existing = bars_by_timestamp.get(bar.timestamp)
                 if existing is not None and existing != bar:
                     raise KisApiError("KIS minute chart pages returned conflicting duplicate bars")
                 bars_by_timestamp[bar.timestamp] = bar
 
-            if not page or page[0].timestamp.time() <= session_open:
+            if not page or page[0].timestamp.astimezone(timezone.utc) <= session_open:
                 break
             if page_number + 1 == max_pages:
                 raise KisApiError("KIS minute chart session exceeded the supported pagination limit")

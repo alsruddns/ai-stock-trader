@@ -14,6 +14,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 
 import psycopg
 from app.data_export import write_minute_bar_export
+from app.market_calendar import exchange_continuous_session_window
 
 
 def _load_local_env() -> None:
@@ -101,6 +102,12 @@ def main() -> int:
             ).fetchall()
     except psycopg.Error:
         parser.error("PostgreSQL query failed; check the local database and migration state")
+
+    rows = [
+        row for row in rows
+        if (window := exchange_continuous_session_window(market, row[0])) is not None
+        and window[0] <= row[0].astimezone(ZoneInfo("UTC")) < window[1]
+    ]
 
     sources = sorted({row[7] for row in rows if row[7]})
     if args.dry_run:

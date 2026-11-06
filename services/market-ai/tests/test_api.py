@@ -392,12 +392,12 @@ def test_quant_backtest_endpoint_accepts_supplied_bars_and_never_creates_orders(
         "market": "KR", "symbol": "005930", "bars": [
             {"timestamp": (session_open + timedelta(minutes=i)).isoformat(), "open": "100", "high": "101",
              "low": "99", "close": "100", "volume": 1000, "spread_bps": "5"}
-            for i in range(390)
+            for i in range(380)
         ],
     })
     assert response.status_code == 200
     assert response.json()["executable"] is False
-    assert response.json()["data_points"] == 390
+    assert response.json()["data_points"] == 380
     assert response.json()["trades"] == []
 
 

@@ -10,7 +10,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from .kis import AccountBalance, Quote
-from .market_calendar import exchange_session_window
+from .market_calendar import exchange_continuous_session_window
 from .quant import MinuteBar
 
 
@@ -47,7 +47,7 @@ def store_minute_bars(market: str, symbol: str, bars: list[MinuteBar], *, source
         return
     regular_session_bars = []
     for bar in bars:
-        window = exchange_session_window(market, bar.timestamp)
+        window = exchange_continuous_session_window(market, bar.timestamp)
         if window is None:
             continue
         timestamp = bar.timestamp.astimezone(timezone.utc)
@@ -66,7 +66,8 @@ def store_minute_bars(market: str, symbol: str, bars: list[MinuteBar], *, source
                  open_price = EXCLUDED.open_price, high_price = EXCLUDED.high_price,
                  low_price = EXCLUDED.low_price, close_price = EXCLUDED.close_price,
                  volume = EXCLUDED.volume, spread_bps = EXCLUDED.spread_bps,
-                 source = EXCLUDED.source, stored_at = now()""",
+                 source = EXCLUDED.source, stored_at = now()
+               WHERE market_minute_bar.spread_bps IS NULL OR EXCLUDED.spread_bps IS NOT NULL""",
                 [(market, symbol.upper(), bar.timestamp, bar.open, bar.high, bar.low, bar.close,
                   bar.volume, bar.spread_bps, source) for bar in regular_session_bars],
             )
@@ -78,7 +79,7 @@ def load_session_minute_bars(market: str, symbol: str, session_date: date, *, li
         raise ValueError("market, symbol, and a bounded bar limit are required")
     zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
     session_noon = datetime.combine(session_date, datetime_time(hour=12), tzinfo=zone)
-    window = exchange_session_window(market, session_noon)
+    window = exchange_continuous_session_window(market, session_noon)
     if window is None:
         return []
     session_start, session_end = window

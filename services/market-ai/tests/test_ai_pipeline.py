@@ -39,7 +39,7 @@ def _sample_sessions() -> dict[date, list[MinuteBar]]:
             continue
         bars = []
         session_index = len(result)
-        for index in range(390):
+        for index in range(380):
             wave = Decimal(str(round(__import__("math").sin(index * 0.55 + session_index * 0.2), 4)))
             close = Decimal("100") + Decimal(session_index) / Decimal(10) + Decimal(index) / Decimal(100) + wave
             bars.append(_bar(start + timedelta(minutes=index), close, 1000 + index % 8 * 200))
@@ -67,7 +67,7 @@ def test_features_at_time_t_match_online_inference_features() -> None:
     online = latest_features(bars[:21], market="KR")
     assert len(online) == len(FEATURE_NAMES)
     assert at_t.features == online
-    assert at_t.features[-1] == pytest.approx(20 / 390)
+    assert at_t.features[-1] == pytest.approx(20 / 380)
     with pytest.raises(ValueError, match="at least 21 bars"):
         latest_features(bars[:20], market="KR")
 
@@ -143,7 +143,7 @@ def test_us_training_and_inference_accept_one_new_york_session_crossing_korea_mi
 
 def test_session_progress_uses_market_open_and_exchange_timezone() -> None:
     assert _session_progress(datetime(2026, 11, 5, 0, 0, tzinfo=timezone.utc), "KR") == Decimal(0)
-    assert _session_progress(datetime(2026, 11, 5, 3, 15, tzinfo=timezone.utc), "KR") == Decimal("0.5")
+    assert _session_progress(datetime(2026, 11, 5, 3, 10, tzinfo=timezone.utc), "KR") == Decimal("0.5")
     assert _session_progress(datetime(2026, 11, 5, 14, 30, tzinfo=timezone.utc), "US") == Decimal(0)
     assert _session_progress(datetime(2026, 11, 5, 17, 45, tzinfo=timezone.utc), "US") == Decimal("0.5")
     assert _session_progress(datetime(2026, 11, 5, 21, 30, tzinfo=timezone.utc), "US") == Decimal(1)

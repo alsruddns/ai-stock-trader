@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Callable, Literal
 from zoneinfo import ZoneInfo
 
-from .market_calendar import exchange_session_window
+from .market_calendar import exchange_continuous_session_window
 
 Market = Literal["KR", "US"]
 
@@ -107,7 +107,7 @@ def _validate_session(bars: list[MinuteBar], market: Market, *, require_complete
         raise ValueError("one session per backtest is supported")
     if any(left.timestamp >= right.timestamp for left, right in zip(bars, bars[1:])):
         raise ValueError("bars must be strictly increasing by timestamp")
-    window = exchange_session_window(market, bars[0].timestamp)
+    window = exchange_continuous_session_window(market, bars[0].timestamp)
     if window is None:
         raise ValueError("bars must belong to an official exchange session")
     opened, closed = window

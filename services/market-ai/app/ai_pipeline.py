@@ -10,14 +10,14 @@ import re
 import tempfile
 import threading
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 from .data_provenance import validate_data_provenance
+from .market_calendar import exchange_continuous_session_window
 from .quant import (MinuteBar, QuantConfig, _atr, _ema, _vwap,
                     _validate_session, backtest_orb_vwap, exchange_session_date, orb_vwap_entry_candidate)
 
@@ -34,23 +34,21 @@ _REGISTRY_LOCKS_GUARD = threading.Lock()
 _REGISTRY_LOCKS: dict[Path, threading.RLock] = {}
 
 
-_MARKET_SESSIONS = {
-    "KR": (ZoneInfo("Asia/Seoul"), time(9, 0)),
-    "US": (ZoneInfo("America/New_York"), time(9, 30)),
-}
+_MARKETS = {"KR", "US"}
 
 
 def _session_progress(timestamp: datetime, market: str) -> Decimal:
     """Fraction of the local regular session elapsed, clamped to [0, 1]."""
     normalized_market = market.strip().upper()
-    if normalized_market not in _MARKET_SESSIONS:
+    if normalized_market not in _MARKETS:
         raise ValueError("market must be KR or US")
-    zone, open_time = _MARKET_SESSIONS[normalized_market]
-    local_time = timestamp.astimezone(zone).time().replace(tzinfo=None)
-    local_seconds = local_time.hour * 3600 + local_time.minute * 60 + local_time.second
-    open_seconds = open_time.hour * 3600 + open_time.minute * 60 + open_time.second
-    seconds = local_seconds - open_seconds
-    duration_seconds = 6 * 3600 + 30 * 60
+    window = exchange_continuous_session_window(normalized_market, timestamp)
+    if window is None:
+        raise ValueError("timestamp must belong to an official market session")
+    opened, closed = (bound.astimezone(timezone.utc) for bound in window)
+    instant = timestamp.astimezone(timezone.utc)
+    seconds = (instant - opened).total_seconds()
+    duration_seconds = (closed - opened).total_seconds()
     return min(Decimal(1), max(Decimal(0), Decimal(seconds) / Decimal(duration_seconds)))
 
 
@@ -96,7 +94,7 @@ def build_training_samples(
     if horizon_bars <= 0 or warmup_bars <= 0 or round_trip_cost_bps < 0:
         raise ValueError("horizon, warmup, and transaction cost settings are invalid")
     normalized_market = market.strip().upper()
-    if normalized_market not in _MARKET_SESSIONS:
+    if normalized_market not in _MARKETS:
         raise ValueError("market must be KR or US")
     minimum_label_cost = 2 * (quant_config.commission_bps + quant_config.slippage_bps)
     if round_trip_cost_bps < minimum_label_cost:
@@ -161,7 +159,7 @@ def latest_features(bars: list[MinuteBar], *, market: str, minimum_bars: int = 2
     if len(bars) < required_bars:
         raise ValueError(f"at least {required_bars} bars are required for inference")
     normalized_market = market.strip().upper()
-    if normalized_market not in _MARKET_SESSIONS:
+    if normalized_market not in _MARKETS:
         raise ValueError("market must be KR or US")
     _validate_session(bars, normalized_market)
     current = bars[-1]

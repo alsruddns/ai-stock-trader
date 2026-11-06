@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -44,6 +44,19 @@ def exchange_session_window(market: Market, now: datetime) -> tuple[datetime, da
             raise RuntimeError("Korean market calendar dependencies are unavailable or unsupported")
     exchange_zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
     return _exchange_session_window_for_date(market, now.astimezone(exchange_zone).date())
+
+
+def exchange_continuous_session_window(market: Market, now: datetime) -> tuple[datetime, datetime] | None:
+    """Return continuous trading bounds, excluding the KRX closing call auction."""
+    window = exchange_session_window(market, now)
+    if window is None:
+        return None
+    opened, closed = window
+    if market == "KR":
+        # KRX continuous matching ends 10 minutes before the official session close;
+        # the remaining period is the closing single-price auction.
+        closed -= timedelta(minutes=10)
+    return opened, closed
 
 
 @lru_cache(maxsize=512)

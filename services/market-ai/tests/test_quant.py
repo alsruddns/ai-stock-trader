@@ -6,7 +6,7 @@ import pytest
 from app.quant import MinuteBar, QuantConfig, backtest_orb_vwap, orb_vwap_entry_candidate
 
 
-def _session_bars() -> list[MinuteBar]:
+def _session_bars(bar_count: int = 380) -> list[MinuteBar]:
     start = datetime(2026, 11, 5, 9, 0, tzinfo=timezone(timedelta(hours=9)))
     bars = [
         MinuteBar(start + timedelta(minutes=i), Decimal("100"), Decimal("100.5"), Decimal("99.5"), Decimal("100"), 1000, Decimal("5"))
@@ -18,7 +18,7 @@ def _session_bars() -> list[MinuteBar]:
     bars.extend(
         MinuteBar(start + timedelta(minutes=i), Decimal("100"), Decimal("100.5"), Decimal("99.5"),
                   Decimal("100"), 1000, Decimal("5"))
-        for i in range(23, 390)
+        for i in range(23, bar_count)
     )
     return bars
 
@@ -165,7 +165,7 @@ def test_stop_wins_when_stop_and_target_are_touched_in_same_bar() -> None:
 
 
 def test_us_backtest_uses_new_york_session_date_across_korea_midnight() -> None:
-    bars = _session_bars()
+    bars = _session_bars(bar_count=390)
     start = datetime(2026, 11, 5, 23, 30, tzinfo=timezone(timedelta(hours=9)))
     bars = [MinuteBar(start + timedelta(minutes=index), bar.open, bar.high, bar.low,
                       bar.close, bar.volume, bar.spread_bps)

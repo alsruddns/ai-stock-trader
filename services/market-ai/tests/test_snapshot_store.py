@@ -41,6 +41,7 @@ def test_minute_bars_are_upserted_with_provenance_and_null_spread(monkeypatch) -
 
     query, rows = connection.calls[0]
     assert "ON CONFLICT (market, symbol, bar_at) DO UPDATE" in query
+    assert "WHERE market_minute_bar.spread_bps IS NULL OR EXCLUDED.spread_bps IS NOT NULL" in query
     assert rows == [("KR", "005930", bar.timestamp, bar.open, bar.high, bar.low, bar.close,
                      1000, None, "KIS_REST_MINUTE_CHART")]
 
@@ -56,12 +57,16 @@ def test_minute_bar_persistence_drops_premarket_and_afterhours(monkeypatch) -> N
         timestamp=datetime.fromisoformat("2026-11-05T09:00:00+09:00"), open=Decimal("100"),
         high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
     )
+    closing_auction = MinuteBar(
+        timestamp=datetime.fromisoformat("2026-11-05T15:25:00+09:00"), open=Decimal("100"),
+        high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
+    )
     after_close = MinuteBar(
         timestamp=datetime.fromisoformat("2026-11-05T15:30:00+09:00"), open=Decimal("100"),
         high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
     )
 
-    snapshot_store.store_minute_bars("KR", "005930", [before_open, at_open, after_close],
+    snapshot_store.store_minute_bars("KR", "005930", [before_open, at_open, closing_auction, after_close],
                                      source="KIS_PAPER_WEBSOCKET")
 
     _, rows = connection.calls[0]

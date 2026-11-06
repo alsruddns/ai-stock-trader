@@ -6,6 +6,7 @@ import pytest
 from app.paper_ops import (PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate,
                            exchange_session_window, size_paper_order)
 from app.quant import MinuteBar
+from app.market_calendar import exchange_continuous_session_window
 
 
 def _good_gate(now: datetime, quote_at: datetime | None = None, **overrides):
@@ -26,6 +27,15 @@ def test_calendar_identifies_domestic_weekday_session_and_holiday() -> None:
     assert window is not None
     assert window[0] < weekday.astimezone(timezone.utc) < window[1]
     assert exchange_session_window("KR", holiday) is None
+
+
+def test_continuous_kr_session_excludes_the_closing_auction() -> None:
+    local = timezone(timedelta(hours=9))
+    at = datetime(2026, 10, 30, 12, 0, tzinfo=local)
+    window = exchange_continuous_session_window("KR", at)
+    assert window is not None
+    assert window[0].astimezone(local).isoformat() == "2026-10-30T09:00:00+09:00"
+    assert window[1].astimezone(local).isoformat() == "2026-10-30T15:20:00+09:00"
 
 
 def test_korean_calendar_fails_closed_with_pandas_31(monkeypatch) -> None:
