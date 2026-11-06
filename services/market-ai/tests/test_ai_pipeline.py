@@ -6,6 +6,8 @@ import json
 import pytest
 
 from app.ai_pipeline import (
+    BACKTEST_SPREAD_MODEL,
+    BACKTEST_VERSION,
     FEATURE_NAMES,
     FEATURE_VERSION,
     LocalModelRegistry,
@@ -53,7 +55,7 @@ def _provenance(dataset_sha256: str) -> dict:
 
 def test_features_at_time_t_match_online_inference_features() -> None:
     bars = _sample_sessions()[date(2026, 10, 1)][:26]
-    samples = build_training_samples({bars[0].timestamp.date(): bars}, market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("0"))
+    samples = build_training_samples({bars[0].timestamp.date(): bars}, market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("20"))
     at_t = next(sample for sample in samples if sample.timestamp == bars[20].timestamp.isoformat())
     online = latest_features(bars[:21], market="KR")
     assert len(online) == len(FEATURE_NAMES)
@@ -63,6 +65,46 @@ def test_features_at_time_t_match_online_inference_features() -> None:
         latest_features(bars[:20], market="KR")
 
 
+def test_training_labels_deduct_observed_entry_and_exit_spread() -> None:
+    sessions = _sample_sessions()
+    session = date(2026, 10, 1)
+    bars = sessions[session]
+    timestamp = bars[20].timestamp.isoformat()
+    with_spread = build_training_samples(sessions, market="KR", horizon_bars=5,
+                                         round_trip_cost_bps=Decimal("20"))
+    zero_spread_sessions = {
+        day: [MinuteBar(bar.timestamp, bar.open, bar.high, bar.low, bar.close, bar.volume, Decimal("0"))
+              for bar in rows]
+        for day, rows in sessions.items()
+    }
+    without_spread = build_training_samples(zero_spread_sessions, market="KR", horizon_bars=5,
+                                            round_trip_cost_bps=Decimal("20"))
+    spread_sample = next(sample for sample in with_spread if sample.session == session and sample.timestamp == timestamp)
+    zero_spread_sample = next(sample for sample in without_spread if sample.session == session and sample.timestamp == timestamp)
+
+    assert spread_sample.forward_net_return_bps == pytest.approx(zero_spread_sample.forward_net_return_bps - 5)
+
+
+def test_training_skips_samples_with_missing_future_spread() -> None:
+    sessions = _sample_sessions()
+    session = date(2026, 10, 1)
+    target = sessions[session][25]
+    sessions[session][25] = MinuteBar(target.timestamp, target.open, target.high, target.low,
+                                      target.close, target.volume, None)
+
+    samples = build_training_samples(sessions, market="KR", horizon_bars=5,
+                                     round_trip_cost_bps=Decimal("20"))
+
+    assert not any(sample.session == session and sample.timestamp == sessions[session][20].timestamp.isoformat()
+                   for sample in samples)
+
+
+def test_training_sample_generation_rejects_cost_below_backtest_cost() -> None:
+    with pytest.raises(ValueError, match="must cover modeled entry and exit"):
+        build_training_samples(_sample_sessions(), market="KR", horizon_bars=5,
+                               round_trip_cost_bps=Decimal("19.999"))
+
+
 def test_us_training_and_inference_accept_one_new_york_session_crossing_korea_midnight() -> None:
     start = datetime(2026, 11, 5, 23, 30, tzinfo=timezone(timedelta(hours=9)))
     bars = [_bar(start + timedelta(minutes=index), Decimal("100") + Decimal(index) / 100)
@@ -70,7 +112,7 @@ def test_us_training_and_inference_accept_one_new_york_session_crossing_korea_mi
     sessions = {date(2026, 11, 5): bars}
 
     samples = build_training_samples(
-        sessions, market="US", horizon_bars=5, round_trip_cost_bps=Decimal("0"),
+        sessions, market="US", horizon_bars=5, round_trip_cost_bps=Decimal("20"),
     )
     features = latest_features(bars[:21], market="US")
 
@@ -90,7 +132,7 @@ def test_session_progress_uses_market_open_and_exchange_timezone() -> None:
 
 
 def test_chronological_split_keeps_sessions_disjoint_and_ordered() -> None:
-    samples = build_training_samples(_sample_sessions(), market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("0"))
+    samples = build_training_samples(_sample_sessions(), market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("20"))
     train, validation, test = _chronological_partitions(samples)
     train_dates = {item.session for item in train}
     validation_dates = {item.session for item in validation}
@@ -162,6 +204,7 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path)
         assert metadata["training_config"]["symbol"] == "005930"
         assert metadata["training_config"]["label_horizon_bars"] == 5
         assert metadata["training_config"]["backtest_commission_bps"] == "5"
+        assert metadata["training_config"]["backtest_spread_model"] == BACKTEST_SPREAD_MODEL
         assert "candidate_positive_rate" in result.test_metrics
         assert "candidate_mean_forward_net_bps" in result.test_metrics
         assert "candidate_coverage" in result.quant_baseline_test_metrics
@@ -247,7 +290,8 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str) -> None:
         "training_config": {
             "symbol": "005930", "label_horizon_bars": 5, "label_round_trip_cost_bps": "20",
             "backtest_quantity_per_session": 1, "backtest_commission_bps": "5",
-            "backtest_slippage_bps": "5",
+            "backtest_slippage_bps": "5", "backtest_version": BACKTEST_VERSION,
+            "backtest_spread_model": BACKTEST_SPREAD_MODEL,
         },
         "train_sessions": ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"],
         "validation_sessions": ["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10"],
@@ -276,6 +320,25 @@ def test_model_without_data_rights_provenance_cannot_be_approved_or_selected(tmp
     with pytest.raises(ValueError, match="data-rights provenance"):
         registry.approve(model_id, approved_by="operator", note="Data source and permissions have not been documented.")
     assert registry.active_approved_model("KR") is None
+
+
+def test_model_with_previous_backtest_version_cannot_be_approved_or_selected(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "d" * 32
+    _write_candidate(registry, model_id)
+    manifest_path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    metadata["training_config"]["backtest_version"] = BACKTEST_VERSION - 1
+    metadata["approved"] = True
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+    registry._active_path.write_text(json.dumps({"model_id": model_id}), encoding="utf-8")
+
+    assert registry.active_approved_model("KR") is None
+    listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
+    assert listed["approved"] is False
+    assert listed["approval_evidence_verified"] is False
+    with pytest.raises(ValueError, match="metrics or training configuration are inconsistent"):
+        registry.approve(model_id, approved_by="operator", note="Older spread assumptions require model retraining.")
 
 
 def test_model_governance_requires_review_and_records_rollback(tmp_path) -> None:

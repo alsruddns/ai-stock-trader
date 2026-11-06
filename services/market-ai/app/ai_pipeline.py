@@ -26,6 +26,8 @@ FEATURE_NAMES = (
     "ema20_gap_pct", "atr14_pct", "relative_volume20", "spread_bps", "session_progress",
 )
 FEATURE_VERSION = 2
+BACKTEST_VERSION = 2
+BACKTEST_SPREAD_MODEL = "observed_half_spread_entry_exit_v1"
 MIN_MODEL_APPROVAL_TEST_SESSIONS = 5
 MIN_MODEL_APPROVAL_TEST_TRADES = 5
 _REGISTRY_LOCKS_GUARD = threading.Lock()
@@ -96,6 +98,9 @@ def build_training_samples(
     normalized_market = market.strip().upper()
     if normalized_market not in _MARKET_SESSIONS:
         raise ValueError("market must be KR or US")
+    minimum_label_cost = 2 * (quant_config.commission_bps + quant_config.slippage_bps)
+    if round_trip_cost_bps < minimum_label_cost:
+        raise ValueError("label round-trip cost must cover modeled entry and exit commission and slippage")
     samples: list[TrainingSample] = []
     required = max(warmup_bars, 21, 15, 10)
     for session, bars in sorted(sessions.items()):
@@ -135,8 +140,14 @@ def build_training_samples(
             )
             if any(not value.is_finite() for value in feature_values):
                 continue
-            future_return = bars[index + horizon_bars].close / close - Decimal(1)
-            forward_net_return_bps = future_return * Decimal(10_000) - round_trip_cost_bps
+            future = bars[index + horizon_bars]
+            if future.spread_bps is None:
+                continue
+            future_return = future.close / close - Decimal(1)
+            observed_round_trip_spread = (current.spread_bps + future.spread_bps) / Decimal(2)
+            forward_net_return_bps = (
+                future_return * Decimal(10_000) - round_trip_cost_bps - observed_round_trip_spread
+            )
             label = int(forward_net_return_bps > 0)
             quant_candidate = orb_vwap_entry_candidate(history, quant_config, market=normalized_market)
             samples.append(TrainingSample(session, current.timestamp.isoformat(),
@@ -376,6 +387,9 @@ class LocalModelRegistry:
             horizon = config.get("label_horizon_bars")
             if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon <= 0:
                 return False
+            if (config.get("backtest_version") != BACKTEST_VERSION
+                    or config.get("backtest_spread_model") != BACKTEST_SPREAD_MODEL):
+                return False
             label_cost = Decimal(str(config["label_round_trip_cost_bps"]))
             commission = Decimal(str(config["backtest_commission_bps"]))
             slippage = Decimal(str(config["backtest_slippage_bps"]))
@@ -596,6 +610,8 @@ class LocalModelRegistry:
         ])
         training_config = {
             "symbol": normalized_symbol,
+            "backtest_version": BACKTEST_VERSION,
+            "backtest_spread_model": BACKTEST_SPREAD_MODEL,
             "label_horizon_bars": label_horizon_bars,
             "label_round_trip_cost_bps": str(label_round_trip_cost_bps),
             "backtest_quantity_per_session": 1,

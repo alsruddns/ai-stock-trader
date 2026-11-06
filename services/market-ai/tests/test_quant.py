@@ -34,6 +34,58 @@ def test_orb_vwap_enters_on_next_bar_and_applies_costs() -> None:
     assert result.executable is False
 
 
+def test_observed_spread_reduces_entry_and_exit_fill_prices() -> None:
+    bars_with_spread = _session_bars()
+    bars_without_spread = [
+        MinuteBar(bar.timestamp, bar.open, bar.high, bar.low, bar.close, bar.volume, Decimal("0"))
+        for bar in bars_with_spread
+    ]
+    config = QuantConfig(
+        commission_bps=Decimal("0"), slippage_bps=Decimal("0"),
+        minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"),
+    )
+
+    spread_trade = backtest_orb_vwap("KR", "005930", bars_with_spread, config).trades[0]
+    zero_spread_trade = backtest_orb_vwap("KR", "005930", bars_without_spread, config).trades[0]
+
+    assert spread_trade.entry_price > zero_spread_trade.entry_price
+    assert spread_trade.exit_price < zero_spread_trade.exit_price
+    assert spread_trade.net_pnl < zero_spread_trade.net_pnl
+    assert spread_trade.costs > zero_spread_trade.costs
+    assert spread_trade.net_pnl == spread_trade.gross_pnl - spread_trade.costs
+    assert zero_spread_trade.costs == 0
+
+
+def test_entry_with_missing_or_over_limit_next_bar_spread_is_not_filled() -> None:
+    for next_spread in (None, Decimal("16")):
+        bars = _session_bars()
+        next_bar = bars[21]
+        bars[21] = MinuteBar(next_bar.timestamp, next_bar.open, next_bar.high, next_bar.low,
+                             next_bar.close, next_bar.volume, next_spread)
+        result = backtest_orb_vwap(
+            "KR", "005930", bars,
+            QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1")),
+        )
+        assert result.signals >= 1
+        assert result.trades == ()
+
+
+def test_missing_exit_spread_uses_configured_spread_ceiling() -> None:
+    bars = _session_bars()
+    last = bars[-1]
+    bars[-1] = MinuteBar(last.timestamp, last.open, last.high, last.low, last.close, last.volume, None)
+    config = QuantConfig(
+        commission_bps=Decimal("0"), slippage_bps=Decimal("0"),
+        minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"),
+        maximum_spread_bps=Decimal("15"),
+    )
+
+    result = backtest_orb_vwap("KR", "005930", bars, config)
+
+    assert len(result.trades) == 1
+    assert result.trades[0].exit_price < bars[-1].close
+
+
 def test_optional_ai_entry_filter_runs_only_after_quant_candidate_without_future_bars(monkeypatch) -> None:
     bars = _session_bars()
     seen_histories = []

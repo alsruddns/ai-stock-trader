@@ -205,9 +205,19 @@ def backtest_orb_vwap(
             elif index == len(bars) - 1:
                 exit_price, reason = bar.close, "SESSION_END"
             if exit_price is not None:
-                slipped_exit = exit_price * (Decimal(1) - config.slippage_bps / Decimal(10_000))
-                gross = (slipped_exit - fill_price) * quantity
-                costs = _cost(fill_price, quantity, config.commission_bps) + _cost(slipped_exit, quantity, config.commission_bps)
+                # Use the observed full spread when available. If the exit bar lacks
+                # a quote, charge the configured entry spread ceiling conservatively.
+                exit_spread_bps = bar.spread_bps if bar.spread_bps is not None else config.maximum_spread_bps
+                exit_cost_bps = config.slippage_bps + exit_spread_bps / Decimal(2)
+                slipped_exit = exit_price * (Decimal(1) - exit_cost_bps / Decimal(10_000))
+                raw_entry = bars[entry_index].open
+                gross = (exit_price - raw_entry) * quantity
+                execution_costs = ((fill_price - raw_entry) + (exit_price - slipped_exit)) * quantity
+                commission_costs = (
+                    _cost(fill_price, quantity, config.commission_bps)
+                    + _cost(slipped_exit, quantity, config.commission_bps)
+                )
+                costs = execution_costs + commission_costs
                 trades.append(Trade(bars[entry_index].timestamp, bar.timestamp, fill_price, slipped_exit, quantity, gross, costs, gross - costs, reason))
                 gross_total += gross
                 cost_total += costs
@@ -222,11 +232,13 @@ def backtest_orb_vwap(
             signals += 1
             if index + 1 < len(bars):
                 next_bar = bars[index + 1]
-                fill = next_bar.open * (Decimal(1) + config.slippage_bps / Decimal(10_000))
-                risk = _atr(history, config.atr_period) * config.atr_stop_multiple
-                stop = fill - risk
-                target = fill + risk * config.reward_risk_multiple
-                entry = (index + 1, fill, stop, target)
+                if next_bar.spread_bps is not None and next_bar.spread_bps <= config.maximum_spread_bps:
+                    entry_cost_bps = config.slippage_bps + next_bar.spread_bps / Decimal(2)
+                    fill = next_bar.open * (Decimal(1) + entry_cost_bps / Decimal(10_000))
+                    risk = _atr(history, config.atr_period) * config.atr_stop_multiple
+                    stop = fill - risk
+                    target = fill + risk * config.reward_risk_multiple
+                    entry = (index + 1, fill, stop, target)
 
     return BacktestResult(
         market=market,
