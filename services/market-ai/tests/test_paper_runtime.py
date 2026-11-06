@@ -112,6 +112,8 @@ def test_collector_persists_bars_when_paper_order_worker_is_disabled(
     assert status["ticks_received_by_feed"][other_feed] == 0
     assert datetime.fromisoformat(status["last_tick_received_at_by_feed"][feed]).tzinfo is not None
     assert status["last_tick_received_at_by_feed"][other_feed] is None
+    assert status["bars_closed_by_feed"][feed] == 1
+    assert status["bars_closed_by_feed"][other_feed] == 0
 
 
 def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch) -> None:

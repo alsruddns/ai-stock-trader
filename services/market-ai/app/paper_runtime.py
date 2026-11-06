@@ -73,6 +73,7 @@ class PaperSessionFeedMonitor:
             "last_tick_received_at": None,
             "ticks_received_by_feed": {"paper": 0, "real": 0},
             "last_tick_received_at_by_feed": {"paper": None, "real": None},
+            "bars_closed_by_feed": {"paper": 0, "real": 0},
             "last_error": None, "orders_enabled": False,
             "automation_state": "DISABLED", "automation_error": None,
             "bar_storage_state": "DISABLED", "bar_storage_error": None,
@@ -94,6 +95,7 @@ class PaperSessionFeedMonitor:
             result["decisions"] = {key: dict(value) for key, value in self._decisions.items()}
             result["ticks_received_by_feed"] = dict(self._status["ticks_received_by_feed"])
             result["last_tick_received_at_by_feed"] = dict(self._status["last_tick_received_at_by_feed"])
+            result["bars_closed_by_feed"] = dict(self._status["bars_closed_by_feed"])
             return result
 
     def bars(self, watch: PaperWatch) -> tuple[MinuteBar, ...]:
@@ -363,6 +365,9 @@ class PaperSessionFeedMonitor:
                     if bar is not None:
                         self._record_closed_bar(watch, bar)
                         self._status["bars_closed"] = int(self._status["bars_closed"]) + 1
+                        feed_bars = dict(self._status["bars_closed_by_feed"])
+                        feed_bars[feed] = int(feed_bars.get(feed, 0)) + 1
+                        self._status["bars_closed_by_feed"] = feed_bars
                         decision = dict(self._decisions[watch.key])
                         quotes = dict(self._latest_quotes)
                         if self._bar_storage_queue is not None:

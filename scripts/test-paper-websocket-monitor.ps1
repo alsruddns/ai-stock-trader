@@ -50,6 +50,7 @@ if ($health.status -ne 'ok' -or $health.live_trading_enabled -or $health.paper_a
 $initial = Get-SessionStatus
 Assert-SafeRunningStatus $initial
 $initialTicks = if ($Feed) { [int]$initial.ticks_received_by_feed.$Feed } else { [int]$initial.ticks_received }
+$initialBars = if ($Feed) { [int]$initial.bars_closed_by_feed.$Feed } else { [int]$initial.bars_closed }
 $previousTicks = $initialTicks
 $startedAtUtc = [DateTimeOffset]::UtcNow
 $initialReceiveAt = if ($Feed) { $initial.last_tick_received_at_by_feed.$Feed } else { $initial.last_tick_received_at }
@@ -92,7 +93,8 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
 
     if ($stopwatch.Elapsed.TotalSeconds -ge $nextProgressSeconds) {
         $tickDelta = $currentTicks - $initialTicks
-        Write-Output "PAPER feed monitor running: elapsed_seconds=$([int]$stopwatch.Elapsed.TotalSeconds) ticks_delta=$tickDelta bars_delta=$([int]$latest.bars_closed - [int]$initial.bars_closed)."
+        $currentBars = if ($Feed) { [int]$latest.bars_closed_by_feed.$Feed } else { [int]$latest.bars_closed }
+        Write-Output "PAPER feed monitor running: feed=$(if ($Feed) { $Feed } else { 'any' }) elapsed_seconds=$([int]$stopwatch.Elapsed.TotalSeconds) ticks_delta=$tickDelta bars_delta=$($currentBars - $initialBars)."
         $nextProgressSeconds += 60
     }
 }
@@ -105,7 +107,8 @@ if ($tickDelta -le 0) {
 if (-not $hasReceiveTimestamp) {
     throw 'The running market-data service does not expose a tick receive timestamp; restart it with the current code before monitoring.'
 }
-$barDelta = [int]$latest.bars_closed - [int]$initial.bars_closed
+$latestBars = if ($Feed) { [int]$latest.bars_closed_by_feed.$Feed } else { [int]$latest.bars_closed }
+$barDelta = $latestBars - $initialBars
 $evidence = [ordered]@{
     started_at_utc = $startedAtUtc.ToString('o')
     completed_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
