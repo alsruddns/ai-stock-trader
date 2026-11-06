@@ -84,6 +84,7 @@ def load_session_minute_bars(market: str, symbol: str, session_date: date, *, li
         return []
     session_start, session_end = window
     with _connect() as connection:
+        connection.execute("SET TRANSACTION READ ONLY", None)
         with connection.cursor() as cursor:
             cursor.execute(
                 """SELECT bar_at, open_price, high_price, low_price, close_price, volume, spread_bps

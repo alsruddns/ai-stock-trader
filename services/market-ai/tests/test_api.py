@@ -4,6 +4,7 @@ from app.main import app, get_kis_client
 from app.kis import KisRateLimitError, KisSharedRateLimitUnavailable, Quote
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 from app.quant import MinuteBar
 
 client = TestClient(app)
@@ -86,6 +87,53 @@ def test_market_session_endpoint_fails_closed_when_calendar_unavailable(monkeypa
 
 def test_market_session_endpoint_rejects_unknown_market() -> None:
     response = client.get("/api/v1/market/sessions/EU")
+    assert response.status_code == 422
+
+
+def test_session_quality_endpoint_audits_persisted_bars_read_only(monkeypatch) -> None:
+    zone = ZoneInfo("America/New_York")
+    opened = datetime(2026, 11, 5, 9, 30, tzinfo=zone)
+    bars = [MinuteBar(
+        timestamp=opened + timedelta(minutes=index), open=Decimal("100"), high=Decimal("101"),
+        low=Decimal("99"), close=Decimal("100"), volume=1000, spread_bps=Decimal("5"),
+    ) for index in range(390)]
+    monkeypatch.setattr(main.snapshot_store, "enabled", lambda: True)
+    monkeypatch.setattr(main.snapshot_store, "load_session_minute_bars",
+                        lambda market, symbol, session_date: bars)
+
+    response = client.get(
+        "/api/v1/market/session-quality/US/AAPL?session_date=2026-11-05",
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "COMPLETE"
+    assert body["observed_bars"] == 390
+    assert body["spread_coverage_percent"] == 100
+
+
+def test_session_quality_endpoint_fails_closed_when_persistence_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(main.snapshot_store, "enabled", lambda: False)
+    response = client.get(
+        "/api/v1/market/session-quality/KR/005930?session_date=2026-11-06",
+    )
+    assert response.status_code == 503
+
+
+def test_session_quality_endpoint_does_not_query_database_for_non_session(monkeypatch) -> None:
+    monkeypatch.setattr(main.snapshot_store, "load_session_minute_bars",
+                        lambda *_args: (_ for _ in ()).throw(AssertionError("database must not be queried")))
+    response = client.get(
+        "/api/v1/market/session-quality/US/AAPL?session_date=2026-11-07",
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "NON_SESSION"
+
+
+def test_session_quality_endpoint_rejects_symbol_from_wrong_market() -> None:
+    response = client.get(
+        "/api/v1/market/session-quality/KR/AAPL?session_date=2026-11-06",
+    )
     assert response.status_code == 422
 
 

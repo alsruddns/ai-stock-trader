@@ -91,7 +91,8 @@ def test_session_bar_restore_uses_local_exchange_date_and_returns_ascending(monk
 
     bars = snapshot_store.load_session_minute_bars("US", "aapl", datetime.fromisoformat("2026-11-05").date())
 
-    query, params = connection.calls[0]
+    assert connection.calls[0] == ("SET TRANSACTION READ ONLY", None)
+    query, params = connection.calls[1]
     assert "bar_at >= %s AND bar_at < %s" in query
     assert params[0:2] == ("US", "AAPL")
     assert params[2].isoformat() == "2026-11-05T14:30:00+00:00"

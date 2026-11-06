@@ -95,6 +95,8 @@ KIS에서 국내 정규 연속매매 분봉을 읽기 전용으로 확인할 때
 
 PostgreSQL에 저장된 특정 거래일 분봉의 완전성과 스프레드 포함률은 읽기 전용 감사기로 확인합니다. 예를 들어 미국 AAPL 2026-11-06 세션은 `.\services\market-ai\.venv\Scripts\python.exe .\scripts\audit-market-session.py --market US --symbol AAPL --session-date 2026-11-06`을 실행합니다. 국내는 `--market KR --symbol 005930`으로 지정합니다. `PRE_OPEN`/`COLLECTING`은 아직 정규장이 끝나지 않은 상태이며, 폐장 후 `COMPLETE`만 예상 연속매매 분(미국 390분, 국내 380분)이 중복·누락·시간 격자 이탈 없이 저장됐다는 뜻입니다. `--require-complete`를 붙이면 완전한 전체 세션이 아닐 때 종료 코드 2를 반환합니다. 스프레드 기준이 필요한 분석은 `--minimum-spread-coverage-percent 95`처럼 최소 포함률을 지정할 수 있으며, 기준 미달 또는 확인할 자료가 없으면 같은 종료 코드 2로 닫힙니다. 이 도구는 조회만 하며 누락 봉을 보정하거나 DB를 수정하지 않습니다. 완전성은 백테스트·학습 적격성의 한 조건일 뿐이며, 임계치는 사용할 전략의 비용 가정에 맞춰 선택한 뒤 CSV export와 rights manifest 검토 절차를 진행합니다.
 
+같은 감사 결과는 Python API `GET /api/v1/market/session-quality/{market}/{symbol}?session_date=YYYY-MM-DD`에서도 조회할 수 있습니다. 이 경로는 PostgreSQL의 읽기 전용 분봉만 확인하며, 저장 기능이 꺼져 있으면 `503`으로 닫힙니다. 거래소 비영업일은 DB를 조회하지 않고 `NON_SESSION`으로 반환합니다.
+
 ```powershell
 .\services\market-ai\.venv\Scripts\python.exe .\scripts\backtest-quant.py .\data\licensed-bars.csv --market KR --symbol 005930 --commission-bps 5 --slippage-bps 5
 .\services\market-ai\.venv\Scripts\python.exe .\scripts\train-ai-models.py .\data\licensed-bars.csv --market KR --symbol 005930 --commission-bps 5 --slippage-bps 5

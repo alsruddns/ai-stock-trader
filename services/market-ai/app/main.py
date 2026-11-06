@@ -2,7 +2,7 @@ from enum import StrEnum
 import os
 import re
 import threading
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 import asyncio
 import json
@@ -21,6 +21,7 @@ from .ai_pipeline import LocalModelRegistry
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from .paper_ops import exchange_session_window, korean_calendar_compatibility
 from .paper_runtime import paper_session_monitor
+from .session_quality import audit_minute_bar_session
 
 _KIS_CLIENTS: dict[str, KisReadOnlyClient] = {}
 _KIS_CLIENTS_LOCK = threading.RLock()
@@ -230,6 +231,37 @@ def market_session_status(market: Market = Path()) -> dict[str, object]:
         "close_at": closed.isoformat() if closed else None,
         "evaluated_at": now.isoformat(),
     }
+
+
+@app.get("/api/v1/market/session-quality/{market}/{symbol}")
+async def market_session_quality(
+    market: Market = Path(),
+    symbol: str = Path(pattern=r"^[A-Za-z0-9.-]{1,16}$"),
+    session_date: date = Query(),
+) -> dict[str, object]:
+    """Read-only audit of stored continuous-session bars; never fills or changes data."""
+    normalized_market = str(market).upper()
+    normalized_symbol = symbol.strip().upper()
+    if ((normalized_market == "KR" and not re.fullmatch(r"\d{6}", normalized_symbol))
+            or (normalized_market == "US" and not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,15}", normalized_symbol))):
+        raise HTTPException(status_code=422, detail="Symbol format does not match the selected market")
+    evaluated_at = datetime.now(timezone.utc)
+    report = audit_minute_bar_session(
+        normalized_market, normalized_symbol, session_date, [], evaluated_at=evaluated_at,
+    )
+    if report["status"] == "NON_SESSION":
+        return report
+    if not snapshot_store.enabled():
+        raise HTTPException(status_code=503, detail="Market snapshot persistence is disabled")
+    try:
+        bars = await asyncio.to_thread(
+            snapshot_store.load_session_minute_bars, normalized_market, normalized_symbol, session_date,
+        )
+    except psycopg.Error as exc:
+        raise HTTPException(status_code=503, detail="Stored market data is unavailable") from exc
+    return audit_minute_bar_session(
+        normalized_market, normalized_symbol, session_date, bars, evaluated_at=evaluated_at,
+    )
 
 
 @app.get("/api/v1/market/quotes/{market}/{symbol}", response_model=QuoteResponse)
