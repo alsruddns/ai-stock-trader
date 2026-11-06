@@ -13,6 +13,16 @@ $marketAiStderr = Join-Path $logDirectory 'market-ai.stderr.log'
 $backendProcess = $null
 $marketAiProcess = $null
 $loadedEnvironmentNames = @()
+$originalPythonPath = [Environment]::GetEnvironmentVariable('PYTHONPATH', 'Process')
+$originalPythonPathWasSet = $null -ne $originalPythonPath
+
+function Restore-RunnerPythonPath {
+    if ($script:originalPythonPathWasSet) {
+        [Environment]::SetEnvironmentVariable('PYTHONPATH', $script:originalPythonPath, 'Process')
+    } else {
+        Remove-Item -LiteralPath Env:PYTHONPATH -ErrorAction SilentlyContinue
+    }
+}
 
 function Write-TaskLog {
     param([string]$Message)
@@ -166,6 +176,7 @@ try {
             Stop-ServiceProcess -Process $backendProcess
             $marketAiProcess = $null
             $backendProcess = $null
+            Restore-RunnerPythonPath
             Write-ProcessState
         }
         Write-TaskLog 'Retrying both APIs after 15 seconds.'
@@ -177,6 +188,7 @@ try {
 } finally {
     Stop-ServiceProcess -Process $marketAiProcess
     Stop-ServiceProcess -Process $backendProcess
+    Restore-RunnerPythonPath
     if (Test-Path -LiteralPath $runtimeState) {
         try {
             $state = Get-Content -LiteralPath $runtimeState -Raw | ConvertFrom-Json
