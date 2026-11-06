@@ -42,13 +42,14 @@ class _FakeClient:
     def __init__(self, _settings: object, payload: dict[str, Any]):
         self.payload = payload
         self.closed = False
+        self.expected_transaction_id = "VTTC0084R"
 
     def _access_token(self) -> str:
         return "redacted-test-token"
 
     def _get(self, url: str, *, headers: dict[str, str], params: dict[str, str]) -> _Response:
         assert url.endswith("/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl")
-        assert headers["tr_id"] == "VTTC0084R"
+        assert headers["tr_id"] == self.expected_transaction_id
         assert headers["custtype"] == "P"
         assert params["INQR_DVSN_1"] == "0"
         assert params["INQR_DVSN_2"] == "0"
@@ -58,7 +59,9 @@ class _FakeClient:
         self.closed = True
 
 
-def _configure_safe_probe(monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any]) -> _FakeClient:
+def _configure_safe_probe(
+    monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any], transaction_id: str = "VTTC0084R",
+) -> _FakeClient:
     for key, value in SAFE_SWITCHES.items():
         monkeypatch.setenv(key, value)
     settings = SimpleNamespace(
@@ -68,19 +71,24 @@ def _configure_safe_probe(monkeypatch: pytest.MonkeyPatch, payload: dict[str, An
     monkeypatch.setattr(probe, "load_local_environment", lambda: Path(".env_local"))
     monkeypatch.setattr(probe.KisSettings, "from_environment", classmethod(lambda _cls, _environment: settings))
     client = _FakeClient(settings, payload)
+    client.expected_transaction_id = transaction_id
     monkeypatch.setattr(probe, "KisReadOnlyClient", lambda _settings: client)
     return client
 
 
-def test_paper_preflight_probe_reports_only_sanitized_shape(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+@pytest.mark.parametrize("transaction_id", ["VTTC0084R", "TTTC0084R"])
+def test_paper_preflight_probe_reports_only_sanitized_shape(
+    monkeypatch: pytest.MonkeyPatch, capsys, transaction_id: str,
+) -> None:
     client = _configure_safe_probe(monkeypatch, {
         "rt_cd": "0", "msg_cd": "OK", "output": [{"psbl_qty": "2", "odno": "private-order-number"}],
-    })
+    }, transaction_id)
 
-    assert probe.main() == 0
+    assert probe.main(transaction_id) == 0
 
     output = capsys.readouterr().out
     assert '"status": "supported"' in output
+    assert f'"transaction_id": "{transaction_id}"' in output
     assert '"returned_row_count": 1' in output
     assert '"cancel_quantity_field_observed": true' in output
     assert '"order_or_cancel_sent": false' in output

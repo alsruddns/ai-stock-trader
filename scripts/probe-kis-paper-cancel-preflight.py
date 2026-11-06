@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -31,7 +32,10 @@ def load_local_environment() -> Path:
     raise ValueError("ignored .env_local or .env file is missing")
 
 
-def main() -> int:
+def main(transaction_id: str = "VTTC0084R") -> int:
+    if transaction_id not in {"VTTC0084R", "TTTC0084R"}:
+        print(json.dumps({"status": "blocked", "reason": "UNSUPPORTED_TRANSACTION_ID"}))
+        return 2
     try:
         source = load_local_environment()
     except (OSError, ValueError):
@@ -64,7 +68,7 @@ def main() -> int:
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "environment": "paper",
         "api_path": "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl",
-        "transaction_id": "VTTC0084R",
+        "transaction_id": transaction_id,
         "local_config_file": source.name,
         "order_or_cancel_sent": False,
     }
@@ -82,7 +86,7 @@ def main() -> int:
             "authorization": f"Bearer {client._access_token()}",
             "appkey": settings.app_key,
             "appsecret": settings.app_secret,
-            "tr_id": "VTTC0084R",
+            "tr_id": transaction_id,
             "custtype": "P",
         }
         response = client._get(
@@ -116,4 +120,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = argparse.ArgumentParser(description="Read-only PAPER cancel-preflight service probe.")
+    parser.add_argument("--transaction-id", choices=("VTTC0084R", "TTTC0084R"), default="VTTC0084R")
+    raise SystemExit(main(parser.parse_args().transaction_id))
