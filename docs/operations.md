@@ -29,6 +29,8 @@ Set-Location .\services\market-ai
 - 실전: `KIS_REAL_APP_KEY`, `KIS_REAL_APP_SECRET`, `KIS_REAL_ACCOUNT_NUMBER`
 - 계좌번호는 KIS 계좌 앞 8자리와 상품 코드 뒤 2자리를 붙인 형식입니다.
 - Spring과 Python KIS 계좌조회는 전체 스위치 `KIS_ACCOUNT_READ_ENABLED=true`와 대상별 스위치가 모두 필요합니다. PAPER는 `KIS_PAPER_ACCOUNT_READ_ENABLED=true`, REAL은 `KIS_REAL_ACCOUNT_READ_ENABLED=true`입니다. REAL 스위치는 기본 false입니다.
+- KIS REAL 체결 알림 구독은 추가 읽기 전용 기능이며 기본 잠금입니다. 사용하려면 `KIS_REAL_EXECUTION_NOTICES_ENABLED=true`, REAL 계좌조회 두 스위치, `KIS_REAL_HTS_ID` 및 REAL 자격정보가 모두 있어야 합니다. 알림을 받으면 저장된 주문번호와 일치하는 주문만 REST로 다시 조회해 체결 관측을 갱신합니다. 알림 자체로 주문을 내지 않으며, `KIS_REAL_ORDERS_ENABLED`나 `LIVE_TRADING_ENABLED`를 켜지 않습니다. 아직 실시간 KIS 연결 검증은 완료되지 않았습니다.
+- 소유자가 확인한 KIS 데이터 이용 범위는 로컬 저장·백테스트·AI 학습 허용입니다. 이 허용은 매매 성능 검증이나 실계좌 자동주문 승인과 별개입니다.
 - Python 실시간 시세 릴레이는 `KIS_WEBSOCKET_ENABLED=true`를 요구합니다. 국내 paper feed는 PAPER 자격정보를 사용합니다. 미국 시세 구독을 PAPER ledger에 공급하려면 `KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED=true`와 REAL 시세 자격정보가 추가로 필요합니다. 이 별도 REAL 연결은 미국 시세만 읽으며 모든 주문은 로컬 PAPER ledger로만 갑니다. 계좌 조회 및 REAL 주문 스위치와 독립이며 기본값은 `false`입니다.
 - Paper 자동 운영 스위치는 `PAPER_AUTOTRADING_ENABLED=false`가 기본값입니다. 이를 켤 때는 `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`도 설정해야 하며, 현재 거래일 분봉 저장·복원에 실패하면 monitor 시작을 차단합니다. 이 기록이 없으면 재시작 후 ORB 기준 구간을 잘못 계산할 수 있습니다. 달력·실시간 피드·모델 승인·브로커 상태와 리스크 게이트 검증 전에는 켜지 마세요. Live 모드에서는 Python paper 자동화도 강제로 비활성화됩니다.
 - 신규 진입에는 시세가 최신이어야 하고 신호 봉은 기본 120초 이내여야 합니다. WebSocket 재연결이나 작업 대기 때문에 오래된 봉이 늦게 도착하면 신규 진입을 차단합니다. 한도는 `PAPER_MAX_SIGNAL_BAR_AGE_SECONDS`로 설정합니다.
