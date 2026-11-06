@@ -100,7 +100,8 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
 }
 
 $stopwatch.Stop()
-$tickDelta = [int]$latest.ticks_received - $initialTicks
+$latestTicks = if ($Feed) { [int]$latest.ticks_received_by_feed.$Feed } else { [int]$latest.ticks_received }
+$tickDelta = $latestTicks - $initialTicks
 if ($tickDelta -le 0) {
     throw 'No increase in WebSocket ticks was observed during the selected sample window.'
 }
