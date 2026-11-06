@@ -20,6 +20,10 @@ The official sample lists `NASD`, `NYSE`, and `AMEX` for PAPER balance lookups; 
 
 These REST endpoints provide quote snapshots. The official domestic example directs clients to WebSocket for real-time quotes; the project's separate WebSocket stream is therefore the real-time path. Authenticated PAPER smoke on 2026-11-06 returned valid KIS REST quote contracts for KR symbol 005930 and US symbol AAPL. This verifies these two quote requests only; it does not validate account access, WebSocket continuity, or trading entitlement.
 
+## Domestic order cancellation preflight
+
+The domestic cancel adapter calls `/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl` with REAL transaction ID `TTTC0084R`, `INQR_DVSN_1=0`, and `INQR_DVSN_2=0`. It follows the response cursor (up to 10 pages), matches both broker order number and organization number, requires a positive `psbl_qty`, and requires that value to equal the most recent open quantity before the cancel POST is allowed. Missing rows, unsupported responses, pagination without a cursor, or quantity mismatches fail closed. The official sample requires this availability lookup before a domestic revise/cancel request and documents up to 50 rows per page. The PAPER sample does not publish a simulator transaction ID; observed PAPER `VTTC0084R`/legacy requests were unsupported, so domestic PAPER cancellation stays disabled until KIS confirms a supported path. This integration was verified with Mock requests only, not with a REAL cancellation.
+
 ## Security and verification status
 
 - Account reads require both `KIS_ACCOUNT_READ_ENABLED=true` and the environment-specific switch. Both remain false by default.
@@ -41,6 +45,8 @@ The KIS Developers portal announced that seven domestic-stock financial analysis
 - [KIS official domestic stock balance example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_balance/inquire_balance.py)
 - [KIS official overseas stock balance example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/overseas_stock/overseas_stock_functions.py)
 - [KIS official domestic quote example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_price/inquire_price.py)
+- [KIS official domestic revise/cancel-possible query example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_psbl_rvsecncl/inquire_psbl_rvsecncl.py)
+- [KIS official domestic revise/cancel order example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_rvsecncl/order_rvsecncl.py)
 - [KIS official overseas quote example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/overseas_stock/price/price.py)
 - [KIS Developers error code reference](https://apiportal.koreainvestment.com/faq-error-code)
 - [KIS Developers portal](https://apiportal.koreainvestment.com/)

@@ -34,6 +34,7 @@ public class KisRealOrderClient {
     private static final String OVERSEAS_ORDER_PATH = "/uapi/overseas-stock/v1/trading/order";
     private static final String DOMESTIC_CANCEL_PATH = "/uapi/domestic-stock/v1/trading/order-rvsecncl";
     private static final String OVERSEAS_CANCEL_PATH = "/uapi/overseas-stock/v1/trading/order-rvsecncl";
+    private static final String DOMESTIC_CANCEL_PREFLIGHT_PATH = "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl";
 
     private final KisProperties properties;
     private final TradingSafetyProperties safety;
@@ -107,7 +108,7 @@ public class KisRealOrderClient {
                                 String brokerOrganizationNumber, int remainingQuantity, String exchange) {
         requireRealOrdersEnabled();
         if (market == null || symbol == null || symbol.isBlank() || brokerOrderNumber == null
-                || brokerOrderNumber.isBlank() || remainingQuantity < 0) {
+                || brokerOrderNumber.isBlank() || remainingQuantity <= 0) {
             throw new IllegalArgumentException("A valid market, symbol, original order number, and remaining quantity are required.");
         }
         KisProperties.Account credentials = properties.credentials(KisEnvironment.REAL);
@@ -118,6 +119,12 @@ public class KisRealOrderClient {
         if (market == Market.KR) {
             if (brokerOrganizationNumber == null || brokerOrganizationNumber.isBlank()) {
                 throw new IllegalArgumentException("Domestic cancellation requires the broker organization number.");
+            }
+            int cancelableQuantity = inquireDomesticCancelableQuantity(credentials, account,
+                    brokerOrderNumber, brokerOrganizationNumber);
+            if (cancelableQuantity != remainingQuantity) {
+                throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                        "KIS domestic cancel preflight did not match the latest open quantity (code REAL_CANCEL_PREFLIGHT_BLOCKED).");
             }
             path = DOMESTIC_CANCEL_PATH;
             trId = "TTTC0013U";
@@ -134,6 +141,62 @@ public class KisRealOrderClient {
                     "OVRS_ORD_UNPR", "0", "MGCO_APTM_ODNO", "", "ORD_SVR_DVSN_CD", "0");
         }
         post(path, trId, body, null, null, null);
+    }
+
+    private int inquireDomesticCancelableQuantity(KisProperties.Account credentials, String account,
+                                                   String brokerOrderNumber, String brokerOrganizationNumber) {
+        requireRealAccountReadEnabled();
+        String continuation = "";
+        String nextSearch = "";
+        String nextKey = "";
+        for (int page = 0; page < 10; page++) {
+            MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+            params.add("CANO", account.substring(0, 8));
+            params.add("ACNT_PRDT_CD", account.substring(8));
+            params.add("INQR_DVSN_1", "0");
+            params.add("INQR_DVSN_2", "0");
+            params.add("CTX_AREA_FK100", nextSearch);
+            params.add("CTX_AREA_NK100", nextKey);
+            BrokerQueryResponse query;
+            try {
+                query = get(DOMESTIC_CANCEL_PREFLIGHT_PATH, "TTTC0084R", params, continuation, credentials);
+            } catch (KisApiException exception) {
+                throw cancelPreflightBlocked();
+            }
+            JsonNode response = query.body();
+            if (response == null || !"0".equals(response.path("rt_cd").asText())) {
+                throw cancelPreflightBlocked();
+            }
+            JsonNode rows = response.path("output");
+            if (rows.isArray()) {
+                for (JsonNode row : rows) {
+                    if (brokerOrderNumber.equals(firstText(row, "odno", "ODNO"))
+                            && brokerOrganizationNumber.equals(firstText(row, "ord_gno_brno", "ORD_GNO_BRNO"))) {
+                        Integer quantity = integer(row, "psbl_qty", "PSBL_QTY");
+                        if (quantity == null || quantity <= 0) throw cancelPreflightBlocked();
+                        return quantity;
+                    }
+                }
+            } else if (rows.isObject()
+                    && brokerOrderNumber.equals(firstText(rows, "odno", "ODNO"))
+                    && brokerOrganizationNumber.equals(firstText(rows, "ord_gno_brno", "ORD_GNO_BRNO"))) {
+                Integer quantity = integer(rows, "psbl_qty", "PSBL_QTY");
+                if (quantity == null || quantity <= 0) throw cancelPreflightBlocked();
+                return quantity;
+            }
+            continuation = query.continuation();
+            if (!"M".equalsIgnoreCase(continuation) && !"F".equalsIgnoreCase(continuation)) break;
+            continuation = "N";
+            nextSearch = response.path("ctx_area_fk100").asText("");
+            nextKey = response.path("ctx_area_nk100").asText("");
+            if (nextSearch.isBlank() || nextKey.isBlank()) throw cancelPreflightBlocked();
+        }
+        throw cancelPreflightBlocked();
+    }
+
+    private static KisApiException cancelPreflightBlocked() {
+        return new KisApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                "KIS domestic cancel preflight could not confirm a matching cancelable quantity (code REAL_CANCEL_PREFLIGHT_BLOCKED).");
     }
 
     /** Read-only lookup for restart/timeout reconciliation. An absent broker row is never treated as rejection. */

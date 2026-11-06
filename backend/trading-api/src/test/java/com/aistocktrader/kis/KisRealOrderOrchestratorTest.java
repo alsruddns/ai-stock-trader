@@ -209,6 +209,40 @@ class KisRealOrderOrchestratorTest {
     }
 
     @Test
+    void domesticCancelPreflightBlockRestoresObservedStateWithoutAnotherBrokerRead() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, buyRequest(), null);
+        intent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "9007", "ORG01", "0", Instant.now()));
+        KisBrokerOrderSnapshot observed = new KisBrokerOrderSnapshot(0, 1, null, false, false);
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.reconcileRealOrder(intent)).thenReturn(Optional.of(observed));
+        when(intents.reconcile(key, observed)).thenAnswer(call -> {
+            intent.reconcile(observed.filledQuantity(), observed.remainingQuantity(), observed.averageFillPrice(),
+                    observed.cancelled(), observed.rejected());
+            return intent;
+        });
+        when(intents.claimCancelPending(key, KisEnvironment.REAL)).thenAnswer(call -> {
+            intent.markCancelPending();
+            return true;
+        });
+        when(intents.recordCancelPreflightBlocked(key, "REAL_CANCEL_PREFLIGHT_BLOCKED")).thenAnswer(call -> {
+            intent.recordCancelPreflightBlocked(call.getArgument(1));
+            return intent;
+        });
+        doThrow(new KisApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                "KIS domestic cancel preflight did not match (code REAL_CANCEL_PREFLIGHT_BLOCKED)."))
+                .when(orders).cancelRealOrder(Market.KR, "005930", "9007", "ORG01", 1, null);
+
+        KisOrderIntentResponse response = orchestrator.cancel(key);
+
+        assertEquals(KisOrderStatus.ACCEPTED, response.status());
+        assertEquals("REAL_CANCEL_PREFLIGHT_BLOCKED", response.responseCode());
+        verify(orders).reconcileRealOrder(intent);
+        verify(intents).recordCancelPreflightBlocked(key, "REAL_CANCEL_PREFLIGHT_BLOCKED");
+        verify(intents, times(2)).reconcile(key, observed);
+    }
+
+    @Test
     void realOrderReconciliationPersistsBrokerFillState() {
         UUID key = UUID.randomUUID();
         KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, buyRequest(), null);

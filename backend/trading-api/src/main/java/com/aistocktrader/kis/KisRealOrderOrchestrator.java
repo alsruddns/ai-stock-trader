@@ -14,6 +14,7 @@ import java.util.UUID;
 /** Internal REAL order workflow. No public HTTP endpoint is wired to this service. */
 @Service
 public class KisRealOrderOrchestrator {
+    private static final String REAL_CANCEL_PREFLIGHT_BLOCKED = "REAL_CANCEL_PREFLIGHT_BLOCKED";
     private final KisRealOrderClient orders;
     private final KisLiveOrderRiskGate riskGate;
     private final KisOrderIntentStore intents;
@@ -90,9 +91,16 @@ public class KisRealOrderOrchestrator {
         } catch (KisOrderOutcomeUnknownException exception) {
             // Keep CANCEL_PENDING; reconciliation must resolve the broker state before another request.
         } catch (KisApiException exception) {
+            String code = extractCode(exception.getMessage());
+            if (REAL_CANCEL_PREFLIGHT_BLOCKED.equals(code)) {
+                // The adapter rejected the operation before any KIS write. Restore the exact
+                // broker state already observed instead of leaving a false CANCEL_PENDING state.
+                intents.recordCancelPreflightBlocked(idempotencyKey, code);
+                return KisOrderIntentResponse.from(intents.reconcile(idempotencyKey, observed));
+            }
             // A definitive broker rejection is recorded before a read-only lookup. If the lookup
             // is unavailable, keep the pending lock; reconciliation can restore an observed order later.
-            intent = intents.recordCancelRejection(idempotencyKey, extractCode(exception.getMessage()));
+            intent = intents.recordCancelRejection(idempotencyKey, code);
             try {
                 KisBrokerOrderSnapshot snapshot = orders.reconcileRealOrder(intent).orElse(null);
                 if (snapshot != null) intent = intents.reconcile(idempotencyKey, snapshot);

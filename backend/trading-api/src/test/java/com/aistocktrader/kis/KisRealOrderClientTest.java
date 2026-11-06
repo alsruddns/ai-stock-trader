@@ -116,6 +116,14 @@ class KisRealOrderClientTest {
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
                 .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
+                .andExpect(header("tr_id", "TTTC0084R"))
+                .andExpect(queryParam("INQR_DVSN_1", "0"))
+                .andExpect(queryParam("INQR_DVSN_2", "0"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output":[{"odno":"7001","ord_gno_brno":"ORG01","psbl_qty":"1"}]}
+                        """, MediaType.APPLICATION_JSON));
         server.expect(requestTo(REAL_URL + "/uapi/domestic-stock/v1/trading/order-rvsecncl"))
                 .andExpect(header("tr_id", "TTTC0013U"))
                 .andExpect(jsonPath("$.KRX_FWDG_ORD_ORGNO").value("ORG01"))
@@ -128,6 +136,28 @@ class KisRealOrderClientTest {
 
         assertDoesNotThrow(() -> new KisRealOrderClient(properties(true, true), realSafety(), builder)
                 .cancelRealOrder(Market.KR, "005930", "7001", "ORG01", 1, null));
+        server.verify();
+    }
+
+    @Test
+    void domesticRealCancelIsBlockedWhenPossibleQuantityDoesNotMatchLatestOpenQuantity() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
+                .andExpect(header("tr_id", "TTTC0084R"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output":[{"odno":"7001","ord_gno_brno":"ORG01","psbl_qty":"2"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        KisApiException exception = assertThrows(KisApiException.class, () ->
+                new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                        .cancelRealOrder(Market.KR, "005930", "7001", "ORG01", 1, null));
+
+        assertEquals(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, exception.status());
+        assertTrue(exception.getMessage().contains("REAL_CANCEL_PREFLIGHT_BLOCKED"));
         server.verify();
     }
 
