@@ -60,6 +60,8 @@ REAL 국내 일일 손실률은 거래소 캘린더 API가 확인한 개장 후 
 
 Read timeout, HTTP 429 및 KIS rate-limit 오류는 안전한 오류 응답으로 바꾸고 요청을 자동 재전송하지 않습니다.
 
+국내 과거 1분봉 조회는 KIS `inquire-time-dailychartprice`의 `FID_INPUT_DATE_1`·`FID_INPUT_HOUR_1`로 날짜와 커서를 지정하고 공식 샘플과 같이 `FID_PW_DATA_INCU_YN=Y`를 사용합니다. KIS 서버는 과거 분봉을 최대 1년 범위에서 보관한다고 안내하지만, 실제 보유 기간은 종목·서버 자료에 따라 더 짧을 수 있습니다. 이 REST 응답에는 과거 호가 스프레드가 없으므로 실시간 WebSocket 스프레드 자료와 섞어 비용 검증에 사용하지 않습니다. [KIS 국내 과거 분봉 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py).
+
 Paper 주문 응답이 타임아웃되면 `GET /api/v1/orders/paper/by-idempotency/{key}`로 결과를 먼저 대조합니다. 자동화 클라이언트는 주문 쓰기를 재시도하지 않습니다.
 
 ## KIS WebSocket

@@ -325,7 +325,8 @@ class KisReadOnlyClient:
         params = {
             "FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": normalized_symbol,
             "FID_INPUT_HOUR_1": end_time, "FID_INPUT_DATE_1": session_date.strftime("%Y%m%d"),
-            "FID_PW_DATA_INCU_YN": "N", "FID_FAKE_TICK_INCU_YN": "",
+            # The official historical-minute example uses Y to return past-date bars.
+            "FID_PW_DATA_INCU_YN": "Y", "FID_FAKE_TICK_INCU_YN": "",
         }
         try:
             response = self._get(
