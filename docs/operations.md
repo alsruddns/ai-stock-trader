@@ -30,7 +30,7 @@ paper ledger 비용 추정은 `PAPER_COST_MODEL_ENABLED=false`가 기본입니�
 
 국내와 미국 feed를 각각 검증할 때는 장이 열린 시간에 `-Feed paper` 또는 `-Feed real`을 지정합니다. 이 모드는 선택한 feed의 tick·완료 분봉 누적량과 마지막 수신시각을 별도로 확인하므로, 비선택 feed의 연결 상태·tick·분봉이 선택 feed의 관측을 대신하지 않습니다. `-RequireBothFeeds`는 두 연결 상태를 함께 검사할 때 사용합니다. 미국 장 관측 중에도 `real` feed는 읽기 전용 시세 용도이며, 주문·자동매매 잠금이 꺼진 상태에서는 감시가 거부됩니다.
 
-`.\scripts\test-paper-websocket-monitor.ps1`은 기본 60초, 최대 10시간 동안 로컬 feed를 읽기 전용으로 점검합니다. 전체 세션 관찰은 시장 개장 전에 실행하고, 예를 들어 국내 장 세션은 `-DurationSeconds 23400 -PollIntervalSeconds 15 -MaxNoTickSeconds 300 -RequireBothFeeds`를 사용합니다. 주문과 자동매매가 꺼져 있고 두 feed가 `RUNNING`이어야 통과합니다. tick 수신 시각이 5분 넘게 갱신되지 않거나 프로세스가 재시작되어 누적 tick 수가 초기화되면 실패합니다. 성공한 표본은 민감정보 없이 `.local/validation/paper-websocket-samples.jsonl`에 쌓이며 `.local/`은 Git에서 제외됩니다. 이 감시는 실제 KIS 시세를 받으므로 거래 중인 시간에만 실행하고, 종목 거래정지·시장휴장 시 `MaxNoTickSeconds`를 무리하게 낮추지 마세요.
+`.\scripts\test-paper-websocket-monitor.ps1`은 기본 60초, 최대 10시간 동안 로컬 feed를 읽기 전용으로 점검합니다. 전체 세션 관찰은 시장 개장 전에 실행합니다. 국내 세션 예시는 `-DurationSeconds 23400 -PollIntervalSeconds 15 -MaxNoTickSeconds 300 -Feed paper -MinimumBarsDelta 380`이며 미국 세션은 같은 기간에 `-Feed real -MinimumBarsDelta 380`을 사용합니다. 선택 feed의 틱 수신 시각이 5분 넘게 갱신되지 않거나 프로세스가 재시작되어 누적 tick 수가 초기화되거나 완료 분봉 수가 지정한 최소치에 못 미치면 실패합니다. 성공한 표본은 민감정보 없이 `.local/validation/paper-websocket-samples.jsonl`에 쌓이며 `.local/`은 Git에서 제외됩니다. 이 감시는 실제 KIS 시세를 받으므로 해당 시장의 거래 시간에 실행하고, 종목 거래정지·시장휴장 시 `MaxNoTickSeconds`를 무리하게 낮추지 마세요.
 
 ### KIS PAPER 주문 수명주기 통합 확인
 

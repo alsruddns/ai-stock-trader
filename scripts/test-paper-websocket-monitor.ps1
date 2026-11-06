@@ -3,6 +3,7 @@ param(
     [ValidateRange(10, 36000)] [int]$DurationSeconds = 60,
     [ValidateRange(1, 60)] [int]$PollIntervalSeconds = 15,
     [ValidateRange(30, 3600)] [int]$MaxNoTickSeconds = 300,
+    [ValidateRange(0, 36000)] [int]$MinimumBarsDelta = 0,
     [ValidateSet('paper', 'real')] [string]$Feed,
     [string]$EvidencePath,
     [switch]$RequireBothFeeds
@@ -110,6 +111,9 @@ if (-not $hasReceiveTimestamp) {
 }
 $latestBars = if ($Feed) { [int]$latest.bars_closed_by_feed.$Feed } else { [int]$latest.bars_closed }
 $barDelta = $latestBars - $initialBars
+if ($barDelta -lt $MinimumBarsDelta) {
+    throw "Closed bar count increased by $barDelta, below the required minimum $MinimumBarsDelta."
+}
 $evidence = [ordered]@{
     started_at_utc = $startedAtUtc.ToString('o')
     completed_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
@@ -121,6 +125,7 @@ $evidence = [ordered]@{
     selected_feed = if ($Feed) { $Feed } else { 'any' }
     ticks_delta = $tickDelta
     bars_delta = $barDelta
+    minimum_bars_delta = $MinimumBarsDelta
     feeds = $latest.stream_connections
     orders_enabled = $false
     automation_state = $latest.automation_state
