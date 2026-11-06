@@ -117,7 +117,14 @@ class KisRealOrderOrchestratorTest {
         KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, "NASD");
         intent.accept(new KisOrderReceipt("real", "US", "AAPL", "SELL", "9002", null, "0", Instant.now()));
         intent.reconcile(1, 3, new BigDecimal("10"), false, false);
+        KisBrokerOrderSnapshot observed = new KisBrokerOrderSnapshot(1, 3, new BigDecimal("10"), false, false);
         when(intents.get(key)).thenReturn(intent);
+        when(orders.reconcileRealOrder(intent)).thenReturn(Optional.of(observed));
+        when(intents.reconcile(key, observed)).thenAnswer(call -> {
+            intent.reconcile(observed.filledQuantity(), observed.remainingQuantity(), observed.averageFillPrice(),
+                    observed.cancelled(), observed.rejected());
+            return intent;
+        });
         when(intents.claimCancelPending(key, KisEnvironment.REAL)).thenAnswer(call -> { intent.markCancelPending(); return true; });
         doAnswer(call -> { intent.markCancelPending(); return null; }).when(orders)
                 .cancelRealOrder(Market.US, "AAPL", "9002", null, 3, "NASD");
@@ -126,6 +133,8 @@ class KisRealOrderOrchestratorTest {
 
         assertEquals(KisOrderStatus.CANCEL_PENDING, response.status());
         var order = inOrder(intents, orders);
+        order.verify(orders).reconcileRealOrder(intent);
+        order.verify(intents).reconcile(key, observed);
         order.verify(intents).claimCancelPending(key, KisEnvironment.REAL);
         order.verify(orders).cancelRealOrder(Market.US, "AAPL", "9002", null, 3, "NASD");
     }
@@ -142,7 +151,7 @@ class KisRealOrderOrchestratorTest {
             return intent;
         });
         KisBrokerOrderSnapshot open = new KisBrokerOrderSnapshot(0, 1, null, false, false);
-        when(orders.reconcileRealOrder(intent)).thenReturn(Optional.of(open));
+        when(orders.reconcileRealOrder(intent)).thenReturn(Optional.of(open), Optional.of(open));
         when(intents.reconcile(key, open)).thenAnswer(call -> {
             intent.reconcile(open.filledQuantity(), open.remainingQuantity(), open.averageFillPrice(),
                     open.cancelled(), open.rejected());
@@ -156,8 +165,47 @@ class KisRealOrderOrchestratorTest {
         assertEquals(KisOrderStatus.ACCEPTED, response.status());
         assertEquals("EGW00201", response.responseCode());
         assertEquals(1, response.remainingQuantity());
-        verify(orders).reconcileRealOrder(intent);
+        verify(orders, times(2)).reconcileRealOrder(intent);
         verify(orders, never()).placeRealLimitOrder(any(), anyString(), any(), anyInt(), any(), any(), anyString(), any());
+    }
+
+    @Test
+    void missingFreshRealOrderSnapshotBlocksCancelSubmission() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, buyRequest(), null);
+        intent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "9005", "ORG01", "0", Instant.now()));
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.reconcileRealOrder(intent)).thenReturn(Optional.empty());
+        when(intents.markUnknown(key)).thenAnswer(call -> { intent.markUnknown(); return intent; });
+
+        KisOrderIntentResponse response = orchestrator.cancel(key);
+
+        assertEquals(KisOrderStatus.UNKNOWN, response.status());
+        verify(orders).reconcileRealOrder(intent);
+        verify(intents, never()).claimCancelPending(key, KisEnvironment.REAL);
+        verify(orders, never()).cancelRealOrder(any(), anyString(), anyString(), anyString(), anyInt(), anyString());
+    }
+
+    @Test
+    void alreadyFilledRealOrderSnapshotSkipsCancelSubmission() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, buyRequest(), null);
+        intent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "9006", "ORG01", "0", Instant.now()));
+        KisBrokerOrderSnapshot filled = new KisBrokerOrderSnapshot(1, 0, new BigDecimal("70000"), false, false);
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.reconcileRealOrder(intent)).thenReturn(Optional.of(filled));
+        when(intents.reconcile(key, filled)).thenAnswer(call -> {
+            intent.reconcile(filled.filledQuantity(), filled.remainingQuantity(), filled.averageFillPrice(),
+                    filled.cancelled(), filled.rejected());
+            return intent;
+        });
+
+        KisOrderIntentResponse response = orchestrator.cancel(key);
+
+        assertEquals(KisOrderStatus.FILLED, response.status());
+        verify(orders).reconcileRealOrder(intent);
+        verify(intents, never()).claimCancelPending(key, KisEnvironment.REAL);
+        verify(orders, never()).cancelRealOrder(any(), anyString(), anyString(), anyString(), anyInt(), anyString());
     }
 
     @Test
