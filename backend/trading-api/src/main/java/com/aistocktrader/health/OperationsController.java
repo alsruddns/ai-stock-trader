@@ -130,7 +130,7 @@ public class OperationsController {
                 .map(BrokerOrderView::from).toList();
 
         return new OperationsSummary(now, safety.mode(), safety.liveTradingEnabled() ? "enabled" : "disabled",
-                false, kisAccountReadsEnabled, kisPaperAccountReadsEnabled, kisPaperOrdersEnabled, safety.realOrdersEnabled(),
+                false, kisAccountReadsEnabled, kisPaperAccountReadsEnabled, kisPaperOrdersEnabled, false, safety.realOrdersEnabled(),
                 kisRealAccountReadsEnabled, kisRealReconciliationEnabled, realOrderCounts, paperKisOrderCounts,
                 paperCostModelEnabled, transactionCostsToday,
                 realizedNetPnlToday, recentRealOrders, recentPaperKisOrders, counts, consecutiveLosingTrades,
@@ -255,7 +255,8 @@ public class OperationsController {
 
     public record OperationsSummary(Instant generatedAt, String tradingMode, String liveTrading,
                                     boolean paperAutomationEnabled, boolean kisAccountReadsEnabled,
-                                    boolean kisPaperAccountReadsEnabled, boolean kisPaperOrdersEnabled, boolean kisRealOrdersEnabled,
+                                    boolean kisPaperAccountReadsEnabled, boolean kisPaperOrdersEnabled,
+                                    boolean kisPaperDomesticCancelSupported, boolean kisRealOrdersEnabled,
                                     boolean kisRealAccountReadsEnabled, boolean kisRealReconciliationEnabled,
                                     Map<KisOrderStatus, Long> realOrderCounts,
                                     Map<KisOrderStatus, Long> paperKisOrderCounts,

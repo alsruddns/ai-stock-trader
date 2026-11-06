@@ -52,6 +52,7 @@ class OperationsControllerTest {
         assertEquals(true, summary.kisPaperCredentialsConfigured());
         assertEquals(false, summary.kisRealCredentialsConfigured());
         assertEquals(false, summary.kisPaperAccountReadsEnabled());
+        assertEquals(false, summary.kisPaperDomesticCancelSupported());
     }
 
     @Test
