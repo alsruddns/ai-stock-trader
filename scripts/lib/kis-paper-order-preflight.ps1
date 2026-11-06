@@ -38,3 +38,31 @@ function Assert-KisPaperQuoteFresh {
         throw 'Quote is outside the allowed freshness window; no PAPER order was submitted.'
     }
 }
+
+function Assert-KisPaperOrderableFunds {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [object]$Account,
+        [Parameter(Mandatory)] [ValidateSet('KR', 'US')] [string]$Market,
+        [Parameter(Mandatory)] [ValidateSet('KRW', 'USD')] [string]$Currency,
+        [Parameter(Mandatory)] [decimal]$MinimumNotional,
+        [DateTimeOffset]$Now = [DateTimeOffset]::UtcNow
+    )
+
+    if ($Account.environment -ne 'paper' -or $Account.market -ne $Market -or $Account.currency -ne $Currency) {
+        throw 'PAPER account snapshot did not match the requested market and currency; no order was submitted.'
+    }
+    if ($null -eq $Account.orderableCash) {
+        throw 'KIS did not return orderable funds; no PAPER order was submitted.'
+    }
+
+    Assert-KisPaperQuoteFresh -Quote @{ retrieved_at = $Account.retrievedAt } -Now $Now
+    try {
+        $orderableCash = [decimal]$Account.orderableCash
+    } catch {
+        throw 'KIS returned invalid orderable funds; no PAPER order was submitted.'
+    }
+    if ($orderableCash -lt $MinimumNotional) {
+        throw 'PAPER account has insufficient orderable funds for this one-share test; no order was submitted.'
+    }
+}

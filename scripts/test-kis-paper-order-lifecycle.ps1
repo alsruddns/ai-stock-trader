@@ -5,6 +5,7 @@ param(
     [string]$Exchange = 'NASD',
     [string]$SpringApiBaseUrl = 'http://127.0.0.1:8080',
     [string]$MarketAiApiBaseUrl = 'http://127.0.0.1:8000',
+    [switch]$PreflightOnly,
     [switch]$ConfirmPaperOrderAndCancel
 )
 
@@ -15,7 +16,10 @@ foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerat
 
 try {
 $ErrorActionPreference = 'Stop'
-if (-not $ConfirmPaperOrderAndCancel) {
+if ($PreflightOnly -and $ConfirmPaperOrderAndCancel) {
+    throw 'Choose either -PreflightOnly or -ConfirmPaperOrderAndCancel, not both.'
+}
+if (-not $PreflightOnly -and -not $ConfirmPaperOrderAndCancel) {
     throw 'No request was sent. Re-run with -ConfirmPaperOrderAndCancel only when you intend to submit and immediately cancel one KIS PAPER share.'
 }
 if ($LimitPrice -le 0) { throw 'LimitPrice must be positive.' }
@@ -41,10 +45,12 @@ foreach ($line in Get-Content -LiteralPath $envPath) {
 }
 
 if ($env:KIS_ENVIRONMENT -ne 'paper' -or $env:TRADING_MODE -ne 'paper' -or
-    $env:LIVE_TRADING_ENABLED -ne 'false' -or $env:KIS_PAPER_ORDERS_ENABLED -ne 'true' -or
+    $env:LIVE_TRADING_ENABLED -ne 'false' -or
+    ($PreflightOnly -and $env:KIS_PAPER_ORDERS_ENABLED -ne 'false') -or
+    (-not $PreflightOnly -and $env:KIS_PAPER_ORDERS_ENABLED -ne 'true') -or
     $env:KIS_REAL_ORDERS_ENABLED -ne 'false' -or $env:KIS_REAL_RECONCILIATION_ENABLED -ne 'false' -or
     $env:PAPER_AUTOTRADING_ENABLED -ne 'false') {
-    throw 'Requires KIS PAPER mode, PAPER order switch enabled, and live orders, REAL reconciliation, and paper automation disabled.'
+    throw 'Requires PAPER mode, the matching PAPER order switch, and live orders, REAL reconciliation, and paper automation disabled.'
 }
 if ($env:KIS_MARKET_DATA_ENABLED -ne 'true' -or $env:KIS_ACCOUNT_READ_ENABLED -ne 'true' -or
     $env:KIS_PAPER_ACCOUNT_READ_ENABLED -ne 'true') {
@@ -73,10 +79,11 @@ function Get-Intent([string]$Id) {
 }
 
 $operations = Get-LocalApi "$SpringApiBaseUrl/api/v1/operations/summary"
+$expectedPaperOrdersEnabled = -not $PreflightOnly
 if ($operations.tradingMode -ne 'paper' -or $operations.liveTrading -ne 'disabled' -or
-    -not $operations.kisPaperOrdersEnabled -or $operations.kisRealOrdersEnabled -or
+    ([bool]$operations.kisPaperOrdersEnabled -ne $expectedPaperOrdersEnabled) -or $operations.kisRealOrdersEnabled -or
     $operations.kisRealReconciliationEnabled -or $operations.paperAutomationEnabled) {
-    throw 'Running Spring service does not report the required PAPER-only order settings.'
+    throw 'Running Spring service does not report the required PAPER-only settings for this mode.'
 }
 
 $normalizedSymbol = $Symbol.ToUpperInvariant()
@@ -101,6 +108,18 @@ if ($configuredMaximum -le 0) {
 $smokeMaximum = if ($Market -eq 'KR') { [decimal]100000 } else { [decimal]100 }
 if ($notional -gt $configuredMaximum -or $notional -gt $smokeMaximum) {
     throw 'One-share test order exceeds the configured or hard PAPER smoke notional cap.'
+}
+
+$escapedSymbol = [Uri]::EscapeDataString($normalizedSymbol)
+$escapedPrice = [Uri]::EscapeDataString($LimitPrice.ToString([Globalization.CultureInfo]::InvariantCulture))
+$escapedExchange = [Uri]::EscapeDataString($Exchange)
+$accountPath = "/api/v1/kis/accounts/paper/$Market/balance`?symbol=$escapedSymbol`&unitPrice=$escapedPrice`&exchange=$escapedExchange"
+$account = Get-LocalApi "$SpringApiBaseUrl$accountPath"
+Assert-KisPaperOrderableFunds -Account $account -Market $Market -Currency $currency -MinimumNotional $notional
+
+if ($PreflightOnly) {
+    Write-Output "Read-only PAPER preflight passed for market=$Market symbol=$normalizedSymbol; quote and orderable funds are fresh and sufficient. No order was sent."
+    exit 0
 }
 
 $idempotencyKey = [guid]::NewGuid().ToString()
