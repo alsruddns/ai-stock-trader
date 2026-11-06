@@ -21,7 +21,7 @@ from . import snapshot_store
 from .ai_pipeline import LocalModelRegistry
 from .kis_stream import StreamSettings, approval_key, normalize_stream_frame, reply_to_pingpong, subscription_message
 from .market_stream import MinuteBarAggregator, parse_trade_frame
-from .quant import MinuteBar, QuantConfig, _atr, orb_vwap_entry_candidate
+from .quant import MinuteBar, QuantConfig, _atr, exchange_session_date, orb_vwap_entry_candidate
 from .paper_automation import PaperAutomationReadiness, PaperAutoTrader, PaperEntryDecision
 from .paper_broker import PaperBrokerError, SpringPaperBrokerClient
 from .market_calendar import exchange_continuous_session_window
@@ -589,8 +589,8 @@ class PaperSessionFeedMonitor:
                 "evaluated_at": bar.timestamp.isoformat(), "model_id": None, "executable": False,
             }
             return
-        session_day = bar.timestamp.date()
-        if history and history[-1].timestamp.date() != session_day:
+        session_day = exchange_session_date(bar.timestamp, watch.market)
+        if history and exchange_session_date(history[-1].timestamp, watch.market) != session_day:
             history.clear()
         history.append(bar)
         self._evaluate_closed_history(watch, bar)

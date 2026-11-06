@@ -489,6 +489,26 @@ def test_regular_open_starts_strategy_history_at_first_continuous_minute() -> No
     assert runtime._bars[watch.key][0].timestamp == start
 
 
+def test_us_session_history_does_not_reset_at_korean_midnight() -> None:
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("US:AAPL:NAS")[0]
+    runtime._bars[watch.key] = deque(maxlen=5_000)
+    runtime._decisions[watch.key] = {}
+    start = datetime.fromisoformat("2026-11-06T23:30:00+09:00")
+
+    for index in range(40):
+        price = Decimal("100")
+        runtime._record_closed_bar(watch, MinuteBar(
+            start + timedelta(minutes=index), price, price, price, price, 1000, Decimal("5"),
+        ))
+
+    decision = runtime.decisions()[watch.key]
+    assert start.date() != runtime._bars[watch.key][-1].timestamp.date()
+    assert decision["bars_in_session"] == 40
+    assert decision["reason"] != "BAR_SEQUENCE_INVALID"
+    assert runtime._bars[watch.key][0].timestamp == start
+
+
 def test_quant_candidate_is_held_without_an_active_approved_market_model(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("AI_MODEL_REGISTRY_PATH", str(tmp_path / "models"))
     runtime = PaperSessionFeedMonitor()
