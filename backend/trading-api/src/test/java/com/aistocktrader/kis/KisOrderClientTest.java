@@ -78,6 +78,32 @@ class KisOrderClientTest {
     }
 
     @Test
+    void domesticPaperSellUsesSellTransactionAndGeneralSellType() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/uapi/domestic-stock/v1/trading/order-cash"))
+                .andExpect(method(HttpMethod.POST)).andExpect(header("tr_id", "VTTC0011U"))
+                .andExpect(jsonPath("$.PDNO").value("005930"))
+                .andExpect(jsonPath("$.ORD_DVSN").value("00"))
+                .andExpect(jsonPath("$.ORD_QTY").value("1"))
+                .andExpect(jsonPath("$.ORD_UNPR").value("70000"))
+                .andExpect(jsonPath("$.EXCG_ID_DVSN_CD").value("KRX"))
+                .andExpect(jsonPath("$.SLL_TYPE").value("01"))
+                .andExpect(jsonPath("$.CNDT_PRIC").value(""))
+                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"msg_cd\":\"0\",\"output\":{\"ODNO\":\"1235\",\"KRX_FWDG_ORD_ORGNO\":\"ORG01\"}}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+
+        KisOrderReceipt result = client(true, builder).placePaperLimitOrder(
+                Market.KR, "005930", OrderSide.SELL, 1, new BigDecimal("70000"), Currency.KRW, null);
+
+        assertEquals("1235", result.brokerOrderNumber());
+        assertEquals("SELL", result.side());
+        server.verify();
+    }
+
+    @Test
     void usPaperSellUsesOverseasOrderTransactionAndMappedExchange() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
