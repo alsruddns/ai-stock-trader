@@ -391,6 +391,27 @@ class OrderServiceTest {
     }
 
     @Test
+    void amendsPartiallyFilledOrderWithoutChangingItsFillHistory() {
+        UUID amendmentKey = UUID.randomUUID();
+        OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 3), idempotencyKey);
+        ReflectionTestUtils.setField(order, "id", 14L);
+        order.applyFill(1, new BigDecimal("69900"));
+        when(orders.findByIdForUpdate(14L)).thenReturn(Optional.of(order));
+        when(amendments.findByOrderIdAndIdempotencyKey(14L, amendmentKey)).thenReturn(Optional.empty());
+        when(amendments.save(any(PaperOrderAmendment.class))).thenAnswer(call -> call.getArgument(0));
+        when(orders.save(order)).thenReturn(order);
+
+        OrderRecord result = serviceWithAmendments().amendPaperOrder(14L, amendmentKey,
+                new PaperOrderAmendmentRequest(4, new BigDecimal("70500")));
+
+        assertSame(order, result);
+        assertEquals(4, result.getQuantity());
+        assertEquals(1, result.getFilledQuantity());
+        assertEquals(new BigDecimal("69900.000000"), result.getAverageFillPrice());
+        assertEquals(OrderStatus.PARTIALLY_FILLED, result.getStatus());
+    }
+
+    @Test
     void repeatedIdenticalAmendmentKeyDoesNotWriteAnotherRevision() {
         UUID amendmentKey = UUID.randomUUID();
         OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
@@ -405,6 +426,25 @@ class OrderServiceTest {
                 new PaperOrderAmendmentRequest(3, new BigDecimal("71000")));
 
         assertSame(order, result);
+        verify(amendments, never()).save(any());
+        verify(orders, never()).save(any());
+    }
+
+    @Test
+    void amendmentKeyCannotBeReusedWithDifferentValues() {
+        UUID amendmentKey = UUID.randomUUID();
+        OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
+        ReflectionTestUtils.setField(order, "id", 15L);
+        PaperOrderAmendment previous = new PaperOrderAmendment(15L, amendmentKey, 2, 3,
+                new BigDecimal("70000"), new BigDecimal("71000"));
+        when(orders.findByIdForUpdate(15L)).thenReturn(Optional.of(order));
+        when(amendments.findByOrderIdAndIdempotencyKey(15L, amendmentKey)).thenReturn(Optional.of(previous));
+
+        assertThrows(IdempotencyConflictException.class, () -> serviceWithAmendments().amendPaperOrder(15L,
+                amendmentKey, new PaperOrderAmendmentRequest(4, new BigDecimal("72000"))));
+
+        assertEquals(2, order.getQuantity());
+        assertEquals(new BigDecimal("70000"), order.getLimitPrice());
         verify(amendments, never()).save(any());
         verify(orders, never()).save(any());
     }
