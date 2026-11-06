@@ -80,7 +80,14 @@ if ($Market -eq 'US' -and $Exchange -notin @('NAS', 'NASD', 'NYS', 'NYSE', 'AMS'
 
 function Get-LocalApi([string]$Url) {
     try { return Invoke-RestMethod -Uri $Url -TimeoutSec 15 }
-    catch { throw 'Local preflight request failed; inspect the sanitized service logs.' }
+    catch {
+        $status = 'unavailable'
+        if ($null -ne $_.Exception.Response -and $null -ne $_.Exception.Response.StatusCode) {
+            $status = [string][int]$_.Exception.Response.StatusCode
+        }
+        $safePath = ([Uri]$Url).AbsolutePath
+        throw "Local preflight request failed (HTTP $status) for $safePath; inspect the sanitized service logs."
+    }
 }
 
 function Get-Intent([string]$Id) {
