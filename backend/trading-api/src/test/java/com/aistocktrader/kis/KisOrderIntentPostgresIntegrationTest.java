@@ -135,14 +135,16 @@ class KisOrderIntentPostgresIntegrationTest {
         OrderRequest order = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
                 new BigDecimal("70000"), Currency.KRW);
         String brokerNumber = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
-        var snapshot = new KisBrokerOrderSnapshot(1, 0, new BigDecimal("70000"), true, false);
+        var openSnapshot = new KisBrokerOrderSnapshot(1, 2, new BigDecimal("70000"), false, false);
+        var cancelledSnapshot = new KisBrokerOrderSnapshot(1, 0, new BigDecimal("70000"), true, false);
         when(kisAccountClient.getBalance(KisEnvironment.PAPER, Market.KR, order.symbol(), order.limitPrice(), ""))
                 .thenReturn(new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR, "KRW",
                         new BigDecimal("500000"), new BigDecimal("500000"), List.of(), Instant.now(), "test"));
         when(kisOrderClient.placePaperLimitOrder(Market.KR, order.symbol(), OrderSide.BUY, 3,
                 order.limitPrice(), Currency.KRW, null))
                 .thenReturn(receipt("paper", brokerNumber));
-        when(kisOrderClient.reconcilePaperOrder(any(KisOrderIntent.class))).thenReturn(Optional.of(snapshot));
+        when(kisOrderClient.reconcilePaperOrder(any(KisOrderIntent.class)))
+                .thenReturn(Optional.of(openSnapshot), Optional.of(cancelledSnapshot));
 
         try {
             assertEquals(KisOrderStatus.ACCEPTED, kisOrders.submitPaperOrder(key, order, null).status());
@@ -162,7 +164,7 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(0, persisted.getAverageFillPrice().compareTo(new BigDecimal("70000")));
             verify(kisOrderClient, times(1)).cancelPaperOrder(Market.KR, order.symbol(), brokerNumber,
                     "ITORG01", 0, "");
-            verify(kisOrderClient, times(1)).reconcilePaperOrder(any(KisOrderIntent.class));
+            verify(kisOrderClient, times(2)).reconcilePaperOrder(any(KisOrderIntent.class));
         } finally {
             kisOrderRepository.deleteById(key);
         }

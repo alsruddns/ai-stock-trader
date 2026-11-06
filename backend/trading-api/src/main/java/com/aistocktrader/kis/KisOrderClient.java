@@ -208,12 +208,17 @@ public class KisOrderClient {
         try {
             var uriBuilder = UriComponentsBuilder.fromUriString(KisEnvironment.PAPER.baseUrl() + path);
             params.forEach((key, values) -> values.forEach(value -> uriBuilder.queryParam(key, value)));
+            rateLimiter.acquire(KisEnvironment.PAPER, credentials.appKey(), properties.minRequestInterval());
             var response = http.get().uri(uriBuilder.build().encode().toUri())
                     .header("authorization", "Bearer " + tokenProvider.accessToken(KisEnvironment.PAPER))
                     .header("appkey", credentials.appKey()).header("appsecret", credentials.appSecret())
                     .header("tr_id", trId).header("custtype", "P").header("tr_cont", continuation)
                     .accept(MediaType.APPLICATION_JSON).retrieve().toEntity(JsonNode.class);
             return new BrokerQueryResponse(response.getBody(), response.getHeaders().getFirst("tr_cont"));
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new KisApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                    "KIS order query was interrupted.");
         } catch (ResourceAccessException | RestClientResponseException exception) {
             throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "KIS order reconciliation request failed.");
         }

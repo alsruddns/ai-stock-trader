@@ -225,8 +225,9 @@ class KisOrderOrchestratorTest {
         assertEquals("EGW00123", response.responseCode());
         verify(orders).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
                 org.mockito.ArgumentMatchers.anyInt(), anyString());
-        verify(orders).reconcilePaperOrder(intent);
-        verify(intents).reconcile(key, new KisBrokerOrderSnapshot(0, 1, null, false, false));
+        verify(orders, org.mockito.Mockito.times(2)).reconcilePaperOrder(intent);
+        verify(intents, org.mockito.Mockito.times(2))
+                .reconcile(key, new KisBrokerOrderSnapshot(0, 1, null, false, false));
     }
 
     @Test
@@ -244,6 +245,7 @@ class KisOrderOrchestratorTest {
             return intent;
         });
         when(orders.reconcilePaperOrder(intent))
+                .thenReturn(Optional.of(new KisBrokerOrderSnapshot(0, 1, null, false, false)))
                 .thenThrow(new KisApiException(HttpStatus.BAD_GATEWAY, "KIS order reconciliation failed (code EGW00201)."))
                 .thenReturn(Optional.of(new KisBrokerOrderSnapshot(0, 1, null, false, false)));
         when(intents.reconcile(key, new KisBrokerOrderSnapshot(0, 1, null, false, false))).thenAnswer(invocation -> {
@@ -279,6 +281,26 @@ class KisOrderOrchestratorTest {
         assertEquals(KisOrderStatus.UNKNOWN, response.status());
         verify(orders, never()).reconcilePaperOrder(any());
         verify(intents, never()).reconcile(any(), any());
+    }
+
+    @Test
+    void cancelFailsClosedWhenReadOnlyBrokerReconciliationCannotFindTheOrder() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.reconcilePaperOrder(intent)).thenReturn(Optional.empty());
+        when(intents.markUnknown(key)).thenAnswer(invocation -> {
+            intent.markUnknown();
+            return intent;
+        });
+
+        KisOrderIntentResponse response = orchestrator.cancelPaperOrder(key, null);
+
+        assertEquals(KisOrderStatus.UNKNOWN, response.status());
+        verify(orders).reconcilePaperOrder(intent);
+        verify(orders, never()).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), anyString());
     }
 
     private static OrderRequest buyRequest() {
