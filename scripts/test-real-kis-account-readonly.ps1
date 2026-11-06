@@ -4,6 +4,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$originalEnvironment = @{}
+foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerator()) {
+    $originalEnvironment[[string]$entry.Key] = [string]$entry.Value
+}
+
+try {
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $envPath = Join-Path $repoRoot '.env_local'
 if (-not (Test-Path -LiteralPath $envPath)) { $envPath = Join-Path $repoRoot '.env' }
@@ -57,4 +63,16 @@ try {
 }
 finally {
     Pop-Location
+}
+}
+finally {
+    $currentEnvironment = [Environment]::GetEnvironmentVariables('Process')
+    foreach ($name in $currentEnvironment.Keys) {
+        if (-not $originalEnvironment.ContainsKey([string]$name)) {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
+    }
+    foreach ($name in $originalEnvironment.Keys) {
+        Set-Item -LiteralPath "Env:$name" -Value $originalEnvironment[$name]
+    }
 }
