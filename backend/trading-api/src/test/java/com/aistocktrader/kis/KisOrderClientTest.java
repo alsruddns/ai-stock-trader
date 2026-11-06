@@ -114,6 +114,9 @@ class KisOrderClientTest {
                 .andExpect(jsonPath("$.OVRS_EXCG_CD").value("NASD"))
                 .andExpect(jsonPath("$.PDNO").value("AAPL"))
                 .andExpect(jsonPath("$.OVRS_ORD_UNPR").value("231.59"))
+                .andExpect(jsonPath("$.SLL_TYPE").value("00"))
+                .andExpect(jsonPath("$.ORD_SVR_DVSN_CD").value("0"))
+                .andExpect(jsonPath("$.ORD_DVSN").value("00"))
                 .andRespond(withSuccess("{\"rt_cd\":\"0\",\"msg_cd\":\"0\",\"output\":{\"ODNO\":\"5678\"}}",
                         org.springframework.http.MediaType.APPLICATION_JSON));
 
