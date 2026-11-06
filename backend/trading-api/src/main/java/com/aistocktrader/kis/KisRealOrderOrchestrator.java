@@ -2,6 +2,7 @@ package com.aistocktrader.kis;
 
 import com.aistocktrader.order.OrderRequest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -18,12 +19,16 @@ public class KisRealOrderOrchestrator {
     private final KisRealOrderClient orders;
     private final KisLiveOrderRiskGate riskGate;
     private final KisOrderIntentStore intents;
+    private final KisRealDailyRiskBaselineService dailyRiskBaselines;
 
+    @Autowired
     public KisRealOrderOrchestrator(KisRealOrderClient orders, KisLiveOrderRiskGate riskGate,
-                                    KisOrderIntentStore intents) {
+                                    KisOrderIntentStore intents,
+                                    KisRealDailyRiskBaselineService dailyRiskBaselines) {
         this.orders = orders;
         this.riskGate = riskGate;
         this.intents = intents;
+        this.dailyRiskBaselines = dailyRiskBaselines;
     }
 
     public KisOrderIntentResponse submit(UUID idempotencyKey, OrderRequest request, String exchange,
@@ -33,9 +38,11 @@ public class KisRealOrderOrchestrator {
         if (request != null && riskContext != null) {
             boolean unresolvedOrder = riskContext.unresolvedOrderExists()
                     || intents.hasUnresolvedRealOrder(request.market(), idempotencyKey);
+            KisRealDailyRiskBaselineService.RiskInputs dailyRisk =
+                    dailyRiskBaselines.riskInputs(request.market(), realAccount);
             serverCheckedContext = new KisLiveRiskContext(riskContext.approvedModelCandidate(),
-                    riskContext.quoteFresh(), riskContext.accountSnapshotFresh(), riskContext.marketOpen(),
-                    unresolvedOrder, riskContext.dailyLossPercent(), riskContext.consecutiveLosingTrades(),
+                    riskContext.quoteFresh(), riskContext.accountSnapshotFresh(), dailyRisk.marketOpen(),
+                    unresolvedOrder, dailyRisk.dailyLossPercent(), riskContext.consecutiveLosingTrades(),
                     riskContext.accountEquity(), riskContext.stopDistancePerShare());
         }
         KisLiveRiskDecision decision = riskGate.assess(request, exchange, realAccount, serverCheckedContext);

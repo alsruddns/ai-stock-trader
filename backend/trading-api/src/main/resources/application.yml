@@ -1,6 +1,8 @@
 server:
   port: 8080
   address: ${SERVER_ADDRESS:127.0.0.1}
+market-ai:
+  base-url: ${MARKET_AI_BASE_URL:http://127.0.0.1:8000}
 spring:
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/ai_stock_trader}
@@ -42,6 +44,7 @@ kis:
   real-account-read-enabled: ${KIS_REAL_ACCOUNT_READ_ENABLED:false}
   real-reconciliation-enabled: ${KIS_REAL_RECONCILIATION_ENABLED:false}
   real-reconciliation-delay-ms: ${KIS_REAL_RECONCILIATION_DELAY_MS:30000}
+  real-risk-baseline-poll-ms: ${KIS_REAL_RISK_BASELINE_POLL_MS:30000}
   snapshot-persistence-enabled: ${KIS_SNAPSHOT_PERSISTENCE_ENABLED:false}
   paper:
     app-key: ${KIS_PAPER_APP_KEY:}

@@ -22,6 +22,7 @@ import static org.mockito.Mockito.*;
 class KisRealOrderOrchestratorTest {
     private KisRealOrderClient orders;
     private KisOrderIntentStore intents;
+    private KisRealDailyRiskBaselineService dailyRiskBaselines;
     private KisRealOrderOrchestrator orchestrator;
     private final TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true,
             new BigDecimal("1000000"), new BigDecimal("100"));
@@ -32,7 +33,10 @@ class KisRealOrderOrchestratorTest {
     void setUp() {
         orders = mock(KisRealOrderClient.class);
         intents = mock(KisOrderIntentStore.class);
-        orchestrator = new KisRealOrderOrchestrator(orders, riskGate, intents);
+        dailyRiskBaselines = mock(KisRealDailyRiskBaselineService.class);
+        when(dailyRiskBaselines.riskInputs(any(), any())).thenReturn(
+                new KisRealDailyRiskBaselineService.RiskInputs(true, BigDecimal.ZERO));
+        orchestrator = new KisRealOrderOrchestrator(orders, riskGate, intents, dailyRiskBaselines);
     }
 
     @Test
@@ -95,6 +99,27 @@ class KisRealOrderOrchestratorTest {
         assertEquals(KisOrderStatus.REJECTED, response.status());
         assertEquals("UNRESOLVED_ORDER_EXISTS", response.responseCode());
         verify(intents).hasUnresolvedRealOrder(Market.KR, key);
+        verify(orders, never()).placeRealLimitOrder(any(), anyString(), any(), anyInt(), any(), any(), anyString(), any());
+    }
+
+    @Test
+    void missingServerDailyBaselineOverridesCallerSuppliedZeroAndBlocksBuy() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = buyRequest();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null);
+        when(dailyRiskBaselines.riskInputs(eq(Market.KR), any(KisAccountSnapshot.class))).thenReturn(
+                new KisRealDailyRiskBaselineService.RiskInputs(true, null));
+        when(intents.prepare(eq(key), anyString(), eq(KisEnvironment.REAL), eq(request), isNull()))
+                .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
+        when(intents.reject(eq(key), anyString())).thenAnswer(call -> {
+            intent.reject(call.getArgument(1));
+            return intent;
+        });
+
+        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount(), safeBuyContext());
+
+        assertEquals(KisOrderStatus.REJECTED, response.status());
+        assertEquals("DAILY_LOSS_BASELINE_REQUIRED", response.responseCode());
         verify(orders, never()).placeRealLimitOrder(any(), anyString(), any(), anyInt(), any(), any(), anyString(), any());
     }
 

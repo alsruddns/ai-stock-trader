@@ -56,6 +56,8 @@ KIS API는 기본 잠금(`KIS_ACCOUNT_READ_ENABLED=false`)입니다. 조회를 �
 
 REAL 신규 주문은 같은 시장의 미해결 KIS 주문 의도(`SUBMITTING`, `UNKNOWN`, `ACCEPTED`, `PARTIALLY_FILLED`, `CANCEL_PENDING`)가 DB에 있으면 거부됩니다. 조회는 주문 서버가 수행하므로 호출 문맥의 상태 표시만으로 이 검사를 우회할 수 없습니다.
 
+REAL 국내 일일 손실률은 거래소 캘린더 API가 확인한 개장 후 3분 안에 기록한 불변 `nass_amt` 기준값과 최신 REAL KIS 잔고 스냅샷으로 계산합니다. 기준값은 `kis_real_daily_risk_baseline`에 세션 날짜·시장·자격정보 HMAC-SHA256 지문별 한 번 저장됩니다. 계좌번호·App Key·App Secret 원문은 기준선 테이블에 저장하지 않습니다. 자격정보가 바뀌면 과거 기준선을 재사용하지 않습니다. FastAPI 거래소 일정 조회 실패, 개장 기준값 부재, 오래된 계좌 스냅샷 또는 순자산 미확인 시 손실률을 미확인으로 처리해 REAL 매수 위험 검사를 통과시키지 않습니다. 미국 계좌 순자산 매핑은 확인되지 않아 미국 일일 손실 기준값을 저장하지 않습니다. `.env_local`에서 `KIS_REAL_ACCOUNT_READ_ENABLED=true`일 때만 개장 기준값 감시기가 REAL 읽기 전용 KIS 잔고를 조회합니다. 기본값은 false입니다.
+
 Read timeout, HTTP 429 및 KIS rate-limit 오류는 안전한 오류 응답으로 바꾸고 요청을 자동 재전송하지 않습니다.
 
 Paper 주문 응답이 타임아웃되면 `GET /api/v1/orders/paper/by-idempotency/{key}`로 결과를 먼저 대조합니다. 자동화 클라이언트는 주문 쓰기를 재시도하지 않습니다.

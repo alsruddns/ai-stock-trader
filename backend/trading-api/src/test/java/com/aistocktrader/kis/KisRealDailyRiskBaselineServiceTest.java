@@ -1,0 +1,104 @@
+package com.aistocktrader.kis;
+
+import com.aistocktrader.order.Market;
+import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import org.mockito.ArgumentCaptor;
+
+class KisRealDailyRiskBaselineServiceTest {
+    @Test
+    void computesNonnegativeLossFromFreshKisEquityAndImmutableSessionBaseline() {
+        KisMarketSessionClient sessions = mock(KisMarketSessionClient.class);
+        KisRealDailyRiskBaselineStore store = mock(KisRealDailyRiskBaselineStore.class);
+        Instant now = Instant.now();
+        LocalDate date = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+        when(sessions.session(Market.KR)).thenReturn(new KisMarketSessionClient.MarketSession(
+                Market.KR, date, true, true, now.minusSeconds(60), now.plusSeconds(7_140), now));
+        when(store.equity(eq(Market.KR), eq(date), anyString()))
+                .thenReturn(Optional.of(new BigDecimal("1000000")));
+        KisRealDailyRiskBaselineService service = service(sessions, store);
+
+        var loss = service.riskInputs(Market.KR, account(new BigDecimal("990000"), now));
+        var profit = service.riskInputs(Market.KR, account(new BigDecimal("1010000"), now));
+
+        assertEquals(new BigDecimal("1.00000000"), loss.dailyLossPercent());
+        assertEquals(BigDecimal.ZERO, profit.dailyLossPercent());
+        assertTrue(loss.marketOpen());
+    }
+
+    @Test
+    void missingBaselineStaleCalendarOrUnknownUsEquityFailClosed() {
+        KisMarketSessionClient sessions = mock(KisMarketSessionClient.class);
+        KisRealDailyRiskBaselineStore store = mock(KisRealDailyRiskBaselineStore.class);
+        Instant now = Instant.now();
+        LocalDate date = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+        when(sessions.session(Market.KR)).thenReturn(new KisMarketSessionClient.MarketSession(
+                Market.KR, date, true, true, now.minusSeconds(60), now.plusSeconds(7_140), now));
+        when(store.equity(eq(Market.KR), eq(date), anyString())).thenReturn(Optional.empty());
+        when(sessions.session(Market.US)).thenReturn(new KisMarketSessionClient.MarketSession(
+                Market.US, LocalDate.now(java.time.ZoneId.of("America/New_York")), true, true,
+                now.minusSeconds(60), now.plusSeconds(7_140), now.minusSeconds(30)));
+        KisRealDailyRiskBaselineService service = service(sessions, store);
+
+        var noBaseline = service.riskInputs(Market.KR, account(new BigDecimal("1000000"), now));
+        var staleCalendar = service.riskInputs(Market.US, accountUs(now));
+
+        assertNull(noBaseline.dailyLossPercent());
+        assertTrue(noBaseline.marketOpen());
+        assertNull(staleCalendar.dailyLossPercent());
+        assertFalse(staleCalendar.marketOpen());
+    }
+
+    @Test
+    void baselineLookupUsesOnlyAKeyedFingerprintInsteadOfPersistingCredentials() {
+        KisMarketSessionClient sessions = mock(KisMarketSessionClient.class);
+        KisRealDailyRiskBaselineStore store = mock(KisRealDailyRiskBaselineStore.class);
+        Instant now = Instant.now();
+        LocalDate date = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+        when(sessions.session(Market.KR)).thenReturn(new KisMarketSessionClient.MarketSession(
+                Market.KR, date, true, true, now.minusSeconds(60), now.plusSeconds(7_140), now));
+        when(store.equity(eq(Market.KR), eq(date), anyString())).thenReturn(Optional.of(new BigDecimal("1000000")));
+        KisRealDailyRiskBaselineService service = service(sessions, store);
+
+        service.riskInputs(Market.KR, account(new BigDecimal("1000000"), now));
+
+        ArgumentCaptor<String> fingerprint = ArgumentCaptor.forClass(String.class);
+        verify(store).equity(eq(Market.KR), eq(date), fingerprint.capture());
+        assertEquals(64, fingerprint.getValue().length());
+        org.junit.jupiter.api.Assertions.assertFalse(fingerprint.getValue().contains("8765432101"));
+        org.junit.jupiter.api.Assertions.assertFalse(fingerprint.getValue().contains("test-secret"));
+    }
+
+    private static KisRealDailyRiskBaselineService service(KisMarketSessionClient sessions,
+                                                             KisRealDailyRiskBaselineStore store) {
+        KisProperties properties = new KisProperties(false, false, false, false,
+                new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
+                new KisProperties.Account("real-key", "test-secret", "8765432101"),
+                null, null, null);
+        return new KisRealDailyRiskBaselineService(properties, mock(KisAccountClient.class), sessions, store);
+    }
+
+    private static KisAccountSnapshot account(BigDecimal equity, Instant retrievedAt) {
+        return new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW", new BigDecimal("100000"),
+                new BigDecimal("100000"), equity, java.util.List.of(), retrievedAt, "KIS_READ_ONLY_REST");
+    }
+
+    private static KisAccountSnapshot accountUs(Instant retrievedAt) {
+        return new KisAccountSnapshot(KisEnvironment.REAL, Market.US, "USD", null, new BigDecimal("100"),
+                null, java.util.List.of(), retrievedAt, "KIS_READ_ONLY_REST");
+    }
+}
