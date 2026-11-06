@@ -22,11 +22,19 @@ $parentageAst = $restartAst.Find({
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
         $node.Name -eq 'Test-TrackedProcessParentage'
 }, $true)
-if ($null -eq $identityAst -or $null -eq $parentageAst) { throw 'Process identity checks were not found.' }
+$paperSessionAst = $restartAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Test-PaperSessionRestored'
+}, $true)
+if ($null -eq $identityAst -or $null -eq $parentageAst -or $null -eq $paperSessionAst) {
+    throw 'Process ownership or paper-session restoration checks were not found.'
+}
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $script:restartScriptDirectory = $PSScriptRoot
 . ([ScriptBlock]::Create($identityAst.Extent.Text))
 . ([ScriptBlock]::Create($parentageAst.Extent.Text))
+. ([ScriptBlock]::Create($paperSessionAst.Extent.Text))
 
 $now = [DateTimeOffset]::UtcNow
 $closedSessions = @(
@@ -75,4 +83,40 @@ $orphanBackend = $backendProcess.PSObject.Copy()
 $orphanBackend.ParentProcessId = 999
 if (Test-TrackedProcessParentage $runnerProcess $orphanBackend $marketAiProcess) { throw 'Unexpected process parentage must be rejected.' }
 
-Write-Output 'Local stack restart session and process ownership checks passed.'
+$previousPaperSession = [pscustomobject]@{
+    enabled = $true; state = 'RUNNING'; orders_enabled = $false
+    automation_state = 'DISABLED'; bar_storage_state = 'RUNNING'
+}
+$restoredPaperSession = $previousPaperSession.PSObject.Copy()
+if (-not (Test-PaperSessionRestored $restoredPaperSession $previousPaperSession)) {
+    throw 'A restored paper session monitor and bar store should pass.'
+}
+$stoppedPaperSession = $restoredPaperSession.PSObject.Copy()
+$stoppedPaperSession.state = 'STOPPED'
+if (Test-PaperSessionRestored $stoppedPaperSession $previousPaperSession) {
+    throw 'An enabled monitor that failed to restart must be rejected.'
+}
+$missingStorage = $restoredPaperSession.PSObject.Copy()
+$missingStorage.bar_storage_state = 'ERROR'
+if (Test-PaperSessionRestored $missingStorage $previousPaperSession) {
+    throw 'A previously running bar store that failed to restart must be rejected.'
+}
+$ordersEnabledSession = $restoredPaperSession.PSObject.Copy()
+$ordersEnabledSession.orders_enabled = $true
+if (Test-PaperSessionRestored $ordersEnabledSession $previousPaperSession) {
+    throw 'Paper order submission must remain disabled after restart.'
+}
+$automationEnabledSession = $restoredPaperSession.PSObject.Copy()
+$automationEnabledSession.automation_state = 'RUNNING'
+if (Test-PaperSessionRestored $automationEnabledSession $previousPaperSession) {
+    throw 'Paper automation must remain disabled after restart.'
+}
+$disabledMonitor = [pscustomobject]@{
+    enabled = $false; state = 'DISABLED'; orders_enabled = $false
+    automation_state = 'DISABLED'; bar_storage_state = 'DISABLED'
+}
+if (-not (Test-PaperSessionRestored $disabledMonitor $disabledMonitor)) {
+    throw 'An intentionally disabled monitor should not block API restart.'
+}
+
+Write-Output 'Local stack restart session, process ownership, and monitor recovery checks passed.'

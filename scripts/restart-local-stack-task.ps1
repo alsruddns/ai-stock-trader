@@ -9,6 +9,7 @@ $script:restartScriptDirectory = $PSScriptRoot
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $runtimeStatePath = Join-Path $repoRoot '.local\logs\local-stack-pids.json'
 $pythonHealthUrl = 'http://127.0.0.1:8000/api/v1/health'
+$pythonPaperSessionUrl = 'http://127.0.0.1:8000/api/v1/paper/session'
 $springSummaryUrl = 'http://127.0.0.1:8080/api/v1/operations/summary'
 
 function Test-SessionResponsesFreshAndClosed($Sessions, [DateTimeOffset]$NowUtc) {
@@ -73,6 +74,16 @@ function Test-TrackedProcessParentage($Runner, $Backend, $MarketAi) {
         [int]$MarketAi.ParentProcessId -eq [int]$Runner.ProcessId
 }
 
+function Test-PaperSessionRestored($Session, $PreviousSession) {
+    if (-not $Session -or -not $PreviousSession) { return $false }
+    if ([bool]$Session.enabled -ne [bool]$PreviousSession.enabled) { return $false }
+    if ([bool]$Session.orders_enabled -or [string]$Session.automation_state -ne 'DISABLED') { return $false }
+    if ([string]$PreviousSession.bar_storage_state -eq 'RUNNING' -and
+            [string]$Session.bar_storage_state -ne 'RUNNING') { return $false }
+    if ([bool]$PreviousSession.enabled -and [string]$Session.state -ne 'RUNNING') { return $false }
+    return $true
+}
+
 function Stop-TrackedProcessTree($Process) {
     if ($null -eq $Process) { return }
     $current = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$Process.ProcessId)" -ErrorAction SilentlyContinue
@@ -103,6 +114,11 @@ if (-not $taskActionMatches) { throw 'The scheduled task does not launch this re
 if (-not (Test-Path -LiteralPath $runtimeStatePath)) { throw 'Local stack process state is missing; restart was not attempted.' }
 
 Get-ConfirmedClosedSessions
+$previousPaperSession = Invoke-RestMethod -Uri $pythonPaperSessionUrl -TimeoutSec 5
+if ($null -eq $previousPaperSession.enabled -or $null -eq $previousPaperSession.orders_enabled -or
+        [string]::IsNullOrWhiteSpace([string]$previousPaperSession.automation_state)) {
+    throw 'The current Python paper-session status is incomplete; restart was not attempted.'
+}
 $state = Get-Content -LiteralPath $runtimeStatePath -Raw | ConvertFrom-Json
 $runner = Get-TrackedProcess $state.runnerProcessId 'runner'
 $backend = Get-TrackedProcess $state.backendProcessId 'backend'
@@ -150,6 +166,7 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
         Start-Sleep -Seconds 2
     }
     if (-not $pythonHealth -or -not $springSummary) { throw 'The local APIs did not become ready after restart.' }
+    $paperSession = Invoke-RestMethod -Uri $pythonPaperSessionUrl -TimeoutSec 5
     $pythonOpenApi = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/openapi.json' -TimeoutSec 5
     if ($null -eq $pythonOpenApi.paths.PSObject.Properties['/api/v1/market/session-quality/{market}/{symbol}']) {
         throw 'The restarted Python API is missing the expected session-quality route.'
@@ -159,5 +176,8 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
         $springSummary.paperAutomationEnabled -ne $false -or $springSummary.kisRealOrdersEnabled -ne $false) {
         throw 'The restarted APIs did not report the required trading locks.'
     }
-    Write-Output 'Local Spring Boot and Python APIs restarted after both exchange sessions were confirmed closed; live trading remains disabled.'
+    if (-not (Test-PaperSessionRestored $paperSession $previousPaperSession)) {
+        throw 'The paper session monitor or bar storage did not recover to its prior enabled state.'
+    }
+    Write-Output 'Local Spring Boot and Python APIs restarted after both exchanges closed; monitor/storage state was restored and live trading remains disabled.'
 }
