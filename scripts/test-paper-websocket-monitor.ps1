@@ -6,7 +6,8 @@ param(
     [ValidateRange(0, 36000)] [int]$MinimumBarsDelta = 0,
     [ValidateSet('paper', 'real')] [string]$Feed,
     [string]$EvidencePath,
-    [switch]$RequireBothFeeds
+    [switch]$RequireBothFeeds,
+    [switch]$RequireSessionClose
 )
 
 $ErrorActionPreference = 'Stop'
@@ -77,6 +78,8 @@ $initialTicks = if ($Feed) { [int]$initial.ticks_received_by_feed.$Feed } else {
 $initialBars = if ($Feed) { [int]$initial.bars_closed_by_feed.$Feed } else { [int]$initial.bars_closed }
 $previousTicks = $initialTicks
 $startedAtUtc = [DateTimeOffset]::UtcNow
+$sessionOpenBarsBaseline = $null
+$awaitingSessionOpenBaseline = [bool]($exchangeSession -and $startedAtUtc -lt $exchangeSession.open_utc)
 $initialReceiveAt = if ($Feed) { $initial.last_tick_received_at_by_feed.$Feed } else { $initial.last_tick_received_at }
 if ($Feed -and $initialReceiveAt) {
     $initialReceivedAtUtc = [DateTimeOffset]::Parse([string]$initialReceiveAt).ToUniversalTime()
@@ -167,13 +170,21 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
     }
 
     $currentBars = if ($Feed) { [int]$latest.bars_closed_by_feed.$Feed } else { [int]$latest.bars_closed }
+    if ($awaitingSessionOpenBaseline -and $sampledAtUtc -ge $exchangeSession.open_utc) {
+        # Exclude any premarket bars when measuring the regular session's completed bars.
+        $sessionOpenBarsBaseline = $currentBars
+        $awaitingSessionOpenBaseline = $false
+    }
+    $sessionBarCount = Get-ExchangeSessionBarsDelta $currentBars $initialBars $sessionOpenBarsBaseline
+    $sessionBarsDelta = $sessionBarCount.delta
     $progress = [ordered]@{
         recorded_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
         requested_seconds = $DurationSeconds
         elapsed_seconds = [int]$stopwatch.Elapsed.TotalSeconds
         selected_feed = if ($Feed) { $Feed } else { 'any' }
         ticks_delta = $currentTicks - $initialTicks
-        bars_delta = $currentBars - $initialBars
+        bars_delta = $sessionBarsDelta
+        session_bars_baseline = $sessionBarCount.baseline
         minimum_bars_delta = $MinimumBarsDelta
         max_observed_no_tick_seconds = [Math]::Round($maxObservedNoTickSeconds, 1)
         preopen_silence_seconds = [Math]::Round($preOpenSilenceSeconds, 1)
@@ -192,7 +203,7 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
 
     if ($stopwatch.Elapsed.TotalSeconds -ge $nextProgressSeconds) {
         $tickDelta = $currentTicks - $initialTicks
-        Write-Output "KIS feed monitor running: feed=$(if ($Feed) { $Feed } else { 'any' }) elapsed_seconds=$([int]$stopwatch.Elapsed.TotalSeconds) ticks_delta=$tickDelta bars_delta=$($currentBars - $initialBars)."
+        Write-Output "KIS feed monitor running: feed=$(if ($Feed) { $Feed } else { 'any' }) elapsed_seconds=$([int]$stopwatch.Elapsed.TotalSeconds) ticks_delta=$tickDelta bars_delta=$sessionBarsDelta."
         $nextProgressSeconds += 60
     }
 }
@@ -207,7 +218,11 @@ if (-not $hasReceiveTimestamp) {
     throw 'The running market-data service does not expose a tick receive timestamp; restart it with the current code before monitoring.'
 }
 $latestBars = if ($Feed) { [int]$latest.bars_closed_by_feed.$Feed } else { [int]$latest.bars_closed }
-$barDelta = $latestBars - $initialBars
+$sessionBarCount = Get-ExchangeSessionBarsDelta $latestBars $initialBars $sessionOpenBarsBaseline
+$barDelta = $sessionBarCount.delta
+if ($RequireSessionClose -and -not $sessionCloseReached) {
+    throw 'The monitored exchange session did not reach its calendar-confirmed close.'
+}
 if ($barDelta -lt $MinimumBarsDelta) {
     throw "Closed bar count increased by $barDelta, below the required minimum $MinimumBarsDelta."
 }
@@ -226,6 +241,7 @@ $evidence = [ordered]@{
     market_session_open_utc = if ($exchangeSession) { $exchangeSession.open_utc.ToString('o') } else { $null }
     market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
     session_close_reached = $sessionCloseReached
+    session_bars_baseline = $sessionBarCount.baseline
     selected_feed = if ($Feed) { $Feed } else { 'any' }
     ticks_delta = $tickDelta
     bars_delta = $barDelta
@@ -251,6 +267,7 @@ Write-ProgressRecord ([ordered]@{
     market_session_open_utc = $evidence.market_session_open_utc
     market_session_close_utc = $evidence.market_session_close_utc
     session_close_reached = $evidence.session_close_reached
+    session_bars_baseline = $evidence.session_bars_baseline
     feeds = $latest.stream_connections
     orders_enabled = $false
     automation_state = $latest.automation_state

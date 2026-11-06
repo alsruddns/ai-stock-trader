@@ -48,4 +48,10 @@ Describe 'Exchange session monitor calendar boundaries' {
         } catch { $didThrow = $true }
         $didThrow | Should Be $true
     }
+
+    It 'counts regular-session bars from the opening counter and excludes premarket bars' {
+        $count = Get-ExchangeSessionBarsDelta 430 25 40
+        $count.baseline | Should Be 40
+        $count.delta | Should Be 390
+    }
 }

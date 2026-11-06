@@ -42,3 +42,11 @@ function Test-ExchangeSessionTickTimestamp([DateTimeOffset]$TickTimestamp, $Sess
 function Test-ExchangeSessionNoTickThresholdApplies([string]$SessionPhase) {
     return $SessionPhase -in @('CONTINUOUS', 'NOT_APPLICABLE')
 }
+
+function Get-ExchangeSessionBarsDelta([int]$CurrentBars, [int]$InitialBars, $SessionOpenBarsBaseline) {
+    $baseline = if ($null -ne $SessionOpenBarsBaseline) { [int]$SessionOpenBarsBaseline } else { $InitialBars }
+    if ($CurrentBars -lt $baseline) {
+        throw 'The closed bar counter moved backwards during the sample.'
+    }
+    return [pscustomobject]@{ baseline = $baseline; delta = $CurrentBars - $baseline }
+}
