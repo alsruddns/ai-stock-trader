@@ -146,6 +146,10 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/orders/paper/1/
   -ContentType 'application/json' `
   -Body '{"fillKey":"d4f78a48-1600-4c60-95a8-8cc53dfec06c","quantity":1,"fillPrice":70000}'
 Invoke-RestMethod http://localhost:8080/api/v1/orders/paper/positions
+Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/orders/paper/1/amend `
+  -Headers @{ 'Idempotency-Key' = 'd3952b31-e893-48ce-bb5e-a621d1c513c4' } `
+  -ContentType 'application/json' `
+  -Body '{"quantity":2,"limitPrice":71000}'
 Invoke-RestMethod -Method Post http://localhost:8080/api/v1/orders/paper/1/cancel
 Invoke-RestMethod http://localhost:8080/api/v1/orders/paper/1
 ```
@@ -174,7 +178,7 @@ Docker를 선호하면 기존 PostgreSQL 대신 컨테이너 DB도 선택할 수
 ## 단계별 개발 순서
 
 - **P1 — 기반·KIS 읽기 전용 연결:** Spring REST 계좌 조회와 Python REST/WebSocket 시세 연결이 있습니다. Mock 검증, 실제 PAPER 국내·미국 계좌 잔고 GET 2건, 별도 opt-in 테스트의 REAL 국내·미국 읽기 전용 잔고 GET 2건이 통과했습니다. REAL 조회 스위치는 기본 비활성이고, 모든 주문은 잠겨 있습니다.
-- **P2 — 주문·리스크 엔진:** PostgreSQL PAPER 주문, 부분체결, 중복 체결 방지, 현금·포지션 정산, 취소·만료와 재시작 복구가 있습니다. 로컬 PostgreSQL 통합 및 DB 장애 복구 검증을 통과했습니다. KIS 주문 없이 paper ledger에서 확인한 결과입니다.
+- **P2 — 주문·리스크 엔진:** PostgreSQL PAPER 주문, 부분체결, 중복 체결 방지, 현금·포지션 정산, 정정·취소·만료와 재시작 복구가 있습니다. 정정 내역은 별도 이력 테이블에 저장하며 같은 키의 반복 적용을 차단합니다. 로컬 PostgreSQL 통합 및 DB 장애 복구 검증을 통과했습니다. KIS 주문 없이 paper ledger에서 확인한 결과입니다.
 - **P3 — 전략·백테스트:** 단일 세션 ORB/VWAP/EMA/ATR 전략, 비용·슬리피지, 미래 봉 미사용을 구현했습니다. KIS 국내 과거 분봉 및 미국 최신 분봉 페이지의 읽기 전용 수집을 지원합니다. 권한이 확인된 다중 세션 시장 데이터의 성능 재현은 남아 있습니다.
 - **P4 — AI 모델:** LightGBM/XGBoost 학습·추론 후보, 시간 순서 분리, 해시와 출처·권리 확인 manifest 기반 모델 등록을 구현했습니다. PAPER 주문 작업이 꺼져 있어도 읽기 전용 WebSocket 분봉을 PostgreSQL에 저장하도록 수집 경로를 수정했습니다. 미사용 세션에서 실제 P5 신호와 같은 ORB/VWAP 통과 AND AI 통과 조건을 P3 체결·손절·익절·비용 백테스트에 적용해 퀀트 단독 결과와 비교합니다. 별도로 양성률과 평균 전방 순수익률(bps)도 보이지만 이는 겹칠 수 있는 표본별 레이블 통계이며 실제 체결 성과가 아닙니다. 세션별 1주 독립 시뮬레이션은 계좌 비용·세금·시장충격이나 복리 투자 성과를 증명하지 않습니다. 권리 manifest가 없거나 CSV 해시가 다르면 학습·백테스트가 거부되고 해당 모델은 승인·활성화되지 않습니다. 모델은 기본 미승인입니다. P5는 승인·활성화된 시장 모델이 퀀트 조건과 위험 게이트를 통과할 때만 local paper 후보로 사용합니다.
 - **P5 — 자동 모의매매:** 거래소 캘린더, 실시간 틱 집계, 신규 진입 위험 게이트, 위험 예산·종목 비중·현금·주문 한도를 함께 적용하는 수량 계산, 로컬 paper 브로커 통신 경계와 ledger 기반 연속 손실 매도 주문 카운터를 구현했습니다. opt-in 세션 worker는 장 초반에 통화별 자산 기준선을 고정하고, 닫힌 세션별 분봉의 ORB/VWAP와 해당 시장의 활성·승인 AI 모델을 확인합니다. 신규 paper 매수는 일손실 1%, 연속 손실 3회, 총 보유 3종목, 최신 시세, 미체결 주문 여부와 포지션 크기 검사를 모두 통과할 때만 로컬 Spring paper ledger에 기록합니다. 보유 포지션은 영속 손절·익절과 장 마감 청산으로 관리합니다. 기본 스위치는 잠금 상태이며 연속 세션 복구와 모의 운영 검증이 남아 있습니다.

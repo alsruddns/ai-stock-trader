@@ -89,6 +89,20 @@ public class OrderRecord {
         updatedAt = Instant.now();
     }
 
+    public void amendPaperOrder(int amendedQuantity, BigDecimal amendedLimitPrice) {
+        if (status != OrderStatus.PENDING && status != OrderStatus.PARTIALLY_FILLED) {
+            throw new IllegalArgumentException("Only open paper orders can be amended.");
+        }
+        if (amendedQuantity <= filledQuantity
+                || amendedLimitPrice == null || amendedLimitPrice.signum() <= 0) {
+            throw new IllegalArgumentException("Amended quantity must leave an open remainder and price must be positive.");
+        }
+        quantity = amendedQuantity;
+        limitPrice = amendedLimitPrice;
+        status = filledQuantity == 0 ? OrderStatus.PENDING : OrderStatus.PARTIALLY_FILLED;
+        updatedAt = Instant.now();
+    }
+
     public void expirePaperOrder() {
         if (status != OrderStatus.PENDING && status != OrderStatus.PARTIALLY_FILLED) {
             throw new IllegalArgumentException("Only open paper orders can expire.");

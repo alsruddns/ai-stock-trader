@@ -33,6 +33,13 @@ public class OrderController {
         return service.cancelPaperOrder(orderId);
     }
 
+    @PostMapping("/paper/{orderId}/amend")
+    public OrderRecord amendPaperOrder(@PathVariable Long orderId,
+                                       @RequestHeader("Idempotency-Key") UUID idempotencyKey,
+                                       @Valid @RequestBody PaperOrderAmendmentRequest request) {
+        return service.amendPaperOrder(orderId, idempotencyKey, request);
+    }
+
     @PostMapping("/paper/{orderId}/expire")
     public OrderRecord expirePaperOrder(@PathVariable Long orderId) {
         return service.expirePaperOrder(orderId);

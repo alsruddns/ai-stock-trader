@@ -22,6 +22,7 @@ class OrderServiceTest {
     @Mock PaperPositionRepository positions;
     @Mock PaperCashRepository cashBalances;
     @Mock PaperStrategyRiskRepository strategyRisks;
+    @Mock PaperOrderAmendmentRepository amendments;
     private final UUID idempotencyKey = UUID.fromString("d8d449d8-f154-4c5a-b1d0-6ce69f790f51");
     private TradingSafetyProperties safeConfig() {
         return new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100"));
@@ -345,6 +346,70 @@ class OrderServiceTest {
     }
 
     @Test
+    void amendsOpenPaperOrderAndPersistsThePriorAndNewTerms() {
+        UUID amendmentKey = UUID.randomUUID();
+        OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
+        ReflectionTestUtils.setField(order, "id", 11L);
+        when(orders.findByIdForUpdate(11L)).thenReturn(Optional.of(order));
+        when(amendments.findByOrderIdAndIdempotencyKey(11L, amendmentKey)).thenReturn(Optional.empty());
+        when(amendments.save(any(PaperOrderAmendment.class))).thenAnswer(call -> call.getArgument(0));
+        when(orders.save(order)).thenReturn(order);
+
+        OrderRecord result = serviceWithAmendments().amendPaperOrder(11L, amendmentKey,
+                new PaperOrderAmendmentRequest(3, new BigDecimal("71000")));
+
+        assertSame(order, result);
+        assertEquals(3, result.getQuantity());
+        assertEquals(0, result.getFilledQuantity());
+        assertEquals(new BigDecimal("71000"), result.getLimitPrice());
+        assertEquals(OrderStatus.PENDING, result.getStatus());
+        verify(amendments).save(argThat(record -> record.getOrderId().equals(11L)
+                && record.getIdempotencyKey().equals(amendmentKey)
+                && record.getOldQuantity() == 2
+                && record.getNewQuantity() == 3
+                && record.getOldLimitPrice().compareTo(new BigDecimal("70000")) == 0
+                && record.getNewLimitPrice().compareTo(new BigDecimal("71000")) == 0));
+        verify(orders).save(order);
+    }
+
+    @Test
+    void amendmentCannotReduceQuantityBelowAlreadyFilledAmount() {
+        UUID amendmentKey = UUID.randomUUID();
+        OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 3), idempotencyKey);
+        ReflectionTestUtils.setField(order, "id", 12L);
+        order.applyFill(2, new BigDecimal("70000"));
+        when(orders.findByIdForUpdate(12L)).thenReturn(Optional.of(order));
+        when(amendments.findByOrderIdAndIdempotencyKey(12L, amendmentKey)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalArgumentException.class, () -> serviceWithAmendments().amendPaperOrder(12L,
+                amendmentKey, new PaperOrderAmendmentRequest(1, new BigDecimal("71000"))));
+
+        assertEquals(3, order.getQuantity());
+        assertEquals(OrderStatus.PARTIALLY_FILLED, order.getStatus());
+        verify(amendments, never()).save(any());
+        verify(orders, never()).save(any());
+    }
+
+    @Test
+    void repeatedIdenticalAmendmentKeyDoesNotWriteAnotherRevision() {
+        UUID amendmentKey = UUID.randomUUID();
+        OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
+        ReflectionTestUtils.setField(order, "id", 13L);
+        PaperOrderAmendment previous = new PaperOrderAmendment(13L, amendmentKey, 2, 3,
+                new BigDecimal("70000"), new BigDecimal("71000"));
+        order.amendPaperOrder(3, new BigDecimal("71000"));
+        when(orders.findByIdForUpdate(13L)).thenReturn(Optional.of(order));
+        when(amendments.findByOrderIdAndIdempotencyKey(13L, amendmentKey)).thenReturn(Optional.of(previous));
+
+        OrderRecord result = serviceWithAmendments().amendPaperOrder(13L, amendmentKey,
+                new PaperOrderAmendmentRequest(3, new BigDecimal("71000")));
+
+        assertSame(order, result);
+        verify(amendments, never()).save(any());
+        verify(orders, never()).save(any());
+    }
+
+    @Test
     void configuredPaperTimeoutExpiresOpenOrdersButZeroDisablesTheSweep() {
         OrderRecord pending = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
         OrderRecord partial = new OrderRecord(request(new BigDecimal("70000"), 2), UUID.randomUUID());
@@ -365,5 +430,8 @@ class OrderServiceTest {
     }
     private OrderService serviceWithStrategyRisks() {
         return new OrderService(orders, safeConfig(), fills, positions, cashBalances, strategyRisks);
+    }
+    private OrderService serviceWithAmendments() {
+        return new OrderService(orders, safeConfig(), fills, positions, cashBalances, strategyRisks, amendments);
     }
 }

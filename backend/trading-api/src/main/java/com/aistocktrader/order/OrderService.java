@@ -20,22 +20,35 @@ public class OrderService {
     private final PaperCashRepository cashBalances;
     private final PaperStrategyRiskRepository strategyRisks;
     private final PaperTransactionCostCalculator costs;
+    private final PaperOrderAmendmentRepository amendments;
     @Autowired
     public OrderService(OrderRepository orders, TradingSafetyProperties safety,
                         PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances,
-                        PaperStrategyRiskRepository strategyRisks, PaperTransactionCostCalculator costs) {
+                        PaperStrategyRiskRepository strategyRisks, PaperTransactionCostCalculator costs,
+                        PaperOrderAmendmentRepository amendments) {
         this.orders = orders; this.safety = safety; this.fills = fills;
         this.positions = positions; this.cashBalances = cashBalances;
-        this.strategyRisks = strategyRisks; this.costs = costs;
+        this.strategyRisks = strategyRisks; this.costs = costs; this.amendments = amendments;
     }
     public OrderService(OrderRepository orders, TradingSafetyProperties safety,
                         PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances,
                         PaperStrategyRiskRepository strategyRisks) {
-        this(orders, safety, fills, positions, cashBalances, strategyRisks, disabledCosts());
+        this(orders, safety, fills, positions, cashBalances, strategyRisks, disabledCosts(), null);
+    }
+    public OrderService(OrderRepository orders, TradingSafetyProperties safety,
+                        PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances,
+                        PaperStrategyRiskRepository strategyRisks, PaperOrderAmendmentRepository amendments) {
+        this(orders, safety, fills, positions, cashBalances, strategyRisks, disabledCosts(), amendments);
     }
     public OrderService(OrderRepository orders, TradingSafetyProperties safety,
                         PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances) {
-        this(orders, safety, fills, positions, cashBalances, null);
+        this(orders, safety, fills, positions, cashBalances, null, disabledCosts(), null);
+    }
+
+    public OrderService(OrderRepository orders, TradingSafetyProperties safety,
+                        PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances,
+                        PaperStrategyRiskRepository strategyRisks, PaperTransactionCostCalculator costs) {
+        this(orders, safety, fills, positions, cashBalances, strategyRisks, costs, null);
     }
 
     public OrderRecord submit(OrderRequest request, UUID idempotencyKey) {
@@ -142,6 +155,34 @@ public class OrderService {
                 .orElseThrow(() -> new NoSuchElementException("Order not found."));
         if (order.getStatus() == OrderStatus.CANCELLED) return order;
         order.cancelPaperOrder();
+        return orders.save(order);
+    }
+
+    @Transactional
+    public OrderRecord amendPaperOrder(Long orderId, UUID idempotencyKey, PaperOrderAmendmentRequest request) {
+        requirePaperMode();
+        if (idempotencyKey == null) throw new IllegalArgumentException("Amendment Idempotency-Key is required.");
+        OrderRecord order = orders.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new NoSuchElementException("Order not found."));
+        PaperOrderAmendment previous = amendments.findByOrderIdAndIdempotencyKey(orderId, idempotencyKey).orElse(null);
+        if (previous != null) {
+            if (previous.getNewQuantity() == request.quantity()
+                    && previous.getNewLimitPrice().compareTo(request.limitPrice()) == 0) return order;
+            throw new IdempotencyConflictException("Amendment Idempotency-Key was already used for different values.");
+        }
+        BigDecimal notional = request.limitPrice().multiply(BigDecimal.valueOf(request.quantity()));
+        BigDecimal limit = order.getCurrency() == Currency.KRW
+                ? safety.maxOrderNotionalKrw() : safety.maxOrderNotionalUsd();
+        if (notional.compareTo(limit) > 0) {
+            throw new IllegalArgumentException("Amended paper order exceeds the configured notional limit.");
+        }
+        int oldQuantity = order.getQuantity();
+        BigDecimal oldLimitPrice = order.getLimitPrice();
+        order.amendPaperOrder(request.quantity(), request.limitPrice());
+        PaperOrderAmendment amendment = new PaperOrderAmendment(orderId, idempotencyKey,
+                oldQuantity, request.quantity(), oldLimitPrice, request.limitPrice());
+        amendments.save(amendment);
+        order.amendPaperOrder(request.quantity(), request.limitPrice());
         return orders.save(order);
     }
 
