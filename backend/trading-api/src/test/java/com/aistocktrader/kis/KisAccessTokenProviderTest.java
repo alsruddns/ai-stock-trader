@@ -27,7 +27,7 @@ class KisAccessTokenProviderTest {
         server.expect(requestTo(PAPER_URL + "/oauth2/tokenP"))
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withSuccess("""
-                        {"access_token":"paper-token","access_token_token_expired":"2026-11-06 23:00:00"}
+                        {"access_token":"paper-token","access_token_token_expired":"2099-11-06 23:00:00"}
                         """, MediaType.APPLICATION_JSON));
         KisAccessTokenProvider provider = new KisAccessTokenProvider(properties(), builder,
                 new KisRestRateLimiter());
