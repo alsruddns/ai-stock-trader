@@ -1,3 +1,7 @@
+param(
+    [switch]$EnableReadOnlyGetForThisRun
+)
+
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -22,7 +26,11 @@ foreach ($line in Get-Content -LiteralPath $envPath) {
 }
 
 if ($env:KIS_ACCOUNT_READ_ENABLED -ne 'true' -or $env:KIS_REAL_ACCOUNT_READ_ENABLED -ne 'true') {
-    throw 'Set KIS_ACCOUNT_READ_ENABLED=true and KIS_REAL_ACCOUNT_READ_ENABLED=true in .env_local to explicitly allow read-only REAL account GET tests.'
+    if (-not $EnableReadOnlyGetForThisRun) {
+        throw 'Set both read-only gates to true in .env_local or pass -EnableReadOnlyGetForThisRun for a process-only opt-in.'
+    }
+    $env:KIS_ACCOUNT_READ_ENABLED = 'true'
+    $env:KIS_REAL_ACCOUNT_READ_ENABLED = 'true'
 }
 if (-not $env:KIS_REAL_APP_KEY -or -not $env:KIS_REAL_APP_SECRET -or -not $env:KIS_REAL_ACCOUNT_NUMBER) {
     throw 'Configure KIS_REAL_APP_KEY, KIS_REAL_APP_SECRET, and KIS_REAL_ACCOUNT_NUMBER in .env_local. Values are never displayed.'
