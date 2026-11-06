@@ -34,6 +34,25 @@ def test_orb_vwap_enters_on_next_bar_and_applies_costs() -> None:
     assert result.executable is False
 
 
+def test_optional_ai_entry_filter_runs_only_after_quant_candidate_without_future_bars(monkeypatch) -> None:
+    bars = _session_bars()
+    seen_histories = []
+    monkeypatch.setattr("app.quant.orb_vwap_entry_candidate", lambda history, *_args, **_kwargs: len(history) == 21)
+
+    def reject_candidate(history):
+        seen_histories.append(tuple(item.timestamp for item in history))
+        return False
+
+    config = QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"))
+    result = backtest_orb_vwap("KR", "005930", bars, config, entry_filter=reject_candidate)
+
+    assert result.signals == 0
+    assert result.trades == ()
+    assert len(seen_histories) == 1
+    assert seen_histories[0][-1] == bars[20].timestamp
+    assert bars[21].timestamp not in seen_histories[0]
+
+
 def test_strategy_rejects_unsorted_or_cross_session_bars() -> None:
     bars = _session_bars()
     with pytest.raises(ValueError, match="strictly increasing"):

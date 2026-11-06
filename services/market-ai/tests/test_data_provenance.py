@@ -81,7 +81,7 @@ def test_timezone_is_required_for_retrieval_and_rights_review() -> None:
 @pytest.mark.parametrize(
     ("script_name", "arguments"),
     [
-        ("train-ai-models.py", ["--market", "KR"]),
+        ("train-ai-models.py", ["--market", "KR", "--symbol", "005930"]),
         ("backtest-quant.py", ["--market", "KR", "--symbol", "005930"]),
     ],
 )

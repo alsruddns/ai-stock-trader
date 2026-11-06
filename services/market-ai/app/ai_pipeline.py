@@ -19,13 +19,15 @@ from zoneinfo import ZoneInfo
 
 from .data_provenance import validate_data_provenance
 from .quant import (MinuteBar, QuantConfig, _atr, _ema, _vwap,
-                    exchange_session_date, orb_vwap_entry_candidate)
+                    backtest_orb_vwap, exchange_session_date, orb_vwap_entry_candidate)
 
 FEATURE_NAMES = (
     "return_1m", "return_3m", "return_5m", "close_vwap_pct", "ema9_gap_pct",
     "ema20_gap_pct", "atr14_pct", "relative_volume20", "spread_bps", "session_progress",
 )
 FEATURE_VERSION = 2
+MIN_MODEL_APPROVAL_TEST_SESSIONS = 5
+MIN_MODEL_APPROVAL_TEST_TRADES = 5
 _REGISTRY_LOCKS_GUARD = threading.Lock()
 _REGISTRY_LOCKS: dict[Path, threading.RLock] = {}
 
@@ -69,6 +71,9 @@ class ModelTrainingResult:
     validation_metrics: dict[str, float]
     test_metrics: dict[str, float]
     quant_baseline_test_metrics: dict[str, float]
+    quant_backtest_test_metrics: dict[str, Any]
+    ai_quant_backtest_test_metrics: dict[str, Any]
+    training_config: dict[str, Any]
     train_sessions: tuple[str, ...]
     validation_sessions: tuple[str, ...]
     test_sessions: tuple[str, ...]
@@ -232,6 +237,22 @@ def _quant_baseline_metrics(samples: list[TrainingSample]) -> dict[str, float]:
     }
 
 
+def _backtest_metrics(results: list[Any]) -> dict[str, Any]:
+    trades = [trade for result in results for trade in result.trades]
+    net_pnl = sum((result.net_pnl for result in results), Decimal(0))
+    return {
+        "session_count": float(len(results)),
+        "signal_count": float(sum(result.signals for result in results)),
+        "trade_count": float(len(trades)),
+        "winning_trades": float(sum(trade.net_pnl > 0 for trade in trades)),
+        "win_rate": float(sum(trade.net_pnl > 0 for trade in trades) / len(trades)) if trades else 0.0,
+        "gross_pnl": str(sum((result.gross_pnl for result in results), Decimal(0))),
+        "estimated_costs": str(sum((result.costs for result in results), Decimal(0))),
+        "net_pnl": str(net_pnl),
+        "average_trade_net_pnl": str(net_pnl / len(trades)) if trades else "0",
+    }
+
+
 class LocalModelRegistry:
     """Stores model artifacts outside source control; newly trained models stay unapproved."""
 
@@ -263,13 +284,16 @@ class LocalModelRegistry:
             try:
                 metadata = self.manifest(manifest_path.stem)
                 data_rights_verified = self._has_verified_data_provenance(metadata)
-                approved = bool(metadata.get("approved", False) and data_rights_verified)
                 feature_compatible = self._supports_current_features(metadata)
+                approval_evidence_verified = self._has_valid_approval_evidence(metadata)
+                approved = bool(metadata.get("approved", False) and data_rights_verified
+                                and feature_compatible and approval_evidence_verified)
                 items.append({
                     "model_id": metadata["model_id"], "market": metadata.get("market"), "model_type": metadata["model_type"],
                     "feature_version": metadata.get("feature_version"),
                     "feature_compatible": feature_compatible,
                     "data_rights_verified": data_rights_verified,
+                    "approval_evidence_verified": approval_evidence_verified,
                     "approved": approved,
                     "active": metadata["model_id"] == active_model and approved and feature_compatible,
                     "artifact_sha256": metadata["artifact_sha256"],
@@ -277,6 +301,9 @@ class LocalModelRegistry:
                     "validation_metrics": metadata.get("validation_metrics", {}),
                     "test_metrics": metadata.get("test_metrics", {}),
                     "quant_baseline_test_metrics": metadata.get("quant_baseline_test_metrics", {}),
+                    "quant_backtest_test_metrics": metadata.get("quant_backtest_test_metrics", {}),
+                    "ai_quant_backtest_test_metrics": metadata.get("ai_quant_backtest_test_metrics", {}),
+                    "training_config": metadata.get("training_config", {}),
                     "test_sessions": metadata.get("test_sessions", []),
                     "approval": metadata.get("approval"),
                 })
@@ -301,7 +328,8 @@ class LocalModelRegistry:
             return None
         if (metadata.get("market") != requested_market or not metadata.get("approved")
                 or not self._supports_current_features(metadata)
-                or not self._has_verified_data_provenance(metadata)):
+                or not self._has_verified_data_provenance(metadata)
+                or not self._has_valid_approval_evidence(metadata)):
             return None
         return metadata
 
@@ -319,6 +347,53 @@ class LocalModelRegistry:
         except ValueError:
             return False
 
+    @staticmethod
+    def _has_valid_approval_evidence(metadata: dict[str, Any]) -> bool:
+        try:
+            partitions: dict[str, list[date]] = {}
+            for name in ("train_sessions", "validation_sessions", "test_sessions"):
+                values = metadata.get(name)
+                if not isinstance(values, list) or not values or any(not isinstance(value, str) for value in values):
+                    return False
+                parsed = [date.fromisoformat(value) for value in values]
+                if len(set(parsed)) != len(parsed):
+                    return False
+                partitions[name] = parsed
+            train, validation, test = (set(partitions[name]) for name in
+                                       ("train_sessions", "validation_sessions", "test_sessions"))
+            if (train & validation or train & test or validation & test
+                    or max(train) >= min(validation) or max(validation) >= min(test)
+                    or len(test) < MIN_MODEL_APPROVAL_TEST_SESSIONS):
+                return False
+            ai = metadata.get("ai_quant_backtest_test_metrics")
+            quant = metadata.get("quant_backtest_test_metrics")
+            if not isinstance(ai, dict) or not isinstance(quant, dict):
+                return False
+            config = metadata.get("training_config")
+            if (not isinstance(config, dict) or not isinstance(config.get("symbol"), str)
+                    or not config["symbol"].strip() or config.get("backtest_quantity_per_session") != 1):
+                return False
+            horizon = config.get("label_horizon_bars")
+            if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon <= 0:
+                return False
+            for key in ("label_round_trip_cost_bps", "backtest_commission_bps", "backtest_slippage_bps"):
+                value = Decimal(str(config[key]))
+                if not value.is_finite() or value < 0:
+                    return False
+            for metrics in (ai, quant):
+                session_count = Decimal(str(metrics["session_count"]))
+                if not session_count.is_finite() or session_count != len(test):
+                    return False
+            ai_net = Decimal(str(ai["net_pnl"]))
+            quant_net = Decimal(str(quant["net_pnl"]))
+            ai_trades = Decimal(str(ai["trade_count"]))
+            return (ai_trades.is_finite() and ai_trades == ai_trades.to_integral_value()
+                    and ai_trades >= MIN_MODEL_APPROVAL_TEST_TRADES
+                    and ai_net.is_finite() and quant_net.is_finite()
+                    and ai_net > 0 and ai_net > quant_net)
+        except (ArithmeticError, KeyError, TypeError, ValueError):
+            return False
+
     def approve(self, model_id: str, *, approved_by: str, note: str) -> dict[str, Any]:
         reviewer = approved_by.strip()[:80]
         justification = note.strip()[:1000]
@@ -334,12 +409,62 @@ class LocalModelRegistry:
                 raise ValueError("model lacks verified data-rights provenance and cannot be approved")
             if not metadata.get("test_sessions") or not metadata.get("test_metrics"):
                 raise ValueError("model has no held-out test evidence and cannot be approved")
+            session_partitions: dict[str, set[date]] = {}
+            for partition_name in ("train_sessions", "validation_sessions", "test_sessions"):
+                values = metadata.get(partition_name)
+                if not isinstance(values, list) or not values or any(not isinstance(value, str) for value in values):
+                    raise ValueError("model session partitions are incomplete and cannot be approved")
+                try:
+                    parsed_values = [date.fromisoformat(value) for value in values]
+                except ValueError as exc:
+                    raise ValueError("model session partitions must contain ISO dates") from exc
+                if len(set(parsed_values)) != len(parsed_values):
+                    raise ValueError("model session partitions must not contain duplicate dates")
+                session_partitions[partition_name] = set(parsed_values)
+            train_sessions = session_partitions["train_sessions"]
+            validation_sessions = session_partitions["validation_sessions"]
+            test_sessions = session_partitions["test_sessions"]
+            if (train_sessions & validation_sessions or train_sessions & test_sessions
+                    or validation_sessions & test_sessions
+                    or max(train_sessions) >= min(validation_sessions)
+                    or max(validation_sessions) >= min(test_sessions)):
+                raise ValueError("model session partitions must be disjoint and strictly chronological")
+            if len(test_sessions) < MIN_MODEL_APPROVAL_TEST_SESSIONS:
+                raise ValueError("at least five distinct held-out sessions are required for model approval")
+            ai_backtest = metadata.get("ai_quant_backtest_test_metrics")
+            quant_backtest = metadata.get("quant_backtest_test_metrics")
+            if not isinstance(ai_backtest, dict) or not isinstance(quant_backtest, dict):
+                raise ValueError("held-out AI+quant and quant-only strategy backtests are required for approval")
+            try:
+                ai_trade_count = int(ai_backtest["trade_count"])
+                ai_net_pnl = Decimal(str(ai_backtest["net_pnl"]))
+                quant_net_pnl = Decimal(str(quant_backtest["net_pnl"]))
+            except (KeyError, ArithmeticError, TypeError, ValueError) as exc:
+                raise ValueError("held-out strategy backtest metrics are incomplete") from exc
+            if ai_trade_count < MIN_MODEL_APPROVAL_TEST_TRADES:
+                raise ValueError("at least five held-out AI+quant strategy trades are required for model approval")
+            if not ai_net_pnl.is_finite() or not quant_net_pnl.is_finite():
+                raise ValueError("held-out strategy backtest metrics must be finite")
+            if ai_net_pnl <= 0 or ai_net_pnl <= quant_net_pnl:
+                raise ValueError("AI+quant held-out net PnL must be positive and exceed the quant-only baseline")
+            if not self._has_valid_approval_evidence(metadata):
+                raise ValueError("held-out metrics or training configuration are inconsistent")
             previous_metadata = json.loads(json.dumps(metadata))
             metadata["approved"] = True
             metadata["approval"] = {"approved_by": reviewer, "note": justification, "approved_at": datetime.now().astimezone().isoformat()}
             self._write_json_atomic(self.root / f"{model_id}.json", metadata)
             try:
-                self._record_governance_event({"action": "approve", "model_id": model_id, **metadata["approval"]})
+                self._record_governance_event({
+                    "action": "approve", "model_id": model_id, **metadata["approval"],
+                    "dataset_sha256": metadata.get("dataset_sha256"),
+                    "artifact_sha256": metadata["artifact_sha256"],
+                    "train_sessions": metadata["train_sessions"],
+                    "validation_sessions": metadata["validation_sessions"],
+                    "test_sessions": metadata["test_sessions"],
+                    "training_config": metadata.get("training_config", {}),
+                    "quant_backtest_test_metrics": quant_backtest,
+                    "ai_quant_backtest_test_metrics": ai_backtest,
+                })
             except OSError:
                 self._write_json_atomic(self.root / f"{model_id}.json", previous_metadata)
                 raise
@@ -358,6 +483,8 @@ class LocalModelRegistry:
                 raise ValueError("model lacks verified data-rights provenance and cannot be activated")
             if not metadata.get("approved"):
                 raise ValueError("only an approved model can become the advisory active model")
+            if not self._has_valid_approval_evidence(metadata):
+                raise ValueError("model lacks valid held-out comparative strategy evidence")
             previous_state = None
             if self._active_path.is_file():
                 try:
@@ -413,12 +540,18 @@ class LocalModelRegistry:
             if os.path.exists(temporary):
                 os.unlink(temporary)
 
-    def train_compare(self, samples: list[TrainingSample], *, market: str,
-                      dataset_sha256: str,
-                      dataset_provenance: dict[str, Any]) -> list[ModelTrainingResult]:
+    def train_compare(self, samples: list[TrainingSample], *, market: str, symbol: str,
+                      sessions: dict[date, list[MinuteBar]], quant_config: QuantConfig = QuantConfig(),
+                      label_horizon_bars: int, label_round_trip_cost_bps: Decimal,
+                      dataset_sha256: str, dataset_provenance: dict[str, Any]) -> list[ModelTrainingResult]:
         market = market.upper()
         if market not in {"KR", "US"}:
             raise ValueError("market must be KR or US; train separate market-specific candidates")
+        normalized_symbol = symbol.strip().upper()
+        if not normalized_symbol:
+            raise ValueError("a single instrument symbol is required for strategy backtests")
+        if label_horizon_bars <= 0 or label_round_trip_cost_bps < 0:
+            raise ValueError("label horizon and round-trip cost settings are invalid")
         if not re.fullmatch(r"[a-f0-9]{64}", dataset_sha256):
             raise ValueError("dataset_sha256 must be a lowercase SHA-256 digest")
         provenance = validate_data_provenance(dataset_provenance, expected_sha256=dataset_sha256,
@@ -445,11 +578,42 @@ class LocalModelRegistry:
         train_dates = tuple(sorted({sample.session.isoformat() for sample in train}))
         validation_dates = tuple(sorted({sample.session.isoformat() for sample in validation}))
         test_dates = tuple(sorted({sample.session.isoformat() for sample in test}))
+        test_session_dates = {sample.session for sample in test}
+        test_bars = {session: bars for session, bars in sessions.items() if session in test_session_dates}
+        if set(test_bars) != test_session_dates:
+            raise ValueError("every held-out sample session must have source bars for strategy backtesting")
+        quant_backtest_test_metrics = _backtest_metrics([
+            backtest_orb_vwap(market, normalized_symbol, test_bars[session], quant_config)
+            for session in sorted(test_bars)
+        ])
+        training_config = {
+            "symbol": normalized_symbol,
+            "label_horizon_bars": label_horizon_bars,
+            "label_round_trip_cost_bps": str(label_round_trip_cost_bps),
+            "backtest_quantity_per_session": 1,
+            "backtest_commission_bps": str(quant_config.commission_bps),
+            "backtest_slippage_bps": str(quant_config.slippage_bps),
+            "backtest_minimum_turnover": str(quant_config.minimum_turnover),
+            "backtest_maximum_spread_bps": str(quant_config.maximum_spread_bps),
+            "backtest_minimum_relative_volume": str(quant_config.minimum_relative_volume),
+            "backtest_atr_stop_multiple": str(quant_config.atr_stop_multiple),
+            "backtest_reward_risk_multiple": str(quant_config.reward_risk_multiple),
+        }
         for name, model in candidates.items():
             model.fit(x_train, y_train)
             validation_metrics = _metrics(model, validation)
             test_metrics = _metrics(model, test)
             quant_baseline_test_metrics = _quant_baseline_metrics(test)
+            def ai_entry_filter(history: list[MinuteBar]) -> bool:
+                features = latest_features(history, market=market)
+                probability = float(model.predict_proba(np.asarray([features], dtype=np.float32))[0][1])
+                return probability >= 0.5
+
+            ai_quant_backtest_test_metrics = _backtest_metrics([
+                backtest_orb_vwap(market, normalized_symbol, test_bars[session], quant_config,
+                                  entry_filter=ai_entry_filter)
+                for session in sorted(test_bars)
+            ])
             model_id = f"{name}-{uuid4().hex}"
             artifact_name = f"{model_id}.joblib"
             artifact_path = self.root / artifact_name
@@ -472,6 +636,9 @@ class LocalModelRegistry:
                 "data_provenance": provenance,
                 "validation_metrics": validation_metrics, "test_metrics": test_metrics,
                 "quant_baseline_test_metrics": quant_baseline_test_metrics,
+                "quant_backtest_test_metrics": quant_backtest_test_metrics,
+                "ai_quant_backtest_test_metrics": ai_quant_backtest_test_metrics,
+                "training_config": training_config,
                 "train_sessions": train_dates, "validation_sessions": validation_dates,
                 "test_sessions": test_dates,
             }
@@ -480,7 +647,9 @@ class LocalModelRegistry:
             manifest_tmp.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
             os.replace(manifest_tmp, manifest_path)
             results.append(ModelTrainingResult(model_id, market, name, 0.5, validation_metrics, test_metrics,
-                                               quant_baseline_test_metrics, train_dates, validation_dates,
+                                               quant_baseline_test_metrics, quant_backtest_test_metrics,
+                                               ai_quant_backtest_test_metrics, training_config,
+                                               train_dates, validation_dates,
                                                test_dates, digest))
         return results
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Callable, Literal
 from zoneinfo import ZoneInfo
 
 Market = Literal["KR", "US"]
@@ -163,6 +163,7 @@ def backtest_orb_vwap(
     config: QuantConfig = QuantConfig(),
     *,
     quantity: int = 1,
+    entry_filter: Callable[[list[MinuteBar]], bool] | None = None,
 ) -> BacktestResult:
     """Long-only ORB/VWAP/EMA strategy. Signals use data available at each bar close;
     entries execute no earlier than the next bar open. If stop and target touch in one
@@ -215,7 +216,8 @@ def backtest_orb_vwap(
 
         # Each indicator is computed only from bars through this close.
         ready = index + 1 >= minimum_history
-        buy = entry is None and ready and orb_vwap_entry_candidate(history, config, market=market)
+        quant_candidate = entry is None and ready and orb_vwap_entry_candidate(history, config, market=market)
+        buy = quant_candidate and (entry_filter is None or entry_filter(history))
         if buy:
             signals += 1
             if index + 1 < len(bars):

@@ -142,7 +142,9 @@ def test_ai_candidate_metrics_apply_the_same_quant_gate_as_paper_runtime() -> No
 def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path) -> None:
     samples = build_training_samples(_sample_sessions(), market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("0"))
     results = LocalModelRegistry(tmp_path).train_compare(
-        samples, market="KR", dataset_sha256="a" * 64, dataset_provenance=_provenance("a" * 64),
+        samples, market="KR", symbol="005930", sessions=_sample_sessions(),
+        label_horizon_bars=5, label_round_trip_cost_bps=Decimal("0"),
+        dataset_sha256="a" * 64, dataset_provenance=_provenance("a" * 64),
     )
     assert {result.model_type for result in results} == {"lightgbm", "xgboost"}
     for result in results:
@@ -153,6 +155,13 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path)
         assert metadata["data_provenance"]["rights_reviewed"] is True
         assert LocalModelRegistry(tmp_path).list_models()[0]["data_rights_verified"] is True
         assert metadata["quant_baseline_test_metrics"] == result.quant_baseline_test_metrics
+        assert metadata["quant_backtest_test_metrics"] == result.quant_backtest_test_metrics
+        assert metadata["ai_quant_backtest_test_metrics"] == result.ai_quant_backtest_test_metrics
+        assert metadata["quant_backtest_test_metrics"]["session_count"] == len(result.test_sessions)
+        assert isinstance(metadata["ai_quant_backtest_test_metrics"]["net_pnl"], str)
+        assert metadata["training_config"]["symbol"] == "005930"
+        assert metadata["training_config"]["label_horizon_bars"] == 5
+        assert metadata["training_config"]["backtest_commission_bps"] == "5"
         assert "candidate_positive_rate" in result.test_metrics
         assert "candidate_mean_forward_net_bps" in result.test_metrics
         assert "candidate_coverage" in result.quant_baseline_test_metrics
@@ -171,7 +180,9 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path)
 def test_training_rejects_malformed_dataset_digest_before_training(tmp_path) -> None:
     with pytest.raises(ValueError, match="lowercase SHA-256"):
         LocalModelRegistry(tmp_path).train_compare(
-            [], market="KR", dataset_sha256="not-a-digest", dataset_provenance={},
+            [], market="KR", symbol="005930", sessions={},
+            label_horizon_bars=5, label_round_trip_cost_bps=Decimal("0"),
+            dataset_sha256="not-a-digest", dataset_provenance={},
         )
 
 
@@ -222,7 +233,17 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str) -> None:
         "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(), "approved": False,
         "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION, "threshold": 0.5,
         "validation_metrics": {"accuracy": 0.6}, "test_metrics": {"accuracy": 0.55},
-        "test_sessions": ["2026-10-08"], "dataset_sha256": dataset_sha256,
+        "quant_backtest_test_metrics": {"session_count": 5.0, "trade_count": 5.0, "net_pnl": 5.0},
+        "ai_quant_backtest_test_metrics": {"session_count": 5.0, "trade_count": 6.0, "net_pnl": 12.0},
+        "training_config": {
+            "symbol": "005930", "label_horizon_bars": 5, "label_round_trip_cost_bps": "20",
+            "backtest_quantity_per_session": 1, "backtest_commission_bps": "5",
+            "backtest_slippage_bps": "5",
+        },
+        "train_sessions": ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"],
+        "validation_sessions": ["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10"],
+        "test_sessions": ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"],
+        "dataset_sha256": dataset_sha256,
         "data_provenance": _provenance(dataset_sha256),
     }
     (registry.root / f"{model_id}.json").write_text(json.dumps(metadata), encoding="utf-8")
@@ -272,9 +293,61 @@ def test_model_governance_requires_review_and_records_rollback(tmp_path) -> None
     assert models[first]["market"] == "KR"
     assert models[second]["active"] is False
     assert rollback["previous_model_id"] == second
+    approval_event = next(event for event in registry.governance_events() if event["action"] == "approve")
+    assert len(approval_event["test_sessions"]) == 5
+    assert approval_event["ai_quant_backtest_test_metrics"]["net_pnl"] == 12.0
+    assert approval_event["training_config"]["backtest_commission_bps"] == "5"
     assert registry.governance_events()[-1]["action"] == "rollback"
     assert registry.active_approved_model("KR")["model_id"] == first
     assert registry.active_approved_model("US") is None
+
+
+def test_model_approval_requires_sufficient_heldout_sessions_and_ai_quant_outperformance(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "9" * 32
+    _write_candidate(registry, model_id)
+    manifest_path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    metadata["ai_quant_backtest_test_metrics"]["net_pnl"] = 4.0
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must be positive and exceed the quant-only baseline"):
+        registry.approve(model_id, approved_by="operator", note="Review held-out execution comparison before promotion.")
+
+    metadata["approved"] = True
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+    registry._active_path.write_text(json.dumps({"model_id": model_id}), encoding="utf-8")
+    assert registry.active_approved_model("KR") is None
+    listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
+    assert listed["approved"] is False
+    assert listed["approval_evidence_verified"] is False
+    with pytest.raises(ValueError, match="valid held-out comparative strategy evidence"):
+        registry.activate(model_id, changed_by="operator", note="Do not activate without reliable held-out evidence.")
+
+    metadata["ai_quant_backtest_test_metrics"]["net_pnl"] = 12.0
+    metadata["approved"] = False
+    metadata["test_sessions"] = ["2026-10-11"]
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(ValueError, match="at least five distinct held-out sessions"):
+        registry.approve(model_id, approved_by="operator", note="Review held-out execution comparison before promotion.")
+
+    metadata["test_sessions"] = ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"]
+    metadata["validation_sessions"][-1] = "2026-10-11"
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(ValueError, match="disjoint and strictly chronological"):
+        registry.approve(model_id, approved_by="operator", note="Review held-out execution comparison before promotion.")
+
+    metadata["validation_sessions"][-1] = "2026-10-10"
+    metadata["ai_quant_backtest_test_metrics"]["session_count"] = 4
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(ValueError, match="metrics or training configuration are inconsistent"):
+        registry.approve(model_id, approved_by="operator", note="Review held-out execution comparison before promotion.")
+
+    metadata["ai_quant_backtest_test_metrics"]["session_count"] = 5
+    metadata["training_config"].pop("backtest_slippage_bps")
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(ValueError, match="metrics or training configuration are inconsistent"):
+        registry.approve(model_id, approved_by="operator", note="Review held-out execution comparison before promotion.")
 
 
 def test_model_governance_rolls_back_state_when_audit_write_fails(tmp_path, monkeypatch) -> None:

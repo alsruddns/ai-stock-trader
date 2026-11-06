@@ -47,7 +47,9 @@ KIS에서 국내 하루 전체 분봉을 읽기 전용으로 확인할 때는 `G
 
 ```powershell
 .\services\market-ai\.venv\Scripts\python.exe .\scripts\backtest-quant.py .\data\licensed-bars.csv --market KR --symbol 005930 --commission-bps 5 --slippage-bps 5
-.\services\market-ai\.venv\Scripts\python.exe .\scripts\train-ai-models.py .\data\licensed-bars.csv --market KR
+.\services\market-ai\.venv\Scripts\python.exe .\scripts\train-ai-models.py .\data\licensed-bars.csv --market KR --symbol 005930 --commission-bps 5 --slippage-bps 5
 ```
+
+AI 학습 레이블의 기본 왕복 비용 가정은 20 bps이고, 백테스트 체결당 수수료와 슬리피지는 각각 5 bps입니다. 이는 예시 초기값이며 계좌별 실제 요율을 확인한 뒤 조정하세요. 모델 manifest에는 종목, label horizon, 비용과 유동성·손절 설정을 저장합니다. 승인에는 5개 이상의 서로 다른 held-out 세션과 5개 이상의 AI+퀀트 체결이 필요하고, 해당 AI+퀀트 순손익은 양수이며 같은 기간의 퀀트 기준선보다 커야 합니다.
 
 퀀트 결과는 세션별 JSON과 CSV SHA-256을 출력하며 주문 실행 권한이 없습니다. AI 학습도 입력 CSV SHA-256을 각 모델 manifest에 기록합니다. 각 백테스트 세션은 1주 수량으로 독립 계산하고, 포트폴리오 자본 복리·계좌별 세금·거래소 비용·시장충격은 별도 검증해야 합니다. 조정주가, 종목코드 변경, 분봉 누락, 데이터 이용·저장·재배포 권한은 CSV 제공자가 확인해야 합니다.
