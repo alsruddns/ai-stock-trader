@@ -11,6 +11,18 @@ Java 빌드는 Gradle이 아닌 프로젝트 포함 Maven Wrapper를 사용합�
 
 paper ledger 비용 추정은 `PAPER_COST_MODEL_ENABLED=false`가 기본입니다. 실제 적용 요율을 확인한 뒤 KR/US 매수·매도 수수료율을 basis points로 설정하고 `PAPER_COST_MODEL_ENABLED=true`로 켭니다. 한국·미국 계좌별 우대 수수료, 거래소 및 규제 비용은 다를 수 있으므로 예제의 0 값은 실거래 요율을 의미하지 않습니다. 비활성 상태에서는 P&L을 총액으로만 해석합니다.
 
+### Python 의존성 갱신
+
+`services/market-ai/pyproject.toml` 변경 후에는 시세 감시를 끝내고 로컬 API 작업을 중지한 다음 저장소 루트에서 실행합니다. 한국장 캘린더 호환성을 위해 pandas는 3.1 미만이어야 합니다.
+
+```powershell
+Set-Location .\services\market-ai
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,ai,ops]"
+.\.venv\Scripts\python.exe -c "import pandas, exchange_calendars; v=tuple(int(x) for x in pandas.__version__.split('.')[:2]); assert v < (3, 1), pandas.__version__; print('pandas', pandas.__version__, 'exchange_calendars', exchange_calendars.__version__)"
+```
+
+설치 후 Windows 로컬 스택을 다시 시작하고 `/api/v1/health`와 PAPER/REAL 주문 잠금을 확인합니다. 비호환 pandas가 남아 있으면 한국장 세션 판정이 진입·청산 판단을 모두 차단합니다.
+
 ## KIS 자격증명
 
 - 모의: `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET`, `KIS_PAPER_ACCOUNT_NUMBER`
