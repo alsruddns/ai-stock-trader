@@ -74,6 +74,8 @@ KIS 접근 토큰 요청은 Spring과 Python이 PostgreSQL `kis_token_issue_rate
 
 REAL 주문 위험검사는 Python AI·시세 API에서 현재 활성·승인·데이터 권리·검증 증거가 모두 유효한 모델과 요청 종목의 최근 `BUY_CANDIDATE` 결정을 확인합니다. 신호는 승인된 동일 모델이 생성하고 120초 이내여야 하며, ATR 손절 거리도 양수여야 합니다. KIS REST 시세는 출처·종목·시장과 3초 이내 시각을 확인합니다. API 장애, 불완전 응답, 종목 불일치 또는 오래된 값은 매수를 차단합니다. 이 신호 확인은 계좌별 연속손실 횟수의 서버 계산, 실시간 signal-to-order 공개 경로, 또는 전체 실전 운용 검증을 대신하지 않습니다.
 
+REAL 연속 손실 횟수의 서버 집계는 아직 연결되지 않았습니다. 이를 caller가 제공하지 못하게 했으며, 현재 검증된 횟수는 `미확인(-1)`로 처리되어 REAL 매수는 `CONSECUTIVE_LOSS_COUNT_INVALID`로 거부됩니다. KIS 공식 샘플은 국내 기간별 매매손익(`TTTC8715R`)과 해외 기간손익(`TTTS3039R`) 조회를 제공하지만, 해외 기간손익은 매매일 다음 날부터 조회 가능하다고 설명합니다. 이를 당일 실시간 거래별 연속 손실 계산에 대입하지 않습니다. [국내 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_domstk.py), [해외 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_ovrseastk.py).
+
 REAL 국내 일일 손실 기준선은 REAL 계좌 읽기가 활성화된 경우에만 거래소 캘린더 API가 확인한 개장 후 3분 동안 최초 KIS 순자산을 한 번 저장합니다. 계좌 읽기 스위치가 꺼져 있거나 FastAPI·PostgreSQL을 사용할 수 없으면 기준선은 만들어지지 않으며 REAL 매수는 일일 손실 기준 미확인으로 차단됩니다. 기준선 누락을 해소하려고 임의로 세션 중간에 시작 잔고를 기록하지 않습니다.
 REAL 주문 상태의 읽기 전용 주기 대조는 `KIS_REAL_RECONCILIATION_ENABLED=false`가 기본입니다. 활성화하려면 REAL 계좌 읽기 스위치와 자격정보도 필요합니다. 주문번호가 저장된 접수/부분체결/취소대기 주문만 조회하며, 주문번호 없는 UNKNOWN은 자동 추측·재주문하지 않습니다.
 

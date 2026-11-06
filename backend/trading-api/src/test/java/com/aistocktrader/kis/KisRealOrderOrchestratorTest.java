@@ -44,27 +44,20 @@ class KisRealOrderOrchestratorTest {
     }
 
     @Test
-    void approvedOrderIsPersistedAsRealBeforeItIsSentAndReceiptIsStored() {
+    void missingRealLossHistoryBlocksBuyEvenWhenMarketEvidenceIsApproved() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();
         KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null);
         when(intents.prepare(eq(key), anyString(), eq(KisEnvironment.REAL), eq(request), isNull()))
                 .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
-        KisOrderReceipt receipt = new KisOrderReceipt("real", "KR", "005930", "BUY", "9001", "ORG01", "0", Instant.now());
-        when(orders.placeRealLimitOrder(eq(Market.KR), eq("005930"), eq(OrderSide.BUY), eq(1),
-                eq(new BigDecimal("70000")), eq(Currency.KRW), isNull(), any(KisLiveRiskDecision.class)))
-                .thenReturn(receipt);
-        when(intents.accept(key, receipt)).thenAnswer(call -> { intent.accept(receipt); return intent; });
+        when(intents.reject(eq(key), anyString())).thenAnswer(call -> { intent.reject(call.getArgument(1)); return intent; });
 
-        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount(), safeBuyContext());
+        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount());
 
-        assertEquals("real", response.environment());
-        assertEquals(KisOrderStatus.ACCEPTED, response.status());
-        assertEquals("9001", response.brokerOrderNumber());
-        var order = inOrder(intents, orders);
-        order.verify(intents).prepare(eq(key), anyString(), eq(KisEnvironment.REAL), eq(request), isNull());
-        order.verify(orders).placeRealLimitOrder(eq(Market.KR), eq("005930"), eq(OrderSide.BUY), eq(1),
-                eq(new BigDecimal("70000")), eq(Currency.KRW), isNull(), any(KisLiveRiskDecision.class));
+        assertEquals(KisOrderStatus.REJECTED, response.status());
+        assertEquals("CONSECUTIVE_LOSS_COUNT_INVALID", response.responseCode());
+        verify(intents).reject(key, "CONSECUTIVE_LOSS_COUNT_INVALID");
+        verify(orders, never()).placeRealLimitOrder(any(), anyString(), any(), anyInt(), any(), any(), anyString(), any());
     }
 
     @Test
@@ -78,9 +71,7 @@ class KisRealOrderOrchestratorTest {
                 new KisMarketAiEvidenceClient.Evidence(false, true, new BigDecimal("100")));
         when(intents.reject(eq(key), anyString())).thenAnswer(call -> { intent.reject(call.getArgument(1)); return intent; });
 
-        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount(),
-                new KisLiveRiskContext(false, true, true, true, false, BigDecimal.ZERO, 0,
-                        new BigDecimal("1000000"), new BigDecimal("100")));
+        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount());
 
         assertEquals(KisOrderStatus.REJECTED, response.status());
         assertEquals("APPROVED_MODEL_CANDIDATE_REQUIRED", response.responseCode());
@@ -88,7 +79,7 @@ class KisRealOrderOrchestratorTest {
     }
 
     @Test
-    void unresolvedRealOrderIsReadFromServerStoreEvenIfContextSaysNoneExist() {
+    void unresolvedRealOrderIsReadFromServerStoreBeforeSubmission() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();
         KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null);
@@ -100,7 +91,7 @@ class KisRealOrderOrchestratorTest {
             return intent;
         });
 
-        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount(), safeBuyContext());
+        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount());
 
         assertEquals(KisOrderStatus.REJECTED, response.status());
         assertEquals("UNRESOLVED_ORDER_EXISTS", response.responseCode());
@@ -109,7 +100,7 @@ class KisRealOrderOrchestratorTest {
     }
 
     @Test
-    void missingServerDailyBaselineOverridesCallerSuppliedZeroAndBlocksBuy() {
+    void missingServerDailyBaselineBlocksBuy() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();
         KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null);
@@ -122,7 +113,7 @@ class KisRealOrderOrchestratorTest {
             return intent;
         });
 
-        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount(), safeBuyContext());
+        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount());
 
         assertEquals(KisOrderStatus.REJECTED, response.status());
         assertEquals("DAILY_LOSS_BASELINE_REQUIRED", response.responseCode());
@@ -138,27 +129,27 @@ class KisRealOrderOrchestratorTest {
                 .thenReturn(new KisOrderIntentStore.PreparedIntent(existing, false));
         when(intents.markUnknown(key)).thenAnswer(call -> { existing.markUnknown(); return existing; });
 
-        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount(), safeBuyContext());
+        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount());
 
         assertEquals(KisOrderStatus.UNKNOWN, response.status());
         verify(orders, never()).placeRealLimitOrder(any(), anyString(), any(), anyInt(), any(), any(), anyString(), any());
     }
 
     @Test
-    void unknownBrokerResultIsStoredAndNotRetried() {
+    void unavailableConsecutiveLossHistoryIsPersistedAsRejectedWithoutBrokerCall() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();
         KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null);
         when(intents.prepare(eq(key), anyString(), eq(KisEnvironment.REAL), eq(request), isNull()))
                 .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
-        when(orders.placeRealLimitOrder(any(), anyString(), any(), anyInt(), any(), any(), any(), any()))
-                .thenThrow(new KisOrderOutcomeUnknownException("unknown", new RuntimeException("timeout")));
-        when(intents.markUnknown(key)).thenAnswer(call -> { intent.markUnknown(); return intent; });
+        when(intents.reject(eq(key), anyString())).thenAnswer(call -> { intent.reject(call.getArgument(1)); return intent; });
 
-        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount(), safeBuyContext());
+        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount());
 
-        assertEquals(KisOrderStatus.UNKNOWN, response.status());
-        verify(intents).markUnknown(key);
+        assertEquals(KisOrderStatus.REJECTED, response.status());
+        assertEquals("CONSECUTIVE_LOSS_COUNT_INVALID", response.responseCode());
+        verify(intents).reject(key, "CONSECUTIVE_LOSS_COUNT_INVALID");
+        verify(orders, never()).placeRealLimitOrder(any(), anyString(), any(), anyInt(), any(), any(), anyString(), any());
     }
 
     @Test
@@ -356,8 +347,4 @@ class KisRealOrderOrchestratorTest {
                 new BigDecimal("100000"), new BigDecimal("1000000"), List.of(), Instant.now(), "KIS_READ_ONLY_REST");
     }
 
-    private static KisLiveRiskContext safeBuyContext() {
-        return new KisLiveRiskContext(true, true, true, true, false, BigDecimal.ZERO, 0,
-                new BigDecimal("1000000"), new BigDecimal("100"));
-    }
 }
