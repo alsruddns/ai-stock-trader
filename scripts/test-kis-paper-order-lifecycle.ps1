@@ -124,7 +124,8 @@ if ($intent.environment -ne 'paper' -or $intent.idempotencyKey -ne $idempotencyK
     throw "Order response did not match this PAPER request. Inspect order key $idempotencyKey; do not resubmit."
 }
 if ($intent.status -eq 'REJECTED') {
-    Write-Output "KIS PAPER rejected the one-share request; no accepted order remains. Key: $idempotencyKey"
+    $safeResponseCode = if ($intent.responseCode -match '^[A-Za-z0-9_-]{1,32}$') { $intent.responseCode } else { 'unavailable' }
+    Write-Output "KIS PAPER rejected the one-share request; no accepted order remains. Code: $safeResponseCode. Key: $idempotencyKey"
     exit 1
 }
 if ($intent.status -eq 'FILLED') {
