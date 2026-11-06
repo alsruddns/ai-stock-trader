@@ -78,8 +78,35 @@ try {
         '--commission-bps', $CommissionBps.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--slippage-bps', $SlippageBps.ToString([Globalization.CultureInfo]::InvariantCulture)
     )
+    $modelDirectory = Join-Path $repoRoot '.local\models'
+    $existingManifestNames = @(
+        Get-ChildItem -LiteralPath $modelDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.BaseName -match '^(lightgbm|xgboost)-[a-f0-9]{32}$' } |
+            ForEach-Object { $_.Name }
+    )
+    $existingArtifactNames = @(
+        Get-ChildItem -LiteralPath $modelDirectory -Filter '*.joblib' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.BaseName -match '^(lightgbm|xgboost)-[a-f0-9]{32}$' } |
+            ForEach-Object { $_.Name }
+    )
     $trainingOutput = & $PythonPath @trainingArgs 2>&1
     if ($LASTEXITCODE -ne 0) {
+        $addedManifests = @(
+            Get-ChildItem -LiteralPath $modelDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.BaseName -match '^(lightgbm|xgboost)-[a-f0-9]{32}$' -and
+                    $existingManifestNames -notcontains $_.Name
+                } |
+                ForEach-Object { $_.BaseName }
+        )
+        $addedArtifacts = @(
+            Get-ChildItem -LiteralPath $modelDirectory -Filter '*.joblib' -File -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.BaseName -match '^(lightgbm|xgboost)-[a-f0-9]{32}$' -and
+                    $existingArtifactNames -notcontains $_.Name
+                } |
+                ForEach-Object { $_.Name }
+        )
         $failure = [ordered]@{
             run_id = $runId
             status = 'training_failed'
@@ -88,8 +115,11 @@ try {
             from_date = $FromDate.ToString('yyyy-MM-dd')
             to_date = $ToDate.ToString('yyyy-MM-dd')
             dataset_path = $exportRelativePath
-            candidate_models_created = 'unknown'
-            candidates_may_exist_after_partial_failure = $true
+            dataset_sha256 = $csvSha256
+            candidate_models_created = ($addedManifests.Count -gt 0)
+            candidate_model_ids = $addedManifests
+            orphan_candidate_artifacts = $addedArtifacts
+            candidates_may_exist_after_partial_failure = ($addedArtifacts.Count -gt 0)
             output = ($trainingOutput -join [Environment]::NewLine)
         }
         $failure | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $reportPath -Encoding utf8

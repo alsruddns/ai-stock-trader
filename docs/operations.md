@@ -112,6 +112,6 @@ AI 학습 레이블의 기본 왕복 비용 가정은 20 bps이고, 백테스트
 .\scripts\run-model-retraining.ps1 -Market US -Symbol AAPL -FromDate 2026-11-02 -ToDate 2026-11-06
 ```
 
-실행 보고서에서 `candidate_created_review_required`가 아니면 후보가 만들어졌다고 간주하지 마세요. 학습 중 실패 시 남긴 데이터와 보고서를 먼저 검토하고, `.local/models`의 후보가 일부 생성됐을 수 있으므로 이를 승인하거나 활성화하지 마세요.
+실행 보고서에서 `candidate_created_review_required`가 아니면 후보가 만들어졌다고 간주하지 마세요. 실패 보고서는 실행 전후의 모델 manifest와 artifact 파일을 비교해 이번 실행에서 새로 생긴 후보와 고아 파일을 표시합니다. 실패 뒤 새 artifact가 남으면 그 파일을 검토·정리하기 전까지 승인이나 활성화를 진행하지 마세요.
 
 퀀트 결과는 세션별 JSON과 CSV SHA-256을 출력하며 주문 실행 권한이 없습니다. AI 학습도 입력 CSV SHA-256을 각 모델 manifest에 기록합니다. 각 백테스트 세션은 1주 수량으로 독립 계산하고, 포트폴리오 자본 복리·계좌별 세금·거래소 비용·시장충격은 별도 검증해야 합니다. 조정주가, 종목코드 변경, 분봉 누락, 데이터 이용·저장·재배포 권한은 CSV 제공자가 확인해야 합니다.
