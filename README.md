@@ -65,7 +65,7 @@ Windows 로그인 때 Spring Boot와 Python 분석 API도 함께 시작하려면
 cd services/market-ai
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,ai,ops]"
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --env-file ../../.env_local
 ```
 
@@ -80,7 +80,7 @@ KIS의 현재 공지 기준 PAPER는 초당 1건, REAL은 계좌당 초당 18건
 - Python API 문서: `http://localhost:8000/docs`
 - 운영 대시보드: `http://127.0.0.1:3000`
 
-LightGBM·XGBoost 학습용 선택 의존성은 `python -m pip install -e ".[dev,ai]"`로 설치합니다. 허가된 단일 종목 1분봉 CSV(`timestamp,open,high,low,close,volume,spread_bps,symbol`)로 모델 후보를 학습하고 미사용 세션에서 AI+퀀트 및 퀀트 단독 전략 백테스트를 비교하려면 저장소 루트에서 아래 명령을 사용합니다. 각 행의 시각은 시간대를 포함해야 하고 데이터 제공·저장 권한을 확인한 자료만 사용하세요. 기본 label 왕복 비용은 20 bps, 백테스트 체결당 수수료와 슬리피지는 각각 5 bps이며 계좌별 실제 요율을 확인한 후 인자를 조정하세요. 모델 manifest에는 label 기간, 비용과 전략 필터 가정이 보존됩니다.
+LightGBM·XGBoost 학습용 선택 의존성은 `python -m pip install -e ".[dev,ai,ops]"`로 설치합니다. 허가된 단일 종목 1분봉 CSV(`timestamp,open,high,low,close,volume,spread_bps,symbol`)로 모델 후보를 학습하고 미사용 세션에서 AI+퀀트 및 퀀트 단독 전략 백테스트를 비교하려면 저장소 루트에서 아래 명령을 사용합니다. 각 행의 시각은 시간대를 포함해야 하고 데이터 제공·저장 권한을 확인한 자료만 사용하세요. 기본 label 왕복 비용은 20 bps, 백테스트 체결당 수수료와 슬리피지는 각각 5 bps이며 계좌별 실제 요율을 확인한 후 인자를 조정하세요. 모델 manifest에는 label 기간, 비용과 전략 필터 가정이 보존됩니다.
 
 각 CSV는 같은 폴더에 `<파일명>.csv.provenance.json` 권리 확인 파일이 있어야 학습·백테스트를 실행할 수 있습니다. [권리 manifest 예시](docs/data-provenance-template.json)를 복사해 제공자, 원본·약관 참조, 수집·검토 시각, 로컬 저장·백테스트·학습 허용 여부를 확인해 작성하고, `dataset_sha256`에는 `Get-FileHash <CSV경로> -Algorithm SHA256`의 값을 넣습니다. KIS 공개 안내는 개인의 자기 자산 투자 목적 시세 이용과 제3자 제공 금지를 명시하지만, 개인용 로컬 저장·백테스트·모델 학습을 각각 허용하는지는 이 문구만으로 확인되지 않습니다. [KIS 데이터 권리 확인 절차](docs/kis-market-data-rights.md)를 따르고, 도구가 권한을 독립 판정하지 않으므로 불명확한 권한은 승인하지 마세요.
 
@@ -156,7 +156,7 @@ Invoke-RestMethod http://localhost:8080/api/v1/orders/paper/1
 cd backend/trading-api
 .\mvnw.cmd test
 cd ../../services/market-ai
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,ai,ops]"
 python -m pytest
 ```
 
