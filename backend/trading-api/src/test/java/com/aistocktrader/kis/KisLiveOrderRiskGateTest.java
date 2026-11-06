@@ -111,6 +111,28 @@ class KisLiveOrderRiskGateTest {
         assertTrue(staleAccount.reasons().contains("FRESH_ACCOUNT_SNAPSHOT_REQUIRED"));
     }
 
+    @Test
+    void callerCannotMarkAnOldOrFutureDatedAccountSnapshotAsFresh() {
+        KisLiveRiskContext healthy = new KisLiveRiskContext(true, true, true, true, false, 0,
+                BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"));
+        KisAccountSnapshot current = account(KisEnvironment.REAL, "KRW", "100000", List.of());
+        KisAccountSnapshot stale = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
+                new BigDecimal("100000"), new BigDecimal("100000"), List.of(),
+                Instant.now().minusSeconds(6), "KIS_READ_ONLY_REST");
+        KisAccountSnapshot future = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
+                new BigDecimal("100000"), new BigDecimal("100000"), List.of(),
+                Instant.now().plusSeconds(1), "KIS_READ_ONLY_REST");
+
+        KisLiveRiskDecision staleResult = gate.assess(buy("005930", 1, "70000"), null, stale, healthy);
+        KisLiveRiskDecision futureResult = gate.assess(buy("005930", 1, "70000"), null, future, healthy);
+
+        assertFalse(staleResult.approved());
+        assertTrue(staleResult.reasons().contains("FRESH_ACCOUNT_SNAPSHOT_REQUIRED"));
+        assertFalse(futureResult.approved());
+        assertTrue(futureResult.reasons().contains("FRESH_ACCOUNT_SNAPSHOT_REQUIRED"));
+        assertTrue(gate.assess(buy("005930", 1, "70000"), null, current, healthy).approved());
+    }
+
     private static OrderRequest buy(String symbol, int quantity, String price) {
         return new OrderRequest(Market.KR, symbol, OrderSide.BUY, quantity, new BigDecimal(price), Currency.KRW);
     }

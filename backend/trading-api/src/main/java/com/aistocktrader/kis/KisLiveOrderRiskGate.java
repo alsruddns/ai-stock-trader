@@ -7,12 +7,15 @@ import com.aistocktrader.order.OrderSide;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
 @Component
 public class KisLiveOrderRiskGate {
     private static final BigDecimal HUNDRED = new BigDecimal("100");
+    private static final Duration MAX_ACCOUNT_SNAPSHOT_AGE = Duration.ofSeconds(5);
     private final TradingSafetyProperties tradingLimits;
     private final KisLiveRiskLimits limits;
 
@@ -45,13 +48,16 @@ public class KisLiveOrderRiskGate {
         if (!matchingMarket) reasons.add("ACCOUNT_MARKET_MISMATCH");
         if (!matchingCurrency) reasons.add("ACCOUNT_CURRENCY_MISMATCH");
         if (!positionsValid) reasons.add("ACCOUNT_POSITIONS_INVALID");
-        if (!context.accountSnapshotFresh()) reasons.add("FRESH_ACCOUNT_SNAPSHOT_REQUIRED");
+        if (!context.accountSnapshotFresh() || !isFreshAccountSnapshot(account)) {
+            reasons.add("FRESH_ACCOUNT_SNAPSHOT_REQUIRED");
+        }
         if (!context.quoteFresh()) reasons.add("FRESH_QUOTE_REQUIRED");
         if (!context.marketOpen()) reasons.add("MARKET_CLOSED");
         if (context.unresolvedOrderExists()) reasons.add("UNRESOLVED_ORDER_EXISTS");
         if (context.totalOpenPositions() < 0) reasons.add("OPEN_POSITION_COUNT_INVALID");
         if (!realAccount || !matchingMarket || !matchingCurrency || !positionsValid
-                || !context.accountSnapshotFresh() || context.totalOpenPositions() < 0) {
+                || !context.accountSnapshotFresh() || !isFreshAccountSnapshot(account)
+                || context.totalOpenPositions() < 0) {
             return decision(false, reasons, request, exchange);
         }
         BigDecimal notional = request.limitPrice().multiply(BigDecimal.valueOf(request.quantity()));
@@ -108,6 +114,13 @@ public class KisLiveOrderRiskGate {
 
     private static boolean accountCurrencyMatches(Currency requested, String accountCurrency) {
         return accountCurrency != null && requested.name().equalsIgnoreCase(accountCurrency);
+    }
+
+    private static boolean isFreshAccountSnapshot(KisAccountSnapshot account) {
+        Instant retrievedAt = account.retrievedAt();
+        if (retrievedAt == null) return false;
+        Instant now = Instant.now();
+        return !retrievedAt.isAfter(now) && Duration.between(retrievedAt, now).compareTo(MAX_ACCOUNT_SNAPSHOT_AGE) <= 0;
     }
 
     private static boolean validUsExchange(String exchange) {
