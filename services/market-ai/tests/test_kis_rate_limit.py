@@ -55,6 +55,20 @@ def test_shared_rate_slot_uses_postgres_time_and_app_key_fingerprint(monkeypatch
     assert "local-test-app-key" not in cursor.statement
 
 
+def test_real_kis_rest_client_enforces_one_second_minimum(monkeypatch):
+    settings = KisSettings(True, "real", "real-key", "real-secret", "1234567801",
+                           shared_rate_limit_enabled=True)
+    client = KisReadOnlyClient(settings)
+    observed = []
+    monkeypatch.setattr("app.kis.wait_for_kis_rest_slot",
+                        lambda environment, account_key, interval: observed.append(interval))
+
+    client._wait_for_rest_slot()
+
+    assert observed == [1.0]
+    client.close()
+
+
 def test_shared_token_slot_uses_separate_one_minute_app_key_fingerprint(monkeypatch):
     cursor = _Cursor(datetime.now(timezone.utc) - timedelta(seconds=1))
     monkeypatch.setattr(kis_rate_limit.psycopg, "connect", lambda **_kwargs: _Connection(cursor))

@@ -46,7 +46,7 @@ def approval_key(settings: KisSettings, client: httpx.Client | None = None) -> s
     http = client or httpx.Client(timeout=httpx.Timeout(8.0, connect=3.0))
     try:
         if settings.shared_rate_limit_enabled:
-            interval = 1.0 if settings.environment == "paper" else 0.1
+            interval = 1.0
             try:
                 wait_for_kis_rest_slot(settings.environment, settings.app_key, interval)
             except SharedRateLimitUnavailable as exc:

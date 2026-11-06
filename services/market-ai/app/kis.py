@@ -130,7 +130,7 @@ class KisReadOnlyClient:
             raise ValueError("KIS app key and secret are required")
         self.settings = settings
         self._http = http_client or httpx.Client(timeout=httpx.Timeout(8.0, connect=3.0))
-        default_interval = 1.0 if settings.environment == "paper" else 0.1
+        default_interval = 1.0
         configured_interval = os.getenv(f"KIS_{settings.environment.upper()}_REST_MIN_INTERVAL_SECONDS", "").strip()
         try:
             requested_interval = float(configured_interval) if configured_interval else default_interval

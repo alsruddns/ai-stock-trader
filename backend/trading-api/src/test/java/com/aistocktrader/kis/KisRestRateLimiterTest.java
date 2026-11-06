@@ -56,6 +56,23 @@ class KisRestRateLimiterTest {
     }
 
     @Test
+    void realRestRequestsUseConservativeOneSecondMinimum() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForObject(anyString(), eq(Timestamp.class), any(Object[].class)))
+                .thenReturn(Timestamp.from(Instant.now().minusSeconds(1)));
+        KisRestRateLimiter limiter = new KisRestRateLimiter(jdbc);
+
+        limiter.acquire(KisEnvironment.REAL, "local-test-app-key", java.time.Duration.ofMillis(100));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).queryForObject(anyString(), eq(Timestamp.class), captor.capture());
+        Object[] parameters = captor.getValue();
+        assertEquals(1.0, (Double) parameters[2]);
+        assertEquals(1.0, (Double) parameters[3]);
+        assertEquals(1.0, (Double) parameters[4]);
+    }
+
+    @Test
     void databaseFailureStopsBeforeRequestAndReturnsSafeServiceUnavailable() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForObject(anyString(), eq(Timestamp.class), any(Object[].class)))

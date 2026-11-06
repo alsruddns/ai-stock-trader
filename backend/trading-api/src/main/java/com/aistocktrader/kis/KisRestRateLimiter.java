@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 final class KisRestRateLimiter {
     private static final long PAPER_FLOOR_MILLIS = 1_000;
-    private static final long REAL_FLOOR_MILLIS = 100;
+    private static final long REAL_FLOOR_MILLIS = 1_000;
     private static final long TOKEN_ISSUE_FLOOR_MILLIS = 60_000;
     private static final long LOCAL_TOKEN_ISSUE_FLOOR_MILLIS = 1_000;
     private static final String RESERVE_SLOT_SQL = """

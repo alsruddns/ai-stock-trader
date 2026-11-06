@@ -53,4 +53,4 @@ kis:
     account-number: ${KIS_REAL_ACCOUNT_NUMBER:}
   connect-timeout: ${KIS_CONNECT_TIMEOUT:3s}
   read-timeout: ${KIS_READ_TIMEOUT:8s}
-  min-request-interval: ${KIS_MIN_REQUEST_INTERVAL:100ms}
+  min-request-interval: ${KIS_MIN_REQUEST_INTERVAL:1s}

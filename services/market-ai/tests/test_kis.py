@@ -49,7 +49,7 @@ def test_kis_real_rest_pacing_uses_conservative_minimum_interval(monkeypatch) ->
                                    lambda request: httpx.Response(200, json={})
                                )))
 
-    assert client._rest_min_interval == pytest.approx(0.1)
+    assert client._rest_min_interval == pytest.approx(1.0)
     client.close()
 
 
