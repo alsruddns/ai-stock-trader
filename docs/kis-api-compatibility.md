@@ -24,7 +24,7 @@ These REST endpoints provide quote snapshots. The official domestic example dire
 
 - Account reads require both `KIS_ACCOUNT_READ_ENABLED=true` and the environment-specific switch. Both remain false by default.
 - REAL and PAPER credentials are separate. Secrets and account numbers must remain in the ignored local `.env_local` file.
-- The user confirmed the PAPER account, credentials, and a balance in the KIS app. Authenticated PAPER account smoke on 2026-11-06 nevertheless reached KIS for both domestic and US balance GETs, and both returned `OPSQ2000`. The official [KIS error table](https://apiportal.koreainvestment.com/faq-error-code) defines this as `INPUT INVALID_CHECK_ACNO`; therefore the account may be valid in the app while its API enrollment, PAPER key pairing, or API account identifier remains unresolved. Recheck the PAPER account/API enrollment pairing without sharing its values. No order request was sent. The local PAPER account-read gates are enabled for diagnosis; REAL account reads remain disabled.
+- The user re-registered the PAPER account and replaced its PAPER credentials in `.env_local`. The 2026-11-06 Spring PAPER account smoke then passed both domestic and US balance GET tests (2 passed, 0 failed). The preceding `OPSQ2000` was resolved by the updated PAPER registration/configuration. No order request was sent. PAPER account-read gates are enabled; REAL account reads remain disabled.
 - Spring now includes only the upstream HTTP status number in sanitized account-request errors; response bodies and credential-bearing details remain suppressed.
 - This project has not enabled live orders. The read-only account path must not be used as evidence that order submission, market data entitlement, or fill reconciliation is verified.
 

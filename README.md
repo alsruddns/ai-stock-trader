@@ -19,7 +19,7 @@ backend/.../db/migration Flyway PostgreSQL 스키마 변경
 frontend/dashboard/      Next.js 조회 전용 운영 대시보드
 ```
 
-Python은 국내·미국 KIS 시세·계좌 읽기 기반을 제공하고, Spring은 KIS 계좌조회와 paper 주문·위험 관리 API를 제공합니다. PAPER KIS 국내·미국 현재가 읽기는 통과했습니다. 2026-11-06 재검증에서 국내·미국 잔고 조회 모두 KIS `OPSQ2000`(계좌 입력 오류)을 반환해 API 계좌 연결 확인이 남아 있습니다. REST 현재가 조회는 실시간 WebSocket 스트림이 아니며 응답 시각은 조회 시각입니다.
+Python은 국내·미국 KIS 시세·계좌 읽기 기반을 제공하고, Spring은 KIS 계좌조회와 paper 주문·위험 관리 API를 제공합니다. PAPER KIS 국내·미국 현재가 읽기는 통과했습니다. 2026-11-06 재등록한 PAPER 설정으로 국내·미국 잔고 GET 통합 테스트가 모두 통과했습니다. REST 현재가 조회는 실시간 WebSocket 스트림이 아니며 응답 시각은 조회 시각입니다.
 
 ## 준비
 
