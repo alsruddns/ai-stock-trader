@@ -40,6 +40,17 @@ Set-Location .\services\market-ai
 - Python KIS 읽기 전용 스모크는 `.\scripts\test-paper-kis-python.ps1`로 실행합니다. PAPER 키·시장 시세 스위치·전체/PAPER 계좌 읽기 게이트를 검사한 뒤 국내·미국 REST 시세 및 계좌 GET 네 건만 요청하며, 응답에 키·시크릿·계좌번호가 없는지도 확인합니다. 주문·자동매매 잠금이 꺼져 있으면 요청하지 않습니다.
 - 실계좌 잔고의 읽기 전용 확인은 `.\scripts\test-real-kis-account-readonly.ps1 -EnableReadOnlyGetForThisRun`으로 별도 실행할 수 있습니다. 이 옵션은 전체/REAL 계좌 읽기 허용을 테스트 실행 중에만 설정하고, 종료 때 호출 셸의 환경변수를 원래 상태로 복원하며 `.env_local`은 변경하지 않습니다. 스크립트는 PostgreSQL, 계좌번호 형식, `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, PAPER/REAL 주문 잠금, `KIS_REAL_RECONCILIATION_ENABLED=false`를 검사하고 국내·미국 잔고 GET만 요청합니다. 자격정보 값은 출력하지 않습니다. `.env_local`의 read switches를 직접 켜도 되지만, API 실행 프로세스에서 REAL 읽기가 열릴 수 있으므로 검증 후 기본 잠금으로 되돌리세요.
 
+### 국내 PAPER 취소 사전조회 점검
+
+KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는지 확인할 때만 아래 읽기 전용 명령을 사용합니다. `KIS_ACCOUNT_READ_ENABLED=true`, `KIS_PAPER_ACCOUNT_READ_ENABLED=true`가 필요하며 PAPER/REAL 주문, REAL 계좌조회, REAL 주문대조 스위치는 `false`여야 합니다. 이 도구는 PostgreSQL 공유 호출 제한을 지키며 GET만 보냅니다.
+
+```powershell
+.\services\market-ai\.venv\Scripts\python.exe .\scripts\probe-kis-paper-cancel-preflight.py --transaction-id VTTC0084R
+.\services\market-ai\.venv\Scripts\python.exe .\scripts\probe-kis-paper-cancel-preflight.py --transaction-id TTTC0084R
+```
+
+`supported`는 조회 서비스가 응답했다는 뜻일 뿐 취소 허용을 뜻하지 않습니다. 실제 취소를 열기 전에는 해당 주문번호·종목·계좌에 맞는 `psbl_qty` 확인과 로컬 취소 제한 검증이 별도로 필요합니다. `unsupported_or_rejected`이거나 응답이 불완전하면 취소를 잠근 채 둡니다. 이 점검 명령은 주문·취소를 보내지 않습니다.
+
 ### P5 거래 세션 시세 감시
 
 국내와 미국 feed를 각각 검증할 때는 장이 열린 시간에 `-Feed paper` 또는 `-Feed real`을 지정합니다. 이 모드는 선택한 feed의 tick·완료 분봉 누적량과 마지막 수신시각을 별도로 확인하므로, 비선택 feed의 연결 상태·tick·분봉이 선택 feed의 관측을 대신하지 않습니다. `-RequireBothFeeds`는 두 연결 상태를 함께 검사할 때 사용합니다. 미국 장 관측 중에도 `real` feed는 읽기 전용 시세 용도이며, 주문·자동매매 잠금이 꺼진 상태에서는 감시가 거부됩니다.
