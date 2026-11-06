@@ -125,6 +125,34 @@ class KisOrderClientTest {
     }
 
     @Test
+    void usPaperBuyUsesBuyTransactionAndServerOrderContract() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/uapi/overseas-stock/v1/trading/order"))
+                .andExpect(method(HttpMethod.POST)).andExpect(header("tr_id", "VTTT1002U"))
+                .andExpect(jsonPath("$.CANO").value("12345678"))
+                .andExpect(jsonPath("$.ACNT_PRDT_CD").value("01"))
+                .andExpect(jsonPath("$.OVRS_EXCG_CD").value("NASD"))
+                .andExpect(jsonPath("$.PDNO").value("MSFT"))
+                .andExpect(jsonPath("$.ORD_QTY").value("1"))
+                .andExpect(jsonPath("$.OVRS_ORD_UNPR").value("50.25"))
+                .andExpect(jsonPath("$.SLL_TYPE").value(""))
+                .andExpect(jsonPath("$.ORD_SVR_DVSN_CD").value("0"))
+                .andExpect(jsonPath("$.ORD_DVSN").value("00"))
+                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"msg_cd\":\"0\",\"output\":{\"ODNO\":\"5679\"}}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+
+        KisOrderReceipt result = client(true, builder).placePaperLimitOrder(
+                Market.US, "msft", OrderSide.BUY, 1, new BigDecimal("50.25"), Currency.USD, "NASD");
+
+        assertEquals("5679", result.brokerOrderNumber());
+        assertEquals("BUY", result.side());
+        server.verify();
+    }
+
+    @Test
     void domesticPaperCancelUsesZeroQuantityForCancelAll() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
