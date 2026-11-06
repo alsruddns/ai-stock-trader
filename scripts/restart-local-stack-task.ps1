@@ -135,6 +135,10 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
         Start-Sleep -Seconds 2
     }
     if (-not $pythonHealth -or -not $springSummary) { throw 'The local APIs did not become ready after restart.' }
+    $pythonOpenApi = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/openapi.json' -TimeoutSec 5
+    if ($null -eq $pythonOpenApi.paths.PSObject.Properties['/api/v1/market/session-quality/{market}/{symbol}']) {
+        throw 'The restarted Python API is missing the expected session-quality route.'
+    }
     if ($pythonHealth.status -ne 'ok' -or $pythonHealth.live_trading_enabled -or $pythonHealth.paper_automation_enabled -or
         $springSummary.tradingMode -ne 'paper' -or $springSummary.liveTrading -ne 'disabled' -or
         $springSummary.paperAutomationEnabled -ne $false -or $springSummary.kisRealOrdersEnabled -ne $false) {
