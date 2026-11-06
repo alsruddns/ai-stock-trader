@@ -102,9 +102,9 @@ def test_chronological_split_keeps_sessions_disjoint_and_ordered() -> None:
 
 def test_quant_baseline_reports_candidate_coverage_and_cost_adjusted_label_rate() -> None:
     samples = [
-        TrainingSample(date(2026, 10, 1), "t1", (), 1, True),
-        TrainingSample(date(2026, 10, 1), "t2", (), 0, False),
-        TrainingSample(date(2026, 10, 1), "t3", (), 0, True),
+        TrainingSample(date(2026, 10, 1), "t1", (), 1, True, 20.0),
+        TrainingSample(date(2026, 10, 1), "t2", (), 0, False, -5.0),
+        TrainingSample(date(2026, 10, 1), "t3", (), 0, True, -10.0),
     ]
 
     metrics = _quant_baseline_metrics(samples)
@@ -113,6 +113,7 @@ def test_quant_baseline_reports_candidate_coverage_and_cost_adjusted_label_rate(
         "candidate_count": 2.0,
         "candidate_coverage": pytest.approx(2 / 3),
         "candidate_positive_rate": 0.5,
+        "candidate_mean_forward_net_bps": 5.0,
     }
 
 
@@ -131,7 +132,9 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path)
         assert LocalModelRegistry(tmp_path).list_models()[0]["data_rights_verified"] is True
         assert metadata["quant_baseline_test_metrics"] == result.quant_baseline_test_metrics
         assert "candidate_positive_rate" in result.test_metrics
+        assert "candidate_mean_forward_net_bps" in result.test_metrics
         assert "candidate_coverage" in result.quant_baseline_test_metrics
+        assert "candidate_mean_forward_net_bps" in result.quant_baseline_test_metrics
         assert result.train_sessions[-1] < result.validation_sessions[0]
         assert result.validation_sessions[-1] < result.test_sessions[0]
         prediction = LocalModelRegistry(tmp_path).predict_preview(result.model_id, _sample_sessions()[date(2026, 10, 8)][:21], market="KR")

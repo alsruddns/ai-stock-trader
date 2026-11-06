@@ -69,6 +69,37 @@ def test_closed_paper_websocket_bars_are_written_off_loop_with_spread(monkeypatc
     assert runtime.status()["bar_storage_state"] == "RUNNING"
 
 
+def test_collector_persists_bars_when_paper_order_worker_is_disabled(monkeypatch) -> None:
+    from app.market_stream import TradeTick
+
+    watch = parse_watchlist("KR:005930")[0]
+    bar = MinuteBar(
+        datetime.fromisoformat("2026-11-05T09:00:00+09:00"), Decimal("100"), Decimal("101"),
+        Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
+    )
+    tick = TradeTick("KR", "005930", bar.timestamp, bar.close, 10, Decimal("100"), Decimal("101"))
+    runtime = PaperSessionFeedMonitor()
+    runtime._aggregators[watch.key] = SimpleNamespace(add=lambda _tick: bar)
+    runtime._bars[watch.key] = deque()
+    runtime._decisions[watch.key] = {"signal": "HOLD", "executable": False}
+    runtime._bar_storage_queue = asyncio.Queue()
+    runtime._set_status(bar_storage_state="RUNNING")
+    monkeypatch.setattr(
+        "app.paper_runtime.normalize_stream_frame",
+        lambda _frame: {"kind": "data", "encrypted": "0", "transaction_id": "H0STCNT0", "count": "1", "payload": "tick"},
+    )
+    monkeypatch.setattr("app.paper_runtime.parse_trade_frame", lambda *_args: [tick])
+
+    runtime._consume("fixture", (watch,))
+
+    assert runtime._automation_queue is None
+    assert runtime._bar_storage_queue.qsize() == 1
+    queued_watch, queued_bar, _decision, _quotes = runtime._bar_storage_queue.get_nowait()
+    assert queued_watch == watch
+    assert queued_bar == bar
+    assert runtime.status()["orders_enabled"] is False
+
+
 def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch) -> None:
     from app import snapshot_store
 

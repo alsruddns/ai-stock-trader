@@ -349,16 +349,16 @@ class PaperSessionFeedMonitor:
                     if bar is not None:
                         self._record_closed_bar(watch, bar)
                         self._status["bars_closed"] = int(self._status["bars_closed"]) + 1
-                        if self._automation_queue is not None:
-                            decision = dict(self._decisions[watch.key])
-                            quotes = dict(self._latest_quotes)
-                            if self._bar_storage_queue is not None:
-                                self._queue_bar_storage(watch, bar, decision, quotes)
-                            else:
-                                try:
-                                    self._automation_queue.put_nowait((watch, bar, decision, quotes))
-                                except asyncio.QueueFull:
-                                    self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
+                        decision = dict(self._decisions[watch.key])
+                        quotes = dict(self._latest_quotes)
+                        if self._bar_storage_queue is not None:
+                            # Persist market data independently from the opt-in paper order worker.
+                            self._queue_bar_storage(watch, bar, decision, quotes)
+                        elif self._automation_queue is not None:
+                            try:
+                                self._automation_queue.put_nowait((watch, bar, decision, quotes))
+                            except asyncio.QueueFull:
+                                self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
 
     async def _automation_loop(self, limits: PaperOpsLimits) -> None:
         broker = SpringPaperBrokerClient()

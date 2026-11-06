@@ -57,6 +57,7 @@ class TrainingSample:
     features: tuple[float, ...]
     label: int
     quant_candidate: bool = False
+    forward_net_return_bps: float | None = None
 
 
 @dataclass(frozen=True)
@@ -130,10 +131,12 @@ def build_training_samples(
             if any(not value.is_finite() for value in feature_values):
                 continue
             future_return = bars[index + horizon_bars].close / close - Decimal(1)
-            label = int(future_return > round_trip_cost_bps / Decimal(10_000))
+            forward_net_return_bps = future_return * Decimal(10_000) - round_trip_cost_bps
+            label = int(forward_net_return_bps > 0)
             quant_candidate = orb_vwap_entry_candidate(history, quant_config, market=normalized_market)
             samples.append(TrainingSample(session, current.timestamp.isoformat(),
-                                          tuple(float(value) for value in feature_values), label, quant_candidate))
+                                          tuple(float(value) for value in feature_values), label, quant_candidate,
+                                          float(forward_net_return_bps)))
     return samples
 
 
@@ -197,20 +200,31 @@ def _metrics(model: Any, samples: list[TrainingSample]) -> dict[str, float]:
     metrics = {"accuracy": float(accuracy_score(y, predictions)), "brier": float(brier_score_loss(y, probabilities))}
     metrics["roc_auc"] = float(roc_auc_score(y, probabilities)) if len(set(y)) == 2 else 0.5
     predicted_candidates = [sample.label for sample, prediction in zip(samples, predictions) if prediction == 1]
+    selected_net_returns = [
+        sample.forward_net_return_bps
+        for sample, prediction in zip(samples, predictions)
+        if prediction == 1 and sample.forward_net_return_bps is not None
+    ]
     metrics["candidate_count"] = float(len(predicted_candidates))
     metrics["candidate_coverage"] = float(len(predicted_candidates) / len(samples))
     metrics["candidate_positive_rate"] = (
         float(sum(predicted_candidates) / len(predicted_candidates)) if predicted_candidates else 0.0
     )
+    metrics["candidate_mean_forward_net_bps"] = (
+        float(sum(selected_net_returns) / len(selected_net_returns)) if selected_net_returns else 0.0
+    )
     return metrics
 
 
 def _quant_baseline_metrics(samples: list[TrainingSample]) -> dict[str, float]:
-    candidates = [sample.label for sample in samples if sample.quant_candidate]
+    selected = [sample for sample in samples if sample.quant_candidate]
+    candidates = [sample.label for sample in selected]
+    net_returns = [sample.forward_net_return_bps for sample in selected if sample.forward_net_return_bps is not None]
     return {
         "candidate_count": float(len(candidates)),
         "candidate_coverage": float(len(candidates) / len(samples)) if samples else 0.0,
         "candidate_positive_rate": float(sum(candidates) / len(candidates)) if candidates else 0.0,
+        "candidate_mean_forward_net_bps": float(sum(net_returns) / len(net_returns)) if net_returns else 0.0,
     }
 
 
