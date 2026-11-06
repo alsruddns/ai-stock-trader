@@ -140,10 +140,10 @@ def test_ai_candidate_metrics_apply_the_same_quant_gate_as_paper_runtime() -> No
 
 
 def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path) -> None:
-    samples = build_training_samples(_sample_sessions(), market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("0"))
+    samples = build_training_samples(_sample_sessions(), market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("20"))
     results = LocalModelRegistry(tmp_path).train_compare(
         samples, market="KR", symbol="005930", sessions=_sample_sessions(),
-        label_horizon_bars=5, label_round_trip_cost_bps=Decimal("0"),
+        label_horizon_bars=5, label_round_trip_cost_bps=Decimal("20"),
         dataset_sha256="a" * 64, dataset_provenance=_provenance("a" * 64),
     )
     assert {result.model_type for result in results} == {"lightgbm", "xgboost"}
@@ -181,8 +181,17 @@ def test_training_rejects_malformed_dataset_digest_before_training(tmp_path) -> 
     with pytest.raises(ValueError, match="lowercase SHA-256"):
         LocalModelRegistry(tmp_path).train_compare(
             [], market="KR", symbol="005930", sessions={},
-            label_horizon_bars=5, label_round_trip_cost_bps=Decimal("0"),
+            label_horizon_bars=5, label_round_trip_cost_bps=Decimal("20"),
             dataset_sha256="not-a-digest", dataset_provenance={},
+        )
+
+
+def test_training_rejects_label_cost_below_modeled_round_trip_cost(tmp_path) -> None:
+    with pytest.raises(ValueError, match="must cover modeled entry and exit"):
+        LocalModelRegistry(tmp_path).train_compare(
+            [], market="KR", symbol="005930", sessions={},
+            label_horizon_bars=5, label_round_trip_cost_bps=Decimal("19.999"),
+            dataset_sha256="a" * 64, dataset_provenance=_provenance("a" * 64),
         )
 
 

@@ -557,6 +557,9 @@ class LocalModelRegistry:
             raise ValueError("a single instrument symbol is required for strategy backtests")
         if label_horizon_bars <= 0 or label_round_trip_cost_bps < 0:
             raise ValueError("label horizon and round-trip cost settings are invalid")
+        minimum_label_cost = 2 * (quant_config.commission_bps + quant_config.slippage_bps)
+        if label_round_trip_cost_bps < minimum_label_cost:
+            raise ValueError("label round-trip cost must cover modeled entry and exit commission and slippage")
         if not re.fullmatch(r"[a-f0-9]{64}", dataset_sha256):
             raise ValueError("dataset_sha256 must be a lowercase SHA-256 digest")
         provenance = validate_data_provenance(dataset_provenance, expected_sha256=dataset_sha256,
