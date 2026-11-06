@@ -62,6 +62,7 @@ $env:KIS_REAL_RECONCILIATION_ENABLED = 'false'
 $env:KIS_ACCOUNT_READ_ENABLED = 'false'
 $env:KIS_PAPER_ACCOUNT_READ_ENABLED = 'false'
 $env:KIS_REAL_ACCOUNT_READ_ENABLED = 'false'
+$env:RUN_LOCAL_POSTGRES_INTEGRATION_TESTS = 'true'
 $env:POSTGRES_USER = 'postgres'
 $env:POSTGRES_PASSWORD = 'not-used-local-trust-auth'
 $env:DATABASE_URL = $databaseUrl
@@ -73,17 +74,12 @@ $apiProcess = $null
 $orderId = $null
 
 function Start-TestDatabase {
-    $stdoutPath = Join-Path $clusterPath 'pg_ctl-start.stdout.log'
-    $stderrPath = Join-Path $clusterPath 'pg_ctl-start.stderr.log'
     $arguments = @('-D', "`"$clusterPath`"", '-o',
         "`"-h 127.0.0.1 -p $pgPort -c listen_addresses=127.0.0.1`"", '-l',
         "`"$clusterLog`"", '-w', '-t', '30', 'start')
-    $command = Start-Process -FilePath (Join-Path $pgBin 'pg_ctl.exe') -ArgumentList $arguments `
-        -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru -WindowStyle Hidden
-    for ($attempt = 0; $attempt -lt 300 -and -not $command.HasExited; $attempt++) {
-        Start-Sleep -Milliseconds 100
-    }
-    if (-not $command.HasExited -or $command.ExitCode -ne 0) {
+    & (Join-Path $pgBin 'pg_ctl.exe') @arguments
+    $pgCtlExitCode = $LASTEXITCODE
+    if ($pgCtlExitCode -ne 0) {
         throw 'Isolated PostgreSQL test database failed to start.'
     }
     $script:pgStarted = $true
@@ -91,15 +87,10 @@ function Start-TestDatabase {
 
 function Stop-TestDatabase {
     if ($script:pgStarted) {
-        $stdoutPath = Join-Path $clusterPath 'pg_ctl-stop.stdout.log'
-        $stderrPath = Join-Path $clusterPath 'pg_ctl-stop.stderr.log'
         $arguments = @('-D', "`"$clusterPath`"", '-m', 'fast', '-w', '-t', '30', 'stop')
-        $command = Start-Process -FilePath (Join-Path $pgBin 'pg_ctl.exe') -ArgumentList $arguments `
-            -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru -WindowStyle Hidden
-        for ($attempt = 0; $attempt -lt 300 -and -not $command.HasExited; $attempt++) {
-            Start-Sleep -Milliseconds 100
-        }
-        if (-not $command.HasExited -or $command.ExitCode -ne 0) {
+        & (Join-Path $pgBin 'pg_ctl.exe') @arguments
+        $pgCtlExitCode = $LASTEXITCODE
+        if ($pgCtlExitCode -ne 0) {
             throw 'Isolated PostgreSQL test database failed to stop cleanly.'
         }
         $script:pgStarted = $false
@@ -137,6 +128,9 @@ try {
         Write-Output 'Packaging Spring API.'
         & .\mvnw.cmd -DskipTests package
         if ($LASTEXITCODE -ne 0) { throw "Spring API package failed with exit code $LASTEXITCODE." }
+    Write-Output 'Checking the REAL daily-risk baseline migration and account-scoped immutability in the isolated database.'
+    & .\mvnw.cmd '-Dtest=KisRealDailyRiskBaselinePostgresIntegrationTest' test
+    if ($LASTEXITCODE -ne 0) { throw "REAL daily-risk baseline PostgreSQL integration failed with exit code $LASTEXITCODE." }
     } finally {
         Pop-Location
     }
