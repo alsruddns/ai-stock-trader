@@ -56,6 +56,19 @@ class KisLiveOrderRiskGateTest {
     }
 
     @Test
+    void callerSuppliedEquityCannotReplaceMissingBrokerAccountEquity() {
+        KisAccountSnapshot accountWithoutEquity = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
+                new BigDecimal("100000"), new BigDecimal("100000"), List.of(), Instant.now(), "KIS_READ_ONLY_REST");
+
+        KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null, accountWithoutEquity,
+                new KisLiveRiskContext(true, true, true, true, false,
+                        BigDecimal.ZERO, 0, new BigDecimal("1000000000"), new BigDecimal("100")));
+
+        assertFalse(result.approved());
+        assertTrue(result.reasons().contains("ACCOUNT_EQUITY_REQUIRED"));
+    }
+
+    @Test
     void positionExposureAndPerTradeRiskLimitsAreEnforced() {
         KisAccountSnapshot.Position position = new KisAccountSnapshot.Position("005930", "Samsung",
                 BigDecimal.ONE, BigDecimal.ONE, new BigDecimal("70000"), new BigDecimal("95000"),
@@ -145,7 +158,8 @@ class KisLiveOrderRiskGateTest {
     @Test
     void nonKisAccountSnapshotSourceCannotAuthorizeLiveAssessment() {
         KisAccountSnapshot nonKisSource = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
-                new BigDecimal("100000"), new BigDecimal("100000"), List.of(), Instant.now(), "PAPER_LEDGER");
+                new BigDecimal("100000"), new BigDecimal("100000"), new BigDecimal("1000000"),
+                List.of(), Instant.now(), "PAPER_LEDGER");
         KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null, nonKisSource,
                 new KisLiveRiskContext(true, true, true, true, false,
                         BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100")));
@@ -160,10 +174,10 @@ class KisLiveOrderRiskGateTest {
                 BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"));
         KisAccountSnapshot current = account(KisEnvironment.REAL, "KRW", "100000", List.of());
         KisAccountSnapshot stale = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
-                new BigDecimal("100000"), new BigDecimal("100000"), List.of(),
+                new BigDecimal("100000"), new BigDecimal("100000"), new BigDecimal("1000000"), List.of(),
                 Instant.now().minusSeconds(6), "KIS_READ_ONLY_REST");
         KisAccountSnapshot future = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
-                new BigDecimal("100000"), new BigDecimal("100000"), List.of(),
+                new BigDecimal("100000"), new BigDecimal("100000"), new BigDecimal("1000000"), List.of(),
                 Instant.now().plusSeconds(1), "KIS_READ_ONLY_REST");
 
         KisLiveRiskDecision staleResult = gate.assess(buy("005930", 1, "70000"), null, stale, healthy);
@@ -194,6 +208,6 @@ class KisLiveOrderRiskGateTest {
     private static KisAccountSnapshot account(KisEnvironment environment, String currency, String orderable,
                                                List<KisAccountSnapshot.Position> positions) {
         return new KisAccountSnapshot(environment, Market.KR, currency, new BigDecimal("100000"),
-                new BigDecimal(orderable), positions, Instant.now(), "KIS_READ_ONLY_REST");
+                new BigDecimal(orderable), new BigDecimal("1000000"), positions, Instant.now(), "KIS_READ_ONLY_REST");
     }
 }

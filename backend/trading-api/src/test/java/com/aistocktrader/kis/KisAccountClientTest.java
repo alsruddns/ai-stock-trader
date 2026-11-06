@@ -113,6 +113,7 @@ class KisAccountClientTest {
 
         assertNull(result.cashBalance());
         assertNull(result.orderableCash());
+        assertEquals(new BigDecimal("9000000"), result.accountEquity());
         server.verify();
     }
 
@@ -166,6 +167,7 @@ class KisAccountClientTest {
 
         assertEquals("USD", result.currency());
         assertNull(result.cashBalance());
+        assertNull(result.accountEquity());
         assertEquals(new BigDecimal("75"), result.orderableCash());
         assertEquals("AAPL", result.positions().getFirst().symbol());
         server.verify();
@@ -309,6 +311,6 @@ class KisAccountClientTest {
     }
 
     private String domesticBalance() {
-        return "{\"rt_cd\":\"0\",\"output1\":[],\"output2\":[{\"dnca_tot_amt\":\"1\",\"ord_psbl_cash\":\"1\"}]}";
+        return "{\"rt_cd\":\"0\",\"output1\":[],\"output2\":[{\"dnca_tot_amt\":\"1\",\"nass_amt\":\"1\",\"ord_psbl_cash\":\"1\"}]}";
     }
 }

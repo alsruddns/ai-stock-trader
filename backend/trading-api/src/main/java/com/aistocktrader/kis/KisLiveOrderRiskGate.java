@@ -92,7 +92,8 @@ public class KisLiveOrderRiskGate {
         if (context.consecutiveLosingTrades() < 0) reasons.add("CONSECUTIVE_LOSS_COUNT_INVALID");
         else if (context.consecutiveLosingTrades() >= limits.maxConsecutiveLosses()) reasons.add("CONSECUTIVE_LOSS_LIMIT");
         if (account.orderableCash() == null || account.orderableCash().compareTo(notional) < 0) reasons.add("INSUFFICIENT_ORDERABLE_CASH");
-        if (context.accountEquity() == null || context.accountEquity().signum() <= 0) {
+        BigDecimal accountEquity = account.accountEquity();
+        if (accountEquity == null || accountEquity.signum() <= 0) {
             reasons.add("ACCOUNT_EQUITY_REQUIRED");
             return;
         }
@@ -101,7 +102,7 @@ public class KisLiveOrderRiskGate {
                 .filter(position -> request.symbol().equalsIgnoreCase(position.symbol()))
                 .map(KisAccountSnapshot.Position::evaluationAmount).filter(java.util.Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal positionLimit = context.accountEquity().multiply(limits.maxPositionPercent()).divide(HUNDRED, 6, java.math.RoundingMode.DOWN);
+        BigDecimal positionLimit = accountEquity.multiply(limits.maxPositionPercent()).divide(HUNDRED, 6, java.math.RoundingMode.DOWN);
         if (currentPositionValue.add(notional).compareTo(positionLimit) > 0) reasons.add("POSITION_EXPOSURE_LIMIT");
 
         boolean alreadyHeld = account.positions().stream().anyMatch(position ->
@@ -113,7 +114,7 @@ public class KisLiveOrderRiskGate {
             reasons.add("VALID_STOP_DISTANCE_REQUIRED");
         } else {
             BigDecimal tradeRisk = context.stopDistancePerShare().multiply(BigDecimal.valueOf(request.quantity()));
-            BigDecimal riskLimit = context.accountEquity().multiply(limits.tradeRiskPercent()).divide(HUNDRED, 6, java.math.RoundingMode.DOWN);
+            BigDecimal riskLimit = accountEquity.multiply(limits.tradeRiskPercent()).divide(HUNDRED, 6, java.math.RoundingMode.DOWN);
             if (tradeRisk.compareTo(riskLimit) > 0) reasons.add("TRADE_RISK_LIMIT");
         }
     }

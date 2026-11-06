@@ -81,7 +81,8 @@ public class KisAccountClient {
                 orderable = firstAmount(firstOrSelf(buyingPower.path("output")), "ord_psbl_cash", "nrcvb_buy_amt");
             }
             return new KisAccountSnapshot(environment, market, "KRW",
-                    firstAmount(summary, "dnca_tot_amt"), orderable, positions, Instant.now(),
+                    firstAmount(summary, "dnca_tot_amt"), orderable,
+                    firstAmount(summary, "nass_amt"), positions, Instant.now(),
                     "KIS_READ_ONLY_REST");
         }
 
@@ -104,7 +105,7 @@ public class KisAccountClient {
             JsonNode output = firstOrSelf(buyingPower.path("output"));
             orderable = firstAmount(output, "ord_psbl_frcr_amt", "frcr_ord_psbl_amt1", "ovrs_ord_psbl_amt");
         }
-        return new KisAccountSnapshot(environment, market, "USD", cash, orderable,
+        return new KisAccountSnapshot(environment, market, "USD", cash, orderable, null,
                 mapPositions(balance.path("output1"), market), Instant.now(), "KIS_READ_ONLY_REST");
     }
 

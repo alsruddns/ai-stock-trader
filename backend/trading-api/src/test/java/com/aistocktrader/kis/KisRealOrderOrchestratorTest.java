@@ -301,7 +301,7 @@ class KisRealOrderOrchestratorTest {
 
     private static KisAccountSnapshot realAccount() {
         return new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW", new BigDecimal("1000000"),
-                new BigDecimal("100000"), List.of(), Instant.now(), "KIS_READ_ONLY_REST");
+                new BigDecimal("100000"), new BigDecimal("1000000"), List.of(), Instant.now(), "KIS_READ_ONLY_REST");
     }
 
     private static KisLiveRiskContext safeBuyContext() {
