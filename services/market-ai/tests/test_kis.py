@@ -164,6 +164,43 @@ def test_domestic_minute_chart_rejects_malformed_kis_rows() -> None:
     client.close()
 
 
+def test_domestic_session_chart_walks_backward_windows_and_sorts_the_full_session() -> None:
+    requests_seen: list[httpx.Request] = []
+    pages = {
+        "153000": ["132100", "153000"],
+        "132000": ["112100", "132000"],
+        "112000": ["092100", "112000"],
+        "092000": ["090000", "092000"],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        requests_seen.append(request)
+        cursor = request.url.params["FID_INPUT_HOUR_1"]
+        rows = [{
+            "stck_bsop_date": "20261105", "stck_cntg_hour": hour,
+            "stck_oprc": "100", "stck_hgpr": "101", "stck_lwpr": "99",
+            "stck_prpr": "100", "cntg_vol": "1000",
+        } for hour in pages[cursor]]
+        return httpx.Response(200, json={"rt_cd": "0", "output2": rows})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "real", "read-key", "read-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    from datetime import date
+
+    bars = client.get_domestic_minute_session_bars("005930", date(2026, 11, 5))
+
+    assert [request.url.params["FID_INPUT_HOUR_1"] for request in requests_seen] == list(pages)
+    assert [bar.timestamp.strftime("%H%M%S") for bar in bars] == [
+        "090000", "092000", "092100", "112000", "112100", "132000", "132100", "153000",
+    ]
+    assert all(bar.spread_bps is None for bar in bars)
+    client.close()
+
+
 def test_overseas_minute_chart_uses_official_bounded_contract_and_new_york_timezone() -> None:
     requests_seen: list[httpx.Request] = []
 

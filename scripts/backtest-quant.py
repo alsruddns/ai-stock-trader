@@ -34,7 +34,7 @@ def main() -> int:
     except ValueError as exc:
         parser.error(str(exc))
     dataset_sha256 = hashlib.sha256(args.csv_file.read_bytes()).hexdigest()
-    sessions = load_minute_bar_sessions(args.csv_file, expected_symbol=args.symbol)
+    sessions = load_minute_bar_sessions(args.csv_file, market=args.market, expected_symbol=args.symbol)
     config = replace(QuantConfig(), commission_bps=args.commission_bps, slippage_bps=args.slippage_bps,
                      minimum_turnover=args.minimum_turnover, maximum_spread_bps=args.maximum_spread_bps)
     results = [backtest_orb_vwap(args.market, args.symbol, bars, config)

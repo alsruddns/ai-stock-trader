@@ -565,7 +565,9 @@ class PaperSessionFeedMonitor:
         if len(history) >= max(QuantConfig().opening_range_bars, QuantConfig().ema_period,
                                QuantConfig().atr_period, QuantConfig().relative_volume_period):
             try:
-                quant_candidate = orb_vwap_entry_candidate(list(history), QuantConfig())
+                quant_candidate = orb_vwap_entry_candidate(
+                    list(history), QuantConfig(), market=watch.market,
+                )
             except ValueError:
                 quant_candidate = False
                 reason = "BAR_SEQUENCE_INVALID"

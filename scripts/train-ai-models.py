@@ -29,9 +29,10 @@ def main() -> int:
     except ValueError as exc:
         parser.error(str(exc))
     dataset_sha256 = hashlib.sha256(args.csv_file.read_bytes()).hexdigest()
-    sessions = load_minute_bar_sessions(args.csv_file)
+    sessions = load_minute_bar_sessions(args.csv_file, market=args.market)
     samples = build_training_samples(
-        sessions, horizon_bars=args.horizon_bars, round_trip_cost_bps=args.round_trip_cost_bps,
+        sessions, market=args.market, horizon_bars=args.horizon_bars,
+        round_trip_cost_bps=args.round_trip_cost_bps,
     )
     results = LocalModelRegistry(args.registry).train_compare(
         samples, market=args.market, dataset_sha256=dataset_sha256, dataset_provenance=provenance,

@@ -79,3 +79,20 @@ def test_stop_wins_when_stop_and_target_are_touched_in_same_bar() -> None:
     bars[21] = ambiguous
     result = backtest_orb_vwap("KR", "005930", bars, QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"), slippage_bps=Decimal("0"), commission_bps=Decimal("0")))
     assert result.trades[0].exit_reason == "ATR_STOP"
+
+
+def test_us_backtest_uses_new_york_session_date_across_korea_midnight() -> None:
+    bars = _session_bars()
+    start = datetime(2026, 11, 5, 23, 0, tzinfo=timezone(timedelta(hours=9)))
+    bars = [MinuteBar(start + timedelta(minutes=index), bar.open, bar.high, bar.low,
+                      bar.close, bar.volume, bar.spread_bps)
+            for index, bar in enumerate(bars)]
+
+    result = backtest_orb_vwap(
+        "US", "AAPL", bars,
+        QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"),
+                    slippage_bps=Decimal("0"), commission_bps=Decimal("0")),
+    )
+
+    assert result.session.isoformat() == "2026-11-05"
+    assert len(result.trades) == 1

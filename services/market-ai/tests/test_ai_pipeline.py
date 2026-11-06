@@ -62,6 +62,22 @@ def test_features_at_time_t_match_online_inference_features() -> None:
         latest_features(bars[:20], market="KR")
 
 
+def test_us_training_and_inference_accept_one_new_york_session_crossing_korea_midnight() -> None:
+    start = datetime(2026, 11, 5, 23, 30, tzinfo=timezone(timedelta(hours=9)))
+    bars = [_bar(start + timedelta(minutes=index), Decimal("100") + Decimal(index) / 100)
+            for index in range(30)]
+    sessions = {date(2026, 11, 5): bars}
+
+    samples = build_training_samples(
+        sessions, market="US", horizon_bars=5, round_trip_cost_bps=Decimal("0"),
+    )
+    features = latest_features(bars[:21], market="US")
+
+    assert samples
+    assert samples[0].session == date(2026, 11, 5)
+    assert len(features) == len(FEATURE_NAMES)
+
+
 def test_session_progress_uses_market_open_and_exchange_timezone() -> None:
     assert _session_progress(datetime(2026, 11, 5, 0, 0, tzinfo=timezone.utc), "KR") == Decimal(0)
     assert _session_progress(datetime(2026, 11, 5, 3, 15, tzinfo=timezone.utc), "KR") == Decimal("0.5")

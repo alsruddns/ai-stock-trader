@@ -339,6 +339,51 @@ class KisReadOnlyClient:
             raise KisApiError("KIS minute chart response exceeded the supported page contract")
         return bars
 
+    def get_domestic_minute_session_bars(
+        self, symbol: str, session_date: date, end_time: str = "153000", *, max_pages: int = 6,
+    ) -> list["MinuteBar"]:
+        """Walk bounded KIS time windows backward and return one complete KRX session prefix.
+
+        Each request returns at most 120 bars. The next request ends one minute before
+        the earliest returned bar; overlapping bars are accepted only when identical.
+        """
+        from .quant import MinuteBar
+
+        if not 1 <= max_pages <= 6:
+            raise ValueError("max_pages must be between 1 and 6")
+        # Reuse the single-page method's symbol/time validation before issuing requests.
+        if not (symbol.strip().isdigit() and len(symbol.strip()) == 6):
+            raise ValueError("KR symbols must be six digits")
+        if (len(end_time) != 6 or not end_time.isdigit() or int(end_time[:2]) > 23
+                or int(end_time[2:4]) > 59 or int(end_time[4:]) > 59):
+            raise ValueError("end_time must use HHMMSS")
+
+        session_open = datetime_time(9, 0)
+        bars_by_timestamp: dict[datetime, MinuteBar] = {}
+        cursor = end_time
+        for page_number in range(max_pages):
+            page = self.get_domestic_minute_bars(symbol, session_date, cursor)
+            for bar in page:
+                if bar.timestamp.date() != session_date or not (session_open <= bar.timestamp.time()):
+                    continue
+                existing = bars_by_timestamp.get(bar.timestamp)
+                if existing is not None and existing != bar:
+                    raise KisApiError("KIS minute chart pages returned conflicting duplicate bars")
+                bars_by_timestamp[bar.timestamp] = bar
+
+            if not page or page[0].timestamp.time() <= session_open:
+                break
+            if page_number + 1 == max_pages:
+                raise KisApiError("KIS minute chart session exceeded the supported pagination limit")
+            next_cursor = (page[0].timestamp - timedelta(minutes=1)).strftime("%H%M%S")
+            if next_cursor >= cursor or next_cursor < "090000":
+                if next_cursor < "090000":
+                    break
+                raise KisApiError("KIS minute chart pagination did not move backward")
+            cursor = next_cursor
+
+        return [bars_by_timestamp[timestamp] for timestamp in sorted(bars_by_timestamp)]
+
     def get_overseas_minute_bars(
         self, symbol: str, exchange: Exchange, session_date: date | None = None,
     ) -> list["MinuteBar"]:

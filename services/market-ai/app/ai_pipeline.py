@@ -18,7 +18,8 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from .data_provenance import validate_data_provenance
-from .quant import MinuteBar, QuantConfig, _atr, _ema, _vwap, orb_vwap_entry_candidate
+from .quant import (MinuteBar, QuantConfig, _atr, _ema, _vwap,
+                    exchange_session_date, orb_vwap_entry_candidate)
 
 FEATURE_NAMES = (
     "return_1m", "return_3m", "return_5m", "close_vwap_pct", "ema9_gap_pct",
@@ -94,7 +95,7 @@ def build_training_samples(
     for session, bars in sorted(sessions.items()):
         if not bars:
             continue
-        if any(item.timestamp.date() != session for item in bars):
+        if any(exchange_session_date(item.timestamp, normalized_market) != session for item in bars):
             raise ValueError("bar date does not match its session key")
         if any(left.timestamp >= right.timestamp for left, right in zip(bars, bars[1:])):
             raise ValueError("session bars must be strictly increasing")
@@ -130,7 +131,7 @@ def build_training_samples(
                 continue
             future_return = bars[index + horizon_bars].close / close - Decimal(1)
             label = int(future_return > round_trip_cost_bps / Decimal(10_000))
-            quant_candidate = orb_vwap_entry_candidate(history, quant_config)
+            quant_candidate = orb_vwap_entry_candidate(history, quant_config, market=normalized_market)
             samples.append(TrainingSample(session, current.timestamp.isoformat(),
                                           tuple(float(value) for value in feature_values), label, quant_candidate))
     return samples
@@ -144,7 +145,8 @@ def latest_features(bars: list[MinuteBar], *, market: str, minimum_bars: int = 2
     normalized_market = market.strip().upper()
     if normalized_market not in _MARKET_SESSIONS:
         raise ValueError("market must be KR or US")
-    if any(item.timestamp.date() != bars[0].timestamp.date() for item in bars):
+    if any(exchange_session_date(item.timestamp, normalized_market)
+           != exchange_session_date(bars[0].timestamp, normalized_market) for item in bars):
         raise ValueError("inference input must contain one session")
     if any(left.timestamp >= right.timestamp for left, right in zip(bars, bars[1:])):
         raise ValueError("inference bars must be strictly increasing")

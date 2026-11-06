@@ -41,7 +41,9 @@ PostgreSQL 프로세스 장애를 격리된 임시 인스턴스로 점검하려�
 
 ## 과거 데이터 백테스트와 학습
 
-데이터 권한을 확인한 1분봉 CSV는 다음 열을 사용합니다: `timestamp,open,high,low,close,volume,spread_bps,symbol`. `timestamp`는 `2026-11-05T09:00:00+09:00`처럼 시간대 오프셋을 포함해야 하며, 한 CSV에는 한 종목만 넣고 세션 안에서 시간순으로 정렬합니다. `spread_bps`가 없으면 해당 봉은 전략의 스프레드 필터를 통과하지 않습니다. `symbol` 열을 넣으면 요청한 종목과 값이 일치하는지도 확인합니다.
+데이터 권한을 확인한 1분봉 CSV는 다음 열을 사용합니다: `timestamp,open,high,low,close,volume,spread_bps,symbol`. `timestamp`는 `2026-11-05T09:00:00+09:00`처럼 시간대 오프셋을 포함해야 합니다. `--market KR|US` 값에 따라 서울 또는 뉴욕 거래소 날짜로 세션을 묶으므로, 원본 시각이 한국 시간이어도 미국 세션의 날짜가 잘못 나뉘지 않습니다. 한 CSV에는 한 종목만 넣고 세션 안에서 시간순으로 정렬합니다. `spread_bps`가 없으면 해당 봉은 전략의 스프레드 필터를 통과하지 않습니다. `symbol` 열을 넣으면 요청한 값과 일치하는지도 확인합니다.
+
+KIS에서 국내 하루 전체 분봉을 읽기 전용으로 확인할 때는 `GET /api/v1/market/sessions/KR/{symbol}/bars?session_date=YYYY-MM-DD`를 사용합니다. 단일 120개 페이지를 최대 6회까지 거슬러 조회합니다. API 분봉에는 과거 호가 스프레드가 없어 해당 값은 비어 있으며, 전략은 스프레드 필터가 있는 진입을 생성하지 않습니다. 로컬 연동 확인은 저장·주문 없이 `python scripts/test-paper-kis-session.py --session-date YYYY-MM-DD`로 실행할 수 있습니다. [KIS Developers API 서비스 소개](https://apiportal.koreainvestment.com/about-open-api)는 개인 고객의 시세 정보 이용을 자기 자산 투자 목적으로 한정하고 제3자 제공을 금지하므로, 데이터와 파생 파일은 로컬 개인 용도에 한정합니다.
 
 ```powershell
 .\services\market-ai\.venv\Scripts\python.exe .\scripts\backtest-quant.py .\data\licensed-bars.csv --market KR --symbol 005930 --commission-bps 5 --slippage-bps 5

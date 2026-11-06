@@ -266,6 +266,35 @@ def get_domestic_minute_bars(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@app.get("/api/v1/market/sessions/KR/{symbol}/bars", response_model=HistoricalMinuteBarsResponse)
+def get_domestic_minute_session_bars(
+    symbol: str = Path(pattern=r"^\d{6}$"),
+    session_date: date = Query(),
+    end_time: str = Query(default="153000", pattern=r"^\d{6}$"),
+    client: KisReadOnlyClient = Depends(get_kis_client),
+) -> HistoricalMinuteBarsResponse:
+    """Fetch a bounded, exchange-local KRX session prefix using paged read-only KIS requests."""
+    try:
+        bars = client.get_domestic_minute_session_bars(symbol, session_date, end_time)
+        _persist_snapshot(lambda: snapshot_store.store_minute_bars(
+            "KR", symbol, bars, source="KIS_REST_MINUTE_SESSION",
+        ))
+        return HistoricalMinuteBarsResponse(
+            market="KR", symbol=symbol, session_date=session_date, source="KIS_REST_MINUTE_SESSION",
+            spread_bps_available=False,
+            bars=[QuantBarRequest(
+                timestamp=bar.timestamp, open=bar.open, high=bar.high, low=bar.low, close=bar.close,
+                volume=bar.volume, spread_bps=None,
+            ) for bar in bars],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KisSharedRateLimitUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except KisApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @app.get("/api/v1/market/bars/US/{symbol}", response_model=HistoricalMinuteBarsResponse)
 def get_overseas_minute_bars(
     symbol: str = Path(pattern=r"^[A-Za-z0-9.-]{1,16}$"),

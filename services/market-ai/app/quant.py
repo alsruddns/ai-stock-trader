@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 Market = Literal["KR", "US"]
 
@@ -85,10 +86,22 @@ class BacktestResult:
     executable: bool = False
 
 
-def _validate_session(bars: list[MinuteBar]) -> None:
+def exchange_session_date(timestamp: datetime, market: Market) -> date:
+    zones = {"KR": "Asia/Seoul", "US": "America/New_York"}
+    try:
+        zone = ZoneInfo(zones[market])
+    except KeyError as exc:
+        raise ValueError("market must be KR or US") from exc
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise ValueError("bar timestamps must include a timezone")
+    return timestamp.astimezone(zone).date()
+
+
+def _validate_session(bars: list[MinuteBar], market: Market) -> None:
     if not bars:
         raise ValueError("at least one bar is required")
-    if any(bar.timestamp.date() != bars[0].timestamp.date() for bar in bars):
+    session_date = exchange_session_date(bars[0].timestamp, market)
+    if any(exchange_session_date(bar.timestamp, market) != session_date for bar in bars):
         raise ValueError("one session per backtest is supported")
     if any(left.timestamp >= right.timestamp for left, right in zip(bars, bars[1:])):
         raise ValueError("bars must be strictly increasing by timestamp")
@@ -120,9 +133,11 @@ def _cost(price: Decimal, quantity: int, bps: Decimal) -> Decimal:
     return price * quantity * bps / Decimal(10_000)
 
 
-def orb_vwap_entry_candidate(bars: list[MinuteBar], config: QuantConfig = QuantConfig()) -> bool:
+def orb_vwap_entry_candidate(
+    bars: list[MinuteBar], config: QuantConfig = QuantConfig(), *, market: Market,
+) -> bool:
     """Evaluate a long entry from a complete prefix ending at the current bar."""
-    _validate_session(bars)
+    _validate_session(bars, market)
     required = max(config.opening_range_bars, config.ema_period, config.atr_period,
                    config.relative_volume_period + 1)
     if len(bars) < required:
@@ -153,13 +168,13 @@ def backtest_orb_vwap(
     entries execute no earlier than the next bar open. If stop and target touch in one
     bar, stop is assumed to fill first. Open positions close at the final bar close.
     """
-    _validate_session(bars)
+    _validate_session(bars, market)
     normalized_symbol = symbol.strip().upper()
     if not normalized_symbol or quantity <= 0:
         raise ValueError("symbol and positive quantity are required")
     opening = bars[: config.opening_range_bars]
     if len(opening) < config.opening_range_bars:
-        return BacktestResult(market, normalized_symbol, bars[0].timestamp.date(), (), Decimal(0), Decimal(0), Decimal(0), len(bars), 0)
+        return BacktestResult(market, normalized_symbol, exchange_session_date(bars[0].timestamp, market), (), Decimal(0), Decimal(0), Decimal(0), len(bars), 0)
     opening_high = max(bar.high for bar in opening)
     minimum_history = max(config.ema_period, config.atr_period,
                           config.relative_volume_period + 1, config.opening_range_bars)
@@ -200,7 +215,7 @@ def backtest_orb_vwap(
 
         # Each indicator is computed only from bars through this close.
         ready = index + 1 >= minimum_history
-        buy = entry is None and ready and orb_vwap_entry_candidate(history, config)
+        buy = entry is None and ready and orb_vwap_entry_candidate(history, config, market=market)
         if buy:
             signals += 1
             if index + 1 < len(bars):
@@ -214,7 +229,7 @@ def backtest_orb_vwap(
     return BacktestResult(
         market=market,
         symbol=normalized_symbol,
-        session=bars[0].timestamp.date(),
+        session=exchange_session_date(bars[0].timestamp, market),
         trades=tuple(trades),
         gross_pnl=gross_total,
         costs=cost_total,

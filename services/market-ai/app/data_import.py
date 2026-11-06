@@ -8,13 +8,15 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from .quant import MinuteBar
+from .quant import Market, MinuteBar, exchange_session_date
 
 REQUIRED_COLUMNS = {"timestamp", "open", "high", "low", "close", "volume"}
 
 
-def load_minute_bar_sessions(csv_path: str | Path, *, expected_symbol: str | None = None) -> dict[date, list[MinuteBar]]:
-    """Load a single instrument's timezone-aware bars grouped by local session date."""
+def load_minute_bar_sessions(
+    csv_path: str | Path, *, market: Market, expected_symbol: str | None = None,
+) -> dict[date, list[MinuteBar]]:
+    """Load one instrument and group its timezone-aware bars by exchange-local session date."""
     sessions: dict[date, list[MinuteBar]] = defaultdict(list)
     try:
         source = Path(csv_path).open("r", encoding="utf-8-sig", newline="")
@@ -57,7 +59,7 @@ def load_minute_bar_sessions(csv_path: str | Path, *, expected_symbol: str | Non
                 )
             except (ArithmeticError, InvalidOperation, KeyError, TypeError, ValueError) as exc:
                 raise ValueError(f"invalid minute-bar CSV row {line_number}: {exc}") from exc
-            sessions[bar.timestamp.date()].append(bar)
+            sessions[exchange_session_date(bar.timestamp, market)].append(bar)
 
     if not sessions:
         raise ValueError("minute-bar CSV contains no data rows")
@@ -66,6 +68,8 @@ def load_minute_bar_sessions(csv_path: str | Path, *, expected_symbol: str | Non
     if expected_symbol and symbols and symbols != {expected_symbol.strip().upper()}:
         raise ValueError("CSV symbol does not match the requested instrument")
     for session, bars in sessions.items():
+        if any(exchange_session_date(bar.timestamp, market) != session for bar in bars):
+            raise ValueError(f"timestamps must belong to exchange-local session {session}")
         if any(left.timestamp >= right.timestamp for left, right in zip(bars, bars[1:])):
             raise ValueError(f"timestamps must be strictly increasing within session {session}")
     return dict(sessions)
