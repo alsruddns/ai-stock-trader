@@ -1,5 +1,4 @@
 from enum import StrEnum
-from functools import lru_cache
 import os
 import re
 import threading
@@ -21,8 +20,8 @@ from .ai_pipeline import LocalModelRegistry
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from .paper_runtime import paper_session_monitor
 
-_KIS_ACCOUNT_CLIENTS: dict[str, KisReadOnlyClient] = {}
-_KIS_ACCOUNT_CLIENTS_LOCK = threading.RLock()
+_KIS_CLIENTS: dict[str, KisReadOnlyClient] = {}
+_KIS_CLIENTS_LOCK = threading.RLock()
 
 
 @asynccontextmanager
@@ -34,10 +33,7 @@ async def lifespan(_app):
         try:
             await paper_session_monitor.stop()
         finally:
-            try:
-                close_kis_account_clients()
-            finally:
-                close_kis_market_client()
+            close_kis_clients()
 
 app = FastAPI(
     title="AI Stock Trader Market Analysis",
@@ -47,14 +43,13 @@ app = FastAPI(
 )
 
 
-@lru_cache
 def get_kis_client() -> KisReadOnlyClient:
     settings = KisSettings.from_environment()
     if not settings.enabled:
         raise HTTPException(status_code=503, detail="KIS market data is disabled")
     if not settings.app_key or not settings.app_secret:
         raise HTTPException(status_code=503, detail="KIS market data credentials are not configured")
-    return KisReadOnlyClient(settings)
+    return _get_or_create_kis_client(settings)
 
 
 def get_kis_account_client(environment: str) -> KisReadOnlyClient:
@@ -63,31 +58,28 @@ def get_kis_account_client(environment: str) -> KisReadOnlyClient:
     if (not settings.app_key or not settings.app_secret
             or not re.fullmatch(r"\d{10}", settings.account_number)):
         raise HTTPException(status_code=503, detail="KIS account credentials are not configured")
-    with _KIS_ACCOUNT_CLIENTS_LOCK:
-        current = _KIS_ACCOUNT_CLIENTS.get(environment)
+    return _get_or_create_kis_client(settings)
+
+
+def _get_or_create_kis_client(settings: KisSettings) -> KisReadOnlyClient:
+    environment = settings.environment
+    with _KIS_CLIENTS_LOCK:
+        current = _KIS_CLIENTS.get(environment)
         if current is not None and current.settings == settings:
             return current
         if current is not None:
             current.close()
         client = KisReadOnlyClient(settings)
-        _KIS_ACCOUNT_CLIENTS[environment] = client
+        _KIS_CLIENTS[environment] = client
         return client
 
 
-def close_kis_account_clients() -> None:
-    with _KIS_ACCOUNT_CLIENTS_LOCK:
-        clients = list(_KIS_ACCOUNT_CLIENTS.values())
-        _KIS_ACCOUNT_CLIENTS.clear()
+def close_kis_clients() -> None:
+    with _KIS_CLIENTS_LOCK:
+        clients = list(_KIS_CLIENTS.values())
+        _KIS_CLIENTS.clear()
     for client in clients:
         client.close()
-
-
-def close_kis_market_client() -> None:
-    try:
-        if get_kis_client.cache_info().currsize:
-            get_kis_client().close()
-    finally:
-        get_kis_client.cache_clear()
 
 
 class Signal(StrEnum):

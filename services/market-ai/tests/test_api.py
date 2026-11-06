@@ -89,11 +89,10 @@ def test_kis_quote_route_is_disabled_by_default(monkeypatch) -> None:
     monkeypatch.setenv("KIS_MARKET_DATA_ENABLED", "false")
     monkeypatch.delenv("KIS_APP_KEY", raising=False)
     monkeypatch.delenv("KIS_APP_SECRET", raising=False)
-    get_kis_client.cache_clear()
+    monkeypatch.setattr(main, "_KIS_CLIENTS", {})
     response = client.get("/api/v1/market/quotes/KR/005930")
     assert response.status_code == 503
     assert response.json()["detail"] == "KIS market data is disabled"
-    get_kis_client.cache_clear()
 
 
 def test_quote_route_returns_normalized_snapshot() -> None:
@@ -261,8 +260,10 @@ def test_account_kis_clients_reuse_tokens_per_environment_and_close_on_shutdown(
         def close(self):
             self.closed = True
 
-    monkeypatch.setattr(main, "_KIS_ACCOUNT_CLIENTS", {})
+    monkeypatch.setattr(main, "_KIS_CLIENTS", {})
     monkeypatch.setattr(main, "KisReadOnlyClient", FakeKisClient)
+    monkeypatch.setenv("KIS_ENVIRONMENT", "paper")
+    monkeypatch.setenv("KIS_MARKET_DATA_ENABLED", "true")
     for environment in ("PAPER", "REAL"):
         monkeypatch.setenv(f"KIS_{environment}_APP_KEY", f"{environment.lower()}-test-key")
         monkeypatch.setenv(f"KIS_{environment}_APP_SECRET", f"{environment.lower()}-test-secret")
@@ -270,12 +271,14 @@ def test_account_kis_clients_reuse_tokens_per_environment_and_close_on_shutdown(
 
     paper_first = main.get_kis_account_client("paper")
     paper_second = main.get_kis_account_client("paper")
+    paper_quotes = main.get_kis_client()
     real = main.get_kis_account_client("real")
 
     assert paper_first is paper_second
+    assert paper_first is paper_quotes
     assert paper_first is not real
     assert len(created) == 2
-    main.close_kis_account_clients()
+    main.close_kis_clients()
     assert all(client.closed for client in created)
 
 
@@ -291,7 +294,7 @@ def test_market_kis_client_is_closed_and_evicted_on_shutdown(monkeypatch) -> Non
         def close(self):
             self.closed = True
 
-    main.get_kis_client.cache_clear()
+    monkeypatch.setattr(main, "_KIS_CLIENTS", {})
     monkeypatch.setattr(main, "KisReadOnlyClient", FakeKisClient)
     monkeypatch.setenv("KIS_ENVIRONMENT", "paper")
     monkeypatch.setenv("KIS_MARKET_DATA_ENABLED", "true")
@@ -299,10 +302,10 @@ def test_market_kis_client_is_closed_and_evicted_on_shutdown(monkeypatch) -> Non
     monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-test-secret")
 
     assert main.get_kis_client() is created[0]
-    main.close_kis_market_client()
+    main.close_kis_clients()
 
     assert created[0].closed is True
-    assert main.get_kis_client.cache_info().currsize == 0
+    assert main._KIS_CLIENTS == {}
 
 
 def test_quant_backtest_endpoint_accepts_supplied_bars_and_never_creates_orders() -> None:
