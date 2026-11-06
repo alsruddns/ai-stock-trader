@@ -134,7 +134,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/orders/paper `
 
 주문은 `PENDING` 상태로 PostgreSQL에 기록됩니다. 모의 체결은 별도 paper 전용 API로 직접 기록하며, 주문 수량보다 많이 체결시키거나 보유 수량보다 많이 매도하지 못합니다. 주문 요청은 같은 `Idempotency-Key`, 체결 이벤트는 같은 `fillKey`로 재전송 중복을 막습니다. Spring과 Python은 기본적으로 `127.0.0.1`에만 바인딩되며, 인증이 없는 로컬 개발용 API이므로 외부 네트워크에 노출하지 마세요.
 
-한국투자증권 PAPER 주문·취소를 실제 모의 계좌에서 확인할 때는 `scripts/test-kis-paper-order-lifecycle-isolated.ps1`을 사용하세요. 이 스크립트는 `.env_local`의 주문 잠금을 변경하지 않고 임시 Spring 프로세스에서 PAPER만 허용합니다. 먼저 `-PreflightOnly`로 읽기 전용 확인을 하고, 장중 1주 주문·즉시 취소를 검증할 때만 `-ConfirmPaperOrderAndCancel`을 전달합니다. 지정가는 최근 시세보다 최소 5% 낮게 제한합니다. 모의 주문도 PAPER 계좌의 현금·주문 상태를 바꾸며, 시세 급락 시 체결될 수 있으므로 체결된 모의 포지션을 정리하세요. 세부 조건은 [Windows 운영 문서](docs/operations.md)를 참고하세요.
+한국투자증권 PAPER 주문·취소를 실제 모의 계좌에서 확인할 때는 `scripts/test-kis-paper-order-lifecycle-isolated.ps1`을 사용하세요. 이 스크립트는 `.env_local`의 주문 잠금을 변경하지 않고 임시 Spring 프로세스에서 PAPER만 허용합니다. 먼저 `-PreflightOnly`로 읽기 전용 확인을 하세요. 국내 모의 취소 가능수량 조회의 KIS 지원이 확인되지 않아 국내 `-ConfirmPaperOrderAndCancel`은 주문 전 차단됩니다. 미국은 주문가능 USD가 충분할 때만 장중 주문·취소 확인이 가능합니다. 지원되는 모의 주문도 PAPER 계좌 상태를 바꾸며 시세 급변 시 체결될 수 있으므로 체결된 가상 포지션을 정리하세요. 세부 조건은 [Windows 운영 문서](docs/operations.md)를 참고하세요.
 
 수동 paper 체결과 가상 포지션 조회 예시:
 

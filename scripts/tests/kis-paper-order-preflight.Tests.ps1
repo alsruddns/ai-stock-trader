@@ -1,5 +1,27 @@
 . (Join-Path $PSScriptRoot '../lib/kis-paper-order-preflight.ps1')
 
+Describe 'Domestic KIS PAPER lifecycle fail-closed guard' {
+    $expected = 'Domestic PAPER cancel preflight is unsupported; no order was submitted. Use -PreflightOnly or wait until KIS documents a PAPER cancel-quantity query.'
+
+    It 'stops the direct lifecycle script before local API calls' {
+        $message = $null
+        try {
+            & (Join-Path $PSScriptRoot '../test-kis-paper-order-lifecycle.ps1') `
+                -Market KR -Symbol '069500' -LimitPrice 50000 -ConfirmPaperOrderAndCancel
+        } catch { $message = $_.Exception.Message }
+        $message | Should Be $expected
+    }
+
+    It 'stops the isolated lifecycle runner before building or starting Spring' {
+        $message = $null
+        try {
+            & (Join-Path $PSScriptRoot '../test-kis-paper-order-lifecycle-isolated.ps1') `
+                -Market KR -Symbol '069500' -LimitPrice 50000 -ConfirmPaperOrderAndCancel
+        } catch { $message = $_.Exception.Message }
+        $message | Should Be $expected
+    }
+}
+
 function Assert-QuoteExpectation {
     param([object]$Quote, [DateTimeOffset]$Now, [bool]$ShouldThrow)
     $didThrow = $false

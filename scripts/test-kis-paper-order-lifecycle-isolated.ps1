@@ -15,6 +15,9 @@ if ($PreflightOnly -eq $ConfirmPaperOrderAndCancel) {
     throw 'Choose exactly one mode: -PreflightOnly or -ConfirmPaperOrderAndCancel.'
 }
 if ($LimitPrice -le 0) { throw 'LimitPrice must be positive.' }
+if ($Market -eq 'KR' -and $ConfirmPaperOrderAndCancel) {
+    throw 'Domestic PAPER cancel preflight is unsupported; no order was submitted. Use -PreflightOnly or wait until KIS documents a PAPER cancel-quantity query.'
+}
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $envPath = Join-Path $repoRoot '.env_local'

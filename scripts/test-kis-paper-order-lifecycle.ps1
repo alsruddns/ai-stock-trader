@@ -24,6 +24,9 @@ if (-not $PreflightOnly -and -not $ConfirmPaperOrderAndCancel) {
     throw 'No request was sent. Re-run with -ConfirmPaperOrderAndCancel only when you intend to submit and immediately cancel one KIS PAPER share.'
 }
 if ($LimitPrice -le 0) { throw 'LimitPrice must be positive.' }
+if ($Market -eq 'KR' -and $ConfirmPaperOrderAndCancel) {
+    throw 'Domestic PAPER cancel preflight is unsupported; no order was submitted. Use -PreflightOnly or wait until KIS documents a PAPER cancel-quantity query.'
+}
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'lib/kis-paper-order-preflight.ps1')

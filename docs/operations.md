@@ -50,7 +50,7 @@ Set-Location .\services\market-ai
 
 ### KIS PAPER 주문 수명주기 통합 확인
 
-실제 KIS PAPER 주문·취소 통합 확인은 `scripts/test-kis-paper-order-lifecycle-isolated.ps1`을 사용합니다. 이 스크립트는 `.env_local`의 PAPER/REAL 주문 및 자동매매 잠금이 모두 `false`인 것을 확인하고, 별도 loopback 포트(기본 8081)에 임시 Spring Boot 프로세스를 시작합니다. PAPER 주문만 그 프로세스에서 허용하고 REAL 키·계좌번호는 빈 값으로 덮어씁니다. 테스트 종료 시 임시 프로세스를 끄고 호출 PowerShell 환경을 복원하며 `.env_local`을 수정하지 않습니다. 우선 `-PreflightOnly`로 확인하고, 장중 실제 1주 주문·즉시 취소를 검증할 때만 `-ConfirmPaperOrderAndCancel`을 명시합니다. 두 모드는 상호 배타적입니다.
+KIS PAPER 주문·취소 통합 확인은 `scripts/test-kis-paper-order-lifecycle-isolated.ps1`을 사용합니다. 이 스크립트는 `.env_local`의 PAPER/REAL 주문 및 자동매매 잠금이 모두 `false`인 것을 확인하고, 별도 loopback 포트(기본 8081)에 임시 Spring Boot 프로세스를 시작합니다. PAPER 주문만 그 프로세스에서 허용하고 REAL 키·계좌번호는 빈 값으로 덮어씁니다. 테스트 종료 시 임시 프로세스를 끄고 호출 PowerShell 환경을 복원하며 `.env_local`을 수정하지 않습니다. 우선 `-PreflightOnly`로 확인합니다. 현재 국내 PAPER 취소 가능수량 조회용 모의 TR 지원이 확인되지 않아 `KR -ConfirmPaperOrderAndCancel`은 두 스크립트에서 네트워크 요청 전에 거부됩니다. 미국은 주문가능 USD가 충분한 경우에만 장중 `-ConfirmPaperOrderAndCancel`을 실행할 수 있습니다. 두 모드는 상호 배타적입니다.
 
 주문 제출 모드는 Python의 `/api/v1/market/sessions/{market}` (`market=KR` 또는 `US`)에서 받은 최근 거래소 캘린더 확인을 요구합니다. 휴장일·장외·캘린더 오류·5분 이내 폐장·오래된 세션 응답이면 주문 전에 중단합니다. 읽기 전용 `-PreflightOnly`는 장외에서도 실행할 수 있습니다.
 
@@ -58,7 +58,7 @@ Set-Location .\services\market-ai
 .\scripts\test-kis-paper-order-lifecycle-isolated.ps1 -Market KR -Symbol 069500 -LimitPrice 75000 -PreflightOnly
 ```
 
-실제 모의 주문·취소는 같은 인수에 `-PreflightOnly` 대신 `-ConfirmPaperOrderAndCancel`을 지정해야 합니다.
+지원 확인된 시장의 모의 주문·취소는 같은 인수에 `-PreflightOnly` 대신 `-ConfirmPaperOrderAndCancel`을 지정합니다. 국내 모의 주문은 취소까지 안전하게 확인할 수 있게 될 때까지 사용하지 마세요.
 
 1주 매수 지정가만 허용하며 KIS 시세와 종목별 주문가능금액의 `retrieved_at`이 현재 시각 기준 60초 이내이고, 최근 시세보다 5% 이상 낮은 가격, 설정 한도와 별도 PAPER 테스트 한도(국내 10만원/미국 100달러) 안에서만 진행합니다. 시세·계좌 조회가 누락되거나 오래됐거나 잔액이 부족하면 주문 전에 중단합니다. Spring은 POST 직전 주문가능금액을 다시 조회합니다. 응답이 끊기면 새 주문을 보내지 않고 같은 멱등 키를 조회하며, 즉시 취소 후 상태를 대조합니다. PAPER 주문은 모의 계좌 상태를 바꾸므로 체결되면 모의 포지션을 정리하세요. 시험 로그는 `.local/logs`에 보관됩니다.
 
