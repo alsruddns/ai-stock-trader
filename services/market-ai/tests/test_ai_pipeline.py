@@ -344,6 +344,36 @@ def test_model_approval_requires_sufficient_heldout_sessions_and_ai_quant_outper
         registry.approve(model_id, approved_by="operator", note="Review held-out execution comparison before promotion.")
 
 
+def test_model_approval_rejects_label_cost_below_backtest_round_trip_cost(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "6" * 32
+    _write_candidate(registry, model_id)
+    manifest_path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    metadata["training_config"]["label_round_trip_cost_bps"] = "19.999"
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    assert registry._has_valid_approval_evidence(metadata) is False
+    with pytest.raises(ValueError, match="metrics or training configuration are inconsistent"):
+        registry.approve(model_id, approved_by="operator", note="Held-out evidence cost assumptions need review.")
+
+
+def test_model_approval_rejects_zero_cost_backtests(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "xgboost-" + "5" * 32
+    _write_candidate(registry, model_id)
+    manifest_path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    metadata["training_config"]["label_round_trip_cost_bps"] = "0"
+    metadata["training_config"]["backtest_commission_bps"] = "0"
+    metadata["training_config"]["backtest_slippage_bps"] = "0"
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    assert registry._has_valid_approval_evidence(metadata) is False
+    with pytest.raises(ValueError, match="metrics or training configuration are inconsistent"):
+        registry.approve(model_id, approved_by="operator", note="Zero-cost evidence cannot approve a trading model.")
+
+
 def test_model_approval_enforces_five_ai_quant_trades_as_the_exact_minimum(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)
     model_id = "lightgbm-" + "7" * 32

@@ -376,10 +376,15 @@ class LocalModelRegistry:
             horizon = config.get("label_horizon_bars")
             if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon <= 0:
                 return False
-            for key in ("label_round_trip_cost_bps", "backtest_commission_bps", "backtest_slippage_bps"):
-                value = Decimal(str(config[key]))
-                if not value.is_finite() or value < 0:
-                    return False
+            label_cost = Decimal(str(config["label_round_trip_cost_bps"]))
+            commission = Decimal(str(config["backtest_commission_bps"]))
+            slippage = Decimal(str(config["backtest_slippage_bps"]))
+            if any(not value.is_finite() or value < 0 for value in (label_cost, commission, slippage)):
+                return False
+            # Labels span one entry and one exit. Keep their cost floor at least as
+            # conservative as the backtest's per-side commission and slippage.
+            if commission + slippage <= 0 or label_cost < 2 * (commission + slippage):
+                return False
             for metrics in (ai, quant):
                 session_count = Decimal(str(metrics["session_count"]))
                 if not session_count.is_finite() or session_count != len(test):
