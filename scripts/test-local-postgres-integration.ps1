@@ -29,6 +29,23 @@ foreach ($line in Get-Content -LiteralPath $envFile) {
     [Environment]::SetEnvironmentVariable($name, $value, 'Process')
 }
 
+# Persistence integration tests must never inherit usable KIS credentials or order switches.
+$env:KIS_PAPER_APP_KEY = ''
+$env:KIS_PAPER_APP_SECRET = ''
+$env:KIS_PAPER_ACCOUNT_NUMBER = ''
+$env:KIS_REAL_APP_KEY = ''
+$env:KIS_REAL_APP_SECRET = ''
+$env:KIS_REAL_ACCOUNT_NUMBER = ''
+$env:KIS_MARKET_DATA_ENABLED = 'false'
+$env:KIS_ACCOUNT_READ_ENABLED = 'false'
+$env:KIS_PAPER_ACCOUNT_READ_ENABLED = 'false'
+$env:KIS_REAL_ACCOUNT_READ_ENABLED = 'false'
+$env:KIS_PAPER_ORDERS_ENABLED = 'false'
+$env:KIS_REAL_ORDERS_ENABLED = 'false'
+$env:KIS_REAL_RECONCILIATION_ENABLED = 'false'
+$env:TRADING_MODE = 'paper'
+$env:LIVE_TRADING_ENABLED = 'false'
+
 $env:RUN_LOCAL_POSTGRES_INTEGRATION_TESTS = 'true'
 $apiDirectory = Join-Path $repoRoot 'backend\trading-api'
 Push-Location $apiDirectory

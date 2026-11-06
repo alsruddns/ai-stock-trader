@@ -21,6 +21,9 @@ import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -33,11 +36,21 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /** Opt-in local PostgreSQL persistence test. Does not make KIS network requests. */
 @EnabledIfEnvironmentVariable(named = "RUN_LOCAL_POSTGRES_INTEGRATION_TESTS", matches = "true")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class KisOrderIntentPostgresIntegrationTest {
+    @DynamicPropertySource
+    static void enableOnlyPaperOrderOrchestration(DynamicPropertyRegistry properties) {
+        properties.add("kis.orders.paper-enabled", () -> true);
+        properties.add("trading.mode", () -> "paper");
+        properties.add("trading.live-trading-enabled", () -> false);
+    }
+
     @Autowired KisOrderIntentStore store;
     @Autowired KisOrderIntentRepository repository;
     @Autowired OrderService paperOrders;
@@ -46,6 +59,72 @@ class KisOrderIntentPostgresIntegrationTest {
     @Autowired PaperFillRepository paperFillRepository;
     @Autowired PaperPositionRepository paperPositionRepository;
     @Autowired EntityManager entityManager;
+    @Autowired KisOrderOrchestrator kisOrders;
+    @Autowired KisOrderIntentRepository kisOrderRepository;
+    @MockitoBean KisOrderClient kisOrderClient;
+    @MockitoBean KisAccountClient kisAccountClient;
+
+    @Test
+    @Transactional
+    void mockBrokerSubmissionPersistsAcceptedOrderAndIdempotentRetryDoesNotResubmit() {
+        UUID key = UUID.randomUUID();
+        OrderRequest order = request();
+        String brokerNumber = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        when(kisAccountClient.getBalance(KisEnvironment.PAPER, Market.KR, order.symbol(), order.limitPrice(), ""))
+                .thenReturn(new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR, "KRW",
+                        new BigDecimal("100000"), new BigDecimal("100000"), List.of(), Instant.now(), "test"));
+        when(kisOrderClient.placePaperLimitOrder(Market.KR, order.symbol(), OrderSide.BUY, 1,
+                order.limitPrice(), Currency.KRW, null))
+                .thenReturn(receipt("paper", brokerNumber));
+
+        try {
+            var submitted = kisOrders.submitPaperOrder(key, order, null);
+            entityManager.flush();
+            entityManager.clear();
+
+            var persisted = kisOrderRepository.findById(key).orElseThrow();
+            var retried = kisOrders.submitPaperOrder(key, order, null);
+
+            assertEquals(KisOrderStatus.ACCEPTED, submitted.status());
+            assertEquals(KisOrderStatus.ACCEPTED, persisted.getStatus());
+            assertEquals(brokerNumber, persisted.getBrokerOrderNumber());
+            assertEquals(key, retried.idempotencyKey());
+            verify(kisOrderClient, times(1)).placePaperLimitOrder(Market.KR, order.symbol(), OrderSide.BUY, 1,
+                    order.limitPrice(), Currency.KRW, null);
+        } finally {
+            kisOrderRepository.deleteById(key);
+        }
+    }
+
+    @Test
+    @Transactional
+    void mockBrokerTimeoutPersistsUnknownAndRetryDoesNotResend() {
+        UUID key = UUID.randomUUID();
+        OrderRequest order = request();
+        when(kisAccountClient.getBalance(KisEnvironment.PAPER, Market.KR, order.symbol(), order.limitPrice(), ""))
+                .thenReturn(new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR, "KRW",
+                        new BigDecimal("100000"), new BigDecimal("100000"), List.of(), Instant.now(), "test"));
+        when(kisOrderClient.placePaperLimitOrder(Market.KR, order.symbol(), OrderSide.BUY, 1,
+                order.limitPrice(), Currency.KRW, null))
+                .thenThrow(new KisOrderOutcomeUnknownException("simulated timeout", new RuntimeException("mock")));
+
+        try {
+            var submitted = kisOrders.submitPaperOrder(key, order, null);
+            entityManager.flush();
+            entityManager.clear();
+
+            var persisted = kisOrderRepository.findById(key).orElseThrow();
+            var retried = kisOrders.submitPaperOrder(key, order, null);
+
+            assertEquals(KisOrderStatus.UNKNOWN, submitted.status());
+            assertEquals(KisOrderStatus.UNKNOWN, persisted.getStatus());
+            assertEquals(KisOrderStatus.UNKNOWN, retried.status());
+            verify(kisOrderClient, times(1)).placePaperLimitOrder(Market.KR, order.symbol(), OrderSide.BUY, 1,
+                    order.limitPrice(), Currency.KRW, null);
+        } finally {
+            kisOrderRepository.deleteById(key);
+        }
+    }
 
     @Test
     void persistsAndReloadsPaperAndRealIntentsWithSameBrokerNumberAcrossEnvironments() {
