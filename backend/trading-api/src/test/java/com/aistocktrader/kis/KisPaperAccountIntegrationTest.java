@@ -7,6 +7,8 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.math.BigDecimal;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /** Explicit opt-in only: performs read-only paper account GET requests. */
@@ -44,5 +46,27 @@ class KisPaperAccountIntegrationTest {
         assertEquals(KisEnvironment.PAPER, snapshot.environment());
         assertEquals(Market.US, snapshot.market());
         assertEquals("USD", snapshot.currency());
+    }
+
+    @Test
+    void readsDomesticPaperOrderableCashWithoutPlacingOrders() {
+        KisAccountSnapshot snapshot = client.getBalance(KisEnvironment.PAPER, Market.KR, "005930",
+                new BigDecimal("70000"), null);
+        assertEquals("KRW", snapshot.currency());
+        assertNotNull(snapshot.orderableCash(), "Paper KR orderable cash response must be mapped.");
+        assertTrue(snapshot.orderableCash().signum() >= 0, "Paper KR orderable cash cannot be negative.");
+        System.out.println("PAPER_KR_70000_KRW_ORDERABLE="
+                + (snapshot.orderableCash().compareTo(new BigDecimal("70000")) >= 0));
+    }
+
+    @Test
+    void readsUsPaperOrderableCashWithoutPlacingOrders() {
+        KisAccountSnapshot snapshot = client.getBalance(KisEnvironment.PAPER, Market.US, "F",
+                new BigDecimal("11"), "NYSE");
+        assertEquals("USD", snapshot.currency());
+        assertNotNull(snapshot.orderableCash(), "Paper US orderable cash response must be mapped.");
+        assertTrue(snapshot.orderableCash().signum() >= 0, "Paper US orderable cash cannot be negative.");
+        System.out.println("PAPER_US_F_11_USD_ORDERABLE="
+                + (snapshot.orderableCash().compareTo(new BigDecimal("11")) >= 0));
     }
 }
