@@ -1,0 +1,81 @@
+name: Full stack quality
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  market-ai:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/market-ai/pyproject.toml
+      - name: Install market and AI dependencies
+        working-directory: services/market-ai
+        run: python -m pip install -e ".[dev,ai,ops]"
+      - name: Run market and AI regression suite
+        working-directory: services/market-ai
+        run: python -m pytest -q
+
+  spring-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ai_stock_trader_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ai_stock_trader_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: jdbc:postgresql://localhost:5432/ai_stock_trader_ci
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      RUN_LOCAL_POSTGRES_INTEGRATION_TESTS: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Run Spring and PostgreSQL integration suite
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode test
+
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+      - name: Lint dashboard
+        working-directory: dashboard
+        run: npm run lint
+      - name: Build dashboard
+        working-directory: dashboard
+        run: npm run build
