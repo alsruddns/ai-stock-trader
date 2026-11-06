@@ -32,6 +32,10 @@ These REST endpoints provide quote snapshots. The official domestic example dire
 
 The official KIS WebSocket sample answers a JSON `PINGPONG` message by sending its payload back as a WebSocket Pong frame. Both the local quote relay and the PAPER session monitor now do this and skip the control message in the trade-tick parser. This was checked against the [official KIS WebSocket sample](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/websocket/python/ops_ws_sample.py). Live feed connectivity still requires an authenticated account-level smoke test.
 
+## Upcoming API retirement
+
+The KIS Developers portal announced that seven domestic-stock financial analysis APIs (balance sheet, income statement, financial ratios, profitability, other key ratios, stability, and growth) will be blocked after market close on 2026-11-11 at 16:00 KST because of source-data licensing changes. The current application uses quote, minute-chart, balance, and order endpoints and does not reference these seven analysis endpoints; keep them out of the runtime unless KIS publishes a replacement and its permitted use is confirmed. See the [KIS Developers notice page](https://apiportal.koreainvestment.com/intro).
+
 ## Official references
 
 - [KIS official domestic stock balance example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_balance/inquire_balance.py)
