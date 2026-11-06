@@ -47,7 +47,8 @@ $exportArgs = @(
     '--symbol', $symbolValue,
     '--from-date', $FromDate.ToString('yyyy-MM-dd'),
     '--to-date', $ToDate.ToString('yyyy-MM-dd'),
-    '--output', $exportRelativePath
+    '--output', $exportRelativePath,
+    '--require-approved-websocket-source'
 )
 
 Push-Location $repoRoot
@@ -58,9 +59,10 @@ try {
     }
     $export = ($exportOutput -join [Environment]::NewLine) | ConvertFrom-Json
     $sidecarPath = "$csvPath.provenance.json"
-    if ($export.rights_reviewed -ne $true -or -not (Test-Path -LiteralPath $csvPath -PathType Leaf) -or
+    if ($export.rights_reviewed -ne $true -or $export.source_quality_verified -ne $true -or
+        -not (Test-Path -LiteralPath $csvPath -PathType Leaf) -or
         -not (Test-Path -LiteralPath $sidecarPath -PathType Leaf)) {
-        throw 'Export did not produce a rights-reviewed CSV and provenance sidecar.'
+        throw 'Export did not produce a rights-reviewed, source-quality-verified CSV and provenance sidecar.'
     }
     $sidecar = Get-Content -LiteralPath $sidecarPath -Raw | ConvertFrom-Json
     $csvSha256 = (Get-FileHash -LiteralPath $csvPath -Algorithm SHA256).Hash.ToLowerInvariant()

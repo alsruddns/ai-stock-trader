@@ -8,10 +8,47 @@ import io
 import json
 import os
 import tempfile
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Sequence
+from zoneinfo import ZoneInfo
+
+from .market_calendar import exchange_continuous_session_window
+
+
+def validate_websocket_session_rows(rows: Sequence[tuple], *, market: str, expected_source: str) -> None:
+    """Require exact, spread-complete regular-session bars from the expected KIS feed."""
+    normalized_market = market.strip().upper()
+    expected_sources = {"KR": "KIS_PAPER_WEBSOCKET", "US": "KIS_REAL_US_WEBSOCKET"}
+    if normalized_market not in expected_sources or expected_source != expected_sources[normalized_market]:
+        raise ValueError("market and approved KIS WebSocket source do not match")
+    if not rows:
+        raise ValueError("WebSocket session export contains no rows")
+    zone = ZoneInfo("Asia/Seoul" if normalized_market == "KR" else "America/New_York")
+    sessions: dict[date, list[tuple]] = {}
+    for row in rows:
+        if len(row) < 8 or row[0].tzinfo is None or row[0].utcoffset() is None:
+            raise ValueError("WebSocket session rows require timezone-aware timestamps and source")
+        if row[7] != expected_source:
+            raise ValueError("session export contains an unexpected market-data source")
+        if row[6] is None:
+            raise ValueError("WebSocket session export requires spread data on every bar")
+        sessions.setdefault(row[0].astimezone(zone).date(), []).append(row)
+
+    for session_date, session_rows in sessions.items():
+        window = exchange_continuous_session_window(
+            normalized_market,
+            datetime.combine(session_date, datetime.min.time(), tzinfo=zone) + timedelta(hours=12),
+        )
+        if window is None:
+            raise ValueError("WebSocket export contains a non-session date")
+        opened, closed = window
+        expected_count = int((closed - opened).total_seconds() // 60)
+        expected_timestamps = [opened + timedelta(minutes=index) for index in range(expected_count)]
+        actual_timestamps = [row[0].astimezone(timezone.utc) for row in session_rows]
+        if actual_timestamps != expected_timestamps:
+            raise ValueError("WebSocket session must contain every expected minute exactly once")
 
 
 def build_minute_bar_export(

@@ -41,7 +41,8 @@ New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null
 $reportPath = Join-Path $reportDirectory "holdout-$runId.json"
 $exportRelativePath = "data/model-candidates/$runId.csv"
 $exportArgs = @((Join-Path $repoRoot 'scripts\export-market-data.py'), '--market', $Market, '--symbol', $symbolValue,
-    '--from-date', $FromDate.ToString('yyyy-MM-dd'), '--to-date', $ToDate.ToString('yyyy-MM-dd'), '--output', $exportRelativePath)
+    '--from-date', $FromDate.ToString('yyyy-MM-dd'), '--to-date', $ToDate.ToString('yyyy-MM-dd'), '--output', $exportRelativePath,
+    '--require-approved-websocket-source')
 $evaluationArgs = @((Join-Path $repoRoot 'scripts\evaluate-ai-model-candidates.py'), $csvPath,
     '--market', $Market, '--symbol', $symbolValue, '--registry', (Join-Path $repoRoot '.local\models'))
 
@@ -51,8 +52,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Holdout data export failed (exit $LASTEXITCODE): $($exportOutput -join [Environment]::NewLine)" }
     $export = ($exportOutput -join [Environment]::NewLine) | ConvertFrom-Json
     $sidecarPath = "$csvPath.provenance.json"
-    if (-not (Test-Path -LiteralPath $csvPath -PathType Leaf) -or -not (Test-Path -LiteralPath $sidecarPath -PathType Leaf)) {
-        throw 'Export did not produce the CSV and rights provenance sidecar.'
+    if ($export.source_quality_verified -ne $true -or -not (Test-Path -LiteralPath $csvPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $sidecarPath -PathType Leaf)) {
+        throw 'Export did not produce a source-quality-verified CSV and rights provenance sidecar.'
     }
     $sidecar = Get-Content -LiteralPath $sidecarPath -Raw | ConvertFrom-Json
     $csvSha256 = (Get-FileHash -LiteralPath $csvPath -Algorithm SHA256).Hash.ToLowerInvariant()

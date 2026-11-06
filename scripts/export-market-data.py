@@ -13,7 +13,7 @@ repository = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repository / "services" / "market-ai"))
 
 import psycopg
-from app.data_export import write_minute_bar_export
+from app.data_export import validate_websocket_session_rows, write_minute_bar_export
 from app.market_calendar import exchange_continuous_session_window
 
 
@@ -47,6 +47,8 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True,
                         help="CSV destination under the ignored local data/ directory")
     parser.add_argument("--overwrite", action="store_true", help="replace an existing CSV and sidecar")
+    parser.add_argument("--require-approved-websocket-source", action="store_true",
+                        help="require complete, spread-populated sessions from the market's approved KIS WebSocket feed")
     parser.add_argument("--dry-run", action="store_true", help="query PostgreSQL and report row counts without writing files")
     args = parser.parse_args()
 
@@ -122,6 +124,14 @@ def main() -> int:
         return 0
     if not rows:
         parser.error("no stored minute bars matched this market, symbol, and local session-date range")
+    source_quality_verified = False
+    if args.require_approved_websocket_source:
+        expected_source = "KIS_PAPER_WEBSOCKET" if market == "KR" else "KIS_REAL_US_WEBSOCKET"
+        try:
+            validate_websocket_session_rows(rows, market=market, expected_source=expected_source)
+        except (RuntimeError, ValueError) as exc:
+            parser.error(str(exc))
+        source_quality_verified = True
     try:
         sidecar = write_minute_bar_export(
             output_path, rows, market=market, symbol=symbol,
@@ -140,6 +150,7 @@ def main() -> int:
         "dataset_sha256": sidecar["dataset_sha256"],
         "rights_reviewed": sidecar["rights_reviewed"],
         "permissions": sidecar["permissions"],
+        "source_quality_verified": source_quality_verified,
     }, ensure_ascii=False, indent=2))
     return 0
 

@@ -1,11 +1,11 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
 import json
 
 import pytest
 
-from app.data_export import build_minute_bar_export, write_minute_bar_export
+from app.data_export import build_minute_bar_export, validate_websocket_session_rows, write_minute_bar_export
 from app.data_provenance import load_data_provenance
 
 
@@ -102,3 +102,30 @@ def test_export_requires_timezone_and_source_attribution() -> None:
             [_row(datetime(2026, 11, 5, 9, 0, tzinfo=timezone.utc))], market="KR", symbol="005930",
             from_date=date(2026, 11, 5), to_date=date(2026, 11, 5), sources=[],
         )
+
+
+def test_training_export_source_gate_requires_a_complete_spread_populated_kis_session() -> None:
+    opened = datetime(2026, 11, 5, 0, 0, tzinfo=timezone.utc)
+    rows = [_row(opened + timedelta(minutes=index), "KIS_PAPER_WEBSOCKET") for index in range(380)]
+
+    validate_websocket_session_rows(rows, market="KR", expected_source="KIS_PAPER_WEBSOCKET")
+
+    with pytest.raises(ValueError, match="every expected minute exactly once"):
+        validate_websocket_session_rows(rows[:-1], market="KR", expected_source="KIS_PAPER_WEBSOCKET")
+
+    mixed = rows.copy()
+    mixed[20] = _row(opened + timedelta(minutes=20), "KIS_REST_MINUTE_SESSION")
+    with pytest.raises(ValueError, match="unexpected market-data source"):
+        validate_websocket_session_rows(mixed, market="KR", expected_source="KIS_PAPER_WEBSOCKET")
+
+
+def test_training_export_source_gate_rejects_missing_spread_and_market_source_mismatch() -> None:
+    opened = datetime(2026, 11, 5, 0, 0, tzinfo=timezone.utc)
+    rows = [_row(opened + timedelta(minutes=index), "KIS_PAPER_WEBSOCKET") for index in range(380)]
+    missing_spread = list(rows)
+    missing_spread[10] = (*missing_spread[10][:6], None, missing_spread[10][7])
+
+    with pytest.raises(ValueError, match="spread data"):
+        validate_websocket_session_rows(missing_spread, market="KR", expected_source="KIS_PAPER_WEBSOCKET")
+    with pytest.raises(ValueError, match="do not match"):
+        validate_websocket_session_rows(rows, market="US", expected_source="KIS_PAPER_WEBSOCKET")
