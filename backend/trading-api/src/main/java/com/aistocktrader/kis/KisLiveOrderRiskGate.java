@@ -82,6 +82,7 @@ public class KisLiveOrderRiskGate {
                            KisLiveRiskContext context, BigDecimal notional, List<String> reasons) {
         if (!context.approvedModelCandidate()) reasons.add("APPROVED_MODEL_CANDIDATE_REQUIRED");
         if (context.dailyLossPercent() == null) reasons.add("DAILY_LOSS_BASELINE_REQUIRED");
+        else if (context.dailyLossPercent().signum() < 0) reasons.add("DAILY_LOSS_PERCENT_INVALID");
         else if (context.dailyLossPercent().compareTo(limits.maxDailyLossPercent()) >= 0) reasons.add("DAILY_LOSS_LIMIT");
         if (context.consecutiveLosingTrades() < 0) reasons.add("CONSECUTIVE_LOSS_COUNT_INVALID");
         else if (context.consecutiveLosingTrades() >= limits.maxConsecutiveLosses()) reasons.add("CONSECUTIVE_LOSS_LIMIT");

@@ -45,6 +45,17 @@ class KisLiveOrderRiskGateTest {
     }
 
     @Test
+    void negativeDailyLossPercentIsRejectedInsteadOfBeingTreatedAsNoLoss() {
+        KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null,
+                account(KisEnvironment.REAL, "KRW", "100000", List.of()),
+                new KisLiveRiskContext(true, true, true, true, false, 0,
+                        new BigDecimal("-1.25"), 0, new BigDecimal("1000000"), new BigDecimal("100")));
+
+        assertFalse(result.approved());
+        assertTrue(result.reasons().contains("DAILY_LOSS_PERCENT_INVALID"));
+    }
+
+    @Test
     void positionExposureAndPerTradeRiskLimitsAreEnforced() {
         KisAccountSnapshot.Position position = new KisAccountSnapshot.Position("005930", "Samsung",
                 BigDecimal.ONE, BigDecimal.ONE, new BigDecimal("70000"), new BigDecimal("95000"),
