@@ -11,8 +11,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-. (Join-Path $PSScriptRoot 'krx-market-session.ps1')
 . (Join-Path $PSScriptRoot 'paper-session-monitor-status.ps1')
+. (Join-Path $PSScriptRoot 'lib\exchange-session-monitor.ps1')
 if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
     $EvidencePath = Join-Path $repoRoot '.local\validation\paper-websocket-samples.jsonl'
 }
@@ -32,6 +32,17 @@ function Get-SessionStatus {
         return Invoke-RestMethod -Uri "$ApiBaseUrl/api/v1/paper/session" -TimeoutSec 5
     } catch {
         throw 'Could not read the local paper-session status endpoint.'
+    }
+}
+
+function Get-SelectedExchangeSessionWindow {
+    if (-not $Feed) { return $null }
+    $market = if ($Feed -eq 'paper') { 'KR' } else { 'US' }
+    try {
+        $response = Invoke-RestMethod -Uri "$ApiBaseUrl/api/v1/market/sessions/$market" -TimeoutSec 5
+        return ConvertTo-ExchangeSessionWindow $response
+    } catch {
+        throw "Could not verify today's $market exchange session from the local market calendar."
     }
 }
 
@@ -61,24 +72,24 @@ function Wait-ForSafeRunningStatus {
 
 try {
 $initial = Wait-ForSafeRunningStatus
+$exchangeSession = Get-SelectedExchangeSessionWindow
 $initialTicks = if ($Feed) { [int]$initial.ticks_received_by_feed.$Feed } else { [int]$initial.ticks_received }
 $initialBars = if ($Feed) { [int]$initial.bars_closed_by_feed.$Feed } else { [int]$initial.bars_closed }
 $previousTicks = $initialTicks
 $startedAtUtc = [DateTimeOffset]::UtcNow
-$krxSessionOpenUtc = if ($Feed -eq 'paper') { Get-KrxSessionOpenUtc $startedAtUtc } else { $null }
 $initialReceiveAt = if ($Feed) { $initial.last_tick_received_at_by_feed.$Feed } else { $initial.last_tick_received_at }
-if ($Feed -eq 'paper' -and $initialReceiveAt) {
+if ($Feed -and $initialReceiveAt) {
     $initialReceivedAtUtc = [DateTimeOffset]::Parse([string]$initialReceiveAt).ToUniversalTime()
-    if (-not (Test-KrxSessionTickTimestamp $initialReceivedAtUtc $krxSessionOpenUtc)) { $initialReceiveAt = $null }
+    if (-not (Test-ExchangeSessionTickTimestamp $initialReceivedAtUtc $exchangeSession)) { $initialReceiveAt = $null }
 }
 $hasReceiveTimestamp = [bool]$initialReceiveAt
 $lastTickReceivedAt = if ($hasReceiveTimestamp) {
     [DateTimeOffset]::Parse([string]$initialReceiveAt).ToUniversalTime()
 } else { $startedAtUtc }
 $maxObservedNoTickSeconds = 0.0
-$krxPreOpenSilenceSeconds = 0.0
-$krxClosingAuctionSilenceSeconds = 0.0
-$krxRegularSessionCloseReached = $false
+$preOpenSilenceSeconds = 0.0
+$closingAuctionSilenceSeconds = 0.0
+$sessionCloseReached = $false
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($DurationSeconds)
 $latest = $initial
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -87,7 +98,11 @@ $initialProgress = [ordered]@{
     recorded_at_utc = $startedAtUtc.ToString('o')
     requested_seconds = $DurationSeconds
     selected_feed = if ($Feed) { $Feed } else { 'any' }
-    krx_session_phase = if ($Feed -eq 'paper') { Get-KrxSessionPhase $startedAtUtc } else { 'NOT_APPLICABLE' }
+    session_phase = Get-ExchangeSessionPhase $startedAtUtc $exchangeSession
+    market_session = if ($exchangeSession) { $exchangeSession.market } else { $null }
+    market_session_date = if ($exchangeSession) { $exchangeSession.session_date } else { $null }
+    market_session_open_utc = if ($exchangeSession) { $exchangeSession.open_utc.ToString('o') } else { $null }
+    market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
     elapsed_seconds = 0
     ticks_delta = 0
     bars_delta = 0
@@ -102,9 +117,11 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
     $remaining = [int][Math]::Ceiling(($deadline - [DateTimeOffset]::UtcNow).TotalSeconds)
     Start-Sleep -Seconds ([Math]::Min($PollIntervalSeconds, [Math]::Max(1, $remaining)))
     $sampledAtUtc = [DateTimeOffset]::UtcNow
-    $krxSessionPhase = if ($Feed -eq 'paper') { Get-KrxSessionPhase $sampledAtUtc } else { 'NOT_APPLICABLE' }
-    if ($krxSessionPhase -eq 'CLOSED') {
-        $krxRegularSessionCloseReached = $true
+    $sessionPhase = Get-ExchangeSessionPhase $sampledAtUtc $exchangeSession
+    if ($sessionPhase -eq 'CLOSED') {
+        $latest = Get-SessionStatus
+        Assert-SafeRunningStatus $latest $Feed ([bool]$RequireBothFeeds)
+        $sessionCloseReached = $true
         break
     }
     $latest = Get-SessionStatus
@@ -120,30 +137,32 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
     $currentReceiveAt = if ($Feed) { $latest.last_tick_received_at_by_feed.$Feed } else { $latest.last_tick_received_at }
     if ($currentReceiveAt) {
         $observedTickReceivedAt = [DateTimeOffset]::Parse([string]$currentReceiveAt).ToUniversalTime()
-        $isPreOpenOrPreviousSessionTick = $Feed -eq 'paper' -and -not (Test-KrxSessionTickTimestamp $observedTickReceivedAt $krxSessionOpenUtc)
-        if (-not $isPreOpenOrPreviousSessionTick -and $observedTickReceivedAt -lt $lastTickReceivedAt) {
+        $isOutsideSelectedSession = $Feed -and
+            -not (Test-ExchangeSessionTickTimestamp $observedTickReceivedAt $exchangeSession)
+        if (-not $isOutsideSelectedSession -and $observedTickReceivedAt -lt $lastTickReceivedAt) {
             throw 'The last tick receive timestamp moved backwards during the sample.'
         }
-        if (-not $isPreOpenOrPreviousSessionTick) {
+        if (-not $isOutsideSelectedSession) {
             $lastTickReceivedAt = $observedTickReceivedAt
             $hasReceiveTimestamp = $true
         }
     }
-    if ($Feed -eq 'paper' -and $sampledAtUtc -ge $krxSessionOpenUtc -and $lastTickReceivedAt -lt $krxSessionOpenUtc) {
-        # A previous day's tick must not make the opening feed look stale immediately.
-        $lastTickReceivedAt = $krxSessionOpenUtc
+    if ($exchangeSession -and $sampledAtUtc -ge $exchangeSession.open_utc -and
+        $lastTickReceivedAt -lt $exchangeSession.open_utc) {
+        # A premarket or previous-session tick must not make the open look stale immediately.
+        $lastTickReceivedAt = $exchangeSession.open_utc
     }
     $noTickSeconds = ([DateTimeOffset]::UtcNow - $lastTickReceivedAt).TotalSeconds
-    if ($krxSessionPhase -eq 'PRE_OPEN') {
-        $krxPreOpenSilenceSeconds = [Math]::Max($krxPreOpenSilenceSeconds, ([DateTimeOffset]::UtcNow - $startedAtUtc).TotalSeconds)
-    } elseif ($krxSessionPhase -eq 'CLOSING_AUCTION') {
+    if ($sessionPhase -eq 'PRE_OPEN') {
+        $preOpenSilenceSeconds = [Math]::Max($preOpenSilenceSeconds, ([DateTimeOffset]::UtcNow - $startedAtUtc).TotalSeconds)
+    } elseif ($sessionPhase -eq 'CLOSING_AUCTION') {
         # KRX does not run continuous matching during the 15:20–15:30 closing call auction.
         # The last continuous-trade tick can therefore be older than the feed-stall threshold.
-        $krxClosingAuctionSilenceSeconds = [Math]::Max($krxClosingAuctionSilenceSeconds, $noTickSeconds)
+        $closingAuctionSilenceSeconds = [Math]::Max($closingAuctionSilenceSeconds, $noTickSeconds)
     } else {
         $maxObservedNoTickSeconds = [Math]::Max($maxObservedNoTickSeconds, $noTickSeconds)
     }
-    if ((Test-KrxNoTickThresholdApplies $krxSessionPhase) -and $noTickSeconds -gt $MaxNoTickSeconds) {
+    if ((Test-ExchangeSessionNoTickThresholdApplies $sessionPhase) -and $noTickSeconds -gt $MaxNoTickSeconds) {
         throw "No WebSocket ticks arrived for more than $MaxNoTickSeconds seconds."
     }
 
@@ -157,9 +176,13 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
         bars_delta = $currentBars - $initialBars
         minimum_bars_delta = $MinimumBarsDelta
         max_observed_no_tick_seconds = [Math]::Round($maxObservedNoTickSeconds, 1)
-        krx_preopen_silence_seconds = [Math]::Round($krxPreOpenSilenceSeconds, 1)
-        krx_session_phase = $krxSessionPhase
-        krx_closing_auction_silence_seconds = [Math]::Round($krxClosingAuctionSilenceSeconds, 1)
+        preopen_silence_seconds = [Math]::Round($preOpenSilenceSeconds, 1)
+        session_phase = $sessionPhase
+        market_session = if ($exchangeSession) { $exchangeSession.market } else { $null }
+        market_session_date = if ($exchangeSession) { $exchangeSession.session_date } else { $null }
+        market_session_open_utc = if ($exchangeSession) { $exchangeSession.open_utc.ToString('o') } else { $null }
+        market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
+        closing_auction_silence_seconds = [Math]::Round($closingAuctionSilenceSeconds, 1)
         feeds = $latest.stream_connections
         orders_enabled = [bool]$latest.orders_enabled
         automation_state = $latest.automation_state
@@ -169,7 +192,7 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
 
     if ($stopwatch.Elapsed.TotalSeconds -ge $nextProgressSeconds) {
         $tickDelta = $currentTicks - $initialTicks
-        Write-Output "PAPER feed monitor running: feed=$(if ($Feed) { $Feed } else { 'any' }) elapsed_seconds=$([int]$stopwatch.Elapsed.TotalSeconds) ticks_delta=$tickDelta bars_delta=$($currentBars - $initialBars)."
+        Write-Output "KIS feed monitor running: feed=$(if ($Feed) { $Feed } else { 'any' }) elapsed_seconds=$([int]$stopwatch.Elapsed.TotalSeconds) ticks_delta=$tickDelta bars_delta=$($currentBars - $initialBars)."
         $nextProgressSeconds += 60
     }
 }
@@ -196,9 +219,13 @@ $evidence = [ordered]@{
     poll_interval_seconds = $PollIntervalSeconds
     max_no_tick_seconds = $MaxNoTickSeconds
     max_observed_no_tick_seconds = [Math]::Round($maxObservedNoTickSeconds, 1)
-    krx_preopen_silence_seconds = [Math]::Round($krxPreOpenSilenceSeconds, 1)
-    krx_closing_auction_silence_seconds = [Math]::Round($krxClosingAuctionSilenceSeconds, 1)
-    krx_regular_session_close_reached = $krxRegularSessionCloseReached
+    preopen_silence_seconds = [Math]::Round($preOpenSilenceSeconds, 1)
+    closing_auction_silence_seconds = [Math]::Round($closingAuctionSilenceSeconds, 1)
+    market_session = if ($exchangeSession) { $exchangeSession.market } else { $null }
+    market_session_date = if ($exchangeSession) { $exchangeSession.session_date } else { $null }
+    market_session_open_utc = if ($exchangeSession) { $exchangeSession.open_utc.ToString('o') } else { $null }
+    market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
+    session_close_reached = $sessionCloseReached
     selected_feed = if ($Feed) { $Feed } else { 'any' }
     ticks_delta = $tickDelta
     bars_delta = $barDelta
@@ -217,9 +244,13 @@ Write-ProgressRecord ([ordered]@{
     bars_delta = $barDelta
     minimum_bars_delta = $MinimumBarsDelta
     max_observed_no_tick_seconds = $evidence.max_observed_no_tick_seconds
-    krx_preopen_silence_seconds = $evidence.krx_preopen_silence_seconds
-    krx_closing_auction_silence_seconds = $evidence.krx_closing_auction_silence_seconds
-    krx_regular_session_close_reached = $evidence.krx_regular_session_close_reached
+    preopen_silence_seconds = $evidence.preopen_silence_seconds
+    closing_auction_silence_seconds = $evidence.closing_auction_silence_seconds
+    market_session = $evidence.market_session
+    market_session_date = $evidence.market_session_date
+    market_session_open_utc = $evidence.market_session_open_utc
+    market_session_close_utc = $evidence.market_session_close_utc
+    session_close_reached = $evidence.session_close_reached
     feeds = $latest.stream_connections
     orders_enabled = $false
     automation_state = $latest.automation_state
@@ -228,7 +259,7 @@ Write-ProgressRecord ([ordered]@{
 [System.IO.File]::AppendAllText($EvidencePath,
     ($evidence | ConvertTo-Json -Compress -Depth 5) + [Environment]::NewLine,
     [System.Text.UTF8Encoding]::new($false))
-Write-Output "Read-only PAPER monitor sample passed: feed=$(if ($Feed) { $Feed } else { 'any' }) seconds=$DurationSeconds ticks_delta=$tickDelta bars_delta=$barDelta max_no_tick_seconds=$([Math]::Round($maxObservedNoTickSeconds, 1)) orders=disabled automation=disabled evidence=$EvidencePath."
+Write-Output "Read-only KIS monitor sample passed: feed=$(if ($Feed) { $Feed } else { 'any' }) seconds=$DurationSeconds ticks_delta=$tickDelta bars_delta=$barDelta max_no_tick_seconds=$([Math]::Round($maxObservedNoTickSeconds, 1)) orders=disabled automation=disabled evidence=$EvidencePath."
 } catch {
     if ($startedAtUtc) {
         $elapsedSeconds = if ($stopwatch) { [int]$stopwatch.Elapsed.TotalSeconds } else { 0 }
@@ -238,9 +269,13 @@ Write-Output "Read-only PAPER monitor sample passed: feed=$(if ($Feed) { $Feed }
             elapsed_seconds = $elapsedSeconds
             selected_feed = if ($Feed) { $Feed } else { 'any' }
             max_observed_no_tick_seconds = if ($maxObservedNoTickSeconds) { [Math]::Round($maxObservedNoTickSeconds, 1) } else { 0.0 }
-            krx_preopen_silence_seconds = if ($krxPreOpenSilenceSeconds) { [Math]::Round($krxPreOpenSilenceSeconds, 1) } else { 0.0 }
-            krx_session_phase = if ($Feed -eq 'paper') { Get-KrxSessionPhase ([DateTimeOffset]::UtcNow) } else { 'NOT_APPLICABLE' }
-            krx_closing_auction_silence_seconds = if ($krxClosingAuctionSilenceSeconds) { [Math]::Round($krxClosingAuctionSilenceSeconds, 1) } else { 0.0 }
+            preopen_silence_seconds = if ($preOpenSilenceSeconds) { [Math]::Round($preOpenSilenceSeconds, 1) } else { 0.0 }
+            session_phase = if ($exchangeSession) { Get-ExchangeSessionPhase ([DateTimeOffset]::UtcNow) $exchangeSession } else { 'NOT_APPLICABLE' }
+            market_session = if ($exchangeSession) { $exchangeSession.market } else { $null }
+            market_session_date = if ($exchangeSession) { $exchangeSession.session_date } else { $null }
+            market_session_open_utc = if ($exchangeSession) { $exchangeSession.open_utc.ToString('o') } else { $null }
+            market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
+            closing_auction_silence_seconds = if ($closingAuctionSilenceSeconds) { [Math]::Round($closingAuctionSilenceSeconds, 1) } else { 0.0 }
             feeds = if ($latest) { $latest.stream_connections } else { $null }
             orders_enabled = if ($latest) { [bool]$latest.orders_enabled } else { $false }
             automation_state = if ($latest) { $latest.automation_state } else { $null }

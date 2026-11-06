@@ -26,7 +26,9 @@ jobs:
           $scriptFiles = @(
             'scripts/test-kis-paper-order-lifecycle.ps1',
             'scripts/test-kis-paper-order-lifecycle-isolated.ps1',
-            'scripts/lib/kis-paper-order-preflight.ps1'
+            'scripts/lib/kis-paper-order-preflight.ps1',
+            'scripts/test-paper-websocket-monitor.ps1',
+            'scripts/lib/exchange-session-monitor.ps1'
           )
           foreach ($scriptFile in $scriptFiles) {
             $tokens = $null
@@ -42,4 +44,9 @@ jobs:
           $result = Invoke-Pester -Path 'scripts/tests/kis-paper-order-preflight.Tests.ps1' -PassThru
           if ($result.FailedCount -gt 0 -or $result.PassedCount -ne 18) {
             throw "PAPER preflight tests failed: passed=$($result.PassedCount), failed=$($result.FailedCount)."
+          }
+
+          $sessionResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -PassThru
+          if ($sessionResult.FailedCount -gt 0 -or $sessionResult.PassedCount -ne 4) {
+            throw "Exchange session monitor tests failed: passed=$($sessionResult.PassedCount), failed=$($sessionResult.FailedCount)."
           }

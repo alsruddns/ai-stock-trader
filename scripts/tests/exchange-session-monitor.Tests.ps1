@@ -1,0 +1,51 @@
+. (Join-Path $PSScriptRoot '../lib/exchange-session-monitor.ps1')
+
+Describe 'Exchange session monitor calendar boundaries' {
+    It 'tracks the US regular session across Korea midnight' {
+        $session = ConvertTo-ExchangeSessionWindow @{
+            market = 'US'; session_date = '2026-11-06'; is_session = $true
+            open_at = '2026-11-06T09:30:00-05:00'; close_at = '2026-11-06T16:00:00-05:00'
+        }
+        $session.open_utc.ToString('o') | Should Be '2026-11-06T14:30:00.0000000+00:00'
+        $session.close_utc.ToString('o') | Should Be '2026-11-06T21:00:00.0000000+00:00'
+        (Get-ExchangeSessionPhase ([DateTimeOffset]::Parse('2026-11-06T23:29:59+09:00')) $session) | Should Be 'PRE_OPEN'
+        (Get-ExchangeSessionPhase ([DateTimeOffset]::Parse('2026-11-06T23:30:00+09:00')) $session) | Should Be 'CONTINUOUS'
+        (Get-ExchangeSessionPhase ([DateTimeOffset]::Parse('2026-11-07T05:59:59+09:00')) $session) | Should Be 'CONTINUOUS'
+        (Get-ExchangeSessionPhase ([DateTimeOffset]::Parse('2026-11-07T06:00:00+09:00')) $session) | Should Be 'CLOSED'
+        (Test-ExchangeSessionTickTimestamp ([DateTimeOffset]::Parse('2026-11-06T23:29:59+09:00')) $session) | Should Be $false
+        (Test-ExchangeSessionTickTimestamp ([DateTimeOffset]::Parse('2026-11-06T23:30:00+09:00')) $session) | Should Be $true
+        (Test-ExchangeSessionTickTimestamp ([DateTimeOffset]::Parse('2026-11-07T06:00:00+09:00')) $session) | Should Be $false
+    }
+
+    It 'excludes the KRX closing auction from continuous matching' {
+        $session = ConvertTo-ExchangeSessionWindow @{
+            market = 'KR'; session_date = '2026-11-06'; is_session = $true
+            open_at = '2026-11-06T09:00:00+09:00'; close_at = '2026-11-06T15:30:00+09:00'
+        }
+        (Get-ExchangeSessionPhase ([DateTimeOffset]::Parse('2026-11-06T09:00:00+09:00')) $session) | Should Be 'CONTINUOUS'
+        (Get-ExchangeSessionPhase ([DateTimeOffset]::Parse('2026-11-06T15:19:59+09:00')) $session) | Should Be 'CONTINUOUS'
+        (Get-ExchangeSessionPhase ([DateTimeOffset]::Parse('2026-11-06T15:20:00+09:00')) $session) | Should Be 'CLOSING_AUCTION'
+        (Get-ExchangeSessionPhase ([DateTimeOffset]::Parse('2026-11-06T15:29:59+09:00')) $session) | Should Be 'CLOSING_AUCTION'
+        (Get-ExchangeSessionPhase ([DateTimeOffset]::Parse('2026-11-06T15:30:00+09:00')) $session) | Should Be 'CLOSED'
+        (Test-ExchangeSessionNoTickThresholdApplies 'CLOSING_AUCTION') | Should Be $false
+        (Test-ExchangeSessionNoTickThresholdApplies 'CONTINUOUS') | Should Be $true
+    }
+
+    It 'rejects a non-session calendar response' {
+        $didThrow = $false
+        try {
+            $invalidSession = @{ market = 'US'; session_date = '2026-11-07'; is_session = $false; open_at = $null; close_at = $null }
+            ConvertTo-ExchangeSessionWindow $invalidSession | Out-Null
+        } catch { $didThrow = $true }
+        $didThrow | Should Be $true
+    }
+
+    It 'rejects an invalid session interval' {
+        $didThrow = $false
+        try {
+            $invalidSession = @{ market = 'US'; session_date = '2026-11-06'; is_session = $true; open_at = '2026-11-06T16:00:00Z'; close_at = '2026-11-06T09:30:00Z' }
+            ConvertTo-ExchangeSessionWindow $invalidSession | Out-Null
+        } catch { $didThrow = $true }
+        $didThrow | Should Be $true
+    }
+}
