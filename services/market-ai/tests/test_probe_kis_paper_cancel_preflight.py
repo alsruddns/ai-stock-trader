@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+
+SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "probe-kis-paper-cancel-preflight.py"
+SPEC = importlib.util.spec_from_file_location("probe_kis_paper_cancel_preflight", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None
+probe = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(probe)
+
+
+SAFE_SWITCHES = {
+    "TRADING_MODE": "paper",
+    "LIVE_TRADING_ENABLED": "false",
+    "KIS_ENVIRONMENT": "paper",
+    "KIS_ACCOUNT_READ_ENABLED": "true",
+    "KIS_PAPER_ACCOUNT_READ_ENABLED": "true",
+    "KIS_REAL_ACCOUNT_READ_ENABLED": "false",
+    "KIS_PAPER_ORDERS_ENABLED": "false",
+    "KIS_REAL_ORDERS_ENABLED": "false",
+    "KIS_REAL_RECONCILIATION_ENABLED": "false",
+}
+
+
+class _Response:
+    status_code = 200
+
+    def __init__(self, payload: dict[str, Any]):
+        self._payload = payload
+
+    def json(self) -> dict[str, Any]:
+        return self._payload
+
+
+class _FakeClient:
+    def __init__(self, _settings: object, payload: dict[str, Any]):
+        self.payload = payload
+        self.closed = False
+
+    def _access_token(self) -> str:
+        return "redacted-test-token"
+
+    def _get(self, url: str, *, headers: dict[str, str], params: dict[str, str]) -> _Response:
+        assert url.endswith("/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl")
+        assert headers["tr_id"] == "VTTC0084R"
+        assert headers["custtype"] == "P"
+        assert params["INQR_DVSN_1"] == "0"
+        assert params["INQR_DVSN_2"] == "0"
+        return _Response(self.payload)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _configure_safe_probe(monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any]) -> _FakeClient:
+    for key, value in SAFE_SWITCHES.items():
+        monkeypatch.setenv(key, value)
+    settings = SimpleNamespace(
+        app_key="test-app-key", app_secret="test-app-secret", account_number="1234567801",
+        base_url="https://paper.invalid", shared_rate_limit_enabled=True,
+    )
+    monkeypatch.setattr(probe, "load_local_environment", lambda: Path(".env_local"))
+    monkeypatch.setattr(probe.KisSettings, "from_environment", classmethod(lambda _cls, _environment: settings))
+    client = _FakeClient(settings, payload)
+    monkeypatch.setattr(probe, "KisReadOnlyClient", lambda _settings: client)
+    return client
+
+
+def test_paper_preflight_probe_reports_only_sanitized_shape(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    client = _configure_safe_probe(monkeypatch, {
+        "rt_cd": "0", "msg_cd": "OK", "output": [{"psbl_qty": "2", "odno": "private-order-number"}],
+    })
+
+    assert probe.main() == 0
+
+    output = capsys.readouterr().out
+    assert '"status": "supported"' in output
+    assert '"returned_row_count": 1' in output
+    assert '"cancel_quantity_field_observed": true' in output
+    assert '"order_or_cancel_sent": false' in output
+    assert "private-order-number" not in output
+    assert "test-app-secret" not in output
+    assert client.closed
+
+
+@pytest.mark.parametrize(("key", "unsafe_value"), [
+    ("KIS_PAPER_ORDERS_ENABLED", "true"),
+    ("KIS_REAL_ACCOUNT_READ_ENABLED", "true"),
+    ("LIVE_TRADING_ENABLED", "true"),
+])
+def test_probe_fails_closed_before_client_creation_when_switches_are_unsafe(
+    monkeypatch: pytest.MonkeyPatch, capsys, key: str, unsafe_value: str,
+) -> None:
+    for safe_key, safe_value in SAFE_SWITCHES.items():
+        monkeypatch.setenv(safe_key, safe_value)
+    monkeypatch.setenv(key, unsafe_value)
+    monkeypatch.setattr(probe, "load_local_environment", lambda: Path(".env_local"))
+    monkeypatch.setattr(probe, "KisReadOnlyClient", lambda _settings: pytest.fail("KIS client must not be created"))
+
+    assert probe.main() == 2
+    assert '"reason": "SAFETY_SWITCHES_NOT_READ_ONLY"' in capsys.readouterr().out
+
+
+def test_unsupported_paper_service_code_is_not_treated_as_cancelable(
+    monkeypatch: pytest.MonkeyPatch, capsys,
+) -> None:
+    client = _configure_safe_probe(monkeypatch, {
+        "rt_cd": "1", "msg_cd": "OPSQ0002", "msg1": "private broker response",
+    })
+
+    assert probe.main() == 3
+
+    output = capsys.readouterr().out
+    assert '"status": "unsupported_or_rejected"' in output
+    assert '"broker_code": "OPSQ0002"' in output
+    assert "private broker response" not in output
+    assert client.closed
