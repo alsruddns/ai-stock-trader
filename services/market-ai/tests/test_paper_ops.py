@@ -28,6 +28,20 @@ def test_calendar_identifies_domestic_weekday_session_and_holiday() -> None:
     assert exchange_session_window("KR", holiday) is None
 
 
+def test_korean_calendar_fails_closed_with_pandas_31(monkeypatch) -> None:
+    import pandas as pd
+
+    monkeypatch.setattr(pd, "__version__", "3.1.1")
+    now = datetime(2026, 11, 5, 10, 0, tzinfo=timezone(timedelta(hours=9)))
+    with pytest.raises(RuntimeError, match="requires pandas<3.1"):
+        exchange_session_window("KR", now)
+    state = _good_gate(now)
+    assert state.session_open is False
+    assert state.new_entries_allowed is False
+    assert state.exit_management_allowed is False
+    assert "MARKET_CALENDAR_UNAVAILABLE" in state.reasons
+
+
 def test_us_calendar_uses_new_york_date_when_host_clock_is_korea_time() -> None:
     # 04:30 KST on Nov 6 is 14:30 EST on the prior NY date (Nov 5).
     korea_time = datetime(2026, 11, 6, 4, 30, tzinfo=timezone(timedelta(hours=9)))

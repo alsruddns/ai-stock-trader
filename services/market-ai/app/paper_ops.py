@@ -128,6 +128,13 @@ def exchange_session_window(market: Market, now: datetime) -> tuple[datetime, da
     calendar_name = "XKRX" if market == "KR" else "XNYS" if market == "US" else None
     if calendar_name is None:
         raise ValueError("market must be KR or US")
+    if market == "KR":
+        try:
+            pandas_version = tuple(int(part) for part in pd.__version__.split(".")[:2])
+        except ValueError as exc:
+            raise RuntimeError("Korean market calendar cannot verify the installed pandas version") from exc
+        if pandas_version >= (3, 1):
+            raise RuntimeError("Korean market calendar requires pandas<3.1 until XKRX offset support is fixed")
     exchange_zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
     label = pd.Timestamp(now.astimezone(exchange_zone).date())
     try:
@@ -164,9 +171,15 @@ def evaluate_paper_gate(
     if now.tzinfo is None:
         raise ValueError("current time must include a timezone")
     reasons: list[str] = []
-    window = exchange_session_window(market, now)
+    calendar_unavailable = False
+    try:
+        window = exchange_session_window(market, now)
+    except RuntimeError:
+        window = None
+        calendar_unavailable = True
+        reasons.append("MARKET_CALENDAR_UNAVAILABLE")
     open_now = window is not None and window[0] <= now.astimezone(timezone.utc) < window[1]
-    if not open_now:
+    if not open_now and not calendar_unavailable:
         reasons.append("MARKET_CLOSED")
     flatten = bool(window and window[1] - timedelta(minutes=limits.flatten_before_close_minutes) <= now.astimezone(timezone.utc) < window[1])
     if latest_quote_at is None:
