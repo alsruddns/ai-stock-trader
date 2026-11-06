@@ -78,6 +78,27 @@ class KisRealOrderOrchestratorTest {
     }
 
     @Test
+    void unresolvedRealOrderIsReadFromServerStoreEvenIfContextSaysNoneExist() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = buyRequest();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null);
+        when(intents.hasUnresolvedRealOrder(Market.KR, key)).thenReturn(true);
+        when(intents.prepare(eq(key), anyString(), eq(KisEnvironment.REAL), eq(request), isNull()))
+                .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
+        when(intents.reject(eq(key), anyString())).thenAnswer(call -> {
+            intent.reject(call.getArgument(1));
+            return intent;
+        });
+
+        KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount(), safeBuyContext());
+
+        assertEquals(KisOrderStatus.REJECTED, response.status());
+        assertEquals("UNRESOLVED_ORDER_EXISTS", response.responseCode());
+        verify(intents).hasUnresolvedRealOrder(Market.KR, key);
+        verify(orders, never()).placeRealLimitOrder(any(), anyString(), any(), anyInt(), any(), any(), anyString(), any());
+    }
+
+    @Test
     void duplicateSubmittingIntentBecomesUnknownAndIsNeverResent() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();

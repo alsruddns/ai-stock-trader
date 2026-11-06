@@ -13,6 +13,9 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
     List<KisOrderIntent> findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment environment);
     List<KisOrderIntent> findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(
             KisEnvironment environment, Collection<KisOrderStatus> statuses);
+    boolean existsByEnvironmentAndMarketAndStatusInAndIdempotencyKeyNot(
+            KisEnvironment environment, com.aistocktrader.order.Market market,
+            Collection<KisOrderStatus> statuses, UUID idempotencyKey);
 
     @Query("select intent.status, count(intent) from KisOrderIntent intent where intent.environment = :environment group by intent.status")
     List<Object[]> countStatusesByEnvironment(@Param("environment") KisEnvironment environment);

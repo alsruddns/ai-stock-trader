@@ -29,7 +29,16 @@ public class KisRealOrderOrchestrator {
     public KisOrderIntentResponse submit(UUID idempotencyKey, OrderRequest request, String exchange,
                                          KisAccountSnapshot realAccount, KisLiveRiskContext riskContext) {
         String requestHash = hash(request, exchange);
-        KisLiveRiskDecision decision = riskGate.assess(request, exchange, realAccount, riskContext);
+        KisLiveRiskContext serverCheckedContext = riskContext;
+        if (request != null && riskContext != null) {
+            boolean unresolvedOrder = riskContext.unresolvedOrderExists()
+                    || intents.hasUnresolvedRealOrder(request.market(), idempotencyKey);
+            serverCheckedContext = new KisLiveRiskContext(riskContext.approvedModelCandidate(),
+                    riskContext.quoteFresh(), riskContext.accountSnapshotFresh(), riskContext.marketOpen(),
+                    unresolvedOrder, riskContext.dailyLossPercent(), riskContext.consecutiveLosingTrades(),
+                    riskContext.accountEquity(), riskContext.stopDistancePerShare());
+        }
+        KisLiveRiskDecision decision = riskGate.assess(request, exchange, realAccount, serverCheckedContext);
         KisOrderIntentStore.PreparedIntent prepared;
         try {
             prepared = intents.prepare(idempotencyKey, requestHash, KisEnvironment.REAL, request, exchange);

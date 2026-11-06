@@ -1,6 +1,7 @@
 package com.aistocktrader.kis;
 
 import com.aistocktrader.order.OrderRequest;
+import com.aistocktrader.order.Market;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -9,6 +10,9 @@ import java.util.UUID;
 
 @Service
 public class KisOrderIntentStore {
+    private static final java.util.List<KisOrderStatus> UNRESOLVED_STATUSES = java.util.List.of(
+            KisOrderStatus.SUBMITTING, KisOrderStatus.ACCEPTED, KisOrderStatus.PARTIALLY_FILLED,
+            KisOrderStatus.CANCEL_PENDING, KisOrderStatus.UNKNOWN);
     private final KisOrderIntentRepository repository;
     public KisOrderIntentStore(KisOrderIntentRepository repository) { this.repository = repository; }
 
@@ -90,6 +94,13 @@ public class KisOrderIntentStore {
     @Transactional
     public boolean claimCancelPending(UUID key, KisEnvironment environment) {
         return repository.claimCancelPending(key, environment.name()) == 1;
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hasUnresolvedRealOrder(Market market, UUID exceptIdempotencyKey) {
+        if (market == null || exceptIdempotencyKey == null) return true;
+        return repository.existsByEnvironmentAndMarketAndStatusInAndIdempotencyKeyNot(
+                KisEnvironment.REAL, market, UNRESOLVED_STATUSES, exceptIdempotencyKey);
     }
 
     @Transactional(readOnly = true)

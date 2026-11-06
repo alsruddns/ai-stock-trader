@@ -54,6 +54,8 @@ KIS API는 기본 잠금(`KIS_ACCOUNT_READ_ENABLED=false`)입니다. 조회를 �
 
 국내 잔고의 `accountEquity`는 같은 응답의 `nass_amt`(순자산금액)로 매핑하며, 현금과 별도 필드로 유지합니다. REAL 매수 위험 한도는 요청 문맥에서 전달한 자산 값 대신 KIS 계좌 스냅샷의 양수 `accountEquity`를 사용합니다. 미국 잔고 요약 필드의 공식 의미는 아직 검증되지 않아 `accountEquity`를 미확인으로 두며, 이 상태에서는 REAL 매수 위험 검사를 통과할 수 없습니다. KIS의 `asst_icdc_amt`(자산증감액)는 당일 손실 기준으로 사용하지 않습니다. 참고: [KIS 공식 국내 잔고 필드 매핑](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_balance/chk_inquire_balance.py).
 
+REAL 신규 주문은 같은 시장의 미해결 KIS 주문 의도(`SUBMITTING`, `UNKNOWN`, `ACCEPTED`, `PARTIALLY_FILLED`, `CANCEL_PENDING`)가 DB에 있으면 거부됩니다. 조회는 주문 서버가 수행하므로 호출 문맥의 상태 표시만으로 이 검사를 우회할 수 없습니다.
+
 Read timeout, HTTP 429 및 KIS rate-limit 오류는 안전한 오류 응답으로 바꾸고 요청을 자동 재전송하지 않습니다.
 
 Paper 주문 응답이 타임아웃되면 `GET /api/v1/orders/paper/by-idempotency/{key}`로 결과를 먼저 대조합니다. 자동화 클라이언트는 주문 쓰기를 재시도하지 않습니다.
