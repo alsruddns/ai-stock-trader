@@ -91,7 +91,11 @@ public class KisOrderOrchestrator {
                 || intent.getStatus() == KisOrderStatus.REJECTED || intent.getRemainingQuantity() <= 0) {
             return KisOrderIntentResponse.from(intent);
         }
-        intent = intents.markCancelPending(idempotencyKey); // durable before the external request
+        if (!intents.claimCancelPending(idempotencyKey, KisEnvironment.PAPER)) {
+            // Another request already claimed cancellation, or the order became terminal.
+            return KisOrderIntentResponse.from(intents.get(idempotencyKey));
+        }
+        intent = intents.get(idempotencyKey); // durable before the external request
         try {
             String normalizedExchange = intent.getMarket() == Market.US ? normalizeExchange(exchange) : "";
             orders.cancelPaperOrder(intent.getMarket(), intent.getSymbol(), intent.getBrokerOrderNumber(),

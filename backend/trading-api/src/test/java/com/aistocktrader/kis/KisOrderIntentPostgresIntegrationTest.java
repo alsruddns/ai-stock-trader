@@ -196,6 +196,38 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    void onlyOneConcurrentCallerCanClaimCancellationForAnOrder() throws Exception {
+        UUID key = UUID.randomUUID();
+        try {
+            store.prepare(key, hash("concurrent-cancel"), KisEnvironment.PAPER, request(), null);
+            store.accept(key, receipt("paper", "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16)));
+
+            var ready = new CountDownLatch(2);
+            var start = new CountDownLatch(1);
+            try (var pool = Executors.newFixedThreadPool(2)) {
+                var first = pool.submit(() -> claimAfterBarrier(key, ready, start));
+                var second = pool.submit(() -> claimAfterBarrier(key, ready, start));
+                if (!ready.await(5, TimeUnit.SECONDS)) throw new AssertionError("Concurrent cancellation workers did not become ready.");
+                start.countDown();
+
+                int winners = (first.get(10, TimeUnit.SECONDS) ? 1 : 0) + (second.get(10, TimeUnit.SECONDS) ? 1 : 0);
+                assertEquals(1, winners);
+            }
+
+            entityManager.clear();
+            assertEquals(KisOrderStatus.CANCEL_PENDING, repository.findById(key).orElseThrow().getStatus());
+        } finally {
+            repository.deleteById(key);
+        }
+    }
+
+    private boolean claimAfterBarrier(UUID key, CountDownLatch ready, CountDownLatch start) throws InterruptedException {
+        ready.countDown();
+        if (!start.await(5, TimeUnit.SECONDS)) throw new AssertionError("Concurrent cancellation start timed out.");
+        return store.claimCancelPending(key, KisEnvironment.PAPER);
+    }
+
+    @Test
     @Transactional
     void persistsCancelRejectionUntilLaterBrokerReconciliationRestoresOpenOrder() {
         UUID key = UUID.randomUUID();

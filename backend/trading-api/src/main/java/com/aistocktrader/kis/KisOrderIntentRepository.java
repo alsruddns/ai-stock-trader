@@ -1,6 +1,7 @@
 package com.aistocktrader.kis;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -15,4 +16,16 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
 
     @Query("select intent.status, count(intent) from KisOrderIntent intent where intent.environment = :environment group by intent.status")
     List<Object[]> countStatusesByEnvironment(@Param("environment") KisEnvironment environment);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(value = """
+            UPDATE kis_order_intent
+               SET status = 'CANCEL_PENDING', broker_response_code = '0', updated_at = CURRENT_TIMESTAMP
+             WHERE idempotency_key = :key
+               AND environment = :environment
+               AND status IN ('ACCEPTED', 'PARTIALLY_FILLED')
+               AND broker_order_number IS NOT NULL
+               AND remaining_quantity > 0
+            """, nativeQuery = true)
+    int claimCancelPending(@Param("key") UUID key, @Param("environment") String environment);
 }

@@ -162,7 +162,7 @@ class KisOrderOrchestratorTest {
         verify(orders, never()).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
                 org.mockito.ArgumentMatchers.anyInt(), anyString());
         verify(orders, never()).reconcilePaperOrder(any());
-        verify(intents, never()).markCancelPending(key);
+        verify(intents, never()).claimCancelPending(key, KisEnvironment.PAPER);
     }
 
     @Test
@@ -207,9 +207,9 @@ class KisOrderOrchestratorTest {
                     snapshot.cancelled(), snapshot.rejected());
             return intent;
         });
-        when(intents.markCancelPending(key)).thenAnswer(invocation -> {
+        when(intents.claimCancelPending(key, KisEnvironment.PAPER)).thenAnswer(invocation -> {
             intent.markCancelPending();
-            return intent;
+            return true;
         });
         when(intents.get(key)).thenReturn(intent);
         org.mockito.Mockito.doThrow(new KisApiException(HttpStatus.BAD_GATEWAY,
@@ -236,9 +236,9 @@ class KisOrderOrchestratorTest {
         KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
         intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
         when(intents.get(key)).thenReturn(intent);
-        when(intents.markCancelPending(key)).thenAnswer(invocation -> {
+        when(intents.claimCancelPending(key, KisEnvironment.PAPER)).thenAnswer(invocation -> {
             intent.markCancelPending();
-            return intent;
+            return true;
         });
         when(intents.recordCancelRejection(key, "EGW00201")).thenAnswer(invocation -> {
             intent.recordCancelRejection(invocation.getArgument(1));
@@ -298,6 +298,28 @@ class KisOrderOrchestratorTest {
         KisOrderIntentResponse response = orchestrator.cancelPaperOrder(key, null);
 
         assertEquals(KisOrderStatus.UNKNOWN, response.status());
+        verify(orders).reconcilePaperOrder(intent);
+        verify(orders, never()).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), anyString());
+    }
+
+    @Test
+    void concurrentCancellationClaimLossDoesNotSendAnotherBrokerRequest() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.reconcilePaperOrder(intent)).thenReturn(Optional.of(
+                new KisBrokerOrderSnapshot(0, 1, null, false, false)));
+        when(intents.reconcile(key, new KisBrokerOrderSnapshot(0, 1, null, false, false))).thenAnswer(call -> {
+            intent.reconcile(0, 1, null, false, false);
+            return intent;
+        });
+        when(intents.claimCancelPending(key, KisEnvironment.PAPER)).thenReturn(false);
+
+        KisOrderIntentResponse response = orchestrator.cancelPaperOrder(key, null);
+
+        assertEquals(KisOrderStatus.ACCEPTED, response.status());
         verify(orders).reconcilePaperOrder(intent);
         verify(orders, never()).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
                 org.mockito.ArgumentMatchers.anyInt(), anyString());

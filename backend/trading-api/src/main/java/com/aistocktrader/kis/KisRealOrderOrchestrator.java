@@ -63,7 +63,10 @@ public class KisRealOrderOrchestrator {
         if (intent.getStatus() == KisOrderStatus.CANCEL_PENDING || intent.getStatus() == KisOrderStatus.CANCELLED) {
             return KisOrderIntentResponse.from(intent);
         }
-        intent = intents.markCancelPending(idempotencyKey); // commit intent before contacting KIS
+        if (!intents.claimCancelPending(idempotencyKey, KisEnvironment.REAL)) {
+            return KisOrderIntentResponse.from(intents.get(idempotencyKey));
+        }
+        intent = intents.get(idempotencyKey); // commit intent before contacting KIS
         try {
             orders.cancelRealOrder(intent.getMarket(), intent.getSymbol(), intent.getBrokerOrderNumber(),
                     intent.getBrokerOrganizationNumber(), intent.getRemainingQuantity() == null

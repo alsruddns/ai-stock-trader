@@ -118,7 +118,7 @@ class KisRealOrderOrchestratorTest {
         intent.accept(new KisOrderReceipt("real", "US", "AAPL", "SELL", "9002", null, "0", Instant.now()));
         intent.reconcile(1, 3, new BigDecimal("10"), false, false);
         when(intents.get(key)).thenReturn(intent);
-        when(intents.markCancelPending(key)).thenAnswer(call -> { intent.markCancelPending(); return intent; });
+        when(intents.claimCancelPending(key, KisEnvironment.REAL)).thenAnswer(call -> { intent.markCancelPending(); return true; });
         doAnswer(call -> { intent.markCancelPending(); return null; }).when(orders)
                 .cancelRealOrder(Market.US, "AAPL", "9002", null, 3, "NASD");
 
@@ -126,7 +126,7 @@ class KisRealOrderOrchestratorTest {
 
         assertEquals(KisOrderStatus.CANCEL_PENDING, response.status());
         var order = inOrder(intents, orders);
-        order.verify(intents).markCancelPending(key);
+        order.verify(intents).claimCancelPending(key, KisEnvironment.REAL);
         order.verify(orders).cancelRealOrder(Market.US, "AAPL", "9002", null, 3, "NASD");
     }
 
@@ -136,7 +136,7 @@ class KisRealOrderOrchestratorTest {
         KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, buyRequest(), null);
         intent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "9004", "ORG01", "0", Instant.now()));
         when(intents.get(key)).thenReturn(intent);
-        when(intents.markCancelPending(key)).thenAnswer(call -> { intent.markCancelPending(); return intent; });
+        when(intents.claimCancelPending(key, KisEnvironment.REAL)).thenAnswer(call -> { intent.markCancelPending(); return true; });
         when(intents.recordCancelRejection(key, "EGW00201")).thenAnswer(call -> {
             intent.recordCancelRejection(call.getArgument(1));
             return intent;
