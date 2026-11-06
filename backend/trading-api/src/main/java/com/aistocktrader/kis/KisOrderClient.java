@@ -113,7 +113,7 @@ public class KisOrderClient {
         }
         if (market == Market.KR) {
             throw new KisApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
-                    "Domestic PAPER cancellation is locked until KIS documents a supported mock cancel-quantity preflight (code PAPER_CANCEL_PREFLIGHT_UNSUPPORTED).");
+                    "Domestic PAPER cancellation is locked until KIS documents a supported mock cancel-quantity preflight (code PAPER_CANCEL_UNSUPPORTED).");
         }
         String account = properties.credentials(KisEnvironment.PAPER).accountNumber();
         Map<String, String> body = Map.of("CANO", account.substring(0, 8), "ACNT_PRDT_CD", account.substring(8),

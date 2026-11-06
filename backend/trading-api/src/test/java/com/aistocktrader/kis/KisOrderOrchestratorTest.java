@@ -231,6 +231,45 @@ class KisOrderOrchestratorTest {
     }
 
     @Test
+    void unsupportedPaperCancelPreflightRestoresObservedStateWithoutAnotherBrokerRead() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+        KisBrokerOrderSnapshot observed = new KisBrokerOrderSnapshot(0, 1, null, false, false);
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.reconcilePaperOrder(intent)).thenReturn(Optional.of(observed));
+        when(intents.reconcile(key, observed)).thenAnswer(invocation -> {
+            intent.reconcile(observed.filledQuantity(), observed.remainingQuantity(), observed.averageFillPrice(),
+                    observed.cancelled(), observed.rejected());
+            return intent;
+        });
+        when(intents.claimCancelPending(key, KisEnvironment.PAPER)).thenAnswer(invocation -> {
+            intent.markCancelPending();
+            return true;
+        });
+        when(intents.recordCancelPreflightBlocked(key, "PAPER_CANCEL_UNSUPPORTED"))
+                .thenAnswer(invocation -> {
+                    intent.recordCancelPreflightBlocked(invocation.getArgument(1));
+                    return intent;
+                });
+        org.mockito.Mockito.doThrow(new KisApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                "KIS paper cancel is blocked before submission (code PAPER_CANCEL_UNSUPPORTED)."))
+                .when(orders).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
+                        org.mockito.ArgumentMatchers.anyInt(), anyString());
+
+        KisOrderIntentResponse response = orchestrator.cancelPaperOrder(key, null);
+
+        assertEquals(KisOrderStatus.ACCEPTED, response.status());
+        assertEquals(1, response.remainingQuantity());
+        assertEquals("PAPER_CANCEL_UNSUPPORTED", response.responseCode());
+        verify(orders).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), anyString());
+        verify(orders).reconcilePaperOrder(intent);
+        verify(intents).recordCancelPreflightBlocked(key, "PAPER_CANCEL_UNSUPPORTED");
+        verify(intents, org.mockito.Mockito.times(2)).reconcile(key, observed);
+    }
+
+    @Test
     void rejectedCancelRemainsPendingUntilLaterReadOnlyReconciliationConfirmsOpenOrder() {
         UUID key = UUID.randomUUID();
         KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);

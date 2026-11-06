@@ -17,6 +17,7 @@ import java.util.UUID;
 
 @Service
 public class KisOrderOrchestrator {
+    private static final String PAPER_CANCEL_PREFLIGHT_UNSUPPORTED = "PAPER_CANCEL_UNSUPPORTED";
     private final KisOrderClient orders;
     private final KisAccountClient accounts;
     private final KisOrderProperties orderProperties;
@@ -103,9 +104,16 @@ public class KisOrderOrchestrator {
         } catch (KisOrderOutcomeUnknownException ex) {
             // Keep CANCEL_PENDING; never send a second cancel without broker reconciliation.
         } catch (KisApiException ex) {
+            String code = extractCode(ex.getMessage());
+            if (PAPER_CANCEL_PREFLIGHT_UNSUPPORTED.equals(code)) {
+                // The adapter rejected the operation before any KIS write. Restore the order's
+                // already-observed broker state instead of leaving a false CANCEL_PENDING state.
+                intents.recordCancelPreflightBlocked(idempotencyKey, code);
+                return KisOrderIntentResponse.from(intents.reconcile(idempotencyKey, observed));
+            }
             // A broker-declared rejection is definitive. Read the order once to restore its
             // observed state; if that query fails, retain CANCEL_PENDING and never resend.
-            intent = intents.recordCancelRejection(idempotencyKey, extractCode(ex.getMessage()));
+            intent = intents.recordCancelRejection(idempotencyKey, code);
             try {
                 KisBrokerOrderSnapshot snapshot = orders.reconcilePaperOrder(intent).orElse(null);
                 if (snapshot != null) intent = intents.reconcile(idempotencyKey, snapshot);

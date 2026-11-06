@@ -162,7 +162,7 @@ class KisOrderClientTest {
         KisApiException error = assertThrows(KisApiException.class, () -> client(true, builder).cancelPaperOrder(
                 Market.KR, "005930", "1234", "ORG01", 1, null));
         assertEquals(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, error.status());
-        assertTrue(error.getMessage().contains("PAPER_CANCEL_PREFLIGHT_UNSUPPORTED"));
+        assertTrue(error.getMessage().contains("PAPER_CANCEL_UNSUPPORTED"));
         server.verify();
     }
 

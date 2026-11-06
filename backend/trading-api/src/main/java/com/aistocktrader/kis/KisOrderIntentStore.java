@@ -69,6 +69,13 @@ public class KisOrderIntentStore {
     }
 
     @Transactional
+    public KisOrderIntent recordCancelPreflightBlocked(UUID key, String code) {
+        KisOrderIntent intent = repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
+        intent.recordCancelPreflightBlocked(code);
+        return intent;
+    }
+
+    @Transactional
     public KisOrderIntent markCancelPending(UUID key) {
         KisOrderIntent intent = repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
         if (intent.getStatus() == KisOrderStatus.CANCEL_PENDING || intent.getStatus() == KisOrderStatus.CANCELLED) return intent;

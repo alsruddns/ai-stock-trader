@@ -122,6 +122,11 @@ public class KisOrderIntent {
         if (code != null && code.matches("[A-Za-z0-9_-]{1,32}")) brokerResponseCode = code;
         updatedAt = Instant.now();
     }
+    public void recordCancelPreflightBlocked(String code) {
+        if (code != null && code.matches("[A-Za-z0-9_-]{1,32}")) brokerResponseCode = code;
+        if (remainingQuantity > 0) status = filledQuantity > 0 ? KisOrderStatus.PARTIALLY_FILLED : KisOrderStatus.ACCEPTED;
+        updatedAt = Instant.now();
+    }
     public UUID getIdempotencyKey() { return idempotencyKey; }
     public String getRequestHash() { return requestHash; }
     public KisEnvironment getEnvironment() { return environment; }
