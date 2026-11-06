@@ -28,6 +28,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -36,6 +37,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -121,6 +123,44 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(KisOrderStatus.UNKNOWN, retried.status());
             verify(kisOrderClient, times(1)).placePaperLimitOrder(Market.KR, order.symbol(), OrderSide.BUY, 1,
                     order.limitPrice(), Currency.KRW, null);
+        } finally {
+            kisOrderRepository.deleteById(key);
+        }
+    }
+
+    @Test
+    @Transactional
+    void mockBrokerCancelIsConfirmedByReconciliationAndPersistsCancelledState() {
+        UUID key = UUID.randomUUID();
+        OrderRequest order = request();
+        String brokerNumber = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        var snapshot = new KisBrokerOrderSnapshot(0, 0, null, true, false);
+        when(kisAccountClient.getBalance(KisEnvironment.PAPER, Market.KR, order.symbol(), order.limitPrice(), ""))
+                .thenReturn(new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR, "KRW",
+                        new BigDecimal("100000"), new BigDecimal("100000"), List.of(), Instant.now(), "test"));
+        when(kisOrderClient.placePaperLimitOrder(Market.KR, order.symbol(), OrderSide.BUY, 1,
+                order.limitPrice(), Currency.KRW, null))
+                .thenReturn(receipt("paper", brokerNumber));
+        when(kisOrderClient.reconcilePaperOrder(any(KisOrderIntent.class))).thenReturn(Optional.of(snapshot));
+
+        try {
+            assertEquals(KisOrderStatus.ACCEPTED, kisOrders.submitPaperOrder(key, order, null).status());
+            assertEquals(KisOrderStatus.CANCEL_PENDING, kisOrders.cancelPaperOrder(key, null).status());
+            entityManager.flush();
+            entityManager.clear();
+
+            var cancelled = kisOrders.reconcilePaperOrder(key);
+            entityManager.flush();
+            entityManager.clear();
+            var persisted = kisOrderRepository.findById(key).orElseThrow();
+
+            assertEquals(KisOrderStatus.CANCELLED, cancelled.status());
+            assertEquals(KisOrderStatus.CANCELLED, persisted.getStatus());
+            assertEquals(0, persisted.getFilledQuantity());
+            assertEquals(0, persisted.getRemainingQuantity());
+            verify(kisOrderClient, times(1)).cancelPaperOrder(Market.KR, order.symbol(), brokerNumber,
+                    "ITORG01", 0, "");
+            verify(kisOrderClient, times(1)).reconcilePaperOrder(any(KisOrderIntent.class));
         } finally {
             kisOrderRepository.deleteById(key);
         }
