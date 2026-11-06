@@ -142,6 +142,36 @@ class OperationsControllerTest {
     }
 
     @Test
+    void operationsSummaryExposesPaperKisOrderRejectionForReadOnlyMonitoring() {
+        OrderRepository orders = mock(OrderRepository.class);
+        PaperPositionRepository positions = mock(PaperPositionRepository.class);
+        PaperCashRepository cash = mock(PaperCashRepository.class);
+        PaperFillRepository fills = mock(PaperFillRepository.class);
+        KisOrderIntentRepository kisIntents = emptyKisIntents();
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.PAPER,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1, new BigDecimal("70000"), Currency.KRW), null);
+        intent.reject("EGW00201");
+        when(kisIntents.countStatusesByEnvironment(KisEnvironment.PAPER))
+                .thenReturn(List.<Object[]>of(new Object[]{KisOrderStatus.REJECTED, 1L}));
+        when(kisIntents.findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.PAPER)).thenReturn(List.of(intent));
+        when(orders.findAll()).thenReturn(List.of());
+        when(orders.findAll(any(Sort.class))).thenReturn(List.of());
+        when(positions.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0)).thenReturn(List.of());
+        when(cash.findAll()).thenReturn(List.of());
+        when(fills.countByFilledAtAfter(any())).thenReturn(0L);
+        when(fills.findAllWithTradeDetails()).thenReturn(List.of());
+
+        var summary = new OperationsController(orders, positions, cash, fills,
+                new TradingSafetyProperties("paper", false, BigDecimal.TEN, BigDecimal.TEN), kisIntents,
+                false, false, false, false, false).summary();
+
+        assertEquals(1L, summary.paperKisOrderCounts().get(KisOrderStatus.REJECTED));
+        assertEquals("005930", summary.recentPaperKisOrders().getFirst().symbol());
+        assertEquals(KisOrderStatus.REJECTED, summary.recentPaperKisOrders().getFirst().status());
+        assertEquals("EGW00201", summary.recentPaperKisOrders().getFirst().responseCode());
+    }
+
+    @Test
     void dailyNetPnlIncludesBuyAndSellCostsWhileGrossPnlRemainsAvailable() {
         OrderRepository orders = mock(OrderRepository.class);
         PaperPositionRepository positions = mock(PaperPositionRepository.class);
@@ -171,7 +201,9 @@ class OperationsControllerTest {
     private static KisOrderIntentRepository emptyKisIntents() {
         KisOrderIntentRepository repository = mock(KisOrderIntentRepository.class);
         when(repository.countStatusesByEnvironment(KisEnvironment.REAL)).thenReturn(List.of());
+        when(repository.countStatusesByEnvironment(KisEnvironment.PAPER)).thenReturn(List.of());
         when(repository.findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.REAL)).thenReturn(List.of());
+        when(repository.findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.PAPER)).thenReturn(List.of());
         return repository;
     }
 

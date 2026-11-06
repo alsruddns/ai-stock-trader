@@ -118,15 +118,22 @@ public class OperationsController {
         for (KisOrderStatus status : KisOrderStatus.values()) realOrderCounts.put(status, 0L);
         kisIntents.countStatusesByEnvironment(KisEnvironment.REAL).forEach(row ->
                 realOrderCounts.put((KisOrderStatus) row[0], ((Number) row[1]).longValue()));
-        List<RealOrderView> recentRealOrders = kisIntents
+        EnumMap<KisOrderStatus, Long> paperKisOrderCounts = new EnumMap<>(KisOrderStatus.class);
+        for (KisOrderStatus status : KisOrderStatus.values()) paperKisOrderCounts.put(status, 0L);
+        kisIntents.countStatusesByEnvironment(KisEnvironment.PAPER).forEach(row ->
+                paperKisOrderCounts.put((KisOrderStatus) row[0], ((Number) row[1]).longValue()));
+        List<BrokerOrderView> recentRealOrders = kisIntents
                 .findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.REAL).stream()
-                .map(RealOrderView::from).toList();
+                .map(BrokerOrderView::from).toList();
+        List<BrokerOrderView> recentPaperKisOrders = kisIntents
+                .findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.PAPER).stream()
+                .map(BrokerOrderView::from).toList();
 
         return new OperationsSummary(now, safety.mode(), safety.liveTradingEnabled() ? "enabled" : "disabled",
                 false, kisAccountReadsEnabled, kisPaperAccountReadsEnabled, kisPaperOrdersEnabled, safety.realOrdersEnabled(),
-                kisRealAccountReadsEnabled, kisRealReconciliationEnabled, realOrderCounts,
+                kisRealAccountReadsEnabled, kisRealReconciliationEnabled, realOrderCounts, paperKisOrderCounts,
                 paperCostModelEnabled, transactionCostsToday,
-                realizedNetPnlToday, recentRealOrders, counts, consecutiveLosingTrades,
+                realizedNetPnlToday, recentRealOrders, recentPaperKisOrders, counts, consecutiveLosingTrades,
                 counts.getOrDefault(OrderStatus.PENDING, 0L)
                 + counts.getOrDefault(OrderStatus.PARTIALLY_FILLED, 0L)
                 + counts.getOrDefault(OrderStatus.CANCEL_PENDING, 0L)
@@ -251,9 +258,11 @@ public class OperationsController {
                                     boolean kisPaperAccountReadsEnabled, boolean kisPaperOrdersEnabled, boolean kisRealOrdersEnabled,
                                     boolean kisRealAccountReadsEnabled, boolean kisRealReconciliationEnabled,
                                     Map<KisOrderStatus, Long> realOrderCounts,
+                                    Map<KisOrderStatus, Long> paperKisOrderCounts,
                                     boolean paperCostModelEnabled, Map<String, BigDecimal> paperTransactionCostsTodayByCurrency,
                                     Map<String, BigDecimal> realizedPnlTodayNetByCurrency,
-                                    List<RealOrderView> recentRealOrders, Map<OrderStatus, Long> orderCounts,
+                                    List<BrokerOrderView> recentRealOrders, List<BrokerOrderView> recentPaperKisOrders,
+                                    Map<OrderStatus, Long> orderCounts,
                                     int consecutiveLosingTrades, long openOrders, long fillsToday, long totalOrders,
                                     List<CashView> cashBalances, List<PositionView> positions,
                                     Map<String, BigDecimal> positionCostBasisByCurrency,
@@ -262,13 +271,13 @@ public class OperationsController {
                                     List<PaperPerformanceAnalyzer.InstrumentPerformance> paperPerformanceByInstrument,
                                     boolean kisPaperCredentialsConfigured, boolean kisRealCredentialsConfigured) { }
 
-    public record RealOrderView(String market, String symbol, String side, int quantity, Integer filledQuantity,
-                                Integer remainingQuantity, String currency, KisOrderStatus status,
-                                Instant createdAt, Instant updatedAt) {
-        static RealOrderView from(KisOrderIntent item) {
-            return new RealOrderView(item.getMarket().name(), item.getSymbol(), item.getSide().name(),
+    public record BrokerOrderView(String market, String symbol, String side, int quantity, Integer filledQuantity,
+                                  Integer remainingQuantity, String currency, KisOrderStatus status,
+                                  String responseCode, Instant createdAt, Instant updatedAt) {
+        static BrokerOrderView from(KisOrderIntent item) {
+            return new BrokerOrderView(item.getMarket().name(), item.getSymbol(), item.getSide().name(),
                     item.getQuantity(), item.getFilledQuantity(), item.getRemainingQuantity(),
-                    item.getCurrency().name(), item.getStatus(), item.getCreatedAt(), item.getUpdatedAt());
+                    item.getCurrency().name(), item.getStatus(), item.getBrokerResponseCode(), item.getCreatedAt(), item.getUpdatedAt());
         }
     }
 

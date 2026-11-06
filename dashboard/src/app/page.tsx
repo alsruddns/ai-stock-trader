@@ -7,8 +7,10 @@ type Ops = {
   kisAccountReadsEnabled: boolean; kisPaperAccountReadsEnabled: boolean; kisPaperOrdersEnabled: boolean; kisRealOrdersEnabled: boolean; kisRealAccountReadsEnabled: boolean; kisRealReconciliationEnabled: boolean;
   kisPaperCredentialsConfigured: boolean; kisRealCredentialsConfigured: boolean;
   realOrderCounts: Record<string, number>;
+  paperKisOrderCounts: Record<string, number>;
   paperCostModelEnabled: boolean; paperTransactionCostsTodayByCurrency: Record<string, string>; realizedPnlTodayNetByCurrency: Record<string, string>;
-  recentRealOrders?: { market: string; symbol: string; side: string; quantity: number; filledQuantity: number; remainingQuantity: number; currency: string; status: string; createdAt: string; updatedAt: string }[];
+  recentPaperKisOrders?: { market: string; symbol: string; side: string; quantity: number; filledQuantity: number; remainingQuantity: number; currency: string; status: string; responseCode: string | null; createdAt: string; updatedAt: string }[];
+  recentRealOrders?: { market: string; symbol: string; side: string; quantity: number; filledQuantity: number; remainingQuantity: number; currency: string; status: string; responseCode?: string | null; createdAt: string; updatedAt: string }[];
   orderCounts: Record<string, number>;
   consecutiveLosingTrades: number;
   openOrders: number; fillsToday: number; totalOrders: number;
@@ -88,6 +90,10 @@ export default function Dashboard() {
       <div className="panel"><div className="panel-title"><div><p className="eyebrow">ORDER LEDGER</p><h2>최근 모의 주문</h2></div><span className="count">{Object.values(states).reduce((a, b) => a + b, 0)}</span></div>
         {ops?.recentOrders.length ? <div className="table-wrap"><table><thead><tr><th>종목</th><th>구분</th><th>체결</th><th>상태</th></tr></thead><tbody>{ops.recentOrders.slice(0, 8).map(o => <tr key={o.id}><td><small>{o.market}</small><br /><span className="symbol">{o.symbol}</span></td><td className={o.side === "BUY" ? "buy" : "sell"}>{o.side === "BUY" ? "매수" : "매도"}</td><td>{o.filledQuantity}/{o.quantity}</td><td><span className={`order-state ${o.status.toLowerCase()}`}>{statusLabel(o.status)}</span></td></tr>)}</tbody></table></div> : <Empty text="기록된 paper 주문이 없습니다." />}
       </div>
+    </section>
+    <section className="panel"><div className="panel-title"><div><p className="eyebrow">KIS PAPER ORDER INTENTS</p><h2>KIS 모의계좌 주문 상태</h2></div><span className="tag">증권사 주문 조회 · 재전송 없음</span></div>
+      {ops?.recentPaperKisOrders?.length ? <div className="table-wrap"><table><thead><tr><th>시장·종목</th><th>구분</th><th>체결 / 주문</th><th>잔량</th><th>상태</th><th>응답 코드</th><th>갱신</th></tr></thead><tbody>{ops.recentPaperKisOrders.map((o, index) => <tr key={`${o.market}-${o.symbol}-${o.createdAt}-${index}`}><td><small>{o.market}</small><br /><span className="symbol">{o.symbol}</span></td><td className={o.side === "BUY" ? "buy" : "sell"}>{o.side === "BUY" ? "매수" : "매도"}</td><td>{o.filledQuantity ?? 0}/{o.quantity}</td><td>{o.remainingQuantity ?? "—"}</td><td><span className={`order-state ${o.status.toLowerCase()}`}>{statusLabel(o.status)}</span></td><td>{o.responseCode ?? "—"}</td><td>{time(o.updatedAt)}</td></tr>)}</tbody></table></div> : <Empty text="KIS 모의 주문 의도가 아직 없습니다." />}
+      <p className="audit-note">KIS PAPER 계좌 주문 요청·대조 기록입니다. 내부 모의 장부 주문과 별도이며 이 대시보드에서는 주문·취소를 전송하지 않습니다. 취소 거절이나 불명 상태는 읽기 전용 대조가 끝날 때까지 별도 확인이 필요합니다.</p>
     </section>
     <section className="panel"><div className="panel-title"><div><p className="eyebrow">REAL ORDER INTENTS</p><h2>실계좌 주문 의도</h2></div><span className="tag">주문별 상태 · 조회 전용</span></div>
       {ops?.recentRealOrders?.length ? <div className="table-wrap"><table><thead><tr><th>시장·종목</th><th>구분</th><th>체결 / 주문</th><th>잔량</th><th>상태</th><th>갱신</th></tr></thead><tbody>{ops.recentRealOrders.map((o, index) => <tr key={`${o.market}-${o.symbol}-${o.createdAt}-${index}`}><td><small>{o.market}</small><br /><span className="symbol">{o.symbol}</span></td><td className={o.side === "BUY" ? "buy" : "sell"}>{o.side === "BUY" ? "매수" : "매도"}</td><td>{o.filledQuantity ?? 0}/{o.quantity}</td><td>{o.remainingQuantity ?? "—"}</td><td><span className={`order-state ${o.status.toLowerCase()}`}>{statusLabel(o.status)}</span></td><td>{time(o.updatedAt)}</td></tr>)}</tbody></table></div> : <Empty text="저장된 실계좌 주문 의도가 없습니다. 이 상태 표시는 계좌 잔고와 별도입니다." />}
