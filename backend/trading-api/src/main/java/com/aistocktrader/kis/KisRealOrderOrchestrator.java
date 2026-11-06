@@ -20,15 +20,18 @@ public class KisRealOrderOrchestrator {
     private final KisLiveOrderRiskGate riskGate;
     private final KisOrderIntentStore intents;
     private final KisRealDailyRiskBaselineService dailyRiskBaselines;
+    private final KisMarketAiEvidenceClient marketAiEvidence;
 
     @Autowired
     public KisRealOrderOrchestrator(KisRealOrderClient orders, KisLiveOrderRiskGate riskGate,
                                     KisOrderIntentStore intents,
-                                    KisRealDailyRiskBaselineService dailyRiskBaselines) {
+                                    KisRealDailyRiskBaselineService dailyRiskBaselines,
+                                    KisMarketAiEvidenceClient marketAiEvidence) {
         this.orders = orders;
         this.riskGate = riskGate;
         this.intents = intents;
         this.dailyRiskBaselines = dailyRiskBaselines;
+        this.marketAiEvidence = marketAiEvidence;
     }
 
     public KisOrderIntentResponse submit(UUID idempotencyKey, OrderRequest request, String exchange,
@@ -40,8 +43,9 @@ public class KisRealOrderOrchestrator {
                     || intents.hasUnresolvedRealOrder(request.market(), idempotencyKey);
             KisRealDailyRiskBaselineService.RiskInputs dailyRisk =
                     dailyRiskBaselines.riskInputs(request.market(), realAccount);
-            serverCheckedContext = new KisLiveRiskContext(riskContext.approvedModelCandidate(),
-                    riskContext.quoteFresh(), riskContext.accountSnapshotFresh(), dailyRisk.marketOpen(),
+            KisMarketAiEvidenceClient.Evidence aiEvidence = marketAiEvidence.inspect(request, exchange);
+            serverCheckedContext = new KisLiveRiskContext(aiEvidence.approvedModelCandidate(),
+                    aiEvidence.quoteFresh(), riskContext.accountSnapshotFresh(), dailyRisk.marketOpen(),
                     unresolvedOrder, dailyRisk.dailyLossPercent(), riskContext.consecutiveLosingTrades(),
                     riskContext.accountEquity(), riskContext.stopDistancePerShare());
         }

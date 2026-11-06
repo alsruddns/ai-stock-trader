@@ -23,6 +23,7 @@ class KisRealOrderOrchestratorTest {
     private KisRealOrderClient orders;
     private KisOrderIntentStore intents;
     private KisRealDailyRiskBaselineService dailyRiskBaselines;
+    private KisMarketAiEvidenceClient marketAiEvidence;
     private KisRealOrderOrchestrator orchestrator;
     private final TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true,
             new BigDecimal("1000000"), new BigDecimal("100"));
@@ -34,9 +35,12 @@ class KisRealOrderOrchestratorTest {
         orders = mock(KisRealOrderClient.class);
         intents = mock(KisOrderIntentStore.class);
         dailyRiskBaselines = mock(KisRealDailyRiskBaselineService.class);
+        marketAiEvidence = mock(KisMarketAiEvidenceClient.class);
         when(dailyRiskBaselines.riskInputs(any(), any())).thenReturn(
                 new KisRealDailyRiskBaselineService.RiskInputs(true, BigDecimal.ZERO));
-        orchestrator = new KisRealOrderOrchestrator(orders, riskGate, intents, dailyRiskBaselines);
+        when(marketAiEvidence.inspect(any(), nullable(String.class))).thenReturn(
+                new KisMarketAiEvidenceClient.Evidence(true, true));
+        orchestrator = new KisRealOrderOrchestrator(orders, riskGate, intents, dailyRiskBaselines, marketAiEvidence);
     }
 
     @Test
@@ -70,6 +74,8 @@ class KisRealOrderOrchestratorTest {
         KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null);
         when(intents.prepare(eq(key), anyString(), eq(KisEnvironment.REAL), eq(request), isNull()))
                 .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
+        when(marketAiEvidence.inspect(eq(request), isNull())).thenReturn(
+                new KisMarketAiEvidenceClient.Evidence(false, true));
         when(intents.reject(eq(key), anyString())).thenAnswer(call -> { intent.reject(call.getArgument(1)); return intent; });
 
         KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount(),
