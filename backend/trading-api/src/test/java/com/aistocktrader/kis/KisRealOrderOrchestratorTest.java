@@ -187,6 +187,25 @@ class KisRealOrderOrchestratorTest {
     }
 
     @Test
+    void incompleteBrokerQuantitiesLockRealOrderAsUnknownBeforeCancel() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, buyRequest(), null);
+        intent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "9007", "ORG01", "0", Instant.now()));
+        KisBrokerOrderSnapshot incomplete = new KisBrokerOrderSnapshot(0, 0, null, false, false);
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.reconcileRealOrder(intent)).thenReturn(Optional.of(incomplete));
+        when(intents.markUnknown(key)).thenAnswer(call -> { intent.markUnknown(); return intent; });
+
+        KisOrderIntentResponse response = orchestrator.cancel(key);
+
+        assertEquals(KisOrderStatus.UNKNOWN, response.status());
+        verify(orders).reconcileRealOrder(intent);
+        verify(intents).markUnknown(key);
+        verify(intents, never()).claimCancelPending(key, KisEnvironment.REAL);
+        verify(orders, never()).cancelRealOrder(any(), anyString(), anyString(), anyString(), anyInt(), anyString());
+    }
+
+    @Test
     void alreadyFilledRealOrderSnapshotSkipsCancelSubmission() {
         UUID key = UUID.randomUUID();
         KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, buyRequest(), null);

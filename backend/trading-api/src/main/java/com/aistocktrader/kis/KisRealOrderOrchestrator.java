@@ -72,7 +72,7 @@ public class KisRealOrderOrchestrator {
             return KisOrderIntentResponse.from(intent);
         }
         KisBrokerOrderSnapshot observed = orders.reconcileRealOrder(intent).orElse(null);
-        if (!isUsableSnapshot(intent, observed)) {
+        if (!KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent, observed)) {
             return KisOrderIntentResponse.from(intents.markUnknown(idempotencyKey));
         }
         intent = intents.reconcile(idempotencyKey, observed);
@@ -139,14 +139,6 @@ public class KisRealOrderOrchestrator {
         if (intent.getEnvironment() != KisEnvironment.REAL) {
             throw new IllegalStateException("REAL order operations cannot access a paper order intent.");
         }
-    }
-
-    private static boolean isUsableSnapshot(KisOrderIntent intent, KisBrokerOrderSnapshot snapshot) {
-        return snapshot != null && snapshot.filledQuantity() >= 0 && snapshot.remainingQuantity() >= 0
-                && snapshot.filledQuantity() <= intent.getQuantity()
-                && snapshot.filledQuantity() + snapshot.remainingQuantity() <= intent.getQuantity()
-                && (snapshot.remainingQuantity() > 0 || snapshot.filledQuantity() == intent.getQuantity()
-                || snapshot.cancelled() || (snapshot.rejected() && snapshot.filledQuantity() == 0));
     }
 
     private static String hash(OrderRequest request, String exchange) {

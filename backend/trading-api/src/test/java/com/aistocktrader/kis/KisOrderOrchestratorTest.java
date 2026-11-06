@@ -389,6 +389,26 @@ class KisOrderOrchestratorTest {
     }
 
     @Test
+    void incompleteBrokerQuantitiesLockPaperOrderAsUnknownBeforeCancel() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+        KisBrokerOrderSnapshot incomplete = new KisBrokerOrderSnapshot(0, 0, null, false, false);
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.reconcilePaperOrder(intent)).thenReturn(Optional.of(incomplete));
+        when(intents.markUnknown(key)).thenAnswer(invocation -> { intent.markUnknown(); return intent; });
+
+        KisOrderIntentResponse response = orchestrator.cancelPaperOrder(key, null);
+
+        assertEquals(KisOrderStatus.UNKNOWN, response.status());
+        verify(orders).reconcilePaperOrder(intent);
+        verify(intents).markUnknown(key);
+        verify(intents, never()).claimCancelPending(key, KisEnvironment.PAPER);
+        verify(orders, never()).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), anyString());
+    }
+
+    @Test
     void concurrentCancellationClaimLossDoesNotSendAnotherBrokerRequest() {
         UUID key = UUID.randomUUID();
         KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
