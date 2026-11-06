@@ -3,12 +3,16 @@ package com.aistocktrader.kis;
 import com.aistocktrader.order.Market;
 import org.springframework.dao.DataAccessException;
 import org.springframework.web.bind.annotation.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
+import java.sql.SQLException;
 import java.util.Locale;
 
 @RestController
 @RequestMapping("/api/v1/kis/accounts")
 public class KisAccountController {
+    private static final Logger log = LoggerFactory.getLogger(KisAccountController.class);
     private final KisAccountClient client;
     private final KisProperties properties;
     private final KisSnapshotStore snapshots;
@@ -53,6 +57,10 @@ public class KisAccountController {
             try {
                 snapshots.save(snapshot);
             } catch (DataAccessException ex) {
+                Throwable cause = org.springframework.core.NestedExceptionUtils.getMostSpecificCause(ex);
+                String sqlState = cause instanceof SQLException sqlException ? sqlException.getSQLState() : "unknown";
+                log.error("KIS account snapshot persistence failed for {} {} (exception={}, sqlState={})",
+                        mode, market, ex.getClass().getSimpleName(), sqlState);
                 throw new KisApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
                         "KIS account snapshot storage is unavailable.");
             }
