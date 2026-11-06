@@ -70,6 +70,7 @@ class PaperSessionFeedMonitor:
         self._status: dict[str, object] = {
             "state": "DISABLED", "enabled": False, "subscriptions": 0,
             "ticks_received": 0, "bars_closed": 0, "last_tick_at": None,
+            "last_tick_received_at": None,
             "last_error": None, "orders_enabled": False,
             "automation_state": "DISABLED", "automation_error": None,
             "bar_storage_state": "DISABLED", "bar_storage_error": None,
@@ -346,6 +347,7 @@ class PaperSessionFeedMonitor:
                     self._latest_quotes[(watch.market, watch.symbol.upper())] = (tick.price, tick.timestamp)
                     self._status["ticks_received"] = int(self._status["ticks_received"]) + 1
                     self._status["last_tick_at"] = tick.timestamp.isoformat()
+                    self._status["last_tick_received_at"] = datetime.now().astimezone().isoformat()
                     if bar is not None:
                         self._record_closed_bar(watch, bar)
                         self._status["bars_closed"] = int(self._status["bars_closed"]) + 1

@@ -1,10 +1,17 @@
 param(
     [string]$ApiBaseUrl = 'http://127.0.0.1:8000',
-    [ValidateRange(10, 300)] [int]$DurationSeconds = 60,
+    [ValidateRange(10, 36000)] [int]$DurationSeconds = 60,
+    [ValidateRange(1, 60)] [int]$PollIntervalSeconds = 15,
+    [ValidateRange(30, 3600)] [int]$MaxNoTickSeconds = 300,
+    [string]$EvidencePath,
     [switch]$RequireBothFeeds
 )
 
 $ErrorActionPreference = 'Stop'
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
+    $EvidencePath = Join-Path $repoRoot '.local\validation\paper-websocket-samples.jsonl'
+}
 
 function Get-SessionStatus {
     try {
@@ -37,18 +44,79 @@ if ($health.status -ne 'ok' -or $health.live_trading_enabled -or $health.paper_a
 
 $initial = Get-SessionStatus
 Assert-SafeRunningStatus $initial
+$initialTicks = [int]$initial.ticks_received
+$previousTicks = $initialTicks
+$startedAtUtc = [DateTimeOffset]::UtcNow
+$hasReceiveTimestamp = [bool]$initial.last_tick_received_at
+$lastTickReceivedAt = if ($hasReceiveTimestamp) {
+    [DateTimeOffset]::Parse([string]$initial.last_tick_received_at).ToUniversalTime()
+} else { $startedAtUtc }
+$maxObservedNoTickSeconds = 0.0
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($DurationSeconds)
 $latest = $initial
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$nextProgressSeconds = 60
 while ([DateTimeOffset]::UtcNow -lt $deadline) {
     $remaining = [int][Math]::Ceiling(($deadline - [DateTimeOffset]::UtcNow).TotalSeconds)
-    Start-Sleep -Seconds ([Math]::Min(5, [Math]::Max(1, $remaining)))
+    Start-Sleep -Seconds ([Math]::Min($PollIntervalSeconds, [Math]::Max(1, $remaining)))
     $latest = Get-SessionStatus
     Assert-SafeRunningStatus $latest
+
+    $currentTicks = [int]$latest.ticks_received
+    if ($currentTicks -lt $previousTicks) {
+        throw 'WebSocket tick counter reset during the sample; the monitored service likely restarted.'
+    }
+    if ($currentTicks -gt $previousTicks) {
+        $previousTicks = $currentTicks
+    }
+    if ($latest.last_tick_received_at) {
+        $observedTickReceivedAt = [DateTimeOffset]::Parse([string]$latest.last_tick_received_at).ToUniversalTime()
+        if ($observedTickReceivedAt -lt $lastTickReceivedAt) {
+            throw 'The last tick receive timestamp moved backwards during the sample.'
+        }
+        $lastTickReceivedAt = $observedTickReceivedAt
+        $hasReceiveTimestamp = $true
+    }
+    $noTickSeconds = ([DateTimeOffset]::UtcNow - $lastTickReceivedAt).TotalSeconds
+    $maxObservedNoTickSeconds = [Math]::Max($maxObservedNoTickSeconds, $noTickSeconds)
+    if ($noTickSeconds -gt $MaxNoTickSeconds) {
+        throw "No WebSocket ticks arrived for more than $MaxNoTickSeconds seconds."
+    }
+
+    if ($stopwatch.Elapsed.TotalSeconds -ge $nextProgressSeconds) {
+        $tickDelta = $currentTicks - $initialTicks
+        Write-Output "PAPER feed monitor running: elapsed_seconds=$([int]$stopwatch.Elapsed.TotalSeconds) ticks_delta=$tickDelta bars_delta=$([int]$latest.bars_closed - [int]$initial.bars_closed)."
+        $nextProgressSeconds += 60
+    }
 }
 
-$tickDelta = [int]$latest.ticks_received - [int]$initial.ticks_received
+$stopwatch.Stop()
+$tickDelta = [int]$latest.ticks_received - $initialTicks
 if ($tickDelta -le 0) {
     throw 'No increase in WebSocket ticks was observed during the selected sample window.'
 }
+if (-not $hasReceiveTimestamp) {
+    throw 'The running market-data service does not expose a tick receive timestamp; restart it with the current code before monitoring.'
+}
 $barDelta = [int]$latest.bars_closed - [int]$initial.bars_closed
-Write-Output "Read-only PAPER monitor sample passed: seconds=$DurationSeconds ticks_delta=$tickDelta bars_delta=$barDelta orders=disabled automation=disabled."
+$evidence = [ordered]@{
+    started_at_utc = $startedAtUtc.ToString('o')
+    completed_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+    requested_seconds = $DurationSeconds
+    observed_seconds = [int]$stopwatch.Elapsed.TotalSeconds
+    poll_interval_seconds = $PollIntervalSeconds
+    max_no_tick_seconds = $MaxNoTickSeconds
+    max_observed_no_tick_seconds = [Math]::Round($maxObservedNoTickSeconds, 1)
+    ticks_delta = $tickDelta
+    bars_delta = $barDelta
+    feeds = $latest.stream_connections
+    orders_enabled = $false
+    automation_state = $latest.automation_state
+    result = 'passed'
+}
+$evidenceDirectory = Split-Path -Parent $EvidencePath
+if ($evidenceDirectory) { New-Item -ItemType Directory -Force -Path $evidenceDirectory | Out-Null }
+[System.IO.File]::AppendAllText($EvidencePath,
+    ($evidence | ConvertTo-Json -Compress -Depth 5) + [Environment]::NewLine,
+    [System.Text.UTF8Encoding]::new($false))
+Write-Output "Read-only PAPER monitor sample passed: seconds=$DurationSeconds ticks_delta=$tickDelta bars_delta=$barDelta max_no_tick_seconds=$([Math]::Round($maxObservedNoTickSeconds, 1)) orders=disabled automation=disabled evidence=$EvidencePath."

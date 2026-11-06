@@ -26,6 +26,10 @@ paper ledger 비용 추정은 `PAPER_COST_MODEL_ENABLED=false`가 기본입니�
 - Python KIS 읽기 전용 스모크는 `.\scripts\test-paper-kis-python.ps1`로 실행합니다. PAPER 키·시장 시세 스위치·전체/PAPER 계좌 읽기 게이트를 검사한 뒤 국내·미국 REST 시세 및 계좌 GET 네 건만 요청하며, 응답에 키·시크릿·계좌번호가 없는지도 확인합니다. 주문·자동매매 잠금이 꺼져 있으면 요청하지 않습니다.
 - 실계좌 잔고의 읽기 전용 확인은 `.\scripts\test-real-kis-account-readonly.ps1`로 별도 실행합니다. 전체/REAL 계좌 읽기 허용과 PostgreSQL, 계좌번호 형식을 검사하며 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`, `KIS_REAL_RECONCILIATION_ENABLED=false` 상태에서 국내·미국 잔고 GET만 요청합니다. 자격정보 값은 출력하지 않습니다.
 
+### P5 거래 세션 시세 감시
+
+`.\scripts\test-paper-websocket-monitor.ps1`은 기본 60초, 최대 10시간 동안 로컬 feed를 읽기 전용으로 점검합니다. 전체 세션 관찰은 시장 개장 전에 실행하고, 예를 들어 국내 장 세션은 `-DurationSeconds 23400 -PollIntervalSeconds 15 -MaxNoTickSeconds 300 -RequireBothFeeds`를 사용합니다. 주문과 자동매매가 꺼져 있고 두 feed가 `RUNNING`이어야 통과합니다. tick 수신 시각이 5분 넘게 갱신되지 않거나 프로세스가 재시작되어 누적 tick 수가 초기화되면 실패합니다. 성공한 표본은 민감정보 없이 `.local/validation/paper-websocket-samples.jsonl`에 쌓이며 `.local/`은 Git에서 제외됩니다. 이 감시는 실제 KIS 시세를 받으므로 거래 중인 시간에만 실행하고, 종목 거래정지·시장휴장 시 `MaxNoTickSeconds`를 무리하게 낮추지 마세요.
+
 ### KIS PAPER 주문 수명주기 통합 확인
 
 실제 KIS PAPER 주문·취소 통합 확인은 기본 실행이 잠긴 `scripts/test-kis-paper-order-lifecycle.ps1`을 사용합니다. `.env_local`에서 `KIS_PAPER_ORDERS_ENABLED=true`로 설정하고 서비스를 재시작한 뒤 `-ConfirmPaperOrderAndCancel`을 명시해야 요청합니다. 1주 매수 지정가만 허용하며 최근 시세보다 5% 이상 낮은 가격, 설정 한도와 별도 PAPER 테스트 한도(국내 10만원/미국 100달러) 안에서만 진행합니다. 응답이 끊기면 새 주문을 보내지 않고 같은 멱등 키를 조회하며, 즉시 취소 후 상태를 대조합니다. PAPER 주문은 모의 계좌 상태를 바꾸므로 실행 전에 종목·가격·잔고를 확인하고, 체결되면 모의 포지션을 직접 정리하세요. 실전 주문·REAL 대조·PAPER 자동매매는 비활성 상태여야 합니다.

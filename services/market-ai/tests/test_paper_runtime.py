@@ -97,7 +97,9 @@ def test_collector_persists_bars_when_paper_order_worker_is_disabled(monkeypatch
     queued_watch, queued_bar, _decision, _quotes = runtime._bar_storage_queue.get_nowait()
     assert queued_watch == watch
     assert queued_bar == bar
-    assert runtime.status()["orders_enabled"] is False
+    status = runtime.status()
+    assert status["orders_enabled"] is False
+    assert datetime.fromisoformat(status["last_tick_received_at"]).tzinfo is not None
 
 
 def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch) -> None:
