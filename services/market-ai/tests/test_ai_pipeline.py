@@ -343,6 +343,24 @@ def test_model_approval_requires_sufficient_heldout_sessions_and_ai_quant_outper
     with pytest.raises(ValueError, match="metrics or training configuration are inconsistent"):
         registry.approve(model_id, approved_by="operator", note="Review held-out execution comparison before promotion.")
 
+
+def test_model_approval_enforces_five_ai_quant_trades_as_the_exact_minimum(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "7" * 32
+    _write_candidate(registry, model_id)
+    manifest_path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    metadata["ai_quant_backtest_test_metrics"]["trade_count"] = 4
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(ValueError, match="at least five held-out AI\\+quant strategy trades"):
+        registry.approve(model_id, approved_by="operator", note="Held-out execution evidence reviewed for approval.")
+
+    metadata["ai_quant_backtest_test_metrics"]["trade_count"] = 5
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+    approved = registry.approve(model_id, approved_by="operator", note="Held-out execution evidence reviewed for approval.")
+    assert approved["approved"] is True
+
     metadata["ai_quant_backtest_test_metrics"]["session_count"] = 5
     metadata["training_config"].pop("backtest_slippage_bps")
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
