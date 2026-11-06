@@ -70,6 +70,16 @@ public class KisRealOrderOrchestrator {
                             ? intent.getQuantity() : intent.getRemainingQuantity(), intent.getExchangeCode());
         } catch (KisOrderOutcomeUnknownException exception) {
             // Keep CANCEL_PENDING; reconciliation must resolve the broker state before another request.
+        } catch (KisApiException exception) {
+            // A definitive broker rejection is recorded before a read-only lookup. If the lookup
+            // is unavailable, keep the pending lock; reconciliation can restore an observed order later.
+            intent = intents.recordCancelRejection(idempotencyKey, extractCode(exception.getMessage()));
+            try {
+                KisBrokerOrderSnapshot snapshot = orders.reconcileRealOrder(intent).orElse(null);
+                if (snapshot != null) intent = intents.reconcile(idempotencyKey, snapshot);
+            } catch (KisApiException ignored) {
+                // Preserve CANCEL_PENDING and the safe rejection code; never resend automatically.
+            }
         }
         return KisOrderIntentResponse.from(intents.get(idempotencyKey));
     }

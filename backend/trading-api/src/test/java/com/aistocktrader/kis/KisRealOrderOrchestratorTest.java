@@ -7,6 +7,7 @@ import com.aistocktrader.order.OrderRequest;
 import com.aistocktrader.order.OrderSide;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -127,6 +128,36 @@ class KisRealOrderOrchestratorTest {
         var order = inOrder(intents, orders);
         order.verify(intents).markCancelPending(key);
         order.verify(orders).cancelRealOrder(Market.US, "AAPL", "9002", null, 3, "NASD");
+    }
+
+    @Test
+    void definitiveRealCancelRejectionUsesReadOnlyReconciliationAndRestoresOpenOrder() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, buyRequest(), null);
+        intent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "9004", "ORG01", "0", Instant.now()));
+        when(intents.get(key)).thenReturn(intent);
+        when(intents.markCancelPending(key)).thenAnswer(call -> { intent.markCancelPending(); return intent; });
+        when(intents.recordCancelRejection(key, "EGW00201")).thenAnswer(call -> {
+            intent.recordCancelRejection(call.getArgument(1));
+            return intent;
+        });
+        KisBrokerOrderSnapshot open = new KisBrokerOrderSnapshot(0, 1, null, false, false);
+        when(orders.reconcileRealOrder(intent)).thenReturn(Optional.of(open));
+        when(intents.reconcile(key, open)).thenAnswer(call -> {
+            intent.reconcile(open.filledQuantity(), open.remainingQuantity(), open.averageFillPrice(),
+                    open.cancelled(), open.rejected());
+            return intent;
+        });
+        doThrow(new KisApiException(HttpStatus.BAD_GATEWAY, "KIS rejected the real order request (code EGW00201)."))
+                .when(orders).cancelRealOrder(Market.KR, "005930", "9004", "ORG01", 1, null);
+
+        KisOrderIntentResponse response = orchestrator.cancel(key);
+
+        assertEquals(KisOrderStatus.ACCEPTED, response.status());
+        assertEquals("EGW00201", response.responseCode());
+        assertEquals(1, response.remainingQuantity());
+        verify(orders).reconcileRealOrder(intent);
+        verify(orders, never()).placeRealLimitOrder(any(), anyString(), any(), anyInt(), any(), any(), anyString(), any());
     }
 
     @Test
