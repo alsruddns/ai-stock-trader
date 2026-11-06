@@ -209,6 +209,49 @@ class KisAccountClientTest {
     }
 
     @Test
+    void httpServerErrorExposesOnlySafeBrokerCodeForDiagnosis() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisAccountClient client = new KisAccountClient(properties(true), builder, new ObjectMapper());
+        server.expect(requestTo(PAPER_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token("paper-token"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/domestic-stock/")))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"msg_cd\":\"OPSQ2000\",\"msg1\":\"private broker detail\",\"token\":\"never-show\"}"));
+
+        KisApiException error = assertThrows(KisApiException.class,
+                () -> client.getBalance(KisEnvironment.PAPER, Market.KR, null, null, null));
+
+        assertEquals("KIS account request failed (HTTP 500, code OPSQ2000); check the environment and KIS status.",
+                error.getMessage());
+        assertFalse(error.getMessage().contains("private broker detail"));
+        assertFalse(error.getMessage().contains("never-show"));
+        server.verify();
+    }
+
+    @Test
+    void brokerRateLimitCodeMapsHttp500ToRetryable429WithoutLeakingBody() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisAccountClient client = new KisAccountClient(properties(true), builder, new ObjectMapper());
+        server.expect(requestTo(PAPER_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token("paper-token"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/domestic-stock/")))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"msg_cd\":\"EGW00201\",\"msg1\":\"private rate-limit detail\"}"));
+
+        KisApiException error = assertThrows(KisApiException.class,
+                () -> client.getBalance(KisEnvironment.PAPER, Market.KR, null, null, null));
+
+        assertEquals(HttpStatus.TOO_MANY_REQUESTS, error.status());
+        assertEquals("KIS rate limit reached; wait before requesting again.", error.getMessage());
+        assertFalse(error.getMessage().contains("private rate-limit detail"));
+        server.verify();
+    }
+
+    @Test
     void requestTimeoutMapsToGatewayTimeoutWithoutEchoingTransportDetails() throws Exception {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

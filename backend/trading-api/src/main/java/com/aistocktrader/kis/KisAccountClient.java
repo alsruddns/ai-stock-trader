@@ -170,12 +170,13 @@ public class KisAccountClient {
         } catch (KisApiException ex) {
             throw ex;
         } catch (RestClientResponseException ex) {
-            HttpStatus status = ex.getStatusCode().value() == 429 ? HttpStatus.TOO_MANY_REQUESTS
-                    : HttpStatus.BAD_GATEWAY;
-            throw new KisApiException(status, status == HttpStatus.TOO_MANY_REQUESTS
+            String code = parseSafeBrokerCode(ex.getResponseBodyAsString());
+            boolean rateLimited = ex.getStatusCode().value() == 429 || "EGW00201".equals(code);
+            HttpStatus status = rateLimited ? HttpStatus.TOO_MANY_REQUESTS : HttpStatus.BAD_GATEWAY;
+            throw new KisApiException(status, rateLimited
                     ? "KIS rate limit reached; wait before requesting again."
-                    : "KIS account request failed (HTTP " + ex.getStatusCode().value()
-                    + "); check the environment and KIS status.");
+                    : "KIS account request failed (HTTP " + ex.getStatusCode().value() + ", code "
+                    + code + "); check the environment and KIS status.");
         } catch (ResourceAccessException ex) {
             boolean timeout = causedByTimeout(ex);
             throw new KisApiException(timeout ? HttpStatus.GATEWAY_TIMEOUT : HttpStatus.BAD_GATEWAY,
@@ -209,12 +210,24 @@ public class KisAccountClient {
     }
 
     private KisApiException brokerError(JsonNode payload) {
-        String code = payload == null ? "unknown" : payload.path("msg_cd").asText("unknown");
-        if (!code.matches("[A-Za-z0-9_-]{1,32}")) code = "unknown";
+        String code = safeBrokerCode(payload == null ? null : payload.path("msg_cd").asText("unknown"));
         if (code.toLowerCase(java.util.Locale.ROOT).contains("egw00201")) {
             return new KisApiException(HttpStatus.TOO_MANY_REQUESTS, "KIS rate limit reached; wait before requesting again.");
         }
         return new KisApiException(HttpStatus.BAD_GATEWAY, "KIS rejected the account request (code " + code + ").");
+    }
+
+    private String parseSafeBrokerCode(String responseBody) {
+        try {
+            JsonNode payload = responseBody == null ? null : mapper.readTree(responseBody);
+            return safeBrokerCode(payload == null ? "unknown" : payload.path("msg_cd").asText("unknown"));
+        } catch (Exception ignored) {
+            return "unknown";
+        }
+    }
+
+    private static String safeBrokerCode(String code) {
+        return code != null && code.matches("[A-Za-z0-9_-]{1,32}") ? code : "unknown";
     }
 
     private String normalizeUsExchange(String exchange) {
