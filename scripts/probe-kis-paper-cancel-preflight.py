@@ -33,7 +33,7 @@ def load_local_environment() -> Path:
 
 
 def main(transaction_id: str = "VTTC0084R") -> int:
-    if transaction_id not in {"VTTC0084R", "TTTC0084R"}:
+    if transaction_id not in {"VTTC0084R", "TTTC0084R", "VTTC8036R", "TTTC8036R"}:
         print(json.dumps({"status": "blocked", "reason": "UNSUPPORTED_TRANSACTION_ID"}))
         return 2
     try:
@@ -76,7 +76,7 @@ def main(transaction_id: str = "VTTC0084R") -> int:
     params = {
         "CANO": account[:8],
         "ACNT_PRDT_CD": account[8:],
-        "INQR_DVSN_1": "0",
+        "INQR_DVSN_1": "1" if transaction_id.endswith("8036R") else "0",
         "INQR_DVSN_2": "0",
         "CTX_AREA_FK100": "",
         "CTX_AREA_NK100": "",
@@ -99,6 +99,8 @@ def main(transaction_id: str = "VTTC0084R") -> int:
             payload = {}
         broker_code = payload.get("msg_cd") if isinstance(payload, dict) else None
         result["broker_code"] = broker_code if isinstance(broker_code, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,32}", broker_code) else None
+        broker_result_code = payload.get("rt_cd") if isinstance(payload, dict) else None
+        result["broker_result_code"] = broker_result_code if isinstance(broker_result_code, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,32}", broker_result_code) else None
         successful = response.status_code < 400 and isinstance(payload, dict) and payload.get("rt_cd") == "0"
         rows = payload.get("output") if isinstance(payload, dict) else None
         result["status"] = "supported" if successful else "unsupported_or_rejected"
@@ -121,5 +123,5 @@ def main(transaction_id: str = "VTTC0084R") -> int:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Read-only PAPER cancel-preflight service probe.")
-    parser.add_argument("--transaction-id", choices=("VTTC0084R", "TTTC0084R"), default="VTTC0084R")
+    parser.add_argument("--transaction-id", choices=("VTTC0084R", "TTTC0084R", "VTTC8036R", "TTTC8036R"), default="VTTC0084R")
     raise SystemExit(main(parser.parse_args().transaction_id))

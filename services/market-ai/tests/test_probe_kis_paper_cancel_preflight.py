@@ -51,7 +51,7 @@ class _FakeClient:
         assert url.endswith("/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl")
         assert headers["tr_id"] == self.expected_transaction_id
         assert headers["custtype"] == "P"
-        assert params["INQR_DVSN_1"] == "0"
+        assert params["INQR_DVSN_1"] == ("1" if self.expected_transaction_id.endswith("8036R") else "0")
         assert params["INQR_DVSN_2"] == "0"
         return _Response(self.payload)
 
@@ -76,7 +76,7 @@ def _configure_safe_probe(
     return client
 
 
-@pytest.mark.parametrize("transaction_id", ["VTTC0084R", "TTTC0084R"])
+@pytest.mark.parametrize("transaction_id", ["VTTC0084R", "TTTC0084R", "VTTC8036R", "TTTC8036R"])
 def test_paper_preflight_probe_reports_only_sanitized_shape(
     monkeypatch: pytest.MonkeyPatch, capsys, transaction_id: str,
 ) -> None:
@@ -88,6 +88,7 @@ def test_paper_preflight_probe_reports_only_sanitized_shape(
 
     output = capsys.readouterr().out
     assert '"status": "supported"' in output
+    assert '"broker_result_code": "0"' in output
     assert f'"transaction_id": "{transaction_id}"' in output
     assert '"returned_row_count": 1' in output
     assert '"cancel_quantity_field_observed": true' in output
@@ -127,5 +128,6 @@ def test_unsupported_paper_service_code_is_not_treated_as_cancelable(
     output = capsys.readouterr().out
     assert '"status": "unsupported_or_rejected"' in output
     assert '"broker_code": "OPSQ0002"' in output
+    assert '"broker_result_code": "1"' in output
     assert "private broker response" not in output
     assert client.closed
