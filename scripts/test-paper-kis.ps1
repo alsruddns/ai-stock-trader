@@ -44,6 +44,10 @@ if (-not $env:POSTGRES_PASSWORD) {
     throw 'Set POSTGRES_PASSWORD in .env_local before running the Spring-backed KIS integration test.'
 }
 
+# This process is for PAPER GETs only. Prevent REAL account schedulers and
+# execution-notice subscriptions from using any REAL credentials in .env_local.
+$env:KIS_REAL_ACCOUNT_READ_ENABLED = 'false'
+$env:KIS_REAL_EXECUTION_NOTICES_ENABLED = 'false'
 $env:RUN_KIS_PAPER_ACCOUNT_INTEGRATION_TESTS = 'true'
 Push-Location (Join-Path $repoRoot 'backend/trading-api')
 try {
