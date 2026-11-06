@@ -54,14 +54,40 @@ function Assert-SafeRunningStatus($Status) {
     }
 }
 
-try {
-$health = Invoke-RestMethod -Uri "$ApiBaseUrl/api/v1/health" -TimeoutSec 5
-if ($health.status -ne 'ok' -or $health.live_trading_enabled -or $health.paper_automation_enabled) {
-    throw 'Local API must be healthy with live trading and paper automation disabled.'
+function Wait-ForSafeRunningStatus {
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(120)
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        $health = $null
+        try { $health = Invoke-RestMethod -Uri "$ApiBaseUrl/api/v1/health" -TimeoutSec 5 } catch { }
+        if (-not $health) { Start-Sleep -Seconds 2; continue }
+        if ($health.status -ne 'ok' -or $health.live_trading_enabled -or $health.paper_automation_enabled) {
+            throw 'Local API must be healthy with live trading and paper automation disabled.'
+        }
+
+        $status = $null
+        try { $status = Get-SessionStatus } catch { }
+        if (-not $status) { Start-Sleep -Seconds 2; continue }
+        if ($status.orders_enabled -or $status.automation_state -ne 'DISABLED' -or $status.last_error) {
+            throw 'Paper-session monitor is not running in read-only, automation-disabled mode.'
+        }
+        if ($status.state -ne 'RUNNING') { Start-Sleep -Seconds 2; continue }
+        $connections = $status.stream_connections
+        $feedsReady = if ($RequireBothFeeds) {
+            $connections.paper -eq 'RUNNING' -and $connections.real -eq 'RUNNING'
+        } elseif ($Feed) {
+            $connections.$Feed -eq 'RUNNING'
+        } else {
+            @($connections.PSObject.Properties | Where-Object { $_.Value -eq 'RUNNING' }).Count -gt 0
+        }
+        if (-not $feedsReady) { Start-Sleep -Seconds 2; continue }
+        Assert-SafeRunningStatus $status
+        return $status
+    }
+    throw 'Local market-data feed did not become ready within 120 seconds.'
 }
 
-$initial = Get-SessionStatus
-Assert-SafeRunningStatus $initial
+try {
+$initial = Wait-ForSafeRunningStatus
 $initialTicks = if ($Feed) { [int]$initial.ticks_received_by_feed.$Feed } else { [int]$initial.ticks_received }
 $initialBars = if ($Feed) { [int]$initial.bars_closed_by_feed.$Feed } else { [int]$initial.bars_closed }
 $previousTicks = $initialTicks
