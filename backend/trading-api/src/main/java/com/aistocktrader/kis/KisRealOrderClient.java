@@ -212,12 +212,17 @@ public class KisRealOrderClient {
         try {
             var uri = UriComponentsBuilder.fromUriString(KisEnvironment.REAL.baseUrl() + path);
             params.forEach((key, values) -> values.forEach(value -> uri.queryParam(key, value)));
+            rateLimiter.acquire(KisEnvironment.REAL, credentials.appKey(), properties.minRequestInterval());
             var response = http.get().uri(uri.build().encode().toUri())
                     .header("authorization", "Bearer " + tokenProvider.accessToken(KisEnvironment.REAL))
                     .header("appkey", credentials.appKey()).header("appsecret", credentials.appSecret())
                     .header("tr_id", trId).header("custtype", "P").header("tr_cont", continuation)
                     .accept(MediaType.APPLICATION_JSON).retrieve().toEntity(JsonNode.class);
             return new BrokerQueryResponse(response.getBody(), response.getHeaders().getFirst("tr_cont"));
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "KIS real order query was interrupted before submission.");
         } catch (KisApiException exception) {
             throw exception;
         } catch (ResourceAccessException | RestClientResponseException exception) {

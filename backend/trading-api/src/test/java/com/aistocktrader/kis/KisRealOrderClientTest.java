@@ -20,6 +20,11 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
@@ -164,6 +169,49 @@ class KisRealOrderClientTest {
         assertEquals(1, snapshot.filledQuantity());
         assertEquals(0, snapshot.remainingQuantity());
         assertEquals(new BigDecimal("70100"), snapshot.averageFillPrice());
+        server.verify();
+    }
+
+    @Test
+    void realReconciliationReservesSharedRateLimitBeforeHttpGet() throws Exception {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_id", "TTTC0081R"))
+                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"output1\":[{\"odno\":\"7001\",\"tot_ccld_qty\":\"0\",\"rmn_qty\":\"1\"}]}",
+                        MediaType.APPLICATION_JSON));
+        KisRestRateLimiter limiter = mock(KisRestRateLimiter.class);
+        KisAccessTokenProvider tokens = mock(KisAccessTokenProvider.class);
+        when(tokens.accessToken(KisEnvironment.REAL)).thenReturn("real-token");
+        KisProperties properties = properties(true, true);
+        KisRealOrderClient client = new KisRealOrderClient(properties, realSafety(), builder, limiter, tokens);
+
+        client.reconcileRealOrder(realIntent(Market.KR, "005930", "7001", "ORG01", null, 1)).orElseThrow();
+
+        verify(limiter).acquire(KisEnvironment.REAL, "real-key", Duration.ZERO);
+        server.verify();
+    }
+
+    @Test
+    void interruptedRealReconciliationStopsBeforeHttpGetAndRestoresInterruptFlag() throws Exception {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisRestRateLimiter limiter = mock(KisRestRateLimiter.class);
+        KisAccessTokenProvider tokens = mock(KisAccessTokenProvider.class);
+        KisProperties properties = properties(true, true);
+        KisRealOrderClient client = new KisRealOrderClient(properties, realSafety(), builder, limiter, tokens);
+        doThrow(new InterruptedException("test interruption"))
+                .when(limiter).acquire(KisEnvironment.REAL, "real-key", Duration.ZERO);
+
+        try {
+            KisApiException error = assertThrows(KisApiException.class, () -> client.reconcileRealOrder(
+                    realIntent(Market.KR, "005930", "7001", "ORG01", null, 1)));
+            assertEquals(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, error.status());
+            assertTrue(Thread.currentThread().isInterrupted());
+        } finally {
+            Thread.interrupted();
+        }
         server.verify();
     }
 
