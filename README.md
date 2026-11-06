@@ -59,6 +59,8 @@ PowerShell에서 아래 스크립트로 `.env_local`을 현재 창에 불러오�
 
 Windows 로그인 때 Spring Boot와 Python 분석 API도 함께 시작하려면 `.\scripts\install-local-stack-task.ps1`을 실행하고 한 번만 `Start-ScheduledTask -TaskName AIStockTrader-LocalStack`으로 시작을 확인하세요. PostgreSQL이 먼저 실행 중이어야 합니다. 이 작업은 두 API를 `127.0.0.1`에 바인딩하고 프로세스 종료 시 재시작을 시도합니다. 로그는 `.local/logs`에 저장됩니다. 자동 시작 작업은 `.env_local`을 읽되 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`를 강제합니다. PAPER 주문과 읽기 전용 계좌 대조 스위치는 `.env_local` 값을 따릅니다. 작업 실행 중 `.env_local`이 변경되면 두 API를 정리하고 새 설정으로 재기동합니다. 설정 재로딩 확인은 `.\scripts\test-local-stack-env-reload.ps1`로 실행할 수 있습니다. 수동 API를 이미 실행 중이면 포트 충돌을 피하도록 먼저 종료한 뒤 자동 시작 작업을 실행하세요. 자동 시작을 해제하려면 `.\scripts\remove-local-stack-task.ps1`을 실행합니다. 현재 Windows 사용자가 로그인해 있고 PC가 깨어 있어야 합니다. 작업 실행 자체가 PAPER 자동매매를 켜지는 않습니다.
 
+자동 API 작업을 코드 갱신 후 수동 재시작할 때는 `.\scripts\restart-local-stack-task.ps1`을 사용하세요. 이 명령은 최신 거래소 세션 응답으로 KR·US 모두 폐장했음을 확인하고, 해당 작업이 소유한 프로세스만 재기동합니다. 세션 정보가 오래됐거나 시장이 열려 있으면 아무것도 중단하지 않습니다. 재기동 뒤에도 실전 주문과 PAPER 자동매매 잠금이 적용됐는지 검사합니다. 게이트 회귀는 `.\scripts\test-local-stack-task-restart.ps1`로 확인할 수 있습니다.
+
 새 PowerShell 창에서 Python 분석 API를 실행합니다.
 
 ```powershell
