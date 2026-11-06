@@ -8,11 +8,13 @@ import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.math.BigDecimal;
 
 /** Reads model approval and quote freshness from the market service; caller booleans are not trusted. */
 @Component
 public class KisMarketAiEvidenceClient {
     private static final Duration MAX_QUOTE_AGE = Duration.ofSeconds(3);
+    private static final Duration MAX_SIGNAL_AGE = Duration.ofSeconds(120);
     private final RestClient http;
 
     public KisMarketAiEvidenceClient(RestClient.Builder builder,
@@ -22,35 +24,69 @@ public class KisMarketAiEvidenceClient {
 
     public Evidence inspect(OrderRequest request, String exchange) {
         if (request == null || request.market() == null || request.symbol() == null || request.symbol().isBlank()) {
-            return new Evidence(false, false);
+            return new Evidence(false, false, null);
         }
         try {
             JsonNode models = http.get().uri("/api/v1/ai/models").retrieve().body(JsonNode.class);
-            boolean approved = hasActiveApprovedModel(models, request.market().name(), request.symbol());
+            String modelId = activeApprovedModelId(models, request.market().name(), request.symbol());
+            if (modelId == null) return new Evidence(false, false, null);
             JsonNode quote = request.market() == com.aistocktrader.order.Market.US
                     ? http.get().uri(uri -> uri.path("/api/v1/market/quotes/US/{symbol}")
                             .queryParam("exchange", marketAiExchange(exchange)).build(request.symbol()))
                             .retrieve().body(JsonNode.class)
                     : http.get().uri("/api/v1/market/quotes/KR/{symbol}", request.symbol())
                             .retrieve().body(JsonNode.class);
-            return new Evidence(approved, isFreshMatchingQuote(quote, request));
+            JsonNode paper = http.get().uri("/api/v1/paper/session").retrieve().body(JsonNode.class);
+            BigDecimal stopDistance = signalStopDistance(paper, modelId, request, exchange);
+            return new Evidence(stopDistance != null, isFreshMatchingQuote(quote, request), stopDistance);
         } catch (RuntimeException unavailable) {
-            return new Evidence(false, false);
+            return new Evidence(false, false, null);
         }
     }
 
     static boolean hasActiveApprovedModel(JsonNode response, String market, String symbol) {
+        return activeApprovedModelId(response, market, symbol) != null;
+    }
+
+    static String activeApprovedModelId(JsonNode response, String market, String symbol) {
         JsonNode items = response == null ? null : response.path("models");
-        if (items == null || !items.isArray()) return false;
+        if (items == null || !items.isArray()) return null;
         for (JsonNode item : items) {
             if (item.path("active").asBoolean(false) && item.path("approved").asBoolean(false)
                     && item.path("feature_compatible").asBoolean(false)
                     && item.path("data_rights_verified").asBoolean(false)
                     && item.path("approval_evidence_verified").asBoolean(false)
                     && market.equals(item.path("market").asText())
-                    && symbol.equalsIgnoreCase(item.path("training_config").path("symbol").asText())) return true;
+                    && symbol.equalsIgnoreCase(item.path("training_config").path("symbol").asText())
+                    && item.path("model_id").isTextual()) return item.path("model_id").asText();
         }
-        return false;
+        return null;
+    }
+
+    static BigDecimal signalStopDistance(JsonNode response, String modelId, OrderRequest request, String exchange) {
+        String normalizedExchange = request.market() == com.aistocktrader.order.Market.US
+                ? marketAiExchange(exchange) : "";
+        String key = request.market().name() + ":" + request.symbol().toUpperCase(java.util.Locale.ROOT)
+                + ":" + normalizedExchange;
+        JsonNode decision = response == null ? null : response.path("decisions").path(key);
+        if (decision == null || decision.isMissingNode()
+                || !request.market().name().equals(decision.path("market").asText())
+                || !request.symbol().equalsIgnoreCase(decision.path("symbol").asText())
+                || !"BUY_CANDIDATE".equals(decision.path("signal").asText())
+                || !modelId.equals(decision.path("model_id").asText())
+                || decision.path("executable").asBoolean(true)
+                || !decision.path("evaluated_at").isTextual()) return null;
+        if (request.market() == com.aistocktrader.order.Market.US
+                && !normalizedExchange.equals(decision.path("exchange").asText())) return null;
+        try {
+            Instant at = Instant.parse(decision.path("evaluated_at").asText());
+            Instant now = Instant.now();
+            if (at.isAfter(now.plusSeconds(5)) || Duration.between(at, now).compareTo(MAX_SIGNAL_AGE) > 0) return null;
+            BigDecimal distance = new BigDecimal(decision.path("stop_distance_per_share").asText());
+            return distance.signum() > 0 ? distance : null;
+        } catch (RuntimeException invalidEvidence) {
+            return null;
+        }
     }
 
     static boolean isFreshMatchingQuote(JsonNode quote, OrderRequest request) {
@@ -78,5 +114,5 @@ public class KisMarketAiEvidenceClient {
         };
     }
 
-    public record Evidence(boolean approvedModelCandidate, boolean quoteFresh) { }
+    public record Evidence(boolean approvedModelCandidate, boolean quoteFresh, BigDecimal stopDistancePerShare) { }
 }

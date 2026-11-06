@@ -627,10 +627,18 @@ class PaperSessionFeedMonitor:
                 except Exception:
                     # Optional model packages, corrupt artifacts, and model I/O all fail closed.
                     signal, reason, model_id = "HOLD", "AI_INFERENCE_UNAVAILABLE", None
+        stop_distance = None
+        if signal == "BUY_CANDIDATE":
+            try:
+                stop_distance = _atr(list(history), QuantConfig().atr_period) * QuantConfig().atr_stop_multiple
+            except (ArithmeticError, ValueError):
+                signal, reason, model_id = "HOLD", "STOP_DISTANCE_UNAVAILABLE", None
         self._decisions[watch.key] = {
             "market": watch.market, "symbol": watch.symbol, "exchange": watch.exchange,
             "signal": signal, "reason": reason, "bars_in_session": len(history),
-            "evaluated_at": bar.timestamp.isoformat(), "model_id": model_id, "executable": False,
+            "evaluated_at": bar.timestamp.isoformat(), "model_id": model_id,
+            "stop_distance_per_share": str(stop_distance) if stop_distance is not None else None,
+            "executable": False,
         }
 
     def _queue_bar_storage(

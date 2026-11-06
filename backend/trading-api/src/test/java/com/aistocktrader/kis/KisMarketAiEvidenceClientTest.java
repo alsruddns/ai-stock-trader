@@ -30,7 +30,8 @@ class KisMarketAiEvidenceClientTest {
         var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:8000");
         server.expect(requestTo("http://127.0.0.1:8000/api/v1/ai/models"))
                 .andRespond(withSuccess("""
-                        {"models":[{"market":"KR","active":true,"approved":true,
+                        {"models":[{"model_id":"lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "market":"KR","active":true,"approved":true,
                         "feature_compatible":true,"data_rights_verified":true,
                         "approval_evidence_verified":true,"training_config":{"symbol":"005930"}}]}
                         """, MediaType.APPLICATION_JSON));
@@ -38,12 +39,19 @@ class KisMarketAiEvidenceClientTest {
                 .andRespond(withSuccess("{\"market\":\"KR\",\"symbol\":\"005930\","
                         + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":70000,\"retrieved_at\":\""
                         + Instant.now() + "\"}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://127.0.0.1:8000/api/v1/paper/session"))
+                .andRespond(withSuccess("{\"decisions\":{\"KR:005930:\":{\"market\":\"KR\","
+                        + "\"symbol\":\"005930\",\"signal\":\"BUY_CANDIDATE\","
+                        + "\"model_id\":\"lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"evaluated_at\":\""
+                        + Instant.now() + "\",\"stop_distance_per_share\":\"150\",\"executable\":false}}}",
+                        MediaType.APPLICATION_JSON));
 
         var evidence = client.inspect(new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
                 new BigDecimal("70000"), Currency.KRW), null);
 
         assertTrue(evidence.approvedModelCandidate());
         assertTrue(evidence.quoteFresh());
+        assertEquals(new BigDecimal("150"), evidence.stopDistancePerShare());
         server.verify();
     }
 
@@ -60,12 +68,14 @@ class KisMarketAiEvidenceClientTest {
 
         assertFalse(evidence.approvedModelCandidate());
         assertFalse(evidence.quoteFresh());
+        assertNull(evidence.stopDistancePerShare());
         server.verify();
     }
 
     @Test
     void acceptsOnlyIntegrityCheckedActiveApprovedModelForMarketAndSymbol() {
         ObjectNode response = mapper.valueToTree(Map.of("models", List.of(Map.of(
+                "model_id", "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "market", "KR", "active", true, "approved", true,
                 "feature_compatible", true, "data_rights_verified", true,
                 "approval_evidence_verified", true,
@@ -92,5 +102,20 @@ class KisMarketAiEvidenceClientTest {
         assertFalse(KisMarketAiEvidenceClient.isFreshMatchingQuote(quote, request));
         quote.put("retrieved_at", now.plusSeconds(1).toString());
         assertFalse(KisMarketAiEvidenceClient.isFreshMatchingQuote(quote, request));
+    }
+
+    @Test
+    void requiresFreshNonExecutableSignalFromTheApprovedModelAndPositiveStopDistance() {
+        var request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        String modelId = "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        ObjectNode response = mapper.valueToTree(Map.of("decisions", Map.of("KR:005930:", Map.of(
+                "market", "KR", "symbol", "005930", "signal", "BUY_CANDIDATE",
+                "model_id", modelId, "evaluated_at", Instant.now().toString(),
+                "stop_distance_per_share", "105", "executable", false))));
+        assertEquals(new BigDecimal("105"), KisMarketAiEvidenceClient.signalStopDistance(response, modelId, request, null));
+        assertNull(KisMarketAiEvidenceClient.signalStopDistance(response, "other-model", request, null));
+        ((ObjectNode) response.path("decisions").path("KR:005930:")).put("signal", "HOLD");
+        assertNull(KisMarketAiEvidenceClient.signalStopDistance(response, modelId, request, null));
     }
 }

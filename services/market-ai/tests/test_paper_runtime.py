@@ -531,6 +531,36 @@ def test_quant_candidate_is_held_without_an_active_approved_market_model(tmp_pat
     assert decision["executable"] is False
 
 
+def test_approved_ai_candidate_publishes_atr_stop_distance_for_server_risk_check(monkeypatch) -> None:
+    class Registry:
+        def active_approved_model(self, _market):
+            return {"model_id": "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+
+        def predict_preview(self, _model_id, _bars, *, market):
+            assert market == "KR"
+            return {"probability_positive": 0.9, "threshold": 0.5}
+
+    monkeypatch.setattr("app.paper_runtime.LocalModelRegistry", lambda *_args, **_kwargs: Registry())
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    runtime._bars[watch.key] = deque(maxlen=5_000)
+    runtime._decisions[watch.key] = {}
+    start = datetime(2026, 11, 5, 9, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+
+    for index in range(21):
+        price = Decimal("1002") if index == 20 else Decimal("1000")
+        runtime._record_closed_bar(watch, MinuteBar(
+            start + timedelta(minutes=index), price, price + Decimal("0.1"), price - Decimal("0.1"),
+            price, 2000 if index == 20 else 1000, Decimal("5"),
+        ))
+
+    decision = runtime.decisions()[watch.key]
+    assert decision["signal"] == "BUY_CANDIDATE"
+    assert decision["model_id"] == "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    assert Decimal(decision["stop_distance_per_share"]) > 0
+    assert decision["executable"] is False
+
+
 def test_exit_worker_uses_persisted_stop_and_submits_only_local_paper_exit() -> None:
     class Broker:
         def get_strategy_positions(self):

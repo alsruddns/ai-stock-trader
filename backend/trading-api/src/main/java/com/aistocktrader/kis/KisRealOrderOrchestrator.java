@@ -47,7 +47,7 @@ public class KisRealOrderOrchestrator {
             serverCheckedContext = new KisLiveRiskContext(aiEvidence.approvedModelCandidate(),
                     aiEvidence.quoteFresh(), riskContext.accountSnapshotFresh(), dailyRisk.marketOpen(),
                     unresolvedOrder, dailyRisk.dailyLossPercent(), riskContext.consecutiveLosingTrades(),
-                    riskContext.accountEquity(), riskContext.stopDistancePerShare());
+                    realAccount == null ? null : realAccount.accountEquity(), aiEvidence.stopDistancePerShare());
         }
         KisLiveRiskDecision decision = riskGate.assess(request, exchange, realAccount, serverCheckedContext);
         KisOrderIntentStore.PreparedIntent prepared;
