@@ -15,6 +15,15 @@ foreach ($binary in @('initdb.exe', 'pg_ctl.exe')) {
 }
 
 $originalEnvironment = @{}
+foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerator()) {
+    $originalEnvironment[[string]$entry.Key] = [string]$entry.Value
+}
+$clusterPath = $null
+$pgStarted = $false
+$apiProcess = $null
+$orderId = $null
+
+try {
 foreach ($line in Get-Content -LiteralPath $envFile) {
     $trimmed = $line.Trim()
     if (-not $trimmed -or $trimmed.StartsWith('#') -or -not $trimmed.Contains('=')) { continue }
@@ -24,9 +33,6 @@ foreach ($line in Get-Content -LiteralPath $envFile) {
     if (($value.StartsWith('"') -and $value.EndsWith('"')) -or
         ($value.StartsWith("'") -and $value.EndsWith("'"))) {
         $value = $value.Substring(1, $value.Length - 2)
-    }
-    if (-not $originalEnvironment.ContainsKey($name)) {
-        $originalEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
     }
     [Environment]::SetEnvironmentVariable($name, $value, 'Process')
 }
@@ -69,10 +75,6 @@ $env:DATABASE_URL = $databaseUrl
 $env:SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT = '2000'
 $apiDirectory = Join-Path $repoRoot 'backend\trading-api'
 $jarPath = Join-Path $apiDirectory 'target\trading-api-0.1.0-SNAPSHOT.jar'
-$pgStarted = $false
-$apiProcess = $null
-$orderId = $null
-
 function Start-TestDatabase {
     $arguments = @('-D', $clusterPath, '-o',
         "-h 127.0.0.1 -p $pgPort -c listen_addresses=127.0.0.1", '-l',
@@ -113,7 +115,6 @@ function Start-PaperApi {
     throw 'Spring API did not become ready within 30 seconds.'
 }
 
-try {
     Write-Output 'Preparing isolated temporary PostgreSQL cluster.'
     New-Item -ItemType Directory -Path $clusterPath -Force | Out-Null
     & (Join-Path $pgBin 'initdb.exe') -D $clusterPath -U postgres -A trust -E UTF8 --no-locale | Out-Null
@@ -214,24 +215,33 @@ try {
     $orderId = $null
     Write-Output 'PASS: Isolated PostgreSQL applied migrations, persisted an idempotent PAPER amendment, rejected conflicting reuse, returned safe HTTP 503 during outage, and recovered the amended order after restart. No KIS request was made.'
 } finally {
-    if ($orderId -and $apiProcess -and -not $apiProcess.HasExited) {
-        try { Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/orders/paper/$orderId/cancel" -TimeoutSec 3 | Out-Null } catch { }
-    }
-    if ($apiProcess -and -not $apiProcess.HasExited) {
-        Stop-Process -Id $apiProcess.Id -Force
-        $apiProcess.WaitForExit()
-    }
-    Stop-TestDatabase
-    if (Test-Path -LiteralPath $clusterPath) {
-        $resolvedTemp = [IO.Path]::GetFullPath($repoSafeTempRoot)
-        $resolvedCluster = [IO.Path]::GetFullPath($clusterPath)
-        if ($resolvedCluster.StartsWith($resolvedTemp + [IO.Path]::DirectorySeparatorChar,
-                [StringComparison]::OrdinalIgnoreCase) -and
-            (Split-Path -Leaf $resolvedCluster) -eq "ai-stock-trader-pg-outage-$clusterId") {
-            Remove-Item -LiteralPath $resolvedCluster -Recurse -Force
+    try {
+        if ($orderId -and $apiProcess -and -not $apiProcess.HasExited) {
+            try { Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/orders/paper/$orderId/cancel" -TimeoutSec 3 | Out-Null } catch { }
         }
-    }
-    foreach ($name in $originalEnvironment.Keys) {
-        [Environment]::SetEnvironmentVariable($name, $originalEnvironment[$name], 'Process')
+        if ($apiProcess -and -not $apiProcess.HasExited) {
+            Stop-Process -Id $apiProcess.Id -Force
+            $apiProcess.WaitForExit()
+        }
+        Stop-TestDatabase
+        if ($clusterPath -and (Test-Path -LiteralPath $clusterPath)) {
+            $resolvedTemp = [IO.Path]::GetFullPath($repoSafeTempRoot)
+            $resolvedCluster = [IO.Path]::GetFullPath($clusterPath)
+            if ($resolvedCluster.StartsWith($resolvedTemp + [IO.Path]::DirectorySeparatorChar,
+                    [StringComparison]::OrdinalIgnoreCase) -and
+                (Split-Path -Leaf $resolvedCluster) -eq "ai-stock-trader-pg-outage-$clusterId") {
+                Remove-Item -LiteralPath $resolvedCluster -Recurse -Force
+            }
+        }
+    } finally {
+        $currentEnvironment = [Environment]::GetEnvironmentVariables('Process')
+        foreach ($name in $currentEnvironment.Keys) {
+            if (-not $originalEnvironment.ContainsKey([string]$name)) {
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            }
+        }
+        foreach ($name in $originalEnvironment.Keys) {
+            [Environment]::SetEnvironmentVariable($name, $originalEnvironment[$name], 'Process')
+        }
     }
 }
