@@ -71,6 +71,8 @@ class PaperSessionFeedMonitor:
             "state": "DISABLED", "enabled": False, "subscriptions": 0,
             "ticks_received": 0, "bars_closed": 0, "last_tick_at": None,
             "last_tick_received_at": None,
+            "ticks_received_by_feed": {"paper": 0, "real": 0},
+            "last_tick_received_at_by_feed": {"paper": None, "real": None},
             "last_error": None, "orders_enabled": False,
             "automation_state": "DISABLED", "automation_error": None,
             "bar_storage_state": "DISABLED", "bar_storage_error": None,
@@ -90,6 +92,8 @@ class PaperSessionFeedMonitor:
         with self._lock:
             result = dict(self._status)
             result["decisions"] = {key: dict(value) for key, value in self._decisions.items()}
+            result["ticks_received_by_feed"] = dict(self._status["ticks_received_by_feed"])
+            result["last_tick_received_at_by_feed"] = dict(self._status["last_tick_received_at_by_feed"])
             return result
 
     def bars(self, watch: PaperWatch) -> tuple[MinuteBar, ...]:
@@ -344,10 +348,18 @@ class PaperSessionFeedMonitor:
                     continue
                 bar = self._aggregators[watch.key].add(tick)
                 with self._lock:
+                    feed = "paper" if watch.market == "KR" else "real"
+                    received_at = datetime.now().astimezone().isoformat()
+                    feed_ticks = dict(self._status["ticks_received_by_feed"])
+                    feed_ticks[feed] = int(feed_ticks.get(feed, 0)) + 1
+                    feed_received_at = dict(self._status["last_tick_received_at_by_feed"])
+                    feed_received_at[feed] = received_at
+                    self._status["ticks_received_by_feed"] = feed_ticks
+                    self._status["last_tick_received_at_by_feed"] = feed_received_at
                     self._latest_quotes[(watch.market, watch.symbol.upper())] = (tick.price, tick.timestamp)
                     self._status["ticks_received"] = int(self._status["ticks_received"]) + 1
                     self._status["last_tick_at"] = tick.timestamp.isoformat()
-                    self._status["last_tick_received_at"] = datetime.now().astimezone().isoformat()
+                    self._status["last_tick_received_at"] = received_at
                     if bar is not None:
                         self._record_closed_bar(watch, bar)
                         self._status["bars_closed"] = int(self._status["bars_closed"]) + 1

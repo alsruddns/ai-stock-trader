@@ -69,15 +69,22 @@ def test_closed_paper_websocket_bars_are_written_off_loop_with_spread(monkeypatc
     assert runtime.status()["bar_storage_state"] == "RUNNING"
 
 
-def test_collector_persists_bars_when_paper_order_worker_is_disabled(monkeypatch) -> None:
+@pytest.mark.parametrize(("market", "symbol", "exchange", "transaction_id", "feed"), [
+    ("KR", "005930", None, "H0STCNT0", "paper"),
+    ("US", "AAPL", "NAS", "HDFSCNT0", "real"),
+])
+def test_collector_persists_bars_when_paper_order_worker_is_disabled(
+    monkeypatch, market, symbol, exchange, transaction_id, feed,
+) -> None:
     from app.market_stream import TradeTick
 
-    watch = parse_watchlist("KR:005930")[0]
+    watch_value = f"KR:{symbol}" if market == "KR" else f"US:{symbol}:{exchange}"
+    watch = parse_watchlist(watch_value)[0]
     bar = MinuteBar(
         datetime.fromisoformat("2026-11-05T09:00:00+09:00"), Decimal("100"), Decimal("101"),
         Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
     )
-    tick = TradeTick("KR", "005930", bar.timestamp, bar.close, 10, Decimal("100"), Decimal("101"))
+    tick = TradeTick(market, symbol, bar.timestamp, bar.close, 10, Decimal("100"), Decimal("101"))
     runtime = PaperSessionFeedMonitor()
     runtime._aggregators[watch.key] = SimpleNamespace(add=lambda _tick: bar)
     runtime._bars[watch.key] = deque()
@@ -86,7 +93,7 @@ def test_collector_persists_bars_when_paper_order_worker_is_disabled(monkeypatch
     runtime._set_status(bar_storage_state="RUNNING")
     monkeypatch.setattr(
         "app.paper_runtime.normalize_stream_frame",
-        lambda _frame: {"kind": "data", "encrypted": "0", "transaction_id": "H0STCNT0", "count": "1", "payload": "tick"},
+        lambda _frame: {"kind": "data", "encrypted": "0", "transaction_id": transaction_id, "count": "1", "payload": "tick"},
     )
     monkeypatch.setattr("app.paper_runtime.parse_trade_frame", lambda *_args: [tick])
 
@@ -100,6 +107,11 @@ def test_collector_persists_bars_when_paper_order_worker_is_disabled(monkeypatch
     status = runtime.status()
     assert status["orders_enabled"] is False
     assert datetime.fromisoformat(status["last_tick_received_at"]).tzinfo is not None
+    assert status["ticks_received_by_feed"][feed] == 1
+    other_feed = "real" if feed == "paper" else "paper"
+    assert status["ticks_received_by_feed"][other_feed] == 0
+    assert datetime.fromisoformat(status["last_tick_received_at_by_feed"][feed]).tzinfo is not None
+    assert status["last_tick_received_at_by_feed"][other_feed] is None
 
 
 def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch) -> None:

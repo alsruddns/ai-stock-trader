@@ -3,6 +3,7 @@ param(
     [ValidateRange(10, 36000)] [int]$DurationSeconds = 60,
     [ValidateRange(1, 60)] [int]$PollIntervalSeconds = 15,
     [ValidateRange(30, 3600)] [int]$MaxNoTickSeconds = 300,
+    [ValidateSet('paper', 'real')] [string]$Feed,
     [string]$EvidencePath,
     [switch]$RequireBothFeeds
 )
@@ -32,6 +33,10 @@ function Assert-SafeRunningStatus($Status) {
         if ($connections.paper -ne 'RUNNING' -or $connections.real -ne 'RUNNING') {
             throw 'Both PAPER domestic and read-only REAL market-data feeds must be RUNNING.'
         }
+    } elseif ($Feed) {
+        if ($connections.$Feed -ne 'RUNNING') {
+            throw "The selected $Feed market-data feed must be RUNNING."
+        }
     } elseif ($running.Count -lt 1) {
         throw 'No KIS market-data WebSocket feed is RUNNING.'
     }
@@ -44,12 +49,13 @@ if ($health.status -ne 'ok' -or $health.live_trading_enabled -or $health.paper_a
 
 $initial = Get-SessionStatus
 Assert-SafeRunningStatus $initial
-$initialTicks = [int]$initial.ticks_received
+$initialTicks = if ($Feed) { [int]$initial.ticks_received_by_feed.$Feed } else { [int]$initial.ticks_received }
 $previousTicks = $initialTicks
 $startedAtUtc = [DateTimeOffset]::UtcNow
-$hasReceiveTimestamp = [bool]$initial.last_tick_received_at
+$initialReceiveAt = if ($Feed) { $initial.last_tick_received_at_by_feed.$Feed } else { $initial.last_tick_received_at }
+$hasReceiveTimestamp = [bool]$initialReceiveAt
 $lastTickReceivedAt = if ($hasReceiveTimestamp) {
-    [DateTimeOffset]::Parse([string]$initial.last_tick_received_at).ToUniversalTime()
+    [DateTimeOffset]::Parse([string]$initialReceiveAt).ToUniversalTime()
 } else { $startedAtUtc }
 $maxObservedNoTickSeconds = 0.0
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($DurationSeconds)
@@ -62,15 +68,16 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
     $latest = Get-SessionStatus
     Assert-SafeRunningStatus $latest
 
-    $currentTicks = [int]$latest.ticks_received
+    $currentTicks = if ($Feed) { [int]$latest.ticks_received_by_feed.$Feed } else { [int]$latest.ticks_received }
     if ($currentTicks -lt $previousTicks) {
         throw 'WebSocket tick counter reset during the sample; the monitored service likely restarted.'
     }
     if ($currentTicks -gt $previousTicks) {
         $previousTicks = $currentTicks
     }
-    if ($latest.last_tick_received_at) {
-        $observedTickReceivedAt = [DateTimeOffset]::Parse([string]$latest.last_tick_received_at).ToUniversalTime()
+    $currentReceiveAt = if ($Feed) { $latest.last_tick_received_at_by_feed.$Feed } else { $latest.last_tick_received_at }
+    if ($currentReceiveAt) {
+        $observedTickReceivedAt = [DateTimeOffset]::Parse([string]$currentReceiveAt).ToUniversalTime()
         if ($observedTickReceivedAt -lt $lastTickReceivedAt) {
             throw 'The last tick receive timestamp moved backwards during the sample.'
         }
@@ -107,6 +114,7 @@ $evidence = [ordered]@{
     poll_interval_seconds = $PollIntervalSeconds
     max_no_tick_seconds = $MaxNoTickSeconds
     max_observed_no_tick_seconds = [Math]::Round($maxObservedNoTickSeconds, 1)
+    selected_feed = if ($Feed) { $Feed } else { 'any' }
     ticks_delta = $tickDelta
     bars_delta = $barDelta
     feeds = $latest.stream_connections
@@ -119,4 +127,4 @@ if ($evidenceDirectory) { New-Item -ItemType Directory -Force -Path $evidenceDir
 [System.IO.File]::AppendAllText($EvidencePath,
     ($evidence | ConvertTo-Json -Compress -Depth 5) + [Environment]::NewLine,
     [System.Text.UTF8Encoding]::new($false))
-Write-Output "Read-only PAPER monitor sample passed: seconds=$DurationSeconds ticks_delta=$tickDelta bars_delta=$barDelta max_no_tick_seconds=$([Math]::Round($maxObservedNoTickSeconds, 1)) orders=disabled automation=disabled evidence=$EvidencePath."
+Write-Output "Read-only PAPER monitor sample passed: feed=$(if ($Feed) { $Feed } else { 'any' }) seconds=$DurationSeconds ticks_delta=$tickDelta bars_delta=$barDelta max_no_tick_seconds=$([Math]::Round($maxObservedNoTickSeconds, 1)) orders=disabled automation=disabled evidence=$EvidencePath."
