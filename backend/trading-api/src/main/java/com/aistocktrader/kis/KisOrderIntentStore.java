@@ -2,6 +2,7 @@ package com.aistocktrader.kis;
 
 import com.aistocktrader.order.OrderRequest;
 import com.aistocktrader.order.Market;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,7 +15,17 @@ public class KisOrderIntentStore {
             KisOrderStatus.SUBMITTING, KisOrderStatus.ACCEPTED, KisOrderStatus.PARTIALLY_FILLED,
             KisOrderStatus.CANCEL_PENDING, KisOrderStatus.UNKNOWN);
     private final KisOrderIntentRepository repository;
-    public KisOrderIntentStore(KisOrderIntentRepository repository) { this.repository = repository; }
+    private final KisRealFillSnapshotStore realFillSnapshots;
+
+    @Autowired
+    public KisOrderIntentStore(KisOrderIntentRepository repository, KisRealFillSnapshotStore realFillSnapshots) {
+        this.repository = repository;
+        this.realFillSnapshots = realFillSnapshots;
+    }
+
+    public KisOrderIntentStore(KisOrderIntentRepository repository) {
+        this(repository, null);
+    }
 
     @Transactional
     public PreparedIntent prepare(UUID key, String hash, OrderRequest request, String exchange) {
@@ -60,6 +71,7 @@ public class KisOrderIntentStore {
     @Transactional
     public KisOrderIntent reconcile(UUID key, KisBrokerOrderSnapshot snapshot) {
         KisOrderIntent intent = repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
+        if (realFillSnapshots != null) realFillSnapshots.record(intent, snapshot);
         intent.reconcile(snapshot.filledQuantity(), snapshot.remainingQuantity(), snapshot.averageFillPrice(),
                 snapshot.cancelled(), snapshot.rejected());
         return intent;

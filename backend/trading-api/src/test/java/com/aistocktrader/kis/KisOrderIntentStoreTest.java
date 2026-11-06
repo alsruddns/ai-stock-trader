@@ -13,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -20,10 +21,12 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class KisOrderIntentStoreTest {
     @Mock KisOrderIntentRepository repository;
+    @Mock KisRealFillSnapshotStore realFillSnapshots;
 
     @Test
     void idempotencyKeyCannotBeReusedAcrossPaperAndRealEnvironments() {
@@ -96,5 +99,22 @@ class KisOrderIntentStoreTest {
 
         assertEquals(KisOrderStatus.CANCEL_PENDING, updated.getStatus());
         assertEquals(2, updated.getRemainingQuantity());
+    }
+
+    @Test
+    void realOrderReconciliationPersistsCumulativeFillSnapshot() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null);
+        KisBrokerOrderSnapshot snapshot = new KisBrokerOrderSnapshot(1, 2, new BigDecimal("69950"), false, false);
+        when(repository.findById(key)).thenReturn(Optional.of(intent));
+
+        KisOrderIntentStore store = new KisOrderIntentStore(repository, realFillSnapshots);
+        KisOrderIntent updated = store.reconcile(key, snapshot);
+
+        assertEquals(1, updated.getFilledQuantity());
+        assertEquals(2, updated.getRemainingQuantity());
+        verify(realFillSnapshots).record(intent, snapshot);
     }
 }

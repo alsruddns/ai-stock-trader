@@ -76,6 +76,8 @@ REAL 주문 위험검사는 Python AI·시세 API에서 현재 활성·승인·�
 
 REAL 연속 손실 횟수의 서버 집계는 아직 연결되지 않았습니다. 이를 caller가 제공하지 못하게 했으며, 현재 검증된 횟수는 `미확인(-1)`로 처리되어 REAL 매수는 `CONSECUTIVE_LOSS_COUNT_INVALID`로 거부됩니다. KIS 공식 샘플은 국내 기간별 매매손익(`TTTC8715R`)과 해외 기간손익(`TTTS3039R`) 조회를 제공하지만, 해외 기간손익은 매매일 다음 날부터 조회 가능하다고 설명합니다. 이를 당일 실시간 거래별 연속 손실 계산에 대입하지 않습니다. [국내 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_domstk.py), [해외 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_ovrseastk.py).
 
+REAL 주문의 누적 체결 관측은 Flyway V19 `kis_real_fill_snapshot`에 멱등 키와 체결 누적 수량별로 저장합니다. 동일 수량의 가격 정정은 최신 관측으로 갱신하고, 이전보다 낮은 누적 체결 응답은 주문 상태와 기록 모두를 후퇴시키지 않습니다. 이 기록은 손익 원가·수수료·환율이 포함된 완결 거래 원장이 아니므로, 연속 손실 계산의 근거로 사용하지 않습니다. 사용자는 KIS 데이터의 로컬 저장·백테스트·AI 학습 허용 범위를 확인했습니다. 실제 체결 데이터 조회는 별도 읽기 잠금이 열리기 전까지 실행되지 않습니다.
+
 REAL 국내 일일 손실 기준선은 REAL 계좌 읽기가 활성화된 경우에만 거래소 캘린더 API가 확인한 개장 후 3분 동안 최초 KIS 순자산을 한 번 저장합니다. 계좌 읽기 스위치가 꺼져 있거나 FastAPI·PostgreSQL을 사용할 수 없으면 기준선은 만들어지지 않으며 REAL 매수는 일일 손실 기준 미확인으로 차단됩니다. 기준선 누락을 해소하려고 임의로 세션 중간에 시작 잔고를 기록하지 않습니다.
 REAL 주문 상태의 읽기 전용 주기 대조는 `KIS_REAL_RECONCILIATION_ENABLED=false`가 기본입니다. 활성화하려면 REAL 계좌 읽기 스위치와 자격정보도 필요합니다. 주문번호가 저장된 접수/부분체결/취소대기 주문만 조회하며, 주문번호 없는 UNKNOWN은 자동 추측·재주문하지 않습니다.
 

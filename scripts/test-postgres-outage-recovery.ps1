@@ -74,9 +74,9 @@ $apiProcess = $null
 $orderId = $null
 
 function Start-TestDatabase {
-    $arguments = @('-D', "`"$clusterPath`"", '-o',
-        "`"-h 127.0.0.1 -p $pgPort -c listen_addresses=127.0.0.1`"", '-l',
-        "`"$clusterLog`"", '-w', '-t', '30', 'start')
+    $arguments = @('-D', $clusterPath, '-o',
+        "-h 127.0.0.1 -p $pgPort -c listen_addresses=127.0.0.1", '-l',
+        $clusterLog, '-w', '-t', '30', 'start')
     & (Join-Path $pgBin 'pg_ctl.exe') @arguments
     $pgCtlExitCode = $LASTEXITCODE
     if ($pgCtlExitCode -ne 0) {
@@ -87,7 +87,7 @@ function Start-TestDatabase {
 
 function Stop-TestDatabase {
     if ($script:pgStarted) {
-        $arguments = @('-D', "`"$clusterPath`"", '-m', 'fast', '-w', '-t', '30', 'stop')
+        $arguments = @('-D', $clusterPath, '-m', 'fast', '-w', '-t', '30', 'stop')
         & (Join-Path $pgBin 'pg_ctl.exe') @arguments
         $pgCtlExitCode = $LASTEXITCODE
         if ($pgCtlExitCode -ne 0) {
@@ -128,9 +128,9 @@ try {
         Write-Output 'Packaging Spring API.'
         & .\mvnw.cmd -DskipTests package
         if ($LASTEXITCODE -ne 0) { throw "Spring API package failed with exit code $LASTEXITCODE." }
-    Write-Output 'Checking the REAL daily-risk baseline migration and account-scoped immutability in the isolated database.'
-    & .\mvnw.cmd '-Dtest=KisRealDailyRiskBaselinePostgresIntegrationTest' test
-    if ($LASTEXITCODE -ne 0) { throw "REAL daily-risk baseline PostgreSQL integration failed with exit code $LASTEXITCODE." }
+    Write-Output 'Checking REAL risk baseline and fill journal migrations in the isolated database.'
+    & .\mvnw.cmd '-Dtest=KisRealDailyRiskBaselinePostgresIntegrationTest,KisRealFillSnapshotPostgresIntegrationTest' test
+    if ($LASTEXITCODE -ne 0) { throw "REAL risk baseline or fill journal PostgreSQL integration failed with exit code $LASTEXITCODE." }
     } finally {
         Pop-Location
     }

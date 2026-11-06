@@ -104,6 +104,7 @@ public class KisOrderIntent {
     public void reject(String code) { status = KisOrderStatus.REJECTED; brokerResponseCode = code; updatedAt = Instant.now(); }
     public void reconcile(int filled, int remaining, BigDecimal averagePrice, boolean cancelled, boolean rejected) {
         if (filled < 0 || remaining < 0 || filled > quantity || filled + remaining > quantity) return;
+        if (filledQuantity != null && filled < filledQuantity) return;
         boolean cancellationRequested = status == KisOrderStatus.CANCEL_PENDING;
         boolean cancellationRejected = cancellationRequested && brokerResponseCode != null
                 && !"0".equals(brokerResponseCode);

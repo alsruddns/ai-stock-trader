@@ -30,4 +30,18 @@ class KisOrderIntentTest {
         assertEquals(KisOrderStatus.CANCEL_PENDING, intent.getStatus());
         assertEquals("0", intent.getBrokerResponseCode());
     }
+
+    @Test
+    void staleBrokerSnapshotCannotReducePreviouslyConfirmedFillQuantity() {
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
+                        new BigDecimal("70000"), Currency.KRW), null);
+        intent.reconcile(2, 1, new BigDecimal("69900"), false, false);
+
+        intent.reconcile(1, 2, new BigDecimal("69800"), false, false);
+
+        assertEquals(2, intent.getFilledQuantity());
+        assertEquals(1, intent.getRemainingQuantity());
+        assertEquals(new BigDecimal("69900"), intent.getAverageFillPrice());
+    }
 }
