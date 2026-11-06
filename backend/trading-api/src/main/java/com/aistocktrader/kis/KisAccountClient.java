@@ -81,7 +81,7 @@ public class KisAccountClient {
                 orderable = firstAmount(firstOrSelf(buyingPower.path("output")), "ord_psbl_cash", "nrcvb_buy_amt");
             }
             return new KisAccountSnapshot(environment, market, "KRW",
-                    firstAmount(summary, "dnca_tot_amt", "nass_amt"), orderable, positions, Instant.now(),
+                    firstAmount(summary, "dnca_tot_amt"), orderable, positions, Instant.now(),
                     "KIS_READ_ONLY_REST");
         }
 

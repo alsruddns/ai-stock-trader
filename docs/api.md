@@ -50,6 +50,8 @@ KIS API는 기본 잠금(`KIS_ACCOUNT_READ_ENABLED=false`)입니다. 조회를 �
 
 미국 잔고 응답은 공식 예제 구조에 따라 `output1`을 보유 종목, `output2`를 계좌 요약으로 처리합니다. 공개 샘플만으로 USD 현금 필드 의미를 확정할 수 없어 USD `cashBalance`는 `null`로 둡니다. 특정 종목의 매수가능액은 `inquire-psamount` 조회 결과만 사용합니다. 총자산 평가액은 현금이나 주문가능금액으로 사용하지 않습니다.
 
+국내 잔고의 `cashBalance`는 KIS 응답 `dnca_tot_amt`(예수금총금액)만 사용합니다. `nass_amt`는 순자산금액이므로 현금 필드로 대체하지 않습니다. `dnca_tot_amt`가 없으면 `cashBalance`를 미확인(`null`)으로 유지합니다. 참고: [KIS 공식 잔고 응답 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_balance/chk_inquire_balance.py).
+
 Read timeout, HTTP 429 및 KIS rate-limit 오류는 안전한 오류 응답으로 바꾸고 요청을 자동 재전송하지 않습니다.
 
 Paper 주문 응답이 타임아웃되면 `GET /api/v1/orders/paper/by-idempotency/{key}`로 결과를 먼저 대조합니다. 자동화 클라이언트는 주문 쓰기를 재시도하지 않습니다.
