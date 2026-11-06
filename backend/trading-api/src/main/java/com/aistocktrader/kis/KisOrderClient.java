@@ -31,7 +31,6 @@ import java.util.Optional;
 public class KisOrderClient {
     private static final String DOMESTIC_ORDER_PATH = "/uapi/domestic-stock/v1/trading/order-cash";
     private static final String OVERSEAS_ORDER_PATH = "/uapi/overseas-stock/v1/trading/order";
-    private static final String DOMESTIC_CANCEL_PATH = "/uapi/domestic-stock/v1/trading/order-rvsecncl";
     private static final String OVERSEAS_CANCEL_PATH = "/uapi/overseas-stock/v1/trading/order-rvsecncl";
 
     private final KisProperties properties;
@@ -108,33 +107,20 @@ public class KisOrderClient {
                                   String brokerOrganizationNumber, int remainingQuantity,
                                   String exchange) {
         requirePaperOrdersEnabled();
-        if (symbol == null || symbol.isBlank() || brokerOrderNumber == null || brokerOrderNumber.isBlank()
+        if (market == null || symbol == null || symbol.isBlank() || brokerOrderNumber == null || brokerOrderNumber.isBlank()
                 || remainingQuantity < 0) {
             throw new IllegalArgumentException("A symbol, original broker order, and non-negative remaining quantity are required.");
         }
-        String account = properties.credentials(KisEnvironment.PAPER).accountNumber();
-        String path;
-        String trId;
-        Map<String, String> body;
         if (market == Market.KR) {
-            if (brokerOrganizationNumber == null || brokerOrganizationNumber.isBlank()) {
-                throw new IllegalArgumentException("Domestic cancellation requires the broker organization number.");
-            }
-            path = DOMESTIC_CANCEL_PATH;
-            trId = "VTTC0013U";
-            body = Map.of("CANO", account.substring(0, 8), "ACNT_PRDT_CD", account.substring(8),
-                    "KRX_FWDG_ORD_ORGNO", brokerOrganizationNumber, "ORGN_ODNO", brokerOrderNumber,
-                    "ORD_DVSN", "00", "RVSE_CNCL_DVSN_CD", "02", "ORD_QTY", "0",
-                    "ORD_UNPR", "0", "QTY_ALL_ORD_YN", "Y", "EXCG_ID_DVSN_CD", "KRX");
-        } else {
-            path = OVERSEAS_CANCEL_PATH;
-            trId = "VTTT1004U";
-            body = Map.of("CANO", account.substring(0, 8), "ACNT_PRDT_CD", account.substring(8),
-                    "OVRS_EXCG_CD", usExchange(exchange), "PDNO", symbol.toUpperCase(Locale.ROOT),
-                    "ORGN_ODNO", brokerOrderNumber, "RVSE_CNCL_DVSN_CD", "02", "ORD_QTY", "0",
-                    "OVRS_ORD_UNPR", "0", "MGCO_APTM_ODNO", "", "ORD_SVR_DVSN_CD", "0");
+            throw new KisApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                    "Domestic PAPER cancellation is locked until KIS documents a supported mock cancel-quantity preflight (code PAPER_CANCEL_PREFLIGHT_UNSUPPORTED).");
         }
-        post(path, trId, body);
+        String account = properties.credentials(KisEnvironment.PAPER).accountNumber();
+        Map<String, String> body = Map.of("CANO", account.substring(0, 8), "ACNT_PRDT_CD", account.substring(8),
+                "OVRS_EXCG_CD", usExchange(exchange), "PDNO", symbol.toUpperCase(Locale.ROOT),
+                "ORGN_ODNO", brokerOrderNumber, "RVSE_CNCL_DVSN_CD", "02", "ORD_QTY", "0",
+                "OVRS_ORD_UNPR", "0", "MGCO_APTM_ODNO", "", "ORD_SVR_DVSN_CD", "0");
+        post(OVERSEAS_CANCEL_PATH, "VTTT1004U", body);
     }
 
     public Optional<KisBrokerOrderSnapshot> reconcilePaperOrder(KisOrderIntent intent) {

@@ -156,22 +156,13 @@ class KisOrderClientTest {
     }
 
     @Test
-    void domesticPaperCancelUsesZeroQuantityForCancelAll() {
+    void domesticPaperCancelIsLockedWithoutSupportedMockPreflightAndSendsNoRequest() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
-                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
-        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/uapi/domestic-stock/v1/trading/order-rvsecncl"))
-                .andExpect(method(HttpMethod.POST)).andExpect(header("tr_id", "VTTC0013U"))
-                .andExpect(jsonPath("$.ORGN_ODNO").value("1234"))
-                .andExpect(jsonPath("$.ORD_QTY").value("0"))
-                .andExpect(jsonPath("$.QTY_ALL_ORD_YN").value("Y"))
-                .andExpect(jsonPath("$.RVSE_CNCL_DVSN_CD").value("02"))
-                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"msg_cd\":\"0\",\"output\":{}}",
-                        org.springframework.http.MediaType.APPLICATION_JSON));
-
-        assertDoesNotThrow(() -> client(true, builder).cancelPaperOrder(
+        KisApiException error = assertThrows(KisApiException.class, () -> client(true, builder).cancelPaperOrder(
                 Market.KR, "005930", "1234", "ORG01", 1, null));
+        assertEquals(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, error.status());
+        assertTrue(error.getMessage().contains("PAPER_CANCEL_PREFLIGHT_UNSUPPORTED"));
         server.verify();
     }
 
