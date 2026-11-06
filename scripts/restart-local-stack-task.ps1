@@ -135,8 +135,9 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
         Start-Sleep -Seconds 2
     }
     if (-not $pythonHealth -or -not $springSummary) { throw 'The local APIs did not become ready after restart.' }
-    if ($pythonHealth.live_trading_enabled -or $pythonHealth.paper_automation_enabled -or
-        $springSummary.liveTrading -ne 'disabled' -or $springSummary.kisRealOrdersEnabled -ne $false) {
+    if ($pythonHealth.status -ne 'ok' -or $pythonHealth.live_trading_enabled -or $pythonHealth.paper_automation_enabled -or
+        $springSummary.tradingMode -ne 'paper' -or $springSummary.liveTrading -ne 'disabled' -or
+        $springSummary.paperAutomationEnabled -ne $false -or $springSummary.kisRealOrdersEnabled -ne $false) {
         throw 'The restarted APIs did not report the required trading locks.'
     }
     Write-Output 'Local Spring Boot and Python APIs restarted after both exchange sessions were confirmed closed; live trading remains disabled.'
