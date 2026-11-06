@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$script:restartScriptDirectory = $PSScriptRoot
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $runtimeStatePath = Join-Path $repoRoot '.local\logs\local-stack-pids.json'
 $pythonHealthUrl = 'http://127.0.0.1:8000/api/v1/health'
@@ -43,19 +44,33 @@ function Get-ConfirmedClosedSessions {
     }
 }
 
+function Test-TrackedProcessIdentity($Process, [string]$Description) {
+    if (-not $Process) { return $false }
+    $commandLine = [string]$Process.CommandLine
+    $repositoryRoot = [string]$repoRoot
+    $valid = switch ($Description) {
+        'runner' { $commandLine.IndexOf((Join-Path $script:restartScriptDirectory 'run-local-stack-task.ps1'), [StringComparison]::OrdinalIgnoreCase) -ge 0 }
+        'backend' { $commandLine.IndexOf((Join-Path $script:restartScriptDirectory 'start-local.ps1'), [StringComparison]::OrdinalIgnoreCase) -ge 0 }
+        'market-ai' { [string]::Equals([string]$Process.ExecutablePath, (Join-Path $repositoryRoot 'services\market-ai\.venv\Scripts\python.exe'), [StringComparison]::OrdinalIgnoreCase) -and $commandLine.IndexOf('uvicorn app.main:app', [StringComparison]::OrdinalIgnoreCase) -ge 0 }
+        default { $false }
+    }
+    return [bool]$valid
+}
+
 function Get-TrackedProcess($ProcessId, [string]$Description) {
     if (-not $ProcessId -or [int]$ProcessId -le 0) { throw "Missing tracked $Description process ID." }
     $process = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$ProcessId)" -ErrorAction SilentlyContinue
     if (-not $process) { return $null }
-    $commandLine = [string]$process.CommandLine
-    $valid = switch ($Description) {
-        'runner' { $commandLine.Contains((Join-Path $PSScriptRoot 'run-local-stack-task.ps1'), [StringComparison]::OrdinalIgnoreCase) }
-        'backend' { $commandLine.Contains((Join-Path $PSScriptRoot 'start-local.ps1'), [StringComparison]::OrdinalIgnoreCase) }
-        'market-ai' { $process.ExecutablePath.StartsWith((Join-Path $repoRoot 'services\market-ai\.venv\Scripts\python.exe'), [StringComparison]::OrdinalIgnoreCase) -and $commandLine.Contains('uvicorn app.main:app') }
-        default { $false }
+    if (-not (Test-TrackedProcessIdentity $process $Description)) {
+        throw "Tracked $Description process does not match this repository; restart was stopped."
     }
-    if (-not $valid) { throw "Tracked $Description process does not match this repository; restart was stopped." }
     return $process
+}
+
+function Test-TrackedProcessParentage($Runner, $Backend, $MarketAi) {
+    return $Runner -and $Backend -and $MarketAi -and
+        [int]$Backend.ParentProcessId -eq [int]$Runner.ProcessId -and
+        [int]$MarketAi.ParentProcessId -eq [int]$Runner.ProcessId
 }
 
 function Stop-TrackedProcessTree($Process) {
@@ -96,7 +111,7 @@ if ($null -eq $runner -or $null -eq $backend -or $null -eq $marketAi) {
     throw 'One or more tracked API processes are missing; restart was not attempted.'
 }
 $runnerId = [int]$runner.ProcessId
-if ([int]$backend.ParentProcessId -ne $runnerId -or [int]$marketAi.ParentProcessId -ne $runnerId) {
+if (-not (Test-TrackedProcessParentage $runner $backend $marketAi)) {
     throw 'A tracked API process is not owned by the local stack runner; restart was stopped.'
 }
 

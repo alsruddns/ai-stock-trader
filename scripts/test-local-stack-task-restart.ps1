@@ -12,6 +12,21 @@ $gateAst = $restartAst.Find({
 }, $true)
 if ($null -eq $gateAst) { throw 'The closed-session restart gate was not found.' }
 . ([ScriptBlock]::Create($gateAst.Extent.Text))
+$identityAst = $restartAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Test-TrackedProcessIdentity'
+}, $true)
+$parentageAst = $restartAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Test-TrackedProcessParentage'
+}, $true)
+if ($null -eq $identityAst -or $null -eq $parentageAst) { throw 'Process identity checks were not found.' }
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$script:restartScriptDirectory = $PSScriptRoot
+. ([ScriptBlock]::Create($identityAst.Extent.Text))
+. ([ScriptBlock]::Create($parentageAst.Extent.Text))
 
 $now = [DateTimeOffset]::UtcNow
 $closedSessions = @(
@@ -28,4 +43,36 @@ if (Test-SessionResponsesFreshAndClosed $staleUs $now) { throw 'A stale exchange
 if (Test-SessionResponsesFreshAndClosed $futureKr $now) { throw 'A future-dated exchange response must block restart.' }
 if (Test-SessionResponsesFreshAndClosed @($closedSessions[0]) $now) { throw 'A missing exchange response must block restart.' }
 
-Write-Output 'Local stack restart session gate checks passed.'
+$runnerProcess = [pscustomobject]@{
+    CommandLine = "powershell.exe -File `"$(Join-Path $PSScriptRoot 'run-local-stack-task.ps1')`""
+    ExecutablePath = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+    ProcessId = 100
+    ParentProcessId = 1
+}
+$backendProcess = [pscustomobject]@{
+    CommandLine = "powershell.exe -File `"$(Join-Path $PSScriptRoot 'start-local.ps1')`""
+    ExecutablePath = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+    ProcessId = 101
+    ParentProcessId = 100
+}
+$marketAiProcess = [pscustomobject]@{
+    CommandLine = 'python.exe -m uvicorn app.main:app --host 127.0.0.1'
+    ExecutablePath = Join-Path $repoRoot 'services\market-ai\.venv\Scripts\python.exe'
+    ProcessId = 102
+    ParentProcessId = 100
+}
+if (-not (Test-TrackedProcessIdentity $runnerProcess 'runner')) { throw 'Expected repository runner process was rejected.' }
+if (-not (Test-TrackedProcessIdentity $backendProcess 'backend')) { throw 'Expected repository backend process was rejected.' }
+if (-not (Test-TrackedProcessIdentity $marketAiProcess 'market-ai')) { throw 'Expected repository Python process was rejected.' }
+$wrongPython = $marketAiProcess.PSObject.Copy()
+$wrongPython.ExecutablePath = 'C:\other\python.exe'
+if (Test-TrackedProcessIdentity $wrongPython 'market-ai') { throw 'Python from another path must be rejected.' }
+$unrelatedRunner = $runnerProcess.PSObject.Copy()
+$unrelatedRunner.CommandLine = 'powershell.exe -File C:\other\run-local-stack-task.ps1'
+if (Test-TrackedProcessIdentity $unrelatedRunner 'runner') { throw 'Runner from another repository must be rejected.' }
+if (-not (Test-TrackedProcessParentage $runnerProcess $backendProcess $marketAiProcess)) { throw 'Expected process parentage was rejected.' }
+$orphanBackend = $backendProcess.PSObject.Copy()
+$orphanBackend.ParentProcessId = 999
+if (Test-TrackedProcessParentage $runnerProcess $orphanBackend $marketAiProcess) { throw 'Unexpected process parentage must be rejected.' }
+
+Write-Output 'Local stack restart session and process ownership checks passed.'
