@@ -69,7 +69,7 @@ class KisRealOrderOrchestratorTest {
         when(intents.reject(eq(key), anyString())).thenAnswer(call -> { intent.reject(call.getArgument(1)); return intent; });
 
         KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount(),
-                new KisLiveRiskContext(false, true, true, true, false, 0, BigDecimal.ZERO, 0,
+                new KisLiveRiskContext(false, true, true, true, false, BigDecimal.ZERO, 0,
                         new BigDecimal("1000000"), new BigDecimal("100")));
 
         assertEquals(KisOrderStatus.REJECTED, response.status());
@@ -305,7 +305,7 @@ class KisRealOrderOrchestratorTest {
     }
 
     private static KisLiveRiskContext safeBuyContext() {
-        return new KisLiveRiskContext(true, true, true, true, false, 0, BigDecimal.ZERO, 0,
+        return new KisLiveRiskContext(true, true, true, true, false, BigDecimal.ZERO, 0,
                 new BigDecimal("1000000"), new BigDecimal("100"));
     }
 }

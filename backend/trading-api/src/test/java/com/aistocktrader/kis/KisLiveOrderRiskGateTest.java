@@ -25,7 +25,7 @@ class KisLiveOrderRiskGateTest {
     void approvesBuyOnlyWhenEveryLiveRiskInputIsPresentAndWithinLimits() {
         KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", List.of()),
-                new KisLiveRiskContext(true, true, true, true, false, 0,
+                new KisLiveRiskContext(true, true, true, true, false,
                         new BigDecimal("0.50"), 0, new BigDecimal("1000000"), new BigDecimal("100")));
 
         assertTrue(result.approved());
@@ -36,7 +36,7 @@ class KisLiveOrderRiskGateTest {
     void dailyLossModelQuoteAndStopRequirementsBlockBeforeLiveOrder() {
         KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", List.of()),
-                new KisLiveRiskContext(false, false, true, true, false, 0,
+                new KisLiveRiskContext(false, false, true, true, false,
                         BigDecimal.ONE, 3, new BigDecimal("1000000"), null));
 
         assertFalse(result.approved());
@@ -48,7 +48,7 @@ class KisLiveOrderRiskGateTest {
     void negativeDailyLossPercentIsRejectedInsteadOfBeingTreatedAsNoLoss() {
         KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", List.of()),
-                new KisLiveRiskContext(true, true, true, true, false, 0,
+                new KisLiveRiskContext(true, true, true, true, false,
                         new BigDecimal("-1.25"), 0, new BigDecimal("1000000"), new BigDecimal("100")));
 
         assertFalse(result.approved());
@@ -62,11 +62,11 @@ class KisLiveOrderRiskGateTest {
                 new BigDecimal("95000"), BigDecimal.ZERO, BigDecimal.ZERO);
         KisLiveRiskDecision exposure = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", List.of(position)),
-                new KisLiveRiskContext(true, true, true, true, false, 1,
+                new KisLiveRiskContext(true, true, true, true, false,
                         BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100")));
         KisLiveRiskDecision risk = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", List.of()),
-                new KisLiveRiskContext(true, true, true, true, false, 0,
+                new KisLiveRiskContext(true, true, true, true, false,
                         BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("3000")));
 
         assertFalse(exposure.approved());
@@ -77,13 +77,33 @@ class KisLiveOrderRiskGateTest {
 
     @Test
     void newPositionsStopAtPortfolioLimitAndUnresolvedOrdersBlockEntries() {
+        List<KisAccountSnapshot.Position> heldPositions = List.of(
+                heldOther("000001"), heldOther("000002"), heldOther("000003"));
         KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null,
-                account(KisEnvironment.REAL, "KRW", "100000", List.of()),
-                new KisLiveRiskContext(true, true, true, true, true, 3,
+                account(KisEnvironment.REAL, "KRW", "100000", heldPositions),
+                new KisLiveRiskContext(true, true, true, true, true,
                         BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100")));
 
         assertFalse(result.approved());
         assertTrue(result.reasons().containsAll(List.of("UNRESOLVED_ORDER_EXISTS", "OPEN_POSITION_LIMIT")));
+    }
+
+    @Test
+    void incompleteOrNegativeBrokerPositionQuantitiesBlockLiveAssessment() {
+        KisAccountSnapshot.Position missingQuantity = new KisAccountSnapshot.Position("005930", "Samsung",
+                null, BigDecimal.ZERO, null, null, null, null, null);
+        KisAccountSnapshot.Position negativeQuantity = new KisAccountSnapshot.Position("005930", "Samsung",
+                BigDecimal.ONE.negate(), BigDecimal.ZERO, null, null, null, null, null);
+
+        for (KisAccountSnapshot.Position invalidPosition : List.of(missingQuantity, negativeQuantity)) {
+            KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null,
+                    account(KisEnvironment.REAL, "KRW", "100000", List.of(invalidPosition)),
+                    new KisLiveRiskContext(true, true, true, true, false,
+                            BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100")));
+
+            assertFalse(result.approved());
+            assertTrue(result.reasons().contains("ACCOUNT_POSITIONS_INVALID"));
+        }
     }
 
     @Test
@@ -93,11 +113,11 @@ class KisLiveOrderRiskGateTest {
                 new BigDecimal("142000"), new BigDecimal("2000"), new BigDecimal("1.4"));
         KisLiveRiskDecision allowed = gate.assess(sell(2), null,
                 account(KisEnvironment.REAL, "KRW", "0", List.of(held)),
-                new KisLiveRiskContext(false, true, true, true, false, 1,
+                new KisLiveRiskContext(false, true, true, true, false,
                         null, 3, null, null));
         KisLiveRiskDecision blocked = gate.assess(sell(3), null,
                 account(KisEnvironment.REAL, "KRW", "0", List.of(held)),
-                new KisLiveRiskContext(false, true, true, true, false, 1,
+                new KisLiveRiskContext(false, true, true, true, false,
                         null, 3, null, null));
 
         assertTrue(allowed.approved());
@@ -107,13 +127,13 @@ class KisLiveOrderRiskGateTest {
 
     @Test
     void paperAccountSnapshotAndStaleAccountBlockLiveAssessment() {
-        KisLiveRiskContext healthy = new KisLiveRiskContext(true, true, true, true, false, 0,
+        KisLiveRiskContext healthy = new KisLiveRiskContext(true, true, true, true, false,
                 BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"));
         KisLiveRiskDecision paperAccount = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.PAPER, "KRW", "100000", List.of()), healthy);
         KisLiveRiskDecision staleAccount = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", List.of()),
-                new KisLiveRiskContext(true, true, false, true, false, 0,
+                new KisLiveRiskContext(true, true, false, true, false,
                         BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100")));
 
         assertFalse(paperAccount.approved());
@@ -127,7 +147,7 @@ class KisLiveOrderRiskGateTest {
         KisAccountSnapshot nonKisSource = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
                 new BigDecimal("100000"), new BigDecimal("100000"), List.of(), Instant.now(), "PAPER_LEDGER");
         KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null, nonKisSource,
-                new KisLiveRiskContext(true, true, true, true, false, 0,
+                new KisLiveRiskContext(true, true, true, true, false,
                         BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100")));
 
         assertFalse(result.approved());
@@ -136,7 +156,7 @@ class KisLiveOrderRiskGateTest {
 
     @Test
     void callerCannotMarkAnOldOrFutureDatedAccountSnapshotAsFresh() {
-        KisLiveRiskContext healthy = new KisLiveRiskContext(true, true, true, true, false, 0,
+        KisLiveRiskContext healthy = new KisLiveRiskContext(true, true, true, true, false,
                 BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"));
         KisAccountSnapshot current = account(KisEnvironment.REAL, "KRW", "100000", List.of());
         KisAccountSnapshot stale = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
@@ -163,6 +183,12 @@ class KisLiveOrderRiskGateTest {
     private static OrderRequest sell(int quantity) {
         return new OrderRequest(Market.KR, "005930", OrderSide.SELL, quantity,
                 new BigDecimal("70000"), Currency.KRW);
+    }
+
+    private static KisAccountSnapshot.Position heldOther(String symbol) {
+        return new KisAccountSnapshot.Position(symbol, symbol, BigDecimal.ONE, BigDecimal.ONE,
+                new BigDecimal("1000"), new BigDecimal("1000"), new BigDecimal("1000"),
+                BigDecimal.ZERO, BigDecimal.ZERO);
     }
 
     private static KisAccountSnapshot account(KisEnvironment environment, String currency, String orderable,

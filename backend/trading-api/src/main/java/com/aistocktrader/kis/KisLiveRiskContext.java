@@ -8,6 +8,6 @@ import java.math.BigDecimal;
  */
 record KisLiveRiskContext(boolean approvedModelCandidate, boolean quoteFresh,
                           boolean accountSnapshotFresh, boolean marketOpen,
-                          boolean unresolvedOrderExists, int totalOpenPositions,
+                          boolean unresolvedOrderExists,
                           BigDecimal dailyLossPercent, int consecutiveLosingTrades,
                           BigDecimal accountEquity, BigDecimal stopDistancePerShare) { }

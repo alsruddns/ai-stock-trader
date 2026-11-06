@@ -45,7 +45,10 @@ public class KisLiveOrderRiskGate {
         boolean matchingMarket = account.market() == request.market();
         boolean matchingCurrency = accountCurrencyMatches(request.currency(), account.currency());
         boolean positionsValid = account.positions() != null
-                && account.positions().stream().noneMatch(position -> position == null);
+                && account.positions().stream().noneMatch(position -> position == null
+                        || position.quantity() == null || position.quantity().signum() < 0);
+        int totalOpenPositions = positionsValid ? (int) account.positions().stream()
+                .filter(position -> position.quantity().signum() > 0).count() : 0;
         if (!realAccount) reasons.add("REAL_ACCOUNT_REQUIRED");
         if (!trustedAccountSource) reasons.add("KIS_ACCOUNT_SOURCE_REQUIRED");
         if (!matchingMarket) reasons.add("ACCOUNT_MARKET_MISMATCH");
@@ -57,10 +60,8 @@ public class KisLiveOrderRiskGate {
         if (!context.quoteFresh()) reasons.add("FRESH_QUOTE_REQUIRED");
         if (!context.marketOpen()) reasons.add("MARKET_CLOSED");
         if (context.unresolvedOrderExists()) reasons.add("UNRESOLVED_ORDER_EXISTS");
-        if (context.totalOpenPositions() < 0) reasons.add("OPEN_POSITION_COUNT_INVALID");
         if (!realAccount || !trustedAccountSource || !matchingMarket || !matchingCurrency || !positionsValid
-                || !context.accountSnapshotFresh() || !isFreshAccountSnapshot(account)
-                || context.totalOpenPositions() < 0) {
+                || !context.accountSnapshotFresh() || !isFreshAccountSnapshot(account)) {
             return decision(false, reasons, request, exchange);
         }
         BigDecimal notional = request.limitPrice().multiply(BigDecimal.valueOf(request.quantity()));
@@ -77,12 +78,13 @@ public class KisLiveOrderRiskGate {
             return decision(reasons.isEmpty(), reasons, request, exchange);
         }
 
-        assessBuy(request, account, context, notional, reasons);
+        assessBuy(request, account, context, totalOpenPositions, notional, reasons);
         return decision(reasons.isEmpty(), reasons, request, exchange);
     }
 
     private void assessBuy(OrderRequest request, KisAccountSnapshot account,
-                           KisLiveRiskContext context, BigDecimal notional, List<String> reasons) {
+                           KisLiveRiskContext context, int totalOpenPositions,
+                           BigDecimal notional, List<String> reasons) {
         if (!context.approvedModelCandidate()) reasons.add("APPROVED_MODEL_CANDIDATE_REQUIRED");
         if (context.dailyLossPercent() == null) reasons.add("DAILY_LOSS_BASELINE_REQUIRED");
         else if (context.dailyLossPercent().signum() < 0) reasons.add("DAILY_LOSS_PERCENT_INVALID");
@@ -105,7 +107,7 @@ public class KisLiveOrderRiskGate {
         boolean alreadyHeld = account.positions().stream().anyMatch(position ->
                 request.symbol().equalsIgnoreCase(position.symbol())
                         && position.quantity() != null && position.quantity().signum() > 0);
-        if (!alreadyHeld && context.totalOpenPositions() >= limits.maxOpenPositions()) reasons.add("OPEN_POSITION_LIMIT");
+        if (!alreadyHeld && totalOpenPositions >= limits.maxOpenPositions()) reasons.add("OPEN_POSITION_LIMIT");
 
         if (context.stopDistancePerShare() == null || context.stopDistancePerShare().signum() <= 0) {
             reasons.add("VALID_STOP_DISTANCE_REQUIRED");
