@@ -357,8 +357,11 @@ class KisReadOnlyClient:
                     raise ValueError("invalid row")
                 row_date = str(row.get("stck_bsop_date", ""))
                 row_time = str(row.get("stck_cntg_hour", ""))
-                if row_date != session_date.strftime("%Y%m%d") or len(row_time) != 6 or not row_time.isdigit():
+                if len(row_date) != 8 or not row_date.isdigit() or len(row_time) != 6 or not row_time.isdigit():
                     raise ValueError("invalid bar timestamp")
+                parsed_date = datetime.strptime(row_date, "%Y%m%d").date()
+                if parsed_date != session_date:
+                    continue
                 timestamp = datetime.combine(session_date, datetime_time(
                     int(row_time[:2]), int(row_time[2:4]), int(row_time[4:])
                 ), tzinfo=ZoneInfo("Asia/Seoul"))

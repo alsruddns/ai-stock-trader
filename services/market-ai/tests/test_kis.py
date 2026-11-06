@@ -145,6 +145,8 @@ def test_domestic_minute_chart_uses_read_only_contract_and_preserves_missing_spr
              "stck_hgpr": "103", "stck_lwpr": "100", "stck_prpr": "102", "cntg_vol": "1200"},
             {"stck_bsop_date": "20261105", "stck_cntg_hour": "090000", "stck_oprc": "100",
              "stck_hgpr": "101", "stck_lwpr": "99", "stck_prpr": "100", "cntg_vol": "1000"},
+            {"stck_bsop_date": "20261104", "stck_cntg_hour": "153000", "stck_oprc": "99",
+             "stck_hgpr": "100", "stck_lwpr": "98", "stck_prpr": "99", "cntg_vol": "900"},
         ]})
 
     client = KisReadOnlyClient(
