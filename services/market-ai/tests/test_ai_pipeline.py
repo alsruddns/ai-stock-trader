@@ -11,6 +11,7 @@ from app.ai_pipeline import (
     LocalModelRegistry,
     TrainingSample,
     _chronological_partitions,
+    _metrics,
     _quant_baseline_metrics,
     build_training_samples,
     latest_features,
@@ -115,6 +116,27 @@ def test_quant_baseline_reports_candidate_coverage_and_cost_adjusted_label_rate(
         "candidate_positive_rate": 0.5,
         "candidate_mean_forward_net_bps": 5.0,
     }
+
+
+def test_ai_candidate_metrics_apply_the_same_quant_gate_as_paper_runtime() -> None:
+    class FixedModel:
+        def predict_proba(self, _features):
+            import numpy as np
+            return np.asarray([[0.1, 0.9], [0.2, 0.8], [0.01, 0.99], [0.9, 0.1]])
+
+    samples = [
+        TrainingSample(date(2026, 10, 1), "t1", (0.0,), 1, True, 10.0),
+        TrainingSample(date(2026, 10, 1), "t2", (0.0,), 0, True, -5.0),
+        TrainingSample(date(2026, 10, 1), "t3", (0.0,), 1, False, 20.0),
+        TrainingSample(date(2026, 10, 1), "t4", (0.0,), 1, True, 15.0),
+    ]
+
+    metrics = _metrics(FixedModel(), samples)
+
+    assert metrics["candidate_count"] == 2.0
+    assert metrics["candidate_coverage"] == 0.5
+    assert metrics["candidate_positive_rate"] == 0.5
+    assert metrics["candidate_mean_forward_net_bps"] == 2.5
 
 
 def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path) -> None:

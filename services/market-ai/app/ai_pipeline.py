@@ -199,11 +199,15 @@ def _metrics(model: Any, samples: list[TrainingSample]) -> dict[str, float]:
     predictions = (probabilities >= 0.5).astype(int)
     metrics = {"accuracy": float(accuracy_score(y, predictions)), "brier": float(brier_score_loss(y, probabilities))}
     metrics["roc_auc"] = float(roc_auc_score(y, probabilities)) if len(set(y)) == 2 else 0.5
-    predicted_candidates = [sample.label for sample, prediction in zip(samples, predictions) if prediction == 1]
+    # P5 runs inference only after ORB/VWAP passes, so evaluate the same hybrid candidate here.
+    predicted_candidates = [
+        sample.label for sample, prediction in zip(samples, predictions)
+        if prediction == 1 and sample.quant_candidate
+    ]
     selected_net_returns = [
         sample.forward_net_return_bps
         for sample, prediction in zip(samples, predictions)
-        if prediction == 1 and sample.forward_net_return_bps is not None
+        if prediction == 1 and sample.quant_candidate and sample.forward_net_return_bps is not None
     ]
     metrics["candidate_count"] = float(len(predicted_candidates))
     metrics["candidate_coverage"] = float(len(predicted_candidates) / len(samples))
