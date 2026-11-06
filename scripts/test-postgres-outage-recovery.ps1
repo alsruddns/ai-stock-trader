@@ -128,9 +128,9 @@ try {
         Write-Output 'Packaging Spring API.'
         & .\mvnw.cmd -DskipTests package
         if ($LASTEXITCODE -ne 0) { throw "Spring API package failed with exit code $LASTEXITCODE." }
-    Write-Output 'Checking REAL risk baseline and fill journal migrations in the isolated database.'
-    & .\mvnw.cmd '-Dtest=KisRealDailyRiskBaselinePostgresIntegrationTest,KisRealFillSnapshotPostgresIntegrationTest' test
-    if ($LASTEXITCODE -ne 0) { throw "REAL risk baseline or fill journal PostgreSQL integration failed with exit code $LASTEXITCODE." }
+    Write-Output 'Checking REAL risk, position baseline, and fill journal migrations in the isolated database.'
+    & .\mvnw.cmd '-Dtest=KisRealDailyRiskBaselinePostgresIntegrationTest,KisRealFillSnapshotPostgresIntegrationTest,KisRealSessionPositionBaselinePostgresIntegrationTest' test
+    if ($LASTEXITCODE -ne 0) { throw "REAL risk or fill persistence PostgreSQL integration failed with exit code $LASTEXITCODE." }
     } finally {
         Pop-Location
     }

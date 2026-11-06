@@ -13,10 +13,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import org.mockito.ArgumentCaptor;
 
 class KisRealDailyRiskBaselineServiceTest {
@@ -83,13 +85,64 @@ class KisRealDailyRiskBaselineServiceTest {
         org.junit.jupiter.api.Assertions.assertFalse(fingerprint.getValue().contains("test-secret"));
     }
 
+    @Test
+    void capturesUsOpeningPositionsOnlyFromFreshKisReadOnlySnapshot() {
+        KisMarketSessionClient sessions = mock(KisMarketSessionClient.class);
+        KisRealDailyRiskBaselineStore baselines = mock(KisRealDailyRiskBaselineStore.class);
+        KisRealSessionPositionBaselineStore positionBaselines = mock(KisRealSessionPositionBaselineStore.class);
+        KisAccountClient accounts = mock(KisAccountClient.class);
+        Instant now = Instant.now();
+        LocalDate date = LocalDate.now(java.time.ZoneId.of("America/New_York"));
+        when(sessions.session(Market.US)).thenReturn(new KisMarketSessionClient.MarketSession(
+                Market.US, date, true, true, now.minusSeconds(60), now.plusSeconds(7_140), now));
+        when(positionBaselines.exists(eq(Market.US), eq(date), anyString())).thenReturn(false);
+        var position = new KisAccountSnapshot.Position("AAPL", "Apple", new BigDecimal("2"),
+                new BigDecimal("2"), new BigDecimal("190.25"), new BigDecimal("191"),
+                new BigDecimal("382"), new BigDecimal("1.5"), new BigDecimal("0.39"));
+        when(accounts.getBalance(KisEnvironment.REAL, Market.US, null, null, null)).thenReturn(
+                new KisAccountSnapshot(KisEnvironment.REAL, Market.US, "USD", null,
+                        new BigDecimal("1000"), null, java.util.List.of(position), now, "KIS_READ_ONLY_REST"));
+        KisProperties properties = new KisProperties(true, true, true, false,
+                new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
+                new KisProperties.Account("real-key", "test-secret", "8765432101"), null, null, null);
+        KisRealDailyRiskBaselineService service = new KisRealDailyRiskBaselineService(properties, accounts,
+                sessions, baselines, positionBaselines);
+
+        service.captureUsSessionPositionBaseline();
+
+        verify(positionBaselines).recordOnce(eq(Market.US), eq(date), eq("USD"), anyString(),
+                eq(java.util.List.of(position)), eq(now));
+    }
+
+    @Test
+    void doesNotCaptureUsOpeningPositionsWhenSessionEvidenceIsStale() {
+        KisMarketSessionClient sessions = mock(KisMarketSessionClient.class);
+        KisRealDailyRiskBaselineStore baselines = mock(KisRealDailyRiskBaselineStore.class);
+        KisRealSessionPositionBaselineStore positionBaselines = mock(KisRealSessionPositionBaselineStore.class);
+        Instant now = Instant.now();
+        LocalDate date = LocalDate.now(java.time.ZoneId.of("America/New_York"));
+        when(sessions.session(Market.US)).thenReturn(new KisMarketSessionClient.MarketSession(
+                Market.US, date, true, true, now.minusSeconds(60), now.plusSeconds(7_140), now.minusSeconds(30)));
+        KisProperties properties = new KisProperties(true, true, true, false,
+                new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
+                new KisProperties.Account("real-key", "test-secret", "8765432101"), null, null, null);
+        KisRealDailyRiskBaselineService service = new KisRealDailyRiskBaselineService(properties,
+                mock(KisAccountClient.class), sessions, baselines, positionBaselines);
+
+        service.captureUsSessionPositionBaseline();
+
+        verify(positionBaselines, never()).recordOnce(eq(Market.US), eq(date), eq("USD"), anyString(),
+                any(), any());
+    }
+
     private static KisRealDailyRiskBaselineService service(KisMarketSessionClient sessions,
                                                              KisRealDailyRiskBaselineStore store) {
         KisProperties properties = new KisProperties(false, false, false, false,
                 new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
                 new KisProperties.Account("real-key", "test-secret", "8765432101"),
                 null, null, null);
-        return new KisRealDailyRiskBaselineService(properties, mock(KisAccountClient.class), sessions, store);
+        return new KisRealDailyRiskBaselineService(properties, mock(KisAccountClient.class), sessions, store,
+                mock(KisRealSessionPositionBaselineStore.class));
     }
 
     private static KisAccountSnapshot account(BigDecimal equity, Instant retrievedAt) {
