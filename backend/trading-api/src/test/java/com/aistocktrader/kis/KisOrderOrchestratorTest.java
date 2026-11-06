@@ -105,6 +105,52 @@ class KisOrderOrchestratorTest {
     }
 
     @Test
+    void accountPreflightFailureIsDistinguishedFromBrokerOrderRejection() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = buyRequest();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", request, null);
+        when(intents.prepare(any(), anyString(), any(), nullable(String.class)))
+                .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
+        when(accounts.getBalance(any(), any(), any(), any(), nullable(String.class)))
+                .thenThrow(new KisApiException(HttpStatus.BAD_GATEWAY, "KIS account request failed."));
+        when(intents.reject(key, "ACCOUNT_PREFLIGHT_FAILED")).thenAnswer(invocation -> {
+            intent.reject(invocation.getArgument(1));
+            return intent;
+        });
+
+        KisOrderIntentResponse response = orchestrator.submitPaperOrder(key, request, null);
+
+        assertEquals(KisOrderStatus.REJECTED, response.status());
+        assertEquals("ACCOUNT_PREFLIGHT_FAILED", response.responseCode());
+        verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(),
+                any(), any(), nullable(String.class));
+    }
+
+    @Test
+    void brokerRejectionWithoutDelimitedCodeUsesBrokerSpecificFallback() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = buyRequest();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", request, null);
+        when(intents.prepare(any(), anyString(), any(), nullable(String.class)))
+                .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
+        when(accounts.getBalance(any(), any(), any(), any(), nullable(String.class))).thenReturn(
+                new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR, "KRW", new BigDecimal("100000"),
+                        new BigDecimal("100000"), List.of(), Instant.now(), "test"));
+        when(orders.placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(),
+                any(), any(), nullable(String.class))).thenThrow(new KisApiException(HttpStatus.BAD_GATEWAY,
+                "KIS order request failed."));
+        when(intents.reject(key, "KIS_ORDER_REJECTED")).thenAnswer(invocation -> {
+            intent.reject(invocation.getArgument(1));
+            return intent;
+        });
+
+        KisOrderIntentResponse response = orchestrator.submitPaperOrder(key, request, null);
+
+        assertEquals(KisOrderStatus.REJECTED, response.status());
+        assertEquals("KIS_ORDER_REJECTED", response.responseCode());
+    }
+
+    @Test
     void uncertainBrokerOutcomeIsPersistedAndNeverRetriedAutomatically() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();

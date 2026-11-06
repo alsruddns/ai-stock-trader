@@ -52,13 +52,24 @@ public class KisOrderOrchestrator {
 
         try {
             reconcileAccount(request, exchange);
+        } catch (KisApiException ex) {
+            return KisOrderIntentResponse.from(intents.reject(idempotencyKey,
+                    KisResponseCodes.fromErrorMessage(ex.getMessage(), "ACCOUNT_PREFLIGHT_FAILED")));
+        } catch (IllegalArgumentException ex) {
+            return KisOrderIntentResponse.from(intents.reject(idempotencyKey, "PREFLIGHT_BLOCKED"));
+        } catch (IllegalStateException ex) {
+            return KisOrderIntentResponse.from(intents.reject(idempotencyKey, "PREFLIGHT_DISABLED"));
+        }
+
+        try {
             KisOrderReceipt receipt = orders.placePaperLimitOrder(request.market(), request.symbol(), request.side(),
                     request.quantity(), request.limitPrice(), request.currency(), exchange);
             return KisOrderIntentResponse.from(intents.accept(idempotencyKey, receipt));
         } catch (KisOrderOutcomeUnknownException ex) {
             return KisOrderIntentResponse.from(intents.markUnknown(idempotencyKey));
         } catch (KisApiException ex) {
-            return KisOrderIntentResponse.from(intents.reject(idempotencyKey, extractCode(ex.getMessage())));
+            return KisOrderIntentResponse.from(intents.reject(idempotencyKey,
+                    KisResponseCodes.fromErrorMessage(ex.getMessage(), "KIS_ORDER_REJECTED")));
         } catch (IllegalArgumentException ex) {
             return KisOrderIntentResponse.from(intents.reject(idempotencyKey, "PREFLIGHT_BLOCKED"));
         } catch (IllegalStateException ex) {
@@ -104,7 +115,7 @@ public class KisOrderOrchestrator {
         } catch (KisOrderOutcomeUnknownException ex) {
             // Keep CANCEL_PENDING; never send a second cancel without broker reconciliation.
         } catch (KisApiException ex) {
-            String code = extractCode(ex.getMessage());
+            String code = KisResponseCodes.fromErrorMessage(ex.getMessage(), "PAPER_CANCEL_REJECTED");
             if (PAPER_CANCEL_PREFLIGHT_UNSUPPORTED.equals(code)) {
                 // The adapter rejected the operation before any KIS write. Restore the order's
                 // already-observed broker state instead of leaving a false CANCEL_PENDING state.
@@ -196,7 +207,4 @@ public class KisOrderOrchestrator {
                 || snapshot.cancelled() || (snapshot.rejected() && snapshot.filledQuantity() == 0));
     }
 
-    private static String extractCode(String message) {
-        return KisResponseCodes.fromErrorMessage(message, "rejected");
-    }
 }
