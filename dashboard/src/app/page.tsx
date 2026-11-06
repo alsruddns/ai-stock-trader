@@ -118,7 +118,7 @@ function calendarLabel(value?: string) { return ({ COMPATIBLE: "호환", PANDAS_
 function streamFeedLabel(value?: Record<string, string>) {
   const feeds = Object.entries(value ?? {});
   if (!feeds.length) return "feed 미설정";
-  return feeds.map(([environment, state]) => `${environment === "paper" ? "국내 PAPER" : "미국 REAL 시세"} ${sessionLabel(state)}`).join(" · ");
+  return feeds.map(([environment, state]) => `${environment === "paper" ? "국내 PAPER" : "미국 REAL"} ${sessionLabel(state)}`).join(" · ");
 }
 function signalLabel(value: string) { return value === "BUY_CANDIDATE" ? "AI·퀀트 후보" : "관망"; }
 function decisionReason(value: string) { return ({ WAITING_FOR_CLOSED_BARS: "닫힌 분봉 대기", INSUFFICIENT_SESSION_HISTORY: "세션 이력 부족", STRATEGY_FILTERS_NOT_MET: "퀀트 조건 미충족", AI_MODEL_NOT_APPROVED_FOR_MARKET: "시장 승인 모델 없음", AI_THRESHOLD_NOT_MET: "AI 기준 미달", AI_INFERENCE_UNAVAILABLE: "AI 추론 불가", BAR_SEQUENCE_INVALID: "분봉 순서 오류", QUANT_AND_APPROVED_AI_CANDIDATE: "퀀트 및 승인 AI 통과" } as Record<string, string>)[value] ?? value; }
