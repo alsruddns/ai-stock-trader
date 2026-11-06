@@ -62,6 +62,9 @@ class KisOrderClientTest {
                 .andExpect(jsonPath("$.ORD_DVSN").value("00"))
                 .andExpect(jsonPath("$.ORD_QTY").value("2"))
                 .andExpect(jsonPath("$.ORD_UNPR").value("70000"))
+                .andExpect(jsonPath("$.EXCG_ID_DVSN_CD").value("KRX"))
+                .andExpect(jsonPath("$.SLL_TYPE").value(""))
+                .andExpect(jsonPath("$.CNDT_PRIC").value(""))
                 .andRespond(withSuccess("{\"rt_cd\":\"0\",\"msg_cd\":\"0\",\"output\":{\"ODNO\":\"1234\",\"KRX_FWDG_ORD_ORGNO\":\"ORG01\"}}",
                         org.springframework.http.MediaType.APPLICATION_JSON));
 
