@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 
-from app.kis import KisApiError, KisReadOnlyClient, KisSettings
+from app.kis import KisApiError, KisRateLimitError, KisReadOnlyClient, KisSettings
 
 
 def _token_response() -> dict[str, str]:
@@ -50,6 +50,28 @@ def test_kis_real_rest_pacing_uses_conservative_minimum_interval(monkeypatch) ->
                                )))
 
     assert client._rest_min_interval == pytest.approx(1.0)
+    client.close()
+
+
+def test_http_500_egw00201_maps_to_safe_rate_limit_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        return httpx.Response(500, json={
+            "msg_cd": "EGW00201", "msg1": "private rate detail", "access_token": "never-show"
+        })
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", "1234567801",
+                    shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(KisRateLimitError, match="KIS rate limit reached") as captured:
+        client.get_account_balance("KR")
+
+    assert "private rate detail" not in str(captured.value)
+    assert "never-show" not in str(captured.value)
     client.close()
 
 

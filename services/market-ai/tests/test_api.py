@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 from app import main
 from app.main import app, get_kis_client
-from app.kis import KisSharedRateLimitUnavailable, Quote
+from app.kis import KisRateLimitError, KisSharedRateLimitUnavailable, Quote
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from app.quant import MinuteBar
@@ -131,6 +131,20 @@ def test_kis_database_rate_limit_failure_returns_service_unavailable() -> None:
         response = client.get("/api/v1/market/quotes/KR/005930")
         assert response.status_code == 503
         assert response.json()["detail"] == "shared KIS request pacing is unavailable"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_kis_broker_rate_limit_returns_http_429_without_raw_response() -> None:
+    class RateLimitedKisClient:
+        def get_quote(self, *_args, **_kwargs):
+            raise KisRateLimitError("KIS rate limit reached; wait before requesting again.")
+
+    app.dependency_overrides[get_kis_client] = lambda: RateLimitedKisClient()
+    try:
+        response = client.get("/api/v1/market/quotes/KR/005930")
+        assert response.status_code == 429
+        assert response.json()["detail"] == "KIS rate limit reached; wait before requesting again."
     finally:
         app.dependency_overrides.clear()
 

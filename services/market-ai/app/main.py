@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, WebSoc
 import psycopg
 from pydantic import BaseModel, Field
 from .kis import (AccountBalance, Exchange, KisApiError, KisReadOnlyClient, KisSettings,
-                  KisSharedRateLimitUnavailable, Market, Quote)
+                  KisRateLimitError, KisSharedRateLimitUnavailable, Market, Quote)
 from . import snapshot_store
 from . import kis_stream
 from .ai_pipeline import LocalModelRegistry
@@ -225,6 +225,8 @@ def get_quote(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KisSharedRateLimitUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except KisRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except KisApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -254,6 +256,8 @@ def get_domestic_minute_bars(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KisSharedRateLimitUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except KisRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except KisApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -283,6 +287,8 @@ def get_domestic_minute_session_bars(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KisSharedRateLimitUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except KisRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except KisApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -314,6 +320,8 @@ def get_overseas_minute_bars(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KisSharedRateLimitUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except KisRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except KisApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -400,6 +408,8 @@ def get_account_balance(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KisSharedRateLimitUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except KisRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except KisApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

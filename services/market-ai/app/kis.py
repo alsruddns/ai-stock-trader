@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -35,6 +36,26 @@ class KisApiError(RuntimeError):
 
 class KisSharedRateLimitUnavailable(KisApiError):
     """KIS requests are blocked because PostgreSQL cannot reserve a shared slot."""
+
+
+class KisRateLimitError(KisApiError):
+    """KIS REST request quota was reached; callers should wait before retrying."""
+
+
+def _ensure_kis_http_success(response: httpx.Response, operation: str) -> None:
+    if response.status_code < 400:
+        return
+    code = "unknown"
+    try:
+        payload = response.json()
+        candidate = payload.get("msg_cd") if isinstance(payload, dict) else None
+        if isinstance(candidate, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,32}", candidate):
+            code = candidate
+    except (ValueError, TypeError):
+        pass
+    if response.status_code == 429 or code == "EGW00201":
+        raise KisRateLimitError("KIS rate limit reached; wait before requesting again.")
+    raise KisApiError(f"KIS {operation} request failed (HTTP {response.status_code}, code {code}).")
 
 
 @dataclass(frozen=True)
@@ -200,7 +221,7 @@ class KisReadOnlyClient:
                     },
                     headers={"content-type": "application/json"},
                 )
-                response.raise_for_status()
+                _ensure_kis_http_success(response, "authentication")
                 payload = response.json()
                 token = payload.get("access_token")
                 expiry = payload.get("access_token_token_expired")
@@ -251,7 +272,7 @@ class KisReadOnlyClient:
                 },
                 params=params,
             )
-            response.raise_for_status()
+            _ensure_kis_http_success(response, "quote")
             payload = response.json()
         except KisApiError:
             raise
@@ -315,7 +336,7 @@ class KisReadOnlyClient:
                 },
                 params=params,
             )
-            response.raise_for_status()
+            _ensure_kis_http_success(response, "minute chart")
             payload = response.json()
         except KisApiError:
             raise
@@ -436,7 +457,7 @@ class KisReadOnlyClient:
                 },
                 params=params,
             )
-            response.raise_for_status()
+            _ensure_kis_http_success(response, "overseas minute chart")
             payload = response.json()
         except KisApiError:
             raise
@@ -527,7 +548,7 @@ class KisReadOnlyClient:
                 request_headers["tr_cont"] = continuation
             try:
                 response = self._get(f"{self.settings.base_url}{path}", headers=request_headers, params=params)
-                response.raise_for_status()
+                _ensure_kis_http_success(response, "account balance")
                 payload = response.json()
             except KisApiError:
                 raise
