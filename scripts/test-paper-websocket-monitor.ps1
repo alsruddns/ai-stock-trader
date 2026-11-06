@@ -53,6 +53,7 @@ function Assert-SafeRunningStatus($Status) {
     }
 }
 
+try {
 $health = Invoke-RestMethod -Uri "$ApiBaseUrl/api/v1/health" -TimeoutSec 5
 if ($health.status -ne 'ok' -or $health.live_trading_enabled -or $health.paper_automation_enabled) {
     throw 'Local API must be healthy with live trading and paper automation disabled.'
@@ -189,3 +190,21 @@ Write-ProgressRecord ([ordered]@{
     ($evidence | ConvertTo-Json -Compress -Depth 5) + [Environment]::NewLine,
     [System.Text.UTF8Encoding]::new($false))
 Write-Output "Read-only PAPER monitor sample passed: feed=$(if ($Feed) { $Feed } else { 'any' }) seconds=$DurationSeconds ticks_delta=$tickDelta bars_delta=$barDelta max_no_tick_seconds=$([Math]::Round($maxObservedNoTickSeconds, 1)) orders=disabled automation=disabled evidence=$EvidencePath."
+} catch {
+    if ($startedAtUtc) {
+        $elapsedSeconds = if ($stopwatch) { [int]$stopwatch.Elapsed.TotalSeconds } else { 0 }
+        $failureProgress = [ordered]@{
+            recorded_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+            requested_seconds = $DurationSeconds
+            elapsed_seconds = $elapsedSeconds
+            selected_feed = if ($Feed) { $Feed } else { 'any' }
+            feeds = if ($latest) { $latest.stream_connections } else { $null }
+            orders_enabled = if ($latest) { [bool]$latest.orders_enabled } else { $false }
+            automation_state = if ($latest) { $latest.automation_state } else { $null }
+            failure_type = $_.Exception.GetType().Name
+            result = 'failed'
+        }
+        try { Write-ProgressRecord $failureProgress } catch { }
+    }
+    throw
+}
