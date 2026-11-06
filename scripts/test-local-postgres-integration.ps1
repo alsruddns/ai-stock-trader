@@ -8,6 +8,11 @@ if (-not (Test-Path -LiteralPath $envFile)) {
 }
 
 $originalEnvironment = @{}
+foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerator()) {
+    $originalEnvironment[[string]$entry.Key] = [string]$entry.Value
+}
+
+try {
 foreach ($line in Get-Content -LiteralPath $envFile) {
     $trimmed = $line.Trim()
     if (-not $trimmed -or $trimmed.StartsWith('#') -or -not $trimmed.Contains('=')) {
@@ -21,13 +26,9 @@ foreach ($line in Get-Content -LiteralPath $envFile) {
         ($value.StartsWith("'") -and $value.EndsWith("'"))) {
         $value = $value.Substring(1, $value.Length - 2)
     }
-    if (-not $originalEnvironment.ContainsKey($name)) {
-        $originalEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-    }
     [Environment]::SetEnvironmentVariable($name, $value, 'Process')
 }
 
-$originalRunFlag = [Environment]::GetEnvironmentVariable('RUN_LOCAL_POSTGRES_INTEGRATION_TESTS', 'Process')
 $env:RUN_LOCAL_POSTGRES_INTEGRATION_TESTS = 'true'
 $apiDirectory = Join-Path $repoRoot 'backend\trading-api'
 Push-Location $apiDirectory
@@ -39,8 +40,16 @@ try {
 }
 finally {
     Pop-Location
-    foreach ($name in $originalEnvironment.Keys) {
-        [Environment]::SetEnvironmentVariable($name, $originalEnvironment[$name], 'Process')
+}
+}
+finally {
+    $currentEnvironment = [Environment]::GetEnvironmentVariables('Process')
+    foreach ($name in $currentEnvironment.Keys) {
+        if (-not $originalEnvironment.ContainsKey([string]$name)) {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
     }
-    [Environment]::SetEnvironmentVariable('RUN_LOCAL_POSTGRES_INTEGRATION_TESTS', $originalRunFlag, 'Process')
+    foreach ($name in $originalEnvironment.Keys) {
+        Set-Item -LiteralPath "Env:$name" -Value $originalEnvironment[$name]
+    }
 }
