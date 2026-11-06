@@ -46,6 +46,23 @@ def exchange_session_window(market: Market, now: datetime) -> tuple[datetime, da
     return _exchange_session_window_for_date(market, now.astimezone(exchange_zone).date())
 
 
+def latest_closed_session_date(market: Market, now: datetime, lookback_days: int = 30) -> date:
+    """Find the most recent exchange session whose close has passed, fail closed if unknown."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("current time must include a timezone")
+    if not 1 <= lookback_days <= 366:
+        raise ValueError("lookback_days must be between 1 and 366")
+    exchange_zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
+    local_now = now.astimezone(exchange_zone)
+    for days_ago in range(lookback_days):
+        session_day = local_now.date() - timedelta(days=days_ago)
+        local_noon = datetime.combine(session_day, datetime.min.time(), tzinfo=exchange_zone) + timedelta(hours=12)
+        window = exchange_session_window(market, local_noon)
+        if window is not None and window[1] <= now.astimezone(timezone.utc):
+            return session_day
+    raise RuntimeError("No closed exchange session found within the calendar lookback")
+
+
 def exchange_continuous_session_window(market: Market, now: datetime) -> tuple[datetime, datetime] | None:
     """Return continuous trading bounds, excluding the KRX closing call auction."""
     window = exchange_session_window(market, now)

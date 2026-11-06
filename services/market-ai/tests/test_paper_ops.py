@@ -6,7 +6,7 @@ import pytest
 from app.paper_ops import (PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate,
                            exchange_session_window, size_paper_order)
 from app.quant import MinuteBar
-from app.market_calendar import exchange_continuous_session_window
+from app.market_calendar import exchange_continuous_session_window, latest_closed_session_date
 
 
 def _good_gate(now: datetime, quote_at: datetime | None = None, **overrides):
@@ -27,6 +27,19 @@ def test_calendar_identifies_domestic_weekday_session_and_holiday() -> None:
     assert window is not None
     assert window[0] < weekday.astimezone(timezone.utc) < window[1]
     assert exchange_session_window("KR", holiday) is None
+
+
+def test_latest_closed_session_uses_each_market_local_calendar_date() -> None:
+    saturday_morning_kst = datetime(2026, 11, 7, 6, 0, tzinfo=timezone(timedelta(hours=9)))
+
+    assert latest_closed_session_date("KR", saturday_morning_kst).isoformat() == "2026-11-06"
+    assert latest_closed_session_date("US", saturday_morning_kst).isoformat() == "2026-11-06"
+
+
+def test_latest_closed_session_skips_current_session_until_close() -> None:
+    us_friday_open_kst = datetime(2026, 11, 7, 0, 0, tzinfo=timezone(timedelta(hours=9)))
+
+    assert latest_closed_session_date("US", us_friday_open_kst).isoformat() == "2026-11-05"
 
 
 def test_continuous_kr_session_excludes_the_closing_auction() -> None:

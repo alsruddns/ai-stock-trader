@@ -20,6 +20,7 @@ from . import kis_stream
 from .ai_pipeline import LocalModelRegistry
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from .paper_ops import exchange_session_window, korean_calendar_compatibility
+from .market_calendar import latest_closed_session_date
 from .paper_runtime import paper_session_monitor
 from .session_quality import audit_minute_bar_session
 
@@ -275,7 +276,8 @@ async def market_session_quality(
 async def market_session_quality_batch(
     market: Market = Path(),
     symbols: list[str] = Query(),
-    session_date: date = Query(),
+    session_date: date | None = Query(default=None),
+    latest_closed: bool = Query(default=False),
 ) -> dict[str, object]:
     """Audit the watched symbols for one market with a single read-only DB query."""
     normalized_market = str(market).upper()
@@ -286,6 +288,15 @@ async def market_session_quality_batch(
     if any(not re.fullmatch(pattern, symbol) for symbol in normalized_symbols):
         raise HTTPException(status_code=422, detail="Symbol format does not match the selected market")
     evaluated_at = datetime.now(timezone.utc)
+    if latest_closed:
+        if session_date is not None:
+            raise HTTPException(status_code=422, detail="Provide session_date or latest_closed, not both")
+        try:
+            session_date = latest_closed_session_date(normalized_market, evaluated_at)
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail="Latest closed exchange session is unavailable") from exc
+    elif session_date is None:
+        raise HTTPException(status_code=422, detail="Provide session_date or latest_closed=true")
     empty_reports = [
         _session_quality_report(normalized_market, symbol, session_date, [], evaluated_at)
         for symbol in normalized_symbols

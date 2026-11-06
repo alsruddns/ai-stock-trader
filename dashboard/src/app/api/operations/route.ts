@@ -31,17 +31,13 @@ export async function GET() {
     : {};
   const qualityByMarket: Record<string, unknown> = { KR: null, US: null };
   for (const market of ["KR", "US"] as const) {
-    const session = market === "KR" ? krSessionResult : usSessionResult;
-    const target = session && typeof session === "object"
-      ? session as { session_date?: string; is_session?: boolean }
-      : null;
     const symbols = [...new Set(Object.values(decisions)
       .filter((item): item is { market?: string; symbol: string } =>
         item.market === market && typeof item.symbol === "string")
       .map((item) => item.symbol.trim().toUpperCase())
       .filter(Boolean))];
-    if (!target?.session_date || !symbols.length || symbols.length > 50) continue;
-    const query = new URLSearchParams({ session_date: target.session_date });
+    if (!symbols.length || symbols.length > 50) continue;
+    const query = new URLSearchParams({ latest_closed: "true" });
     for (const symbol of symbols) query.append("symbols", symbol);
     try {
       const response = await fetch(

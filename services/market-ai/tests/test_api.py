@@ -173,6 +173,37 @@ def test_session_quality_batch_endpoint_audits_all_symbols_with_one_store_call(m
     assert [item["status"] for item in response.json()["sessions"]] == ["COMPLETE", "INCOMPLETE"]
 
 
+def test_session_quality_batch_can_select_latest_closed_session(monkeypatch) -> None:
+    chosen = date(2026, 11, 6)
+    calls = []
+    monkeypatch.setattr(main, "latest_closed_session_date", lambda market, now: chosen)
+    monkeypatch.setattr(main.snapshot_store, "enabled", lambda: True)
+
+    def load(market, symbols, session_date):
+        calls.append((market, symbols, session_date))
+        return {"005930": []}
+
+    monkeypatch.setattr(main.snapshot_store, "load_session_minute_bars_for_symbols", load)
+    response = client.get(
+        "/api/v1/market/session-quality/KR?symbols=005930&latest_closed=true",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["session_date"] == "2026-11-06"
+    assert response.json()["sessions"][0]["status"] == "INCOMPLETE"
+    assert calls == [("KR", ["005930"], chosen)]
+
+
+def test_session_quality_batch_requires_one_date_selection_mode() -> None:
+    missing = client.get("/api/v1/market/session-quality/US?symbols=AAPL")
+    conflicting = client.get(
+        "/api/v1/market/session-quality/US?symbols=AAPL&session_date=2026-11-06&latest_closed=true",
+    )
+
+    assert missing.status_code == 422
+    assert conflicting.status_code == 422
+
+
 def test_session_quality_batch_endpoint_limits_symbols_and_rejects_mixed_market_codes() -> None:
     too_many = client.get(
         "/api/v1/market/session-quality/US?" + "&".join(
