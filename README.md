@@ -82,7 +82,7 @@ KIS의 현재 공지 기준 PAPER는 초당 1건, REAL은 계좌당 초당 18건
 
 LightGBM·XGBoost 학습용 선택 의존성은 `python -m pip install -e ".[dev,ai,ops]"`로 설치합니다. 허가된 단일 종목 1분봉 CSV(`timestamp,open,high,low,close,volume,spread_bps,symbol`)로 모델 후보를 학습하고 미사용 세션에서 AI+퀀트 및 퀀트 단독 전략 백테스트를 비교하려면 저장소 루트에서 아래 명령을 사용합니다. 각 행의 시각은 시간대를 포함해야 하고 데이터 제공·저장 권한을 확인한 자료만 사용하세요. 기본 label 왕복 비용은 20 bps, 백테스트 체결당 수수료와 슬리피지는 각각 5 bps이며 계좌별 실제 요율을 확인한 후 인자를 조정하세요. 모델 manifest에는 label 기간, 비용과 전략 필터 가정이 보존됩니다.
 
-각 CSV는 같은 폴더에 `<파일명>.csv.provenance.json` 권리 확인 파일이 있어야 학습·백테스트를 실행할 수 있습니다. [권리 manifest 예시](docs/data-provenance-template.json)를 복사해 제공자, 원본·약관 참조, 수집·검토 시각, 로컬 저장·백테스트·학습 허용 여부를 확인해 작성하고, `dataset_sha256`에는 `Get-FileHash <CSV경로> -Algorithm SHA256`의 값을 넣습니다. KIS 공개 안내는 개인의 자기 자산 투자 목적 시세 이용과 제3자 제공 금지를 명시하지만, 개인용 로컬 저장·백테스트·모델 학습을 각각 허용하는지는 이 문구만으로 확인되지 않습니다. [KIS 데이터 권리 확인 절차](docs/kis-market-data-rights.md)를 따르고, 도구가 권한을 독립 판정하지 않으므로 불명확한 권한은 승인하지 마세요.
+각 CSV는 같은 폴더에 `<파일명>.csv.provenance.json` 권리 확인 파일이 있어야 학습·백테스트를 실행할 수 있습니다. [권리 manifest 예시](docs/data-provenance-template.json)를 복사해 제공자, 원본·약관 참조, 수집·검토 시각, 로컬 저장·백테스트·학습 허용 여부를 확인해 작성하고, `dataset_sha256`에는 `Get-FileHash <CSV경로> -Algorithm SHA256`의 값을 넣습니다. KIS 공개 안내 자체에는 개인용 로컬 저장·백테스트·모델 학습의 세부 허용 여부가 모두 적혀 있지 않지만, 사용자는 2026-11-06 KIS의 서면 답변으로 세 목적이 모두 허용됨을 확인했다고 전달했습니다. 이 프로젝트는 해당 범위를 사용자 전달 확인으로 기록하며 본인 계좌 운용에만 적용하고 공개·제3자 제공은 허용하지 않습니다. [KIS 데이터 권리 확인 절차](docs/kis-market-data-rights.md)와 개별 manifest를 확인하고, KIS 답변 원문이나 세부 조건은 저장소에 포함하지 마세요.
 
 퀀트 백테스트도 같은 권리 manifest가 필요하며, 예를 들어 `python .\scripts\backtest-quant.py .\data\licensed\005930.csv --market KR --symbol 005930`으로 실행합니다. CSV 내용이 바뀌어 SHA-256이 달라지면 기존 manifest는 사용할 수 없습니다.
 
