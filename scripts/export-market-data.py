@@ -138,7 +138,7 @@ def main() -> int:
         "csv_path": str(output_path.relative_to(repository)),
         "provenance_path": str(sidecar_path.relative_to(repository)),
         "dataset_sha256": sidecar["dataset_sha256"],
-        "rights_reviewed": False,
+        "rights_reviewed": sidecar["rights_reviewed"],
         "permissions": sidecar["permissions"],
     }, ensure_ascii=False, indent=2))
     return 0

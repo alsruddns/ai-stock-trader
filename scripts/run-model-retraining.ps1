@@ -56,6 +56,19 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Market data export failed (exit $LASTEXITCODE): $($exportOutput -join [Environment]::NewLine)"
     }
+    $export = ($exportOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $sidecarPath = "$csvPath.provenance.json"
+    if ($export.rights_reviewed -ne $true -or -not (Test-Path -LiteralPath $csvPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $sidecarPath -PathType Leaf)) {
+        throw 'Export did not produce a rights-reviewed CSV and provenance sidecar.'
+    }
+    $sidecar = Get-Content -LiteralPath $sidecarPath -Raw | ConvertFrom-Json
+    $csvSha256 = (Get-FileHash -LiteralPath $csvPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($sidecar.rights_reviewed -ne $true -or $sidecar.dataset_sha256 -ne $csvSha256 -or
+        $sidecar.permissions.local_storage -ne $true -or $sidecar.permissions.backtesting -ne $true -or
+        $sidecar.permissions.model_training -ne $true) {
+        throw 'Export provenance did not verify the CSV hash and required personal-use permissions.'
+    }
 
     $trainingArgs = @(
         (Join-Path $repoRoot 'scripts\train-ai-models.py'),
@@ -87,6 +100,17 @@ try {
     if ($training.data_rights_verified -ne $true -or -not $training.models -or
         @($training.models | Where-Object { $_.model_id -notmatch '^(lightgbm|xgboost)-[a-f0-9]{32}$' }).Count -gt 0) {
         throw 'Trainer output did not satisfy the expected rights and candidate model contract.'
+    }
+    foreach ($candidate in $training.models) {
+        $manifestPath = Join-Path $repoRoot ('.local\models\{0}.json' -f $candidate.model_id)
+        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+            throw "Candidate manifest is missing: $($candidate.model_id)"
+        }
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        if ($manifest.approved -ne $false -or $manifest.artifact_sha256 -ne $candidate.artifact_sha256 -or
+            $manifest.dataset_sha256 -ne $csvSha256) {
+            throw "Candidate manifest failed its approval or hash check: $($candidate.model_id)"
+        }
     }
     $report = [ordered]@{
         run_id = $runId
