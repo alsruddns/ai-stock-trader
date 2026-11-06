@@ -69,6 +69,26 @@ def test_closed_paper_websocket_bars_are_written_off_loop_with_spread(monkeypatc
     assert runtime.status()["bar_storage_state"] == "RUNNING"
 
 
+def test_partial_session_restore_cannot_create_a_buy_candidate() -> None:
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    start = datetime.fromisoformat("2026-11-05T10:12:00+09:00")
+    runtime._bars[watch.key] = deque(
+        MinuteBar(start + timedelta(minutes=index), Decimal("100"), Decimal("101"),
+                  Decimal("99"), Decimal("100.5"), 1000, Decimal("5"))
+        for index in range(21)
+    )
+    runtime._decisions[watch.key] = {}
+
+    runtime._evaluate_closed_history(watch, runtime._bars[watch.key][-1])
+
+    decision = runtime.decisions()[watch.key]
+    assert decision["signal"] == "HOLD"
+    assert decision["reason"] == "BAR_SEQUENCE_INVALID"
+    assert decision["model_id"] is None
+    assert decision["executable"] is False
+
+
 @pytest.mark.parametrize(("market", "symbol", "exchange", "transaction_id", "feed"), [
     ("KR", "005930", None, "H0STCNT0", "paper"),
     ("US", "AAPL", "NAS", "HDFSCNT0", "real"),
