@@ -66,4 +66,47 @@ Describe 'Exchange session monitor calendar boundaries' {
         $afterOpen.baseline | Should Be 157
         (Get-ExchangeSessionBarsDelta 547 157 $afterOpen.baseline).delta | Should Be 390
     }
+
+    It 'accepts only a complete stored session with spread on every minute' {
+        $quality = @{
+            market='US'; session_date='2026-11-06'; sessions=@(@{
+                market='US'; symbol='AAPL'; session_date='2026-11-06'; status='COMPLETE'
+                full_session_complete=$true; expected_bars=390; completed_minutes=390
+                observed_bars=390; observed_completed_bars=390; missing_bars=0
+                off_grid_bars=0; duplicate_bars=0; spread_bars=390; spread_coverage_percent=100.0
+            })
+        }
+        $verified = @(Assert-ExchangeSessionQuality $quality 'US' '2026-11-06' @('AAPL') 390)
+        $verified.Count | Should Be 1
+        $verified[0].status | Should Be 'COMPLETE'
+        $verified[0].spread_coverage_percent | Should Be 100.0
+    }
+
+    It 'rejects a complete bar count when a stored minute is missing' {
+        $quality = @{
+            market='US'; session_date='2026-11-06'; sessions=@(@{
+                market='US'; symbol='AAPL'; session_date='2026-11-06'; status='INCOMPLETE'
+                full_session_complete=$false; expected_bars=390; completed_minutes=390
+                observed_bars=389; observed_completed_bars=389; missing_bars=1
+                off_grid_bars=0; duplicate_bars=0; spread_bars=389; spread_coverage_percent=100.0
+            })
+        }
+        $didThrow = $false
+        try { Assert-ExchangeSessionQuality $quality 'US' '2026-11-06' @('AAPL') 390 | Out-Null }
+        catch { $didThrow = $true }
+        $didThrow | Should Be $true
+    }
+
+    It 'rejects quality for another session date or a missing symbol' {
+        $wrongDate = @{ market='US'; session_date='2026-11-05'; sessions=@() }
+        $noSymbol = @{ market='US'; session_date='2026-11-06'; sessions=@() }
+        $dateThrew = $false
+        $symbolThrew = $false
+        try { Assert-ExchangeSessionQuality $wrongDate 'US' '2026-11-06' @('AAPL') 390 | Out-Null }
+        catch { $dateThrew = $true }
+        try { Assert-ExchangeSessionQuality $noSymbol 'US' '2026-11-06' @('AAPL') 390 | Out-Null }
+        catch { $symbolThrew = $true }
+        $dateThrew | Should Be $true
+        $symbolThrew | Should Be $true
+    }
 }

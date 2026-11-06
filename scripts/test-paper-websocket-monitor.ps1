@@ -236,6 +236,29 @@ if ($RequireSessionClose -and -not $sessionCloseReached) {
 if ($barDelta -lt $MinimumBarsDelta) {
     throw "Closed bar count increased by $barDelta, below the required minimum $MinimumBarsDelta."
 }
+$sessionQualityEvidence = @()
+if ($RequireSessionClose) {
+    $market = [string]$exchangeSession.market
+    $sessionDate = [string]$exchangeSession.session_date
+    $symbols = @($latest.decisions.PSObject.Properties |
+        ForEach-Object { $_.Value } |
+        Where-Object { $_.market -eq $market -and $_.symbol } |
+        ForEach-Object { ([string]$_.symbol).Trim().ToUpperInvariant() } |
+        Select-Object -Unique)
+    if ($symbols.Count -lt 1 -or $symbols.Count -gt 50) {
+        throw 'The local session monitor has no bounded watchlist for final stored-data verification.'
+    }
+    $query = @('session_date=' + [Uri]::EscapeDataString($sessionDate)) + @($symbols | ForEach-Object {
+        'symbols=' + [Uri]::EscapeDataString($_)
+    })
+    $qualityUrl = "${ApiBaseUrl}/api/v1/market/session-quality/${market}?" + ($query -join '&')
+    try {
+        $quality = Invoke-RestMethod -Uri $qualityUrl -TimeoutSec 10
+        $sessionQualityEvidence = @(Assert-ExchangeSessionQuality $quality $market $sessionDate $symbols $MinimumBarsDelta)
+    } catch {
+        throw 'The monitored session passed its live-feed checks, but stored-session completeness/spread verification failed.'
+    }
+}
 $evidence = [ordered]@{
     started_at_utc = $startedAtUtc.ToString('o')
     completed_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
@@ -256,6 +279,7 @@ $evidence = [ordered]@{
     ticks_delta = $tickDelta
     bars_delta = $barDelta
     minimum_bars_delta = $MinimumBarsDelta
+    session_quality = $sessionQualityEvidence
     feeds = $latest.stream_connections
     orders_enabled = $false
     automation_state = $latest.automation_state
@@ -269,6 +293,7 @@ Write-ProgressRecord ([ordered]@{
     ticks_delta = $tickDelta
     bars_delta = $barDelta
     minimum_bars_delta = $MinimumBarsDelta
+    session_quality = $sessionQualityEvidence
     max_observed_no_tick_seconds = $evidence.max_observed_no_tick_seconds
     preopen_silence_seconds = $evidence.preopen_silence_seconds
     closing_auction_silence_seconds = $evidence.closing_auction_silence_seconds

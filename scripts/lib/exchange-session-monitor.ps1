@@ -61,6 +61,42 @@ function Update-ExchangeSessionOpenBarsBaseline(
     return [pscustomobject]@{ awaiting = $false; baseline = $baseline }
 }
 
+function Assert-ExchangeSessionQuality($Quality, [string]$Market, [string]$SessionDate, [string[]]$Symbols, [int]$ExpectedBars) {
+    if (-not $Quality -or $Quality.market -ne $Market -or $Quality.session_date -ne $SessionDate) {
+        throw 'Stored market-data quality did not match the monitored exchange session.'
+    }
+    $reports = @($Quality.sessions)
+    if ($reports.Count -ne $Symbols.Count -or $Symbols.Count -lt 1) {
+        throw 'Stored market-data quality did not cover every monitored symbol.'
+    }
+    $verified = foreach ($symbol in $Symbols) {
+        $matches = @($reports | Where-Object { $_.symbol -eq $symbol })
+        if ($matches.Count -ne 1) {
+            throw "Stored market-data quality is missing a unique result for $Market $symbol."
+        }
+        $row = $matches[0]
+        if ($row.status -ne 'COMPLETE' -or -not [bool]$row.full_session_complete -or
+            [int]$row.expected_bars -ne $ExpectedBars -or [int]$row.completed_minutes -ne $ExpectedBars -or
+            [int]$row.observed_bars -ne $ExpectedBars -or [int]$row.observed_completed_bars -ne $ExpectedBars -or
+            [int]$row.missing_bars -ne 0 -or [int]$row.off_grid_bars -ne 0 -or
+            [int]$row.duplicate_bars -ne 0 -or [int]$row.spread_bars -ne $ExpectedBars -or
+            [double]$row.spread_coverage_percent -ne 100) {
+            throw "Stored market-data quality is incomplete for $Market $symbol."
+        }
+        [pscustomobject]@{
+            market = $Market
+            symbol = $symbol
+            session_date = $SessionDate
+            status = 'COMPLETE'
+            expected_bars = $ExpectedBars
+            observed_bars = [int]$row.observed_bars
+            spread_bars = [int]$row.spread_bars
+            spread_coverage_percent = [double]$row.spread_coverage_percent
+        }
+    }
+    return @($verified)
+}
+
 function Get-ExchangeSessionBarsDelta([int]$CurrentBars, [int]$InitialBars, $SessionOpenBarsBaseline) {
     $baseline = if ($null -ne $SessionOpenBarsBaseline) { [int]$SessionOpenBarsBaseline } else { $InitialBars }
     if ($CurrentBars -lt $baseline) {
