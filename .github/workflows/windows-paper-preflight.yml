@@ -50,3 +50,20 @@ jobs:
           if ($sessionResult.FailedCount -gt 0 -or $sessionResult.PassedCount -ne 5) {
             throw "Exchange session monitor tests failed: passed=$($sessionResult.PassedCount), failed=$($sessionResult.FailedCount)."
           }
+
+      - name: Check local stack restart safety under Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $restartScript = 'scripts/restart-local-stack-task.ps1'
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $restartScript), [ref]$tokens, [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error "$restartScript`: $($_.Message)" }
+          }
+
+          & 'scripts/test-local-stack-task-restart.ps1'
+          & 'scripts/test-local-stack-env-reload.ps1'
