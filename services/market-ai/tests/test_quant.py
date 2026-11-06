@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.quant import MinuteBar, QuantConfig, backtest_orb_vwap
+from app.quant import MinuteBar, QuantConfig, backtest_orb_vwap, orb_vwap_entry_candidate
 
 
 def _session_bars() -> list[MinuteBar]:
@@ -15,6 +15,11 @@ def _session_bars() -> list[MinuteBar]:
     bars.append(MinuteBar(start + timedelta(minutes=20), Decimal("100.5"), Decimal("101.5"), Decimal("100.2"), Decimal("101"), 3000, Decimal("5")))
     bars.append(MinuteBar(start + timedelta(minutes=21), Decimal("102"), Decimal("103"), Decimal("101.5"), Decimal("102.5"), 1800, Decimal("5")))
     bars.append(MinuteBar(start + timedelta(minutes=22), Decimal("102.5"), Decimal("106"), Decimal("102"), Decimal("105.5"), 2000, Decimal("5")))
+    bars.extend(
+        MinuteBar(start + timedelta(minutes=i), Decimal("100"), Decimal("100.5"), Decimal("99.5"),
+                  Decimal("100"), 1000, Decimal("5"))
+        for i in range(23, 390)
+    )
     return bars
 
 
@@ -62,6 +67,9 @@ def test_entry_with_missing_or_over_limit_next_bar_spread_is_not_filled() -> Non
         next_bar = bars[21]
         bars[21] = MinuteBar(next_bar.timestamp, next_bar.open, next_bar.high, next_bar.low,
                              next_bar.close, next_bar.volume, next_spread)
+        following = bars[22]
+        bars[22] = MinuteBar(following.timestamp, following.open, following.high, following.low,
+                             following.close, following.volume, Decimal("16"))
         result = backtest_orb_vwap(
             "KR", "005930", bars,
             QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1")),
@@ -72,6 +80,10 @@ def test_entry_with_missing_or_over_limit_next_bar_spread_is_not_filled() -> Non
 
 def test_missing_exit_spread_uses_configured_spread_ceiling() -> None:
     bars = _session_bars()
+    for index in range(22, len(bars)):
+        prior = bars[index]
+        bars[index] = MinuteBar(prior.timestamp, Decimal("102"), Decimal("104"), Decimal("101"),
+                                Decimal("102"), prior.volume, prior.spread_bps)
     last = bars[-1]
     bars[-1] = MinuteBar(last.timestamp, last.open, last.high, last.low, last.close, last.volume, None)
     config = QuantConfig(
@@ -137,11 +149,11 @@ def test_relative_volume_requires_full_prior_lookback_plus_current_bar() -> None
                          Decimal("101"), 3000, Decimal("5"))
     config = QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"))
 
-    assert backtest_orb_vwap("KR", "005930", bars, config).signals == 0
+    assert orb_vwap_entry_candidate(bars, config, market="KR") is False
     next_bar_time = start + timedelta(minutes=1)
     bars.append(MinuteBar(next_bar_time, Decimal("101"), Decimal("101.5"), Decimal("100.8"),
                           Decimal("101.2"), 3000, Decimal("5")))
-    assert backtest_orb_vwap("KR", "005930", bars, config).signals == 1
+    assert orb_vwap_entry_candidate(bars, config, market="KR") is True
 
 
 def test_stop_wins_when_stop_and_target_are_touched_in_same_bar() -> None:
@@ -154,7 +166,7 @@ def test_stop_wins_when_stop_and_target_are_touched_in_same_bar() -> None:
 
 def test_us_backtest_uses_new_york_session_date_across_korea_midnight() -> None:
     bars = _session_bars()
-    start = datetime(2026, 11, 5, 23, 0, tzinfo=timezone(timedelta(hours=9)))
+    start = datetime(2026, 11, 5, 23, 30, tzinfo=timezone(timedelta(hours=9)))
     bars = [MinuteBar(start + timedelta(minutes=index), bar.open, bar.high, bar.low,
                       bar.close, bar.volume, bar.spread_bps)
             for index, bar in enumerate(bars)]
@@ -167,3 +179,24 @@ def test_us_backtest_uses_new_york_session_date_across_korea_midnight() -> None:
 
     assert result.session.isoformat() == "2026-11-05"
     assert len(result.trades) == 1
+
+
+def test_backtest_rejects_premarket_partial_open_and_missing_minute_bars() -> None:
+    bars = _session_bars()
+    premarket = datetime(2026, 11, 5, 23, 0, tzinfo=timezone(timedelta(hours=9)))
+    us_bars = [MinuteBar(premarket + timedelta(minutes=i), bar.open, bar.high, bar.low,
+                         bar.close, bar.volume, bar.spread_bps) for i, bar in enumerate(bars)]
+    with pytest.raises(ValueError, match="official regular-session open"):
+        backtest_orb_vwap("US", "AAPL", us_bars)
+
+    partial_open = [MinuteBar(bar.timestamp + timedelta(minutes=1), bar.open, bar.high, bar.low,
+                              bar.close, bar.volume, bar.spread_bps) for bar in bars]
+    with pytest.raises(ValueError, match="official regular-session open"):
+        backtest_orb_vwap("KR", "005930", partial_open)
+
+    gap = bars[:10] + bars[11:]
+    with pytest.raises(ValueError, match="without gaps"):
+        backtest_orb_vwap("KR", "005930", gap)
+
+    with pytest.raises(ValueError, match="final regular-session"):
+        backtest_orb_vwap("KR", "005930", bars[:23])

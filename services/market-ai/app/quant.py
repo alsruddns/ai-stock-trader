@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Callable, Literal
 from zoneinfo import ZoneInfo
+
+from .market_calendar import exchange_session_window
 
 Market = Literal["KR", "US"]
 
@@ -97,7 +99,7 @@ def exchange_session_date(timestamp: datetime, market: Market) -> date:
     return timestamp.astimezone(zone).date()
 
 
-def _validate_session(bars: list[MinuteBar], market: Market) -> None:
+def _validate_session(bars: list[MinuteBar], market: Market, *, require_complete: bool = False) -> None:
     if not bars:
         raise ValueError("at least one bar is required")
     session_date = exchange_session_date(bars[0].timestamp, market)
@@ -105,6 +107,19 @@ def _validate_session(bars: list[MinuteBar], market: Market) -> None:
         raise ValueError("one session per backtest is supported")
     if any(left.timestamp >= right.timestamp for left, right in zip(bars, bars[1:])):
         raise ValueError("bars must be strictly increasing by timestamp")
+    window = exchange_session_window(market, bars[0].timestamp)
+    if window is None:
+        raise ValueError("bars must belong to an official exchange session")
+    opened, closed = window
+    timestamps = [bar.timestamp.astimezone(ZoneInfo("UTC")) for bar in bars]
+    if timestamps[0] != opened:
+        raise ValueError("backtest bars must begin at the official regular-session open")
+    if any(timestamp < opened or timestamp >= closed for timestamp in timestamps):
+        raise ValueError("backtest bars must remain within regular trading hours")
+    if any(right - left != timedelta(minutes=1) for left, right in zip(timestamps, timestamps[1:])):
+        raise ValueError("backtest requires a complete one-minute bar sequence without gaps")
+    if require_complete and timestamps[-1] != closed - timedelta(minutes=1):
+        raise ValueError("backtest requires the final regular-session one-minute bar")
 
 
 def _ema(values: list[Decimal], period: int) -> Decimal:
@@ -169,7 +184,7 @@ def backtest_orb_vwap(
     entries execute no earlier than the next bar open. If stop and target touch in one
     bar, stop is assumed to fill first. Open positions close at the final bar close.
     """
-    _validate_session(bars, market)
+    _validate_session(bars, market, require_complete=True)
     normalized_symbol = symbol.strip().upper()
     if not normalized_symbol or quantity <= 0:
         raise ValueError("symbol and positive quantity are required")

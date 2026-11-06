@@ -20,6 +20,7 @@ from app.ai_pipeline import (
     _session_progress,
 )
 from app.quant import MinuteBar
+from app.market_calendar import exchange_session_window
 
 
 def _bar(timestamp: datetime, close: Decimal, volume: int = 1000) -> MinuteBar:
@@ -29,13 +30,18 @@ def _bar(timestamp: datetime, close: Decimal, volume: int = 1000) -> MinuteBar:
 def _sample_sessions() -> dict[date, list[MinuteBar]]:
     result: dict[date, list[MinuteBar]] = {}
     zone = timezone(timedelta(hours=9))
-    for day in range(8):
-        session_date = date(2026, 10, 1) + timedelta(days=day)
+    calendar_day = date(2026, 10, 1)
+    while len(result) < 8:
+        session_date = calendar_day
         start = datetime.combine(session_date, time(9), zone)
+        calendar_day += timedelta(days=1)
+        if exchange_session_window("KR", start) is None:
+            continue
         bars = []
-        for index in range(80):
-            wave = Decimal(str(round(__import__("math").sin(index * 0.55 + day * 0.2), 4)))
-            close = Decimal("100") + Decimal(day) / Decimal(10) + Decimal(index) / Decimal(100) + wave
+        session_index = len(result)
+        for index in range(390):
+            wave = Decimal(str(round(__import__("math").sin(index * 0.55 + session_index * 0.2), 4)))
+            close = Decimal("100") + Decimal(session_index) / Decimal(10) + Decimal(index) / Decimal(100) + wave
             bars.append(_bar(start + timedelta(minutes=index), close, 1000 + index % 8 * 200))
         result[session_date] = bars
     return result
@@ -54,8 +60,9 @@ def _provenance(dataset_sha256: str) -> dict:
 
 
 def test_features_at_time_t_match_online_inference_features() -> None:
-    bars = _sample_sessions()[date(2026, 10, 1)][:26]
-    samples = build_training_samples({bars[0].timestamp.date(): bars}, market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("20"))
+    all_bars = _sample_sessions()[date(2026, 10, 1)]
+    bars = all_bars[:26]
+    samples = build_training_samples({all_bars[0].timestamp.date(): all_bars}, market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("20"))
     at_t = next(sample for sample in samples if sample.timestamp == bars[20].timestamp.isoformat())
     online = latest_features(bars[:21], market="KR")
     assert len(online) == len(FEATURE_NAMES)
@@ -63,6 +70,19 @@ def test_features_at_time_t_match_online_inference_features() -> None:
     assert at_t.features[-1] == pytest.approx(20 / 390)
     with pytest.raises(ValueError, match="at least 21 bars"):
         latest_features(bars[:20], market="KR")
+
+
+def test_latest_features_reject_premarket_and_incomplete_minute_history() -> None:
+    bars = _sample_sessions()[date(2026, 10, 1)][:21]
+    premarket = datetime(2026, 10, 1, 8, 0, tzinfo=timezone(timedelta(hours=9)))
+    shifted = [_bar(premarket + timedelta(minutes=index), bar.close, bar.volume) for index, bar in enumerate(bars)]
+    with pytest.raises(ValueError, match="official regular-session open"):
+        latest_features(shifted, market="KR")
+
+    gap = [_bar(bar.timestamp + (timedelta(minutes=1) if index >= 10 else timedelta(0)),
+                bar.close, bar.volume) for index, bar in enumerate(bars)]
+    with pytest.raises(ValueError, match="without gaps"):
+        latest_features(gap, market="KR")
 
 
 def test_training_labels_deduct_observed_entry_and_exit_spread() -> None:
@@ -108,7 +128,7 @@ def test_training_sample_generation_rejects_cost_below_backtest_cost() -> None:
 def test_us_training_and_inference_accept_one_new_york_session_crossing_korea_midnight() -> None:
     start = datetime(2026, 11, 5, 23, 30, tzinfo=timezone(timedelta(hours=9)))
     bars = [_bar(start + timedelta(minutes=index), Decimal("100") + Decimal(index) / 100)
-            for index in range(30)]
+            for index in range(390)]
     sessions = {date(2026, 11, 5): bars}
 
     samples = build_training_samples(

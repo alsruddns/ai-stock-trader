@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 from app import main
 from app.main import app, get_kis_client
 from app.kis import KisRateLimitError, KisSharedRateLimitUnavailable, Quote
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from app.quant import MinuteBar
 
@@ -387,15 +387,17 @@ def test_market_kis_client_is_closed_and_evicted_on_shutdown(monkeypatch) -> Non
 
 
 def test_quant_backtest_endpoint_accepts_supplied_bars_and_never_creates_orders() -> None:
+    session_open = datetime(2026, 11, 5, 9, 0, tzinfo=timezone(timedelta(hours=9)))
     response = client.post("/api/v1/strategies/orb-vwap/backtest", json={
         "market": "KR", "symbol": "005930", "bars": [
-            {"timestamp": f"2026-11-05T09:0{i}:00+09:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": 1000, "spread_bps": "5"}
-            for i in range(3)
+            {"timestamp": (session_open + timedelta(minutes=i)).isoformat(), "open": "100", "high": "101",
+             "low": "99", "close": "100", "volume": 1000, "spread_bps": "5"}
+            for i in range(390)
         ],
     })
     assert response.status_code == 200
     assert response.json()["executable"] is False
-    assert response.json()["data_points"] == 3
+    assert response.json()["data_points"] == 390
     assert response.json()["trades"] == []
 
 
@@ -406,6 +408,18 @@ def test_quant_backtest_endpoint_rejects_naive_timestamps() -> None:
         ],
     })
     assert response.status_code == 422
+
+
+def test_quant_backtest_endpoint_rejects_us_premarket_bars() -> None:
+    response = client.post("/api/v1/strategies/orb-vwap/backtest", json={
+        "market": "US", "symbol": "AAPL", "bars": [
+            {"timestamp": f"2026-11-05T23:{i:02d}:00+09:00", "open": "100", "high": "101",
+             "low": "99", "close": "100", "volume": 1000, "spread_bps": "5"}
+            for i in range(3)
+        ],
+    })
+    assert response.status_code == 422
+    assert "official regular-session open" in response.json()["detail"]
 
 
 def test_ai_prediction_endpoint_requires_full_relative_volume_lookback() -> None:

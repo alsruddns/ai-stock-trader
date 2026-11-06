@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 from .data_provenance import validate_data_provenance
 from .quant import (MinuteBar, QuantConfig, _atr, _ema, _vwap,
-                    backtest_orb_vwap, exchange_session_date, orb_vwap_entry_candidate)
+                    _validate_session, backtest_orb_vwap, exchange_session_date, orb_vwap_entry_candidate)
 
 FEATURE_NAMES = (
     "return_1m", "return_3m", "return_5m", "close_vwap_pct", "ema9_gap_pct",
@@ -108,8 +108,7 @@ def build_training_samples(
             continue
         if any(exchange_session_date(item.timestamp, normalized_market) != session for item in bars):
             raise ValueError("bar date does not match its session key")
-        if any(left.timestamp >= right.timestamp for left, right in zip(bars, bars[1:])):
-            raise ValueError("session bars must be strictly increasing")
+        _validate_session(bars, normalized_market, require_complete=True)
         for index in range(required - 1, len(bars) - horizon_bars):
             current = bars[index]
             history = bars[: index + 1]
@@ -164,11 +163,7 @@ def latest_features(bars: list[MinuteBar], *, market: str, minimum_bars: int = 2
     normalized_market = market.strip().upper()
     if normalized_market not in _MARKET_SESSIONS:
         raise ValueError("market must be KR or US")
-    if any(exchange_session_date(item.timestamp, normalized_market)
-           != exchange_session_date(bars[0].timestamp, normalized_market) for item in bars):
-        raise ValueError("inference input must contain one session")
-    if any(left.timestamp >= right.timestamp for left, right in zip(bars, bars[1:])):
-        raise ValueError("inference bars must be strictly increasing")
+    _validate_session(bars, normalized_market)
     current = bars[-1]
     if current.spread_bps is None:
         raise ValueError("latest bar must include spread")

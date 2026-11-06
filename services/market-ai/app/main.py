@@ -474,6 +474,8 @@ def backtest_orb_vwap_endpoint(request: QuantBacktestRequest) -> QuantBacktestRe
         result = backtest_orb_vwap(request.market, request.symbol, bars, QuantConfig(), quantity=request.quantity)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Exchange calendar is unavailable; backtest was not run") from exc
     return QuantBacktestResponse(
         market=result.market, symbol=result.symbol, session=result.session,
         trades=[trade.__dict__ for trade in result.trades], gross_pnl=result.gross_pnl,
