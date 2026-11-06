@@ -121,7 +121,7 @@ public class KisRealOrderClient {
                 throw new IllegalArgumentException("Domestic cancellation requires the broker organization number.");
             }
             int cancelableQuantity = inquireDomesticCancelableQuantity(credentials, account,
-                    brokerOrderNumber, brokerOrganizationNumber);
+                    symbol, brokerOrderNumber, brokerOrganizationNumber);
             if (cancelableQuantity != remainingQuantity) {
                 throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE,
                         "KIS domestic cancel preflight did not match the latest open quantity (code REAL_CANCEL_PREFLIGHT_BLOCKED).");
@@ -144,7 +144,8 @@ public class KisRealOrderClient {
     }
 
     private int inquireDomesticCancelableQuantity(KisProperties.Account credentials, String account,
-                                                   String brokerOrderNumber, String brokerOrganizationNumber) {
+                                                   String symbol, String brokerOrderNumber,
+                                                   String brokerOrganizationNumber) {
         requireRealAccountReadEnabled();
         String continuation = "";
         String nextSearch = "";
@@ -170,7 +171,8 @@ public class KisRealOrderClient {
             JsonNode rows = response.path("output");
             if (rows.isArray()) {
                 for (JsonNode row : rows) {
-                    if (brokerOrderNumber.equals(firstText(row, "odno", "ODNO"))
+                    if (symbol.equalsIgnoreCase(firstText(row, "pdno", "PDNO"))
+                            && brokerOrderNumber.equals(firstText(row, "odno", "ODNO"))
                             && brokerOrganizationNumber.equals(firstText(row, "ord_gno_brno", "ORD_GNO_BRNO"))) {
                         Integer quantity = integer(row, "psbl_qty", "PSBL_QTY");
                         if (quantity == null || quantity <= 0) throw cancelPreflightBlocked();
@@ -178,6 +180,7 @@ public class KisRealOrderClient {
                     }
                 }
             } else if (rows.isObject()
+                    && symbol.equalsIgnoreCase(firstText(rows, "pdno", "PDNO"))
                     && brokerOrderNumber.equals(firstText(rows, "odno", "ODNO"))
                     && brokerOrganizationNumber.equals(firstText(rows, "ord_gno_brno", "ORD_GNO_BRNO"))) {
                 Integer quantity = integer(rows, "psbl_qty", "PSBL_QTY");

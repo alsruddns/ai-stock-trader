@@ -122,7 +122,7 @@ class KisRealOrderClientTest {
                 .andExpect(queryParam("INQR_DVSN_1", "0"))
                 .andExpect(queryParam("INQR_DVSN_2", "0"))
                 .andRespond(withSuccess("""
-                        {"rt_cd":"0","output":[{"odno":"7001","ord_gno_brno":"ORG01","psbl_qty":"1"}]}
+                        {"rt_cd":"0","output":[{"pdno":"000001","odno":"7001","ord_gno_brno":"ORG01","psbl_qty":"9"},{"pdno":"005930","odno":"7001","ord_gno_brno":"ORG01","psbl_qty":"1"}]}
                         """, MediaType.APPLICATION_JSON));
         server.expect(requestTo(REAL_URL + "/uapi/domestic-stock/v1/trading/order-rvsecncl"))
                 .andExpect(header("tr_id", "TTTC0013U"))
@@ -149,7 +149,7 @@ class KisRealOrderClientTest {
                         "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
                 .andExpect(header("tr_id", "TTTC0084R"))
                 .andRespond(withSuccess("""
-                        {"rt_cd":"0","output":[{"odno":"7001","ord_gno_brno":"ORG01","psbl_qty":"2"}]}
+                        {"rt_cd":"0","output":[{"pdno":"005930","odno":"7001","ord_gno_brno":"ORG01","psbl_qty":"2"}]}
                         """, MediaType.APPLICATION_JSON));
 
         KisApiException exception = assertThrows(KisApiException.class, () ->
