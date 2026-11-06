@@ -14,6 +14,16 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
     $EvidencePath = Join-Path $repoRoot '.local\validation\paper-websocket-samples.jsonl'
 }
+$evidenceDirectory = Split-Path -Parent $EvidencePath
+$progressName = '{0}.progress.jsonl' -f [IO.Path]::GetFileNameWithoutExtension($EvidencePath)
+$ProgressPath = Join-Path $evidenceDirectory $progressName
+
+function Write-ProgressRecord($Record) {
+    if ($evidenceDirectory) { New-Item -ItemType Directory -Force -Path $evidenceDirectory | Out-Null }
+    [System.IO.File]::AppendAllText($ProgressPath,
+        ($Record | ConvertTo-Json -Compress -Depth 5) + [Environment]::NewLine,
+        [System.Text.UTF8Encoding]::new($false))
+}
 
 function Get-SessionStatus {
     try {
@@ -64,6 +74,20 @@ $deadline = [DateTimeOffset]::UtcNow.AddSeconds($DurationSeconds)
 $latest = $initial
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $nextProgressSeconds = 60
+$initialProgress = [ordered]@{
+    recorded_at_utc = $startedAtUtc.ToString('o')
+    requested_seconds = $DurationSeconds
+    selected_feed = if ($Feed) { $Feed } else { 'any' }
+    elapsed_seconds = 0
+    ticks_delta = 0
+    bars_delta = 0
+    max_observed_no_tick_seconds = 0.0
+    feeds = $initial.stream_connections
+    orders_enabled = $false
+    automation_state = $initial.automation_state
+    result = 'running'
+}
+Write-ProgressRecord $initialProgress
 while ([DateTimeOffset]::UtcNow -lt $deadline) {
     $remaining = [int][Math]::Ceiling(($deadline - [DateTimeOffset]::UtcNow).TotalSeconds)
     Start-Sleep -Seconds ([Math]::Min($PollIntervalSeconds, [Math]::Max(1, $remaining)))
@@ -92,9 +116,25 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
         throw "No WebSocket ticks arrived for more than $MaxNoTickSeconds seconds."
     }
 
+    $currentBars = if ($Feed) { [int]$latest.bars_closed_by_feed.$Feed } else { [int]$latest.bars_closed }
+    $progress = [ordered]@{
+        recorded_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+        requested_seconds = $DurationSeconds
+        elapsed_seconds = [int]$stopwatch.Elapsed.TotalSeconds
+        selected_feed = if ($Feed) { $Feed } else { 'any' }
+        ticks_delta = $currentTicks - $initialTicks
+        bars_delta = $currentBars - $initialBars
+        minimum_bars_delta = $MinimumBarsDelta
+        max_observed_no_tick_seconds = [Math]::Round($maxObservedNoTickSeconds, 1)
+        feeds = $latest.stream_connections
+        orders_enabled = [bool]$latest.orders_enabled
+        automation_state = $latest.automation_state
+        result = 'running'
+    }
+    Write-ProgressRecord $progress
+
     if ($stopwatch.Elapsed.TotalSeconds -ge $nextProgressSeconds) {
         $tickDelta = $currentTicks - $initialTicks
-        $currentBars = if ($Feed) { [int]$latest.bars_closed_by_feed.$Feed } else { [int]$latest.bars_closed }
         Write-Output "PAPER feed monitor running: feed=$(if ($Feed) { $Feed } else { 'any' }) elapsed_seconds=$([int]$stopwatch.Elapsed.TotalSeconds) ticks_delta=$tickDelta bars_delta=$($currentBars - $initialBars)."
         $nextProgressSeconds += 60
     }
@@ -131,8 +171,20 @@ $evidence = [ordered]@{
     automation_state = $latest.automation_state
     result = 'passed'
 }
-$evidenceDirectory = Split-Path -Parent $EvidencePath
-if ($evidenceDirectory) { New-Item -ItemType Directory -Force -Path $evidenceDirectory | Out-Null }
+Write-ProgressRecord ([ordered]@{
+    recorded_at_utc = $evidence.completed_at_utc
+    requested_seconds = $DurationSeconds
+    elapsed_seconds = $evidence.observed_seconds
+    selected_feed = $evidence.selected_feed
+    ticks_delta = $tickDelta
+    bars_delta = $barDelta
+    minimum_bars_delta = $MinimumBarsDelta
+    max_observed_no_tick_seconds = $evidence.max_observed_no_tick_seconds
+    feeds = $latest.stream_connections
+    orders_enabled = $false
+    automation_state = $latest.automation_state
+    result = 'passed'
+})
 [System.IO.File]::AppendAllText($EvidencePath,
     ($evidence | ConvertTo-Json -Compress -Depth 5) + [Environment]::NewLine,
     [System.Text.UTF8Encoding]::new($false))
