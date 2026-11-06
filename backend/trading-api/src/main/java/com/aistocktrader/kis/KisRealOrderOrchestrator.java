@@ -118,7 +118,6 @@ public class KisRealOrderOrchestrator {
     }
 
     private static String extractCode(String message) {
-        var match = java.util.regex.Pattern.compile("code ([A-Za-z0-9_-]{1,32})").matcher(message);
-        return match.find() ? match.group(1) : "KIS_REJECTED";
+        return KisResponseCodes.fromErrorMessage(message, "KIS_REJECTED");
     }
 }
