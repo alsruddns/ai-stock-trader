@@ -8,6 +8,12 @@ param(
     [switch]$ConfirmPaperOrderAndCancel
 )
 
+$originalEnvironment = @{}
+foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerator()) {
+    $originalEnvironment[[string]$entry.Key] = [string]$entry.Value
+}
+
+try {
 $ErrorActionPreference = 'Stop'
 if (-not $ConfirmPaperOrderAndCancel) {
     throw 'No request was sent. Re-run with -ConfirmPaperOrderAndCancel only when you intend to submit and immediately cancel one KIS PAPER share.'
@@ -163,4 +169,16 @@ if ($intent.status -ne 'CANCELLED') {
     if ($intent.status -eq 'FILLED') { Write-Output 'A simulated fill occurred; review and close the PAPER position if needed.' }
     else { Write-Output 'Broker state is not terminal. Do not resubmit; reconcile this key manually.' }
     exit 2
+}
+}
+finally {
+    $currentEnvironment = [Environment]::GetEnvironmentVariables('Process')
+    foreach ($name in $currentEnvironment.Keys) {
+        if (-not $originalEnvironment.ContainsKey([string]$name)) {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
+    }
+    foreach ($name in $originalEnvironment.Keys) {
+        Set-Item -LiteralPath "Env:$name" -Value $originalEnvironment[$name]
+    }
 }
