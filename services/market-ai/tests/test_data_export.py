@@ -129,3 +129,10 @@ def test_training_export_source_gate_rejects_missing_spread_and_market_source_mi
         validate_websocket_session_rows(missing_spread, market="KR", expected_source="KIS_PAPER_WEBSOCKET")
     with pytest.raises(ValueError, match="do not match"):
         validate_websocket_session_rows(rows, market="US", expected_source="KIS_PAPER_WEBSOCKET")
+
+
+def test_training_export_source_gate_accepts_complete_new_york_session() -> None:
+    opened = datetime(2026, 11, 5, 14, 30, tzinfo=timezone.utc)
+    rows = [_row(opened + timedelta(minutes=index), "KIS_REAL_US_WEBSOCKET") for index in range(390)]
+
+    validate_websocket_session_rows(rows, market="US", expected_source="KIS_REAL_US_WEBSOCKET")
