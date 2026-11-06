@@ -39,6 +39,18 @@ function Assert-KisPaperQuoteFresh {
     }
 }
 
+function ConvertTo-KisQuoteExchange {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [ValidateSet('NAS', 'NASD', 'NYS', 'NYSE', 'AMS', 'AMEX')] [string]$Exchange)
+
+    switch ($Exchange.ToUpperInvariant()) {
+        { $_ -in @('NAS', 'NASD') } { return 'NAS' }
+        { $_ -in @('NYS', 'NYSE') } { return 'NYS' }
+        { $_ -in @('AMS', 'AMEX') } { return 'AMS' }
+    }
+    throw 'Unsupported KIS exchange mapping for quote preflight.'
+}
+
 function Assert-KisPaperOrderableFunds {
     [CmdletBinding()]
     param(

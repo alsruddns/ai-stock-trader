@@ -92,6 +92,17 @@ Describe 'KIS PAPER quote freshness preflight' {
     }
 }
 
+Describe 'KIS quote exchange mapping' {
+    It 'maps KIS account exchange codes to FastAPI quote exchange codes' {
+        ConvertTo-KisQuoteExchange -Exchange NASD | Should Be 'NAS'
+        ConvertTo-KisQuoteExchange -Exchange NAS | Should Be 'NAS'
+        ConvertTo-KisQuoteExchange -Exchange NYSE | Should Be 'NYS'
+        ConvertTo-KisQuoteExchange -Exchange NYS | Should Be 'NYS'
+        ConvertTo-KisQuoteExchange -Exchange AMEX | Should Be 'AMS'
+        ConvertTo-KisQuoteExchange -Exchange AMS | Should Be 'AMS'
+    }
+}
+
 Describe 'KIS PAPER exchange session preflight' {
     $now = [DateTimeOffset]::Parse('2026-11-06T08:30:00Z')
     $openSession = @{

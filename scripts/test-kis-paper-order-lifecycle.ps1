@@ -78,8 +78,8 @@ if ($Market -eq 'US' -and $Exchange -notin @('NAS', 'NASD', 'NYS', 'NYSE', 'AMS'
     throw 'US Exchange must be NAS, NYS, AMS, or their KIS aliases.'
 }
 
-function Get-LocalApi([string]$Url) {
-    try { return Invoke-RestMethod -Uri $Url -TimeoutSec 15 }
+function Get-LocalApi([string]$Url, [int]$TimeoutSec = 15) {
+    try { return Invoke-RestMethod -Uri $Url -TimeoutSec $TimeoutSec }
     catch {
         $status = 'unavailable'
         if ($null -ne $_.Exception.Response -and $null -ne $_.Exception.Response.StatusCode) {
@@ -104,7 +104,7 @@ if ($operations.tradingMode -ne 'paper' -or $operations.liveTrading -ne 'disable
 
 $normalizedSymbol = $Symbol.ToUpperInvariant()
 $quotePath = if ($Market -eq 'KR') { "/api/v1/market/quotes/KR/$normalizedSymbol" }
-    else { "/api/v1/market/quotes/US/$normalizedSymbol`?exchange=$Exchange" }
+    else { "/api/v1/market/quotes/US/$normalizedSymbol`?exchange=$(ConvertTo-KisQuoteExchange -Exchange $Exchange)" }
 $quote = Get-LocalApi "$MarketAiApiBaseUrl$quotePath"
 if ([decimal]$quote.price -le 0 -or $quote.market -ne $Market -or $quote.symbol -ne $normalizedSymbol) {
     throw 'Fresh market quote did not match the requested instrument.'
@@ -130,7 +130,9 @@ $escapedSymbol = [Uri]::EscapeDataString($normalizedSymbol)
 $escapedPrice = [Uri]::EscapeDataString($LimitPrice.ToString([Globalization.CultureInfo]::InvariantCulture))
 $escapedExchange = [Uri]::EscapeDataString($Exchange)
 $accountPath = "/api/v1/kis/accounts/paper/$Market/balance`?symbol=$escapedSymbol`&unitPrice=$escapedPrice`&exchange=$escapedExchange"
-$account = Get-LocalApi "$SpringApiBaseUrl$accountPath"
+# KIS token issuance is paced across Spring and Python by a shared one-per-minute slot.
+# This read-only call can wait for that slot before the broker request starts.
+$account = Get-LocalApi "$SpringApiBaseUrl$accountPath" -TimeoutSec 180
 Assert-KisPaperOrderableFunds -Account $account -Market $Market -Currency $currency -MinimumNotional $notional
 
 if ($PreflightOnly) {
