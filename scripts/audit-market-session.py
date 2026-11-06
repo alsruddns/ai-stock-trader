@@ -15,7 +15,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 import psycopg
 from app.market_calendar import exchange_continuous_session_window
 from app.quant import MinuteBar
-from app.session_quality import audit_minute_bar_session
+from app.session_quality import audit_minute_bar_session, meets_minimum_spread_coverage
 
 
 def _load_local_env() -> None:
@@ -46,6 +46,8 @@ def main() -> int:
     parser.add_argument("--session-date", type=date.fromisoformat, required=True)
     parser.add_argument("--require-complete", action="store_true",
                         help="return exit code 2 unless a closed full session is complete")
+    parser.add_argument("--minimum-spread-coverage-percent", type=float,
+                        help="return exit code 2 unless observed spread coverage meets this 0..100 percent threshold")
     args = parser.parse_args()
 
     symbol = args.symbol.strip().upper()
@@ -98,8 +100,19 @@ def main() -> int:
     report = audit_minute_bar_session(
         args.market, symbol, args.session_date, bars, evaluated_at=datetime.now(timezone.utc),
     )
+    spread_coverage_passed = None
+    if args.minimum_spread_coverage_percent is not None:
+        try:
+            spread_coverage_passed = meets_minimum_spread_coverage(
+                report["spread_coverage_percent"], args.minimum_spread_coverage_percent,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        report["minimum_spread_coverage_percent"] = args.minimum_spread_coverage_percent
+        report["minimum_spread_coverage_met"] = spread_coverage_passed
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    if args.require_complete and not report["full_session_complete"]:
+    if ((args.require_complete and not report["full_session_complete"])
+            or spread_coverage_passed is False):
         return 2
     return 0
 

@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import math
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from .market_calendar import exchange_continuous_session_window
 from .quant import Market, MinuteBar
+
+
+def meets_minimum_spread_coverage(actual_percent: object, minimum_percent: float) -> bool:
+    """Fail closed when spread coverage is absent, invalid, or below the requested threshold."""
+    if not math.isfinite(minimum_percent) or not 0 <= minimum_percent <= 100:
+        raise ValueError("minimum spread coverage must be between 0 and 100 percent")
+    if isinstance(actual_percent, bool) or not isinstance(actual_percent, (int, float)):
+        return False
+    return math.isfinite(actual_percent) and minimum_percent <= actual_percent <= 100
 
 
 def audit_minute_bar_session(
