@@ -12,6 +12,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'krx-market-session.ps1')
+. (Join-Path $PSScriptRoot 'paper-session-monitor-status.ps1')
 if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
     $EvidencePath = Join-Path $repoRoot '.local\validation\paper-websocket-samples.jsonl'
 }
@@ -34,26 +35,6 @@ function Get-SessionStatus {
     }
 }
 
-function Assert-SafeRunningStatus($Status) {
-    if ($Status.state -ne 'RUNNING' -or $Status.orders_enabled -or
-        $Status.automation_state -ne 'DISABLED' -or $Status.last_error) {
-        throw 'Paper-session monitor is not running in read-only, automation-disabled mode.'
-    }
-    $connections = $Status.stream_connections
-    $running = @($connections.PSObject.Properties | Where-Object { $_.Value -eq 'RUNNING' })
-    if ($RequireBothFeeds) {
-        if ($connections.paper -ne 'RUNNING' -or $connections.real -ne 'RUNNING') {
-            throw 'Both PAPER domestic and read-only REAL market-data feeds must be RUNNING.'
-        }
-    } elseif ($Feed) {
-        if ($connections.$Feed -ne 'RUNNING') {
-            throw "The selected $Feed market-data feed must be RUNNING."
-        }
-    } elseif ($running.Count -lt 1) {
-        throw 'No KIS market-data WebSocket feed is RUNNING.'
-    }
-}
-
 function Wait-ForSafeRunningStatus {
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(120)
     while ([DateTimeOffset]::UtcNow -lt $deadline) {
@@ -67,20 +48,12 @@ function Wait-ForSafeRunningStatus {
         $status = $null
         try { $status = Get-SessionStatus } catch { }
         if (-not $status) { Start-Sleep -Seconds 2; continue }
-        if ($status.orders_enabled -or $status.automation_state -ne 'DISABLED' -or $status.last_error) {
-            throw 'Paper-session monitor is not running in read-only, automation-disabled mode.'
+        Assert-MonitorSafetyLocks $status
+        if (-not (Test-MonitorFeedReady $status $Feed ([bool]$RequireBothFeeds))) {
+            Start-Sleep -Seconds 2
+            continue
         }
-        if ($status.state -ne 'RUNNING') { Start-Sleep -Seconds 2; continue }
-        $connections = $status.stream_connections
-        $feedsReady = if ($RequireBothFeeds) {
-            $connections.paper -eq 'RUNNING' -and $connections.real -eq 'RUNNING'
-        } elseif ($Feed) {
-            $connections.$Feed -eq 'RUNNING'
-        } else {
-            @($connections.PSObject.Properties | Where-Object { $_.Value -eq 'RUNNING' }).Count -gt 0
-        }
-        if (-not $feedsReady) { Start-Sleep -Seconds 2; continue }
-        Assert-SafeRunningStatus $status
+        Assert-SafeRunningStatus $status $Feed ([bool]$RequireBothFeeds)
         return $status
     }
     throw 'Local market-data feed did not become ready within 120 seconds.'
@@ -135,7 +108,7 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
         break
     }
     $latest = Get-SessionStatus
-    Assert-SafeRunningStatus $latest
+    Assert-SafeRunningStatus $latest $Feed ([bool]$RequireBothFeeds)
 
     $currentTicks = if ($Feed) { [int]$latest.ticks_received_by_feed.$Feed } else { [int]$latest.ticks_received }
     if ($currentTicks -lt $previousTicks) {

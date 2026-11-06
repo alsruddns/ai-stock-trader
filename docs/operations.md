@@ -44,6 +44,8 @@ Set-Location .\services\market-ai
 
 `.\scripts\test-paper-websocket-monitor.ps1`은 기본 60초, 최대 10시간 동안 로컬 feed를 읽기 전용으로 점검합니다. 전체 한국장 세션은 08:45 KST에 시작해 15:30 KST에 끝나도록 24,300초 동안 실행합니다. 개장 전 08:45~09:00과 종가 동시호가 15:20~15:30의 무수신은 장애 한도에서 제외합니다. 국내 세션 예시는 `-DurationSeconds 24300 -PollIntervalSeconds 15 -MaxNoTickSeconds 300 -Feed paper -MinimumBarsDelta 380`이며 미국 세션은 같은 기간에 `-Feed real -MinimumBarsDelta 380`을 사용합니다. 선택 feed의 틱 수신 시각이 5분 넘게 갱신되지 않거나 프로세스가 재시작되어 누적 tick 수가 초기화되거나 완료 분봉 수가 지정한 최소치에 못 미치면 실패합니다. 성공한 표본은 민감정보 없이 `.local/validation/paper-websocket-samples.jsonl`에 쌓이며 `.local/`은 Git에서 제외됩니다. 이 감시는 실제 KIS 시세를 받으므로 해당 시장의 거래 시간에 실행하고, 종목 거래정지·시장휴장 시 `MaxNoTickSeconds`를 무리하게 낮추지 마세요.
 
+`-Feed paper` 또는 `-Feed real`을 지정한 표본은 해당 feed의 연결과 틱만 통과 조건으로 봅니다. 다른 feed가 재연결 중이면 API의 집계 상태에 `KIS_STREAM_UNAVAILABLE`가 표시될 수 있으나, 선택한 feed가 `RUNNING`인 동안에는 선택 feed 표본을 계속할 수 있습니다. `-RequireBothFeeds` 또는 feed 미지정 표본은 집계 상태와 모든 요구 feed가 정상이어야 합니다. 주문 잠금 또는 자동매매 비활성 조건은 모든 모드에서 계속 검사합니다.
+
 한국거래소 정규장 연속매매는 09:00~15:20이고 15:20~15:30은 종가 동시호가입니다([KRX 매매거래시간](https://global.krx.co.kr/contents/GLB/06/0602/0602010204/GLB0602020204T1.jsp)). `-Feed paper` 감시는 이 동시호가 동안 무수신을 별도 누적하고 5분 장애 기준에서는 제외하며, 15:30에 표본을 마칩니다. 마지막 연속매매 틱이 동시호가 직전에 온 경우는 feed 장애로 판정하지 않습니다. 이 구간의 실제 종가 체결 틱 수신은 별도 검증 범위입니다.
 
 ### KIS PAPER 주문 수명주기 통합 확인
