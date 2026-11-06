@@ -171,6 +171,7 @@ public class KisOrderClient {
             if (rows.isArray()) {
                 for (JsonNode row : rows) {
                     if (intent.getBrokerOrderNumber().equals(firstText(row, "odno", "ODNO"))) {
+                        if (!matchesBrokerIdentity(row, intent)) return Optional.empty();
                         return parseSnapshot(row, intent);
                     }
                 }
@@ -223,6 +224,16 @@ public class KisOrderClient {
         Integer rejectedQuantity = integer(row, "rjct_qty", "rejected_qty");
         return Optional.of(new KisBrokerOrderSnapshot(filled, remaining, average, cancelled,
                 rejectedQuantity != null && rejectedQuantity > 0));
+    }
+
+    private static boolean matchesBrokerIdentity(JsonNode row, KisOrderIntent intent) {
+        String brokerSymbol = firstText(row, "pdno", "PDNO", "ovrs_pdno", "OVRS_PDNO");
+        String brokerSide = firstText(row, "sll_buy_dvsn_cd", "SLL_BUY_DVSN_CD", "sll_buy_dvsn", "SLL_BUY_DVSN");
+        if (brokerSymbol.isBlank() || brokerSide.isBlank()
+                || !intent.getSymbol().equalsIgnoreCase(brokerSymbol.trim())) return false;
+        String expectedSideCode = intent.getSide() == OrderSide.BUY ? "02" : "01";
+        return expectedSideCode.equals(brokerSide.trim())
+                || intent.getSide().name().equalsIgnoreCase(brokerSide.trim());
     }
 
     private static Integer integer(JsonNode row, String... fields) {

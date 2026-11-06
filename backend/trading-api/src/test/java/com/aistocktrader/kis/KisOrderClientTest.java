@@ -270,7 +270,7 @@ class KisOrderClientTest {
                 .andExpect(queryParam("ODNO", "1234"))
                 .andRespond(withSuccess("""
                         {"rt_cd":"0","ctx_area_fk100":"","ctx_area_nk100":"","output1":[
-                          {"odno":"1234","tot_ccld_qty":"1","rmn_qty":"1","avg_prvs":"70000","cncl_yn":"N","rjct_qty":"0"}
+                          {"odno":"1234","pdno":"005930","sll_buy_dvsn_cd":"02","tot_ccld_qty":"1","rmn_qty":"1","avg_prvs":"70000","cncl_yn":"N","rjct_qty":"0"}
                         ]}
                         """, org.springframework.http.MediaType.APPLICATION_JSON));
 
@@ -284,6 +284,27 @@ class KisOrderClientTest {
         assertEquals(1, snapshot.filledQuantity());
         assertEquals(1, snapshot.remainingQuantity());
         assertEquals(new BigDecimal("70000"), snapshot.averageFillPrice());
+        server.verify();
+    }
+
+    @Test
+    void domesticReconciliationDoesNotApplyFillFromMismatchedBrokerIdentity() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[
+                          {"odno":"1234","pdno":"000660","sll_buy_dvsn_cd":"02","tot_ccld_qty":"1","rmn_qty":"1"}
+                        ]}
+                        """, org.springframework.http.MediaType.APPLICATION_JSON));
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new com.aistocktrader.order.OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                        new BigDecimal("70000"), Currency.KRW), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+
+        assertTrue(client(true, builder).reconcilePaperOrder(intent).isEmpty());
         server.verify();
     }
 
@@ -302,7 +323,7 @@ class KisOrderClientTest {
                 .andExpect(queryParam("ODNO", ""))
                 .andRespond(withSuccess("""
                         {"rt_cd":"0","output":[
-                          {"odno":"5678","ft_ccld_qty":"1","nccs_qty":"1","ft_ccld_unpr3":"231.59"}
+                          {"odno":"5678","pdno":"AAPL","sll_buy_dvsn":"02","ft_ccld_qty":"1","nccs_qty":"1","ft_ccld_unpr3":"231.59"}
                         ]}
                         """, org.springframework.http.MediaType.APPLICATION_JSON));
         var request = new com.aistocktrader.order.OrderRequest(Market.US, "AAPL", OrderSide.BUY, 2,
