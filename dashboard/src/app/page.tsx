@@ -53,9 +53,10 @@ export default function Dashboard() {
     ...(data?.marketDataQuality?.US?.sessions ?? []),
   ];
   const qualityBySymbol = new Map(qualitySessions.map((item) => [`${item.market}:${item.symbol}`, item]));
-  const completeQualityCount = qualitySessions.filter((item) => item.full_session_complete && item.spread_bars > 0).length;
+  const completeQualityCount = qualitySessions.filter((item) => item.full_session_complete
+    && item.spread_coverage_percent === 100).length;
   const qualitySummary = qualitySessions.length
-    ? `${completeQualityCount}/${qualitySessions.length}개 종목이 전체 봉과 스프레드 자료 보유`
+    ? `${completeQualityCount}/${qualitySessions.length}개 종목이 정규장 봉·스프레드 100%`
     : "저장 품질을 확인할 수 없음";
   const qualityDetails = qualitySessions.slice(0, 3).map((item) =>
     `${item.market} ${item.symbol} ${item.status} · ${item.observed_bars}/${item.expected_bars}봉 · spread ${item.spread_coverage_percent ?? "—"}%`,
