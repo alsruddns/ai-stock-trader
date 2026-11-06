@@ -212,6 +212,8 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path)
     for result in results:
         metadata = LocalModelRegistry(tmp_path).manifest(result.model_id)
         assert metadata["approved"] is False
+        assert "heldout_evaluation" not in metadata
+        assert LocalModelRegistry(tmp_path)._has_valid_approval_evidence(metadata) is False
         assert metadata["artifact_sha256"] == result.artifact_sha256
         assert metadata["dataset_sha256"] == "a" * 64
         assert metadata["data_provenance"]["rights_reviewed"] is True
@@ -312,12 +314,22 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str) -> None:
             "backtest_quantity_per_session": 1, "backtest_commission_bps": "5",
             "backtest_slippage_bps": "5", "backtest_version": BACKTEST_VERSION,
             "backtest_spread_model": BACKTEST_SPREAD_MODEL,
+            "backtest_minimum_turnover": "1000000", "backtest_maximum_spread_bps": "15",
+            "backtest_minimum_relative_volume": "1.5", "backtest_atr_stop_multiple": "1.5",
+            "backtest_reward_risk_multiple": "2",
         },
         "train_sessions": ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"],
         "validation_sessions": ["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10"],
         "test_sessions": ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"],
         "dataset_sha256": dataset_sha256,
         "data_provenance": _provenance(dataset_sha256),
+        "heldout_evaluation": {
+            "dataset_sha256": dataset_sha256,
+            "data_provenance": _provenance(dataset_sha256),
+            "sessions": ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"],
+            "model_artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            "evaluated_at": "2026-10-20T12:00:00+09:00",
+        },
     }
     (registry.root / f"{model_id}.json").write_text(json.dumps(metadata), encoding="utf-8")
 
@@ -434,6 +446,20 @@ def test_model_approval_requires_sufficient_heldout_sessions_and_ai_quant_outper
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
     with pytest.raises(ValueError, match="metrics or training configuration are inconsistent"):
         registry.approve(model_id, approved_by="operator", note="Review held-out execution comparison before promotion.")
+
+
+def test_model_approval_rejects_holdout_evidence_for_a_different_artifact(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "8" * 32
+    _write_candidate(registry, model_id)
+    manifest_path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    metadata["heldout_evaluation"]["model_artifact_sha256"] = "0" * 64
+
+    assert registry._has_valid_approval_evidence(metadata) is False
+    metadata["approved"] = True
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+    assert registry.active_approved_model("KR") is None
 
 
 def test_model_approval_rejects_label_cost_below_backtest_round_trip_cost(tmp_path) -> None:

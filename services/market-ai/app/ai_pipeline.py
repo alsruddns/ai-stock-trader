@@ -354,6 +354,16 @@ class LocalModelRegistry:
     @staticmethod
     def _has_valid_approval_evidence(metadata: dict[str, Any]) -> bool:
         try:
+            evaluation = metadata.get("heldout_evaluation")
+            if not isinstance(evaluation, dict):
+                return False
+            if evaluation.get("model_artifact_sha256") != metadata.get("artifact_sha256"):
+                return False
+            validate_data_provenance(
+                evaluation.get("data_provenance"),
+                expected_sha256=evaluation.get("dataset_sha256"),
+                purpose="backtesting",
+            )
             partitions: dict[str, list[date]] = {}
             for name in ("train_sessions", "validation_sessions", "test_sessions"):
                 values = metadata.get(name)
@@ -368,6 +378,8 @@ class LocalModelRegistry:
             if (train & validation or train & test or validation & test
                     or max(train) >= min(validation) or max(validation) >= min(test)
                     or len(test) < MIN_MODEL_APPROVAL_TEST_SESSIONS):
+                return False
+            if set(evaluation.get("sessions", [])) != {value.isoformat() for value in test}:
                 return False
             ai = metadata.get("ai_quant_backtest_test_metrics")
             quant = metadata.get("quant_backtest_test_metrics")
@@ -669,6 +681,118 @@ class LocalModelRegistry:
                                                train_dates, validation_dates,
                                                test_dates, digest))
         return results
+
+    def evaluate_candidate(self, model_id: str, sessions: dict[date, list[MinuteBar]], *,
+                           market: str, symbol: str, dataset_sha256: str,
+                           dataset_provenance: dict[str, Any]) -> dict[str, Any]:
+        """Attach independent, later-session evidence to a fixed unapproved candidate."""
+        import joblib
+        import numpy as np
+
+        market = market.strip().upper()
+        symbol = symbol.strip().upper()
+        provenance = validate_data_provenance(
+            dataset_provenance, expected_sha256=dataset_sha256, purpose="backtesting"
+        )
+        if not re.fullmatch(r"[a-f0-9]{64}", dataset_sha256):
+            raise ValueError("dataset_sha256 must be a lowercase SHA-256 digest")
+        if market not in {"KR", "US"}:
+            raise ValueError("market must be KR or US")
+        with self._governance_lock:
+            metadata = self.manifest(model_id)
+            if metadata.get("approved") is True:
+                raise ValueError("approved models cannot be rewritten with new evaluation evidence")
+            if metadata.get("market") != market or metadata.get("training_config", {}).get("symbol") != symbol:
+                raise ValueError("evaluation market and symbol must match the candidate")
+            if not self._supports_current_features(metadata):
+                raise ValueError("candidate feature schema is outdated")
+            train_dates = set(metadata.get("train_sessions", []))
+            validation_dates = set(metadata.get("validation_sessions", []))
+            prior_test_dates = set(metadata.get("test_sessions", []))
+            prior_dates = train_dates | validation_dates | prior_test_dates
+            if not prior_dates or any(not isinstance(value, str) for value in prior_dates):
+                raise ValueError("candidate training partitions are incomplete")
+            try:
+                prior_end = max(date.fromisoformat(value) for value in prior_dates)
+            except ValueError as exc:
+                raise ValueError("candidate training partitions must contain ISO dates") from exc
+            if not sessions or min(sessions) <= prior_end:
+                raise ValueError("independent holdout sessions must be later than all training data")
+            if len(sessions) < MIN_MODEL_APPROVAL_TEST_SESSIONS:
+                raise ValueError("at least five independent holdout sessions are required")
+            config_data = metadata["training_config"]
+            quant_config = QuantConfig(
+                commission_bps=Decimal(str(config_data["backtest_commission_bps"])),
+                slippage_bps=Decimal(str(config_data["backtest_slippage_bps"])),
+                minimum_turnover=Decimal(str(config_data["backtest_minimum_turnover"])),
+                maximum_spread_bps=Decimal(str(config_data["backtest_maximum_spread_bps"])),
+                minimum_relative_volume=Decimal(str(config_data["backtest_minimum_relative_volume"])),
+                atr_stop_multiple=Decimal(str(config_data["backtest_atr_stop_multiple"])),
+                reward_risk_multiple=Decimal(str(config_data["backtest_reward_risk_multiple"])),
+            )
+            samples = build_training_samples(
+                sessions, market=market, horizon_bars=int(config_data["label_horizon_bars"]),
+                round_trip_cost_bps=Decimal(str(config_data["label_round_trip_cost_bps"])),
+                quant_config=quant_config,
+            )
+            actual_dates = {sample.session for sample in samples}
+            if len(actual_dates) < MIN_MODEL_APPROVAL_TEST_SESSIONS or actual_dates != set(sessions):
+                raise ValueError("all independent holdout sessions must produce valid samples")
+            model = joblib.load(self.root / metadata["artifact"])
+            test_metrics = _metrics(model, samples)
+
+            def ai_entry_filter(history: list[MinuteBar]) -> bool:
+                features = latest_features(history, market=market)
+                probability = float(model.predict_proba(np.asarray([features], dtype=np.float32))[0][1])
+                return probability >= float(metadata["threshold"])
+
+            quant_metrics = _backtest_metrics([
+                backtest_orb_vwap(market, symbol, sessions[session], quant_config)
+                for session in sorted(sessions)
+            ])
+            ai_metrics = _backtest_metrics([
+                backtest_orb_vwap(market, symbol, sessions[session], quant_config,
+                                  entry_filter=ai_entry_filter)
+                for session in sorted(sessions)
+            ])
+            test_dates = tuple(sorted(value.isoformat() for value in actual_dates))
+            updated = json.loads(json.dumps(metadata))
+            updated["test_metrics"] = test_metrics
+            updated["quant_baseline_test_metrics"] = _quant_baseline_metrics(samples)
+            updated["quant_backtest_test_metrics"] = quant_metrics
+            updated["ai_quant_backtest_test_metrics"] = ai_metrics
+            updated["test_sessions"] = test_dates
+            updated["heldout_evaluation"] = {
+                "dataset_sha256": dataset_sha256,
+                "data_provenance": provenance,
+                "sessions": list(test_dates),
+                "model_artifact_sha256": metadata["artifact_sha256"],
+                "evaluated_at": datetime.now().astimezone().isoformat(),
+            }
+            validate_data_provenance(
+                updated["heldout_evaluation"]["data_provenance"],
+                expected_sha256=dataset_sha256, purpose="backtesting",
+            )
+            self._write_json_atomic(self.root / f"{model_id}.json", updated)
+            self._record_governance_event({
+                "action": "evaluate_holdout", "model_id": model_id,
+                "dataset_sha256": dataset_sha256,
+                "artifact_sha256": metadata["artifact_sha256"],
+                "test_sessions": list(test_dates),
+                "quant_backtest_test_metrics": quant_metrics,
+                "ai_quant_backtest_test_metrics": ai_metrics,
+            })
+            return {
+                "model_id": model_id, "approved": False,
+                "test_sessions": list(test_dates), "test_metrics": test_metrics,
+                "quant_backtest_test_metrics": quant_metrics,
+                "ai_quant_backtest_test_metrics": ai_metrics,
+                "approval_criteria_met": (
+                    int(ai_metrics["trade_count"]) >= MIN_MODEL_APPROVAL_TEST_TRADES
+                    and Decimal(ai_metrics["net_pnl"]) > 0
+                    and Decimal(ai_metrics["net_pnl"]) > Decimal(quant_metrics["net_pnl"])
+                ),
+            }
 
     def manifest(self, model_id: str) -> dict[str, Any]:
         if not re.fullmatch(r"(?:lightgbm|xgboost)-[a-f0-9]{32}", model_id):
