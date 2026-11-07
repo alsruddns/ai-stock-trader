@@ -37,6 +37,11 @@ $wrongTaskRejected = $false
 try { Assert-LocalStackTaskAction -Task $invalidTask -ExpectedRunnerPath $expectedRunner }
 catch { $wrongTaskRejected = $_.Exception.Message -match 'does not launch this repository' }
 if (-not $wrongTaskRejected) { throw 'Activation must reject an unrelated scheduled task action.' }
+Assert-LocalStackPortsFree -OccupiedPorts @()
+$occupiedPortRejected = $false
+try { Assert-LocalStackPortsFree -OccupiedPorts @(8080) }
+catch { $occupiedPortRejected = $_.Exception.Message -match 'already occupied' }
+if (-not $occupiedPortRejected) { throw 'Activation must reject an already occupied local API port.' }
 
 $pythonHealth = [pscustomobject]@{
     status = 'ok'; live_trading_enabled = $false; paper_automation_enabled = $false

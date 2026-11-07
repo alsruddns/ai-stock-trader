@@ -28,6 +28,11 @@ $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($null -eq $task) { throw "Scheduled task '$TaskName' is not registered. Run scripts/install-local-stack-task.ps1 first." }
 $runnerPath = Join-Path $PSScriptRoot 'run-local-stack-task.ps1'
 Assert-LocalStackTaskAction -Task $task -ExpectedRunnerPath $runnerPath
+if ($task.State -ne 'Running') {
+    $occupiedPorts = @(Get-NetTCPConnection -State Listen -LocalPort @(8000, 8080) -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty LocalPort -Unique)
+    Assert-LocalStackPortsFree -OccupiedPorts $occupiedPorts
+}
 
 if ($PSCmdlet.ShouldProcess("PAPER-locked local APIs in task '$TaskName'", 'Enable and start local Spring Boot and FastAPI services')) {
     if ($task.State -eq 'Disabled') { Enable-ScheduledTask -TaskName $TaskName | Out-Null }
