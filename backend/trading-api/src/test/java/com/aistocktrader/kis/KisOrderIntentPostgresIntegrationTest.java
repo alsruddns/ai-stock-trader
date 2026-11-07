@@ -11,6 +11,7 @@ import com.aistocktrader.order.PaperCashBalance;
 import com.aistocktrader.order.PaperCashRepository;
 import com.aistocktrader.order.PaperFillRepository;
 import com.aistocktrader.order.PaperFillRequest;
+import com.aistocktrader.order.PaperOrderAmendment;
 import com.aistocktrader.order.PaperOrderAmendmentRepository;
 import com.aistocktrader.order.PaperOrderAmendmentRequest;
 import com.aistocktrader.order.PaperPositionRepository;
@@ -100,6 +101,55 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(new BigDecimal("70000.000000"), reloaded.getLimitPrice());
             assertTrue(paperOrderAmendments.findByOrderIdAndIdempotencyKey(created.getId(), amendmentKey).isEmpty());
         } finally {
+            paperOrderRepository.deleteById(created.getId());
+        }
+    }
+
+    @Test
+    void concurrentDuplicatePaperAmendmentsWithSameKeyCreateOneHistoryRow() throws Exception {
+        UUID orderKey = UUID.randomUUID();
+        UUID amendmentKey = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                new BigDecimal("70000"), Currency.KRW);
+        var created = paperOrders.submit(request, orderKey);
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+
+        try {
+            var first = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                return paperOrders.amendPaperOrder(created.getId(), amendmentKey,
+                        new PaperOrderAmendmentRequest(3, new BigDecimal("71000")));
+            });
+            var second = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                return paperOrders.amendPaperOrder(created.getId(), amendmentKey,
+                        new PaperOrderAmendmentRequest(3, new BigDecimal("71000")));
+            });
+
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            var firstResult = first.get(10, TimeUnit.SECONDS);
+            var secondResult = second.get(10, TimeUnit.SECONDS);
+            assertEquals(3, firstResult.getQuantity());
+            assertEquals(3, secondResult.getQuantity());
+            assertEquals(0, new BigDecimal("71000").compareTo(firstResult.getLimitPrice()));
+            assertEquals(0, new BigDecimal("71000").compareTo(secondResult.getLimitPrice()));
+
+            PaperOrderAmendment history = paperOrderAmendments
+                    .findByOrderIdAndIdempotencyKey(created.getId(), amendmentKey).orElseThrow();
+            assertEquals(2, history.getOldQuantity());
+            assertEquals(3, history.getNewQuantity());
+            assertEquals(new BigDecimal("70000.000000"), history.getOldLimitPrice());
+            assertEquals(new BigDecimal("71000.000000"), history.getNewLimitPrice());
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+            paperOrderAmendments.findByOrderIdAndIdempotencyKey(created.getId(), amendmentKey)
+                    .ifPresent(paperOrderAmendments::delete);
             paperOrderRepository.deleteById(created.getId());
         }
     }
