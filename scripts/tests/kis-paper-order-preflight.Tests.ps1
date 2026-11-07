@@ -1,5 +1,17 @@
 . (Join-Path $PSScriptRoot '../lib/kis-paper-order-preflight.ps1')
 
+Describe 'Isolated KIS PAPER lifecycle port' {
+    It 'defaults the temporary Spring API to the dedicated 18081 loopback port' {
+        $tokens = $null
+        $errors = $null
+        $scriptPath = Join-Path $PSScriptRoot '../test-kis-paper-order-lifecycle-isolated.ps1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$tokens, [ref]$errors)
+        $errors.Count | Should Be 0
+        $portParameter = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'TemporaryPort' }
+        $portParameter.DefaultValue.SafeGetValue() | Should Be 18081
+    }
+}
+
 Describe 'Domestic KIS PAPER lifecycle fail-closed guard' {
     $expected = 'Domestic PAPER cancel preflight is unsupported; no order was submitted. Use -PreflightOnly or wait until KIS documents a PAPER cancel-quantity query.'
 
