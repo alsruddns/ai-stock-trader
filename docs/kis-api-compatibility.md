@@ -11,6 +11,17 @@ Last checked: 2026-11-07 against the current examples in the official KIS reposi
 
 The official sample lists `NASD`, `NYSE`, and `AMEX` for PAPER balance lookups; REAL also lists `NAS` as a Nasdaq-only code. For REAL position counting across the US market, the sample identifies `NASD` as the all-US-exchange lookup code. A new order-risk check combines current-market and other-market snapshots and refuses buys if either is stale, malformed, or ambiguous. The application accepts the shared `NASD`, `NYSE`, and `AMEX` set for direct environment-specific lookups. The sample also notes that overseas service enrollment is required. Validate account eligibility and live response fields with the user's own read-only account before treating the integration as operationally verified.
 
+## REAL order request shape
+
+| Market | Operation | Endpoint | REAL transaction ID | Compatibility check |
+| --- | --- | --- | --- | --- |
+| Korea | Cash buy/sell | `/uapi/domestic-stock/v1/trading/order-cash` | `TTTC0012U` buy, `TTTC0011U` sell | Matches official sample's uppercase body fields and limit-order type. |
+| Korea | Cancel | `/uapi/domestic-stock/v1/trading/order-rvsecncl` | `TTTC0013U` | Runs `TTTC0084R` cancelable-order lookup first, matches symbol and broker identifiers, and only cancels the observed remaining quantity. |
+| United States | Buy/sell | `/uapi/overseas-stock/v1/trading/order` | `TTTT1002U` buy, `TTTT1006U` sell | Matches official sample for US exchanges `NASD`, `NYSE`, and `AMEX`, uppercase request fields, and limit-order type. |
+| United States | Cancel | `/uapi/overseas-stock/v1/trading/order-rvsecncl` | `TTTT1004U` | Matches official cancel path and request fields; intent is reconciled before a remaining-quantity cancellation. |
+
+This is a source-level compatibility review only. The current KIS OAuth/connection error prevents live account or order verification; no REAL order request was sent. The REAL API remains locked in local configuration.
+
 ## Read-only quote snapshots
 
 | Market | Endpoint | PAPER transaction ID | REAL transaction ID | Current implementation |
@@ -56,7 +67,9 @@ The KIS Developers portal announced that seven domestic-stock financial analysis
 - [KIS official overseas stock balance example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/overseas_stock/overseas_stock_functions.py)
 - [KIS official domestic quote example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_price/inquire_price.py)
 - [KIS official domestic revise/cancel-possible query example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_psbl_rvsecncl/inquire_psbl_rvsecncl.py)
+- [KIS official domestic cash order example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_cash/order_cash.py)
 - [KIS official domestic revise/cancel order example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_rvsecncl/order_rvsecncl.py)
+- [KIS official overseas order and cancel examples](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_ovrseastk.py)
 - [KIS official overseas quote example](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/overseas_stock/price/price.py)
 - [KIS Developers error code reference](https://apiportal.koreainvestment.com/faq-error-code)
 - [KIS Developers portal](https://apiportal.koreainvestment.com/)
