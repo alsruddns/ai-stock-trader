@@ -372,7 +372,7 @@ def test_market_candidate_route_is_read_only_and_never_returns_executable_signal
 
     monkeypatch.setattr(main, "get_kis_candidate_client", lambda _market: FakeKisClient())
     monkeypatch.setattr(
-        main, "exchange_session_window",
+        main, "exchange_continuous_session_window",
         lambda _market, now: (now - timedelta(minutes=1), now + timedelta(minutes=1)),
     )
     response = client.get(
@@ -394,7 +394,7 @@ def test_market_candidate_route_requires_turnover_threshold_and_us_exchange(monk
 
     monkeypatch.setattr(main, "get_kis_candidate_client", lambda _market: FakeKisClient())
     monkeypatch.setattr(
-        main, "exchange_session_window",
+        main, "exchange_continuous_session_window",
         lambda _market, now: (now - timedelta(minutes=1), now + timedelta(minutes=1)),
     )
     missing_threshold = client.get("/api/v1/market/candidates/KR")
@@ -405,18 +405,21 @@ def test_market_candidate_route_requires_turnover_threshold_and_us_exchange(monk
     assert missing_exchange.status_code == 422
 
 
-def test_market_candidate_route_rejects_closed_session_before_kis_call(monkeypatch) -> None:
+def test_market_candidate_route_rejects_after_continuous_session_before_kis_call(monkeypatch) -> None:
     class FakeKisClient:
         def get_ranked_candidates(self, *_args, **_kwargs):
             raise AssertionError("closed exchange must not call KIS")
 
     monkeypatch.setattr(main, "get_kis_candidate_client", lambda _market: FakeKisClient())
-    monkeypatch.setattr(main, "exchange_session_window", lambda _market, _now: None)
+    monkeypatch.setattr(
+        main, "exchange_continuous_session_window",
+        lambda _market, now: (now - timedelta(hours=1), now - timedelta(seconds=1)),
+    )
     response = client.get(
         "/api/v1/market/candidates/KR?minimum_turnover=1",
     )
     assert response.status_code == 409
-    assert response.json()["detail"] == "Candidate screening requires an open exchange session"
+    assert response.json()["detail"] == "Candidate screening requires an open continuous trading session"
 
 
 def test_us_market_candidate_screen_requires_separate_real_data_gate(monkeypatch) -> None:

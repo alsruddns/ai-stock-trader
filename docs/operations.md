@@ -46,9 +46,9 @@ Set-Location .\services\market-ai
 
 ### P3 종목 후보 발굴
 
-읽기 전용 후보 순위는 거래소 개장 중에 `GET /api/v1/market/candidates/KR?minimum_turnover=1` 또는 `GET /api/v1/market/candidates/US?exchange=NAS&minimum_turnover=1`으로 조회합니다. 국내는 KIS 거래대금순 정렬, 미국은 거래대금순 API를 사용합니다. 후보마다 현재가·거래량·거래대금·호가 스프레드를 확인하며, 호가가 없거나 매수·매도 가격이 교차하면 필터 통과로 표시하지 않습니다. 예시의 1은 호출 형식만 보여 주는 값이며 권장 투자 기준이 아닙니다. `minimum_turnover`는 KRW 또는 USD 단위로 반드시 지정해야 합니다.
+읽기 전용 후보 순위는 거래소 정규 연속매매 중에 `GET /api/v1/market/candidates/KR?minimum_turnover=1` 또는 `GET /api/v1/market/candidates/US?exchange=NAS&minimum_turnover=1`으로 조회합니다. 국내는 KIS 거래대금순 정렬, 미국은 거래대금순 API를 사용합니다. 후보마다 현재가·거래량·거래대금·호가 스프레드를 확인하며, 호가가 없거나 매수·매도 가격이 교차하면 필터 통과로 표시하지 않습니다. 예시의 1은 호출 형식만 보여 주는 값이며 권장 투자 기준이 아닙니다. `minimum_turnover`는 KRW 또는 USD 단위로 반드시 지정해야 합니다.
 
-미국 후보 조회는 `.env_local`의 `KIS_REAL_MARKET_DATA_ENABLED=true`와 REAL 시세 자격정보가 필요하며, REAL 계좌 조회 스위치와는 별개입니다. 이 설정은 기본 `false`입니다. `freshness_verified`는 항상 `false`이며 `passes_market_filter`는 거래대금·스프레드 1차 조건만 뜻합니다. `executable`도 항상 `false`입니다. 종목 구독·AI 신호·주문을 생성하지 않으며, 후보 발굴 API의 실제 KIS 환경 지원은 PAPER/REAL별 읽기 전용 확인이 별도로 필요합니다.
+미국 후보 조회는 `.env_local`의 `KIS_REAL_MARKET_DATA_ENABLED=true`와 REAL 시세 자격정보가 필요하며, REAL 계좌 조회 스위치와는 별개입니다. 이 설정은 기본 `false`입니다. `freshness_verified`는 항상 `false`이며 `passes_market_filter`는 거래대금·스프레드 1차 조건만 뜻합니다. `executable`도 항상 `false`입니다. 종목 구독·AI 신호·주문을 생성하지 않으며, 후보 발굴 API의 실제 KIS 환경 지원은 PAPER/REAL별 읽기 전용 확인이 별도로 필요합니다. KRX 종가 단일가 구간과 거래소 휴장 중에는 조회를 거부합니다.
 
 ### 국내 PAPER 취소 사전조회 점검
 

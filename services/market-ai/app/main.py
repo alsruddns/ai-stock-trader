@@ -22,7 +22,7 @@ from .ai_pipeline import LocalModelRegistry
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from .paper_ops import exchange_session_window, korean_calendar_compatibility
 from .paper_automation import PaperAutomationReadiness
-from .market_calendar import latest_closed_session_date
+from .market_calendar import exchange_continuous_session_window, latest_closed_session_date
 from .paper_runtime import paper_session_monitor
 from .session_quality import audit_minute_bar_session
 
@@ -429,11 +429,11 @@ async def screen_market_candidates(
         raise HTTPException(status_code=422, detail="KR candidates do not accept an exchange parameter")
     evaluated_at = datetime.now(timezone.utc)
     try:
-        window = exchange_session_window(market, evaluated_at)
+        window = exchange_continuous_session_window(market, evaluated_at)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="Exchange session could not be verified") from exc
     if window is None or not window[0] <= evaluated_at < window[1]:
-        raise HTTPException(status_code=409, detail="Candidate screening requires an open exchange session")
+        raise HTTPException(status_code=409, detail="Candidate screening requires an open continuous trading session")
     try:
         client = get_kis_candidate_client(market)
         candidates = await asyncio.to_thread(
