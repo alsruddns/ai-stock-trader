@@ -11,7 +11,7 @@ from pathlib import Path
 repository = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repository / "services" / "market-ai"))
 
-from app.kis import KisReadOnlyClient, KisSettings
+from app.kis import KisApiError, KisReadOnlyClient, KisSettings
 
 
 def load_local_environment() -> Path:
@@ -127,6 +127,14 @@ def main(transaction_id: str = "VTTC0084R") -> int:
         if safe_http_error:
             result["http_status"] = int(safe_http_error.group(1))
             result["broker_code"] = safe_http_error.group(2)
+        if isinstance(exception, KisApiError):
+            result["http_status"] = exception.http_status or result.get("http_status")
+            result["broker_code"] = exception.broker_code or result.get("broker_code")
+            result["response_content_type"] = exception.response_content_type
+            result["response_bytes"] = exception.response_bytes
+            result["response_fields"] = list(exception.response_fields)
+            result["response_error_category"] = exception.response_error_category
+            result["response_error_code"] = exception.response_error_code
         print(json.dumps(result, ensure_ascii=False))
         return 3
     finally:

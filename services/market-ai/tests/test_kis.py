@@ -72,6 +72,67 @@ def test_http_500_egw00201_maps_to_safe_rate_limit_error() -> None:
 
     assert "private rate detail" not in str(captured.value)
     assert "never-show" not in str(captured.value)
+    assert captured.value.http_status == 500
+    assert captured.value.broker_code == "EGW00201"
+    assert captured.value.response_content_type == "application/json"
+    client.close()
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected_content_type"),
+    [
+        ({"content-type": "text/html; charset=utf-8"}, "text/html"),
+        ({"content-type": "application/json"}, "application/json"),
+        ({"content-type": "not-a-media-type"}, None),
+    ],
+)
+def test_authentication_http_error_exposes_only_safe_response_metadata(
+    headers: dict[str, str], expected_content_type: str | None,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, headers=headers, json={
+            "error_code": "private-code", "message": "sensitive response body",
+        })
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", "1234567801",
+                    shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(KisApiError, match="HTTP 403, code unknown") as captured:
+        client._access_token()
+
+    assert captured.value.http_status == 403
+    assert captured.value.broker_code == "unknown"
+    assert captured.value.response_content_type == expected_content_type
+    assert captured.value.response_bytes > 0
+    assert captured.value.response_fields == ("error_code", "message")
+    assert "sensitive response body" not in str(captured.value)
+    assert "private-code" not in str(captured.value)
+    assert "paper-secret" not in str(captured.value)
+    client.close()
+
+
+def test_authentication_error_category_is_allowlisted_and_description_is_never_exposed() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, headers={"content-type": "application/json"}, json={
+            "error_code": "invalid_client", "error_description": "private detail and secret",
+        })
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", "1234567801",
+                    shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(KisApiError) as captured:
+        client._access_token()
+
+    assert captured.value.response_error_category == "invalid_client"
+    assert captured.value.response_error_code == "invalid_client"
+    assert "private detail" not in str(captured.value)
+    assert "paper-secret" not in str(captured.value)
     client.close()
 
 

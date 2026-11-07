@@ -33,6 +33,19 @@ OVERSEAS_MINUTE_CHART_PATH = "/uapi/overseas-price/v1/quotations/inquire-time-it
 class KisApiError(RuntimeError):
     """Safe, non-sensitive error intended for application logging/handling."""
 
+    def __init__(self, message: str, *, http_status: int | None = None,
+                 broker_code: str | None = None, response_content_type: str | None = None,
+                 response_bytes: int | None = None, response_fields: tuple[str, ...] = (),
+                 response_error_category: str | None = None, response_error_code: str | None = None):
+        super().__init__(message)
+        self.http_status = http_status
+        self.broker_code = broker_code
+        self.response_content_type = response_content_type
+        self.response_bytes = response_bytes
+        self.response_fields = response_fields
+        self.response_error_category = response_error_category
+        self.response_error_code = response_error_code
+
 
 class KisSharedRateLimitUnavailable(KisApiError):
     """KIS requests are blocked because PostgreSQL cannot reserve a shared slot."""
@@ -48,14 +61,57 @@ def _ensure_kis_http_success(response: httpx.Response, operation: str) -> None:
     code = "unknown"
     try:
         payload = response.json()
+    except (ValueError, TypeError):
+        payload = None
+    if isinstance(payload, dict):
         candidate = payload.get("msg_cd") if isinstance(payload, dict) else None
         if isinstance(candidate, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,32}", candidate):
             code = candidate
-    except (ValueError, TypeError):
-        pass
+        response_fields = tuple(
+            key for key in payload
+            if isinstance(key, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,31}", key)
+        )[:16]
+    else:
+        response_fields = ()
+    error_value = next((payload.get(key) for key in ("error_code", "error")
+                        if isinstance(payload, dict) and isinstance(payload.get(key), str)), None)
+    normalized_error = error_value.strip().lower().replace("-", "_") if error_value else ""
+    raw_error_code = payload.get("error_code") if isinstance(payload, dict) else None
+    response_error_code = (raw_error_code.strip() if isinstance(raw_error_code, str)
+                           and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", raw_error_code.strip()) else None)
+    allowed_errors = {
+        "access_denied", "forbidden", "invalid_client", "invalid_grant", "invalid_request",
+        "server_error", "temporarily_unavailable", "unauthorized_client", "unsupported_grant_type",
+    }
+    response_error_category = normalized_error if normalized_error in allowed_errors else None
     if response.status_code == 429 or code == "EGW00201":
-        raise KisRateLimitError("KIS rate limit reached; wait before requesting again.")
-    raise KisApiError(f"KIS {operation} request failed (HTTP {response.status_code}, code {code}).")
+        raise KisRateLimitError(
+            "KIS rate limit reached; wait before requesting again.",
+            http_status=response.status_code,
+            broker_code=code,
+            response_content_type=_safe_content_type(response.headers.get("content-type")),
+            response_bytes=len(response.content),
+            response_fields=response_fields,
+            response_error_category=response_error_category,
+            response_error_code=response_error_code,
+        )
+    raise KisApiError(
+        f"KIS {operation} request failed (HTTP {response.status_code}, code {code}).",
+        http_status=response.status_code,
+        broker_code=code,
+        response_content_type=_safe_content_type(response.headers.get("content-type")),
+        response_bytes=len(response.content),
+        response_fields=response_fields,
+        response_error_category=response_error_category,
+        response_error_code=response_error_code,
+    )
+
+
+def _safe_content_type(value: str | None) -> str | None:
+    if not value:
+        return None
+    media_type = value.split(";", 1)[0].strip().lower()
+    return media_type if re.fullmatch(r"[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+", media_type) else None
 
 
 @dataclass(frozen=True)
