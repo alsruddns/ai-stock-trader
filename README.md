@@ -88,21 +88,16 @@ LightGBM·XGBoost 학습용 선택 의존성은 `python -m pip install -e ".[dev
 
 퀀트 백테스트도 같은 권리 manifest가 필요하며, 예를 들어 `python .\scripts\backtest-quant.py .\data\licensed\005930.csv --market KR --symbol 005930`으로 실행합니다. CSV 내용이 바뀌어 SHA-256이 달라지면 기존 manifest는 사용할 수 없습니다.
 
-### LEAN 로컬 데이터 어댑터 (검증용)
+### LEAN 로컬 전략 백테스트
 
-`backtesting/lean/KisCsvReader`는 권리 확인된 KIS CSV를 LEAN의 로컬 custom-data reader로 전달하는 데이터 수신 점검 프로젝트입니다. 저장소의 기준 ORB/VWAP 체결·비용 백테스트는 계속 `scripts/backtest-quant.py`가 수행하며, LEAN reader는 입력 봉 수와 UTC 시작·종료 시각만 기록하고 주문은 내지 않습니다. 이 어댑터만으로 전략 성능이나 LEAN 체결 결과가 검증된 것은 아닙니다.
-
-LEAN CLI 로컬 실행에는 Docker와 QuantConnect 유료 조직 자격이 필요합니다. Docker는 Spring/Python/PostgreSQL 앱 구동에 필요하지 않으며, 아래 LEAN 작업만 사용합니다. KIS 데이터는 QuantConnect cloud로 업로드하지 말고 로컬 CLI를 사용하세요. `lean init`으로 만든 조직 작업공간의 `data` 폴더에 CSV를 준비한 뒤 프로젝트를 복사하고 실행합니다. 현재 저장소의 권리 확인 데이터는 AAPL 2026-11-06 한 세션입니다.
+`scripts/run-lean-backtest.ps1`은 권리 sidecar와 완전한 단일 세션을 검사하고, 공식 LEAN 엔진 소스와 .NET 10 SDK를 무시된 `.local/lean-toolchain`에 준비한 뒤 C# ORB/VWAP/EMA/ATR 전략을 로컬로 실행합니다. 이 Windows 네이티브 경로에는 Docker나 QuantConnect 유료 조직 계정이 필요하지 않습니다. KIS 데이터는 로컬 data folder만 사용하며 cloud로 업로드하지 않습니다. 첫 실행은 인터넷에서 Microsoft SDK 설치 스크립트, QuantConnect LEAN 소스, NuGet 패키지를 가져옵니다. 빌드·실행 기록은 `.local/logs`에 저장됩니다.
 
 ```powershell
-$leanWorkspace = Join-Path $env:USERPROFILE 'Documents\QuantConnect'
-python .\scripts\prepare-lean-data.py .\data\licensed\AAPL-2026-11-06.csv --market US --symbol AAPL --data-folder (Join-Path $leanWorkspace 'data')
-Copy-Item .\backtesting\lean\KisCsvReader (Join-Path $leanWorkspace 'KisCsvReader') -Recurse -Force
-Set-Location $leanWorkspace
-lean backtest KisCsvReader
+.\scripts\run-lean-backtest.ps1 -CsvFile .\data\licensed\AAPL-2026-11-06.csv -Market US -Symbol AAPL -Session 2026-11-06
+.\scripts\run-lean-backtest.ps1 -CsvFile .\data\backtests\kis-kr-005930-2026-10-30.csv -Market KR -Symbol 005930 -Session 2026-10-30
 ```
 
-`$leanWorkspace` 값은 `lean init`으로 만든 QuantConnect 조직 작업공간 경로에 맞추세요. LEAN의 실제 엔진 실행은 Docker 및 유료 조직 자격이 준비된 후 확인해야 합니다. 현재 호스트에는 Docker/LEAN CLI가 없어 이 단계는 아직 검증되지 않았습니다.
+실행 도구는 Python 기준 백테스트와 LEAN의 봉 수·신호·거래 수·순손익을 비교하고 차이가 1센트를 넘으면 실패합니다. 검증된 현재 표본은 미국 AAPL 2026-11-06 390봉/9신호/9거래와 국내 005930 2026-10-30 380봉/0신호/0거래입니다. 미국 한 세션의 순손익 추정은 두 엔진에서 -$7.7139928212093으로 일치했습니다. 국내 자료는 과거 스프레드가 없어 거래가 생성되지 않았습니다. 이 소수 표본은 전략 성과를 입증하지 않으며 다중 세션·AI 모델의 LEAN 통합은 계속 남아 있습니다.
 
 ```powershell
 python .\scripts\train-ai-models.py .\data\licensed\005930.csv --market KR --symbol 005930 --commission-bps 5 --slippage-bps 5
@@ -197,7 +192,7 @@ Docker를 선호하면 기존 PostgreSQL 대신 컨테이너 DB도 선택할 수
 
 - **P1 — 기반·KIS 읽기 전용 연결:** Spring REST 계좌 조회와 Python REST/WebSocket 시세 연결, Mock 검증이 구현되어 있습니다. 이전 실제 PAPER/REAL 잔고 GET은 통과했지만, 최신 2026-11-07 재점검에서는 PAPER·REAL OAuth가 모두 HTTP 403 / `EGW00002`, Spring PAPER 국내 잔고 GET이 HTTP 502 / `EGW00002`로 실패했습니다. 실제 계좌 읽기는 현재 확인되지 않았고 P1은 미완료입니다. REAL 조회와 모든 주문은 잠금 상태입니다.
 - **P2 — 주문·리스크 엔진:** PostgreSQL PAPER 주문, 부분체결, 중복 체결 방지, 현금·포지션 정산, 정정·취소·만료와 재시작 복구가 있습니다. 정정 내역은 별도 이력 테이블에 저장하며 같은 키의 반복 적용을 차단합니다. 로컬 PostgreSQL 통합 및 DB 장애 복구 검증을 통과했습니다. KIS 주문 없이 paper ledger에서 확인한 결과입니다.
-- **P3 — 전략·백테스트:** 단일 세션 ORB/VWAP/EMA/ATR 전략, 비용·슬리피지, 미래 봉 미사용을 구현했습니다. 공식 KR·US 거래소 캘린더로 정규장 시각을 검증하고, 개장부터 폐장 직전까지 끊김 없는 1분봉 전체 세션만 백테스트·학습에 사용합니다. 장전·장후, 휴장일, 개장 누락, 분봉 공백, 세션 끝 누락은 거부합니다. KIS 국내 과거 분봉 및 미국 최신 분봉 페이지의 읽기 전용 수집을 지원합니다. LEAN 로컬 custom-data 입력 어댑터를 추가했지만 엔진 실행과 전략 체결 연동은 Docker/유료 조직 자격이 없어 아직 검증되지 않았습니다. 사용자는 KIS 데이터의 로컬 저장·백테스트·학습 허용을 확인했습니다. 다중 세션 성능 재현은 남아 있습니다.
+- **P3 — 전략·백테스트:** 단일 세션 ORB/VWAP/EMA/ATR 전략, 비용·슬리피지, 미래 봉 미사용을 구현했습니다. 공식 KR·US 거래소 캘린더로 정규장 시각을 검증하고, 개장부터 폐장 직전까지 끊김 없는 1분봉 전체 세션만 백테스트·학습에 사용합니다. 장전·장후, 휴장일, 개장 누락, 분봉 공백, 세션 끝 누락은 거부합니다. KIS 국내 과거 분봉 및 미국 최신 분봉 페이지의 읽기 전용 수집을 지원합니다. 공식 LEAN 엔진 네이티브 로컬 실행과 Python 결과 대조는 KR·US 각 한 세션에서 통과했습니다. 사용자는 KIS 데이터의 로컬 저장·백테스트·학습 허용을 확인했습니다. 표본은 성능을 입증하지 않으며 다중 세션 검증은 남아 있습니다.
 - **P4 — AI 모델:** LightGBM/XGBoost 학습·추론 후보, 시간 순서 분리, 해시와 출처·권리 확인 manifest 기반 모델 등록을 구현했습니다. PAPER 주문 작업이 꺼져 있어도 읽기 전용 WebSocket 분봉을 PostgreSQL에 저장하도록 수집 경로를 수정했습니다. 미사용 세션에서 실제 P5 신호와 같은 ORB/VWAP 통과 AND AI 통과 조건을 P3 체결·손절·익절·비용 백테스트에 적용해 퀀트 단독 결과와 비교합니다. 별도로 양성률과 평균 전방 순수익률(bps)도 보이지만 이는 겹칠 수 있는 표본별 레이블 통계이며 실제 체결 성과가 아닙니다. 세션별 1주 독립 시뮬레이션은 계좌 비용·세금·시장충격이나 복리 투자 성과를 증명하지 않습니다. 권리 manifest가 없거나 CSV 해시가 다르면 학습·백테스트가 거부되고 해당 모델은 승인·활성화되지 않습니다. 모델은 기본 미승인입니다. P5는 승인·활성화된 시장 모델이 퀀트 조건과 위험 게이트를 통과할 때만 local paper 후보로 사용합니다.
 - **P5 — 자동 모의매매:** 거래소 캘린더, 실시간 틱 집계, 신규 진입 위험 게이트, 위험 예산·종목 비중·현금·주문 한도를 함께 적용하는 수량 계산, 로컬 paper 브로커 통신 경계와 ledger 기반 연속 손실 매도 주문 카운터를 구현했습니다. opt-in 세션 worker는 장 초반에 통화별 자산 기준선을 고정하고, 닫힌 세션별 분봉의 ORB/VWAP와 해당 시장의 활성·승인 AI 모델을 확인합니다. 신규 paper 매수는 일손실 1%, 연속 손실 3회, 총 보유 3종목, 최신 시세, 미체결 주문 여부와 포지션 크기 검사를 모두 통과할 때만 로컬 Spring paper ledger에 기록합니다. 보유 포지션은 영속 손절·익절과 장 마감 청산으로 관리합니다. 기본 스위치는 잠금 상태이며 연속 세션 복구와 모의 운영 검증이 남아 있습니다.
 - 일일 기준선은 Spring paper API에서 거래일·통화별 최초 값으로 고정되며 동일 값 재요청만 허용합니다. KRW와 USD 평가액은 환산 없이 각각 계산합니다. 장 시작 3분 안에 기준선을 저장하지 못하거나 보유 종목 시세가 빠지거나 지연되면 해당 통화 신규 진입을 차단합니다. 모든 신규 진입은 `PAPER_AUTOTRADING_ENABLED=true`와 paper WebSocket 설정까지 명시적으로 켜야 하며 KIS 주문 API와 연결되지 않습니다.
