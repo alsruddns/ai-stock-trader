@@ -375,6 +375,7 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str) -> None:
             "data_provenance": _provenance(dataset_sha256),
             "sessions": ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"],
             "model_artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            "threshold": 0.5,
             "evaluated_at": "2026-10-20T12:00:00+09:00",
         },
     }
@@ -720,3 +721,37 @@ def test_approved_manifest_without_durable_audit_event_cannot_be_selected_or_act
     with pytest.raises(ValueError, match="governance audit chain failed"):
         registry.approve(blocked_id, approved_by="operator", note="Approval must stop when prior audit history is damaged.")
     assert registry.manifest(blocked_id)["approved"] is False
+
+
+def test_approved_model_threshold_is_bound_to_holdout_and_audit_evidence(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "a" * 32
+    _write_candidate(registry, model_id)
+    registry.approve(model_id, approved_by="operator", note="Held-out evidence reviewed for advisory use.")
+    registry.activate(model_id, changed_by="operator", note="Approved model selected for advisory use.")
+    assert registry.active_approved_model("KR")["model_id"] == model_id
+
+    manifest_path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    metadata["threshold"] = 0.51
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
+    assert listed["approved"] is False
+    assert listed["approval_audit_verified"] is False
+    assert registry.active_approved_model("KR") is None
+
+
+@pytest.mark.parametrize("threshold", [True, -0.01, 1.01, float("nan"), "0.5"])
+def test_approval_rejects_invalid_decision_threshold(tmp_path, threshold) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "b" * 32
+    _write_candidate(registry, model_id)
+    manifest_path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    metadata["threshold"] = threshold
+    metadata["heldout_evaluation"]["threshold"] = threshold
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"threshold must be finite and within \[0, 1\]"):
+        registry.approve(model_id, approved_by="operator", note="Decision threshold requires a valid range.")

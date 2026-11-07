@@ -387,6 +387,7 @@ class LocalModelRegistry:
             "approved_at": approval.get("approved_at"),
             "dataset_sha256": metadata.get("dataset_sha256"),
             "artifact_sha256": metadata.get("artifact_sha256"),
+            "threshold": metadata.get("threshold"),
             "train_sessions": metadata.get("train_sessions"),
             "validation_sessions": metadata.get("validation_sessions"),
             "test_sessions": metadata.get("test_sessions"),
@@ -451,6 +452,14 @@ class LocalModelRegistry:
             if not isinstance(evaluation, dict):
                 return False
             if evaluation.get("model_artifact_sha256") != metadata.get("artifact_sha256"):
+                return False
+            threshold = metadata.get("threshold")
+            evaluated_threshold = evaluation.get("threshold")
+            if (isinstance(threshold, bool) or not isinstance(threshold, (int, float))
+                    or not math.isfinite(float(threshold)) or not 0 <= threshold <= 1
+                    or isinstance(evaluated_threshold, bool)
+                    or not isinstance(evaluated_threshold, (int, float))
+                    or float(evaluated_threshold) != float(threshold)):
                 return False
             validate_data_provenance(
                 evaluation.get("data_provenance"),
@@ -526,6 +535,10 @@ class LocalModelRegistry:
                 raise ValueError("model lacks verified data-rights provenance and cannot be approved")
             if not metadata.get("test_sessions") or not metadata.get("test_metrics"):
                 raise ValueError("model has no held-out test evidence and cannot be approved")
+            threshold = metadata.get("threshold")
+            if (isinstance(threshold, bool) or not isinstance(threshold, (int, float))
+                    or not math.isfinite(float(threshold)) or not 0 <= threshold <= 1):
+                raise ValueError("model decision threshold must be finite and within [0, 1]")
             session_partitions: dict[str, set[date]] = {}
             for partition_name in ("train_sessions", "validation_sessions", "test_sessions"):
                 values = metadata.get(partition_name)
@@ -575,6 +588,7 @@ class LocalModelRegistry:
                     "action": "approve", "model_id": model_id, **metadata["approval"],
                     "dataset_sha256": metadata.get("dataset_sha256"),
                     "artifact_sha256": metadata["artifact_sha256"],
+                    "threshold": metadata["threshold"],
                     "train_sessions": metadata["train_sessions"],
                     "validation_sessions": metadata["validation_sessions"],
                     "test_sessions": metadata["test_sessions"],
@@ -877,6 +891,7 @@ class LocalModelRegistry:
                 "data_provenance": provenance,
                 "sessions": list(test_dates),
                 "model_artifact_sha256": metadata["artifact_sha256"],
+                "threshold": metadata["threshold"],
                 "evaluated_at": datetime.now().astimezone().isoformat(),
             }
             validate_data_provenance(
@@ -889,6 +904,7 @@ class LocalModelRegistry:
                     "action": "evaluate_holdout", "model_id": model_id,
                     "dataset_sha256": dataset_sha256,
                     "artifact_sha256": metadata["artifact_sha256"],
+                    "threshold": metadata["threshold"],
                     "test_sessions": list(test_dates),
                     "quant_backtest_test_metrics": quant_metrics,
                     "ai_quant_backtest_test_metrics": ai_metrics,
