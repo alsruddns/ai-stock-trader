@@ -134,7 +134,8 @@ public class KisRealOrderOrchestrator {
                     realAccount == null ? null : realAccount.accountEquity(), aiEvidence.stopDistancePerShare(),
                     allMarketPositionCount, request.side() != com.aistocktrader.order.OrderSide.BUY
                     || (aiEvidence.quotePrice() != null && request.limitPrice() != null
-                    && request.limitPrice().compareTo(aiEvidence.quotePrice()) <= 0));
+                    && request.limitPrice().compareTo(aiEvidence.quotePrice()) <= 0),
+                    dailyRisk.continuousEntryWindowOpen());
         }
         KisLiveRiskDecision decision = riskGate.assess(request, exchange, realAccount, serverCheckedContext);
         KisOrderIntentStore.PreparedIntent prepared;

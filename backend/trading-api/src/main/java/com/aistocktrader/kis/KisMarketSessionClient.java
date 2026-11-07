@@ -43,14 +43,29 @@ public class KisMarketSessionClient {
                 ? Instant.parse(payload.path("open_at").asText()) : null;
         Instant closeAt = payload.path("close_at").isTextual()
                 ? Instant.parse(payload.path("close_at").asText()) : null;
+        Instant continuousOpenAt = payload.path("continuous_open_at").isTextual()
+                ? Instant.parse(payload.path("continuous_open_at").asText()) : null;
+        Instant continuousCloseAt = payload.path("continuous_close_at").isTextual()
+                ? Instant.parse(payload.path("continuous_close_at").asText()) : null;
         boolean isSession = payload.path("is_session").asBoolean();
-        if (isSession != (openAt != null && closeAt != null) || (isSession && !closeAt.isAfter(openAt))) {
+        if (isSession != (openAt != null && closeAt != null)
+                || (isSession && (!closeAt.isAfter(openAt)
+                || continuousOpenAt == null || continuousCloseAt == null
+                || continuousOpenAt.isBefore(openAt) || continuousCloseAt.isAfter(closeAt)
+                || !continuousCloseAt.isAfter(continuousOpenAt)))) {
             throw new IllegalStateException("Market session bounds are inconsistent.");
         }
         return new MarketSession(market, sessionDate, isSession,
-                payload.path("is_open").asBoolean(), openAt, closeAt, evaluatedAt);
+                payload.path("is_open").asBoolean(), openAt, closeAt,
+                continuousOpenAt, continuousCloseAt, evaluatedAt);
     }
 
     public record MarketSession(Market market, LocalDate sessionDate, boolean session,
-                                boolean open, Instant openAt, Instant closeAt, Instant evaluatedAt) { }
+                                boolean open, Instant openAt, Instant closeAt,
+                                Instant continuousOpenAt, Instant continuousCloseAt, Instant evaluatedAt) {
+        public MarketSession(Market market, LocalDate sessionDate, boolean session,
+                             boolean open, Instant openAt, Instant closeAt, Instant evaluatedAt) {
+            this(market, sessionDate, session, open, openAt, closeAt, openAt, closeAt, evaluatedAt);
+        }
+    }
 }

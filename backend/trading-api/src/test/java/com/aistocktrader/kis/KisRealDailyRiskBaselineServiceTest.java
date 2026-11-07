@@ -43,6 +43,27 @@ class KisRealDailyRiskBaselineServiceTest {
     }
 
     @Test
+    void closesRealEntryWindowAtContinuousSessionEndBeforeOfficialClose() {
+        KisMarketSessionClient sessions = mock(KisMarketSessionClient.class);
+        KisRealDailyRiskBaselineStore store = mock(KisRealDailyRiskBaselineStore.class);
+        Instant now = Instant.now();
+        LocalDate date = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+        Instant officialClose = now.plusSeconds(60);
+        when(sessions.session(Market.KR)).thenReturn(new KisMarketSessionClient.MarketSession(
+                Market.KR, date, true, true, now.minusSeconds(60), officialClose,
+                now.minusSeconds(60), now.minusSeconds(1), now));
+        when(store.equity(eq(Market.KR), eq(date), anyString()))
+                .thenReturn(Optional.of(new BigDecimal("1000000")));
+        KisRealDailyRiskBaselineService service = service(sessions, store);
+
+        var risk = service.riskInputs(Market.KR, account(new BigDecimal("990000"), now));
+
+        assertTrue(risk.marketOpen());
+        assertFalse(risk.continuousEntryWindowOpen());
+        assertEquals(new BigDecimal("1.00000000"), risk.dailyLossPercent());
+    }
+
+    @Test
     void missingBaselineStaleCalendarOrUnknownUsEquityFailClosed() {
         KisMarketSessionClient sessions = mock(KisMarketSessionClient.class);
         KisRealDailyRiskBaselineStore store = mock(KisRealDailyRiskBaselineStore.class);

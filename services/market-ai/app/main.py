@@ -316,9 +316,11 @@ def market_session_status(market: Market = Path()) -> dict[str, object]:
     zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
     try:
         window = exchange_session_window(market, now)
+        continuous_window = exchange_continuous_session_window(market, now)
     except RuntimeError:
         raise HTTPException(status_code=503, detail="Market calendar could not verify this session")
     opened, closed = window if window else (None, None)
+    continuous_opened, continuous_closed = continuous_window if continuous_window else (None, None)
     return {
         "market": market,
         "session_date": now.astimezone(zone).date().isoformat(),
@@ -326,6 +328,8 @@ def market_session_status(market: Market = Path()) -> dict[str, object]:
         "is_open": bool(window and opened <= now < closed),
         "open_at": opened.isoformat() if opened else None,
         "close_at": closed.isoformat() if closed else None,
+        "continuous_open_at": continuous_opened.isoformat() if continuous_opened else None,
+        "continuous_close_at": continuous_closed.isoformat() if continuous_closed else None,
         "evaluated_at": now.isoformat(),
     }
 
@@ -339,11 +343,13 @@ def latest_closed_market_session_status(market: Market = Path()) -> dict[str, ob
         session_day = latest_closed_session_date(market, now)
         noon = datetime.combine(session_day, time(hour=12), tzinfo=zone)
         window = exchange_session_window(market, noon)
+        continuous_window = exchange_continuous_session_window(market, noon)
     except RuntimeError:
         raise HTTPException(status_code=503, detail="Latest closed market session could not be verified")
-    if window is None:
+    if window is None or continuous_window is None:
         raise HTTPException(status_code=503, detail="Latest closed market session could not be verified")
     opened, closed = window
+    continuous_opened, continuous_closed = continuous_window
     return {
         "market": market,
         "session_date": session_day.isoformat(),
@@ -351,6 +357,8 @@ def latest_closed_market_session_status(market: Market = Path()) -> dict[str, ob
         "is_open": False,
         "open_at": opened.isoformat(),
         "close_at": closed.isoformat(),
+        "continuous_open_at": continuous_opened.isoformat(),
+        "continuous_close_at": continuous_closed.isoformat(),
         "evaluated_at": now.isoformat(),
     }
 

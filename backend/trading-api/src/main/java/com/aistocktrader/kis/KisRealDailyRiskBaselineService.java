@@ -99,24 +99,33 @@ public class KisRealDailyRiskBaselineService {
             KisMarketSessionClient.MarketSession session = sessions.session(market);
             Instant now = Instant.now();
             if (!freshSession(session, market, now) || !session.session() || !validAccount(current, market, now)) {
-                return new RiskInputs(false, null);
+                return new RiskInputs(false, false, null);
             }
             boolean marketOpen = session.open() && session.openAt() != null && session.closeAt() != null
                     && !now.isBefore(session.openAt()) && now.isBefore(session.closeAt());
+            boolean continuousEntryWindowOpen = marketOpen && session.continuousOpenAt() != null
+                    && session.continuousCloseAt() != null && !now.isBefore(session.continuousOpenAt())
+                    && now.isBefore(session.continuousCloseAt());
             Optional<BigDecimal> baseline = baselines.equity(market, session.sessionDate(), accountFingerprint());
             if (baseline.isEmpty() || baseline.get().signum() <= 0 || current.accountEquity() == null
-                    || current.accountEquity().signum() <= 0) return new RiskInputs(marketOpen, null);
+                    || current.accountEquity().signum() <= 0) {
+                return new RiskInputs(marketOpen, continuousEntryWindowOpen, null);
+            }
             BigDecimal loss = baseline.get().subtract(current.accountEquity())
                     .multiply(new BigDecimal("100")).divide(baseline.get(), 8, java.math.RoundingMode.HALF_UP);
-            return new RiskInputs(marketOpen, loss.max(BigDecimal.ZERO));
+            return new RiskInputs(marketOpen, continuousEntryWindowOpen, loss.max(BigDecimal.ZERO));
         } catch (RuntimeException exception) {
             log.warn("KIS REAL daily risk baseline unavailable for {} ({})",
                     market, exception.getClass().getSimpleName());
-            return new RiskInputs(false, null);
+            return new RiskInputs(false, false, null);
         }
     }
 
-    public record RiskInputs(boolean marketOpen, BigDecimal dailyLossPercent) { }
+    public record RiskInputs(boolean marketOpen, boolean continuousEntryWindowOpen, BigDecimal dailyLossPercent) {
+        public RiskInputs(boolean marketOpen, BigDecimal dailyLossPercent) {
+            this(marketOpen, marketOpen, dailyLossPercent);
+        }
+    }
 
     static boolean freshSession(KisMarketSessionClient.MarketSession session, Market market, Instant now) {
         if (session == null || session.market() != market || session.sessionDate() == null

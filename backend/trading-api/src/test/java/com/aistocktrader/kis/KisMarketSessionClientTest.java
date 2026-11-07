@@ -25,7 +25,10 @@ class KisMarketSessionClientTest {
                 .andRespond(withSuccess("""
                         {"market":"KR","session_date":"2026-11-09","is_session":true,
                          "is_open":true,"open_at":"2026-11-09T00:00:00Z",
-                         "close_at":"2026-11-09T06:30:00Z","evaluated_at":"2026-11-09T00:01:00Z"}
+                         "close_at":"2026-11-09T06:30:00Z",
+                         "continuous_open_at":"2026-11-09T00:00:00Z",
+                         "continuous_close_at":"2026-11-09T06:20:00Z",
+                         "evaluated_at":"2026-11-09T00:01:00Z"}
                         """, MediaType.APPLICATION_JSON));
 
         KisMarketSessionClient.MarketSession session = client.session(Market.KR);
@@ -35,6 +38,7 @@ class KisMarketSessionClientTest {
         assertTrue(session.session());
         assertTrue(session.open());
         assertEquals(Instant.parse("2026-11-09T00:00:00Z"), session.openAt());
+        assertEquals(Instant.parse("2026-11-09T06:20:00Z"), session.continuousCloseAt());
         server.verify();
     }
 
@@ -47,7 +51,10 @@ class KisMarketSessionClientTest {
                 .andRespond(withSuccess("""
                         {"market":"US","session_date":"2026-11-06","is_session":true,
                          "is_open":false,"open_at":"2026-11-06T13:30:00Z",
-                         "close_at":"2026-11-06T20:00:00Z","evaluated_at":"2026-11-09T00:10:00Z"}
+                         "close_at":"2026-11-06T20:00:00Z",
+                         "continuous_open_at":"2026-11-06T13:30:00Z",
+                         "continuous_close_at":"2026-11-06T20:00:00Z",
+                         "evaluated_at":"2026-11-09T00:10:00Z"}
                         """, MediaType.APPLICATION_JSON));
 
         KisMarketSessionClient.MarketSession session = client.latestClosedSession(Market.US);

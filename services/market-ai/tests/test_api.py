@@ -56,7 +56,10 @@ def test_market_session_endpoint_reports_calendar_verified_open_window(monkeypat
     from datetime import timedelta
 
     now = datetime.now(timezone.utc)
-    monkeypatch.setattr(main, "exchange_session_window", lambda _market, _now: (now - timedelta(minutes=30), now + timedelta(hours=1)))
+    window = (now - timedelta(minutes=30), now + timedelta(hours=1))
+    continuous = (window[0], window[1] - timedelta(minutes=10))
+    monkeypatch.setattr(main, "exchange_session_window", lambda _market, _now: window)
+    monkeypatch.setattr(main, "exchange_continuous_session_window", lambda _market, _now: continuous)
     response = client.get("/api/v1/market/sessions/KR")
     assert response.status_code == 200
     body = response.json()
@@ -65,17 +68,22 @@ def test_market_session_endpoint_reports_calendar_verified_open_window(monkeypat
     assert body["is_open"] is True
     assert body["open_at"] is not None
     assert body["close_at"] is not None
+    assert body["continuous_open_at"] == continuous[0].isoformat()
+    assert body["continuous_close_at"] == continuous[1].isoformat()
     assert body["evaluated_at"].endswith("+00:00")
 
 
 def test_market_session_endpoint_reports_exchange_holiday(monkeypatch) -> None:
     monkeypatch.setattr(main, "exchange_session_window", lambda _market, _now: None)
+    monkeypatch.setattr(main, "exchange_continuous_session_window", lambda _market, _now: None)
     response = client.get("/api/v1/market/sessions/US")
     assert response.status_code == 200
     assert response.json()["is_session"] is False
     assert response.json()["is_open"] is False
     assert response.json()["open_at"] is None
     assert response.json()["close_at"] is None
+    assert response.json()["continuous_open_at"] is None
+    assert response.json()["continuous_close_at"] is None
 
 
 def test_market_session_endpoint_fails_closed_when_calendar_unavailable(monkeypatch) -> None:
@@ -83,6 +91,7 @@ def test_market_session_endpoint_fails_closed_when_calendar_unavailable(monkeypa
         raise RuntimeError("calendar unavailable")
 
     monkeypatch.setattr(main, "exchange_session_window", unavailable)
+    monkeypatch.setattr(main, "exchange_continuous_session_window", unavailable)
     response = client.get("/api/v1/market/sessions/KR")
     assert response.status_code == 503
     assert response.json()["detail"] == "Market calendar could not verify this session"
@@ -103,6 +112,8 @@ def test_latest_closed_session_endpoint_returns_last_verified_exchange_session(m
         return opened, closed
 
     monkeypatch.setattr(main, "exchange_session_window", session_window)
+    continuous = (opened, closed - timedelta(minutes=10))
+    monkeypatch.setattr(main, "exchange_continuous_session_window", lambda _market, _at: continuous)
     response = client.get("/api/v1/market/sessions/US/latest-closed")
 
     assert response.status_code == 200
@@ -114,6 +125,8 @@ def test_latest_closed_session_endpoint_returns_last_verified_exchange_session(m
     assert body["is_open"] is False
     assert body["open_at"] == opened.isoformat()
     assert body["close_at"] == closed.isoformat()
+    assert body["continuous_open_at"] == continuous[0].isoformat()
+    assert body["continuous_close_at"] == continuous[1].isoformat()
     assert datetime.fromisoformat(body["evaluated_at"]).tzinfo is not None
 
 

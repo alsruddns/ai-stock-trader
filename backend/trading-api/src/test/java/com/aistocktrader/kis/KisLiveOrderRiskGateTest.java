@@ -182,6 +182,24 @@ class KisLiveOrderRiskGateTest {
     }
 
     @Test
+    void closingAuctionStopsNewBuysButKeepsProtectiveSellsAvailable() {
+        KisLiveRiskContext closingAuction = new KisLiveRiskContext(true, true, true, true, false,
+                BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"), 0, true, false);
+        KisAccountSnapshot.Position held = new KisAccountSnapshot.Position("005930", "Samsung",
+                BigDecimal.ONE, BigDecimal.ONE, new BigDecimal("70000"), new BigDecimal("70000"),
+                new BigDecimal("70000"), BigDecimal.ZERO, BigDecimal.ZERO);
+
+        KisLiveRiskDecision buy = gate.assess(buy("005930", 1, "70000"), null,
+                account(KisEnvironment.REAL, "KRW", "100000", List.of()), closingAuction);
+        KisLiveRiskDecision sell = gate.assess(sell(1), null,
+                account(KisEnvironment.REAL, "KRW", "0", List.of(held)), closingAuction);
+
+        assertFalse(buy.approved());
+        assertTrue(buy.reasons().contains("CONTINUOUS_SESSION_CLOSED"));
+        assertTrue(sell.approved());
+    }
+
+    @Test
     void paperAccountSnapshotAndStaleAccountBlockLiveAssessment() {
         KisLiveRiskContext healthy = new KisLiveRiskContext(true, true, true, true, false,
                 BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"), 0);

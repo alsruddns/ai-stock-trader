@@ -12,7 +12,8 @@ record KisLiveRiskContext(boolean approvedModelCandidate, boolean quoteFresh,
                           BigDecimal dailyLossPercent, int consecutiveLosingTrades,
                           BigDecimal accountEquity, BigDecimal stopDistancePerShare,
                           Integer totalOpenPositionsAcrossMarkets,
-                          boolean buyLimitPriceWithinLatestQuote) {
+                          boolean buyLimitPriceWithinLatestQuote,
+                          boolean continuousEntryWindowOpen) {
     KisLiveRiskContext(boolean approvedModelCandidate, boolean quoteFresh,
                        boolean accountSnapshotFresh, boolean marketOpen,
                        boolean unresolvedOrderExists, BigDecimal dailyLossPercent,
@@ -20,6 +21,17 @@ record KisLiveRiskContext(boolean approvedModelCandidate, boolean quoteFresh,
                        BigDecimal stopDistancePerShare, Integer totalOpenPositionsAcrossMarkets) {
         this(approvedModelCandidate, quoteFresh, accountSnapshotFresh, marketOpen, unresolvedOrderExists,
                 dailyLossPercent, consecutiveLosingTrades, accountEquity, stopDistancePerShare,
-                totalOpenPositionsAcrossMarkets, true);
+                totalOpenPositionsAcrossMarkets, true, true);
+    }
+
+    KisLiveRiskContext(boolean approvedModelCandidate, boolean quoteFresh,
+                       boolean accountSnapshotFresh, boolean marketOpen,
+                       boolean unresolvedOrderExists, BigDecimal dailyLossPercent,
+                       int consecutiveLosingTrades, BigDecimal accountEquity,
+                       BigDecimal stopDistancePerShare, Integer totalOpenPositionsAcrossMarkets,
+                       boolean buyLimitPriceWithinLatestQuote) {
+        this(approvedModelCandidate, quoteFresh, accountSnapshotFresh, marketOpen, unresolvedOrderExists,
+                dailyLossPercent, consecutiveLosingTrades, accountEquity, stopDistancePerShare,
+                totalOpenPositionsAcrossMarkets, buyLimitPriceWithinLatestQuote, true);
     }
 }
