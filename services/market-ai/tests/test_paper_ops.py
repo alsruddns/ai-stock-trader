@@ -144,6 +144,18 @@ def test_non_positive_signal_bar_age_limit_fails_closed() -> None:
         PaperOpsLimits(max_signal_bar_age_seconds=0)
 
 
+@pytest.mark.parametrize("override", [
+    {"max_daily_loss_pct": Decimal("1.01")},
+    {"max_position_equity_pct": Decimal("10.01")},
+    {"trade_risk_equity_pct": Decimal("0.26")},
+    {"max_open_positions": 4},
+    {"max_consecutive_losses": 4},
+])
+def test_paper_risk_limits_reject_overrides_above_approved_guardrails(override) -> None:
+    with pytest.raises(ValueError, match="cannot exceed the approved initial trading limits"):
+        PaperOpsLimits(**override)
+
+
 def test_paper_exit_uses_stop_first_and_worse_open_for_gaps() -> None:
     at = datetime(2026, 11, 5, 10, 0, tzinfo=timezone.utc)
     both_touched = MinuteBar(at, Decimal("100"), Decimal("105"), Decimal("95"), Decimal("102"), 1000, Decimal("5"))

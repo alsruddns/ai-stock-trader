@@ -17,14 +17,14 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 class KisLiveOrderSizingServiceTest {
     @Test
     void capsProposedQuantityAtThePerTradeRiskBudget() {
-        KisLiveOrderSizingService sizing = sizing("100000000", "100.00");
-        OrderRequest request = buy(1000, "10000");
+        KisLiveOrderSizingService sizing = sizing("100000000", "10.00");
+        OrderRequest request = buy(1000, "1000");
 
         OrderRequest result = sizing.capBuyQuantity(request, account("1000000", "1000000", List.of()),
                 new BigDecimal("100"));
 
         assertEquals(25, result.quantity());
-        assertEquals("10000", result.limitPrice().toPlainString());
+        assertEquals("1000", result.limitPrice().toPlainString());
         assertEquals("model.v1", result.modelId());
     }
 
@@ -49,7 +49,7 @@ class KisLiveOrderSizingServiceTest {
 
     @Test
     void capsAtConfiguredPerOrderNotional() {
-        OrderRequest result = sizing("5000", "100.00").capBuyQuantity(buy(100, "1000"),
+        OrderRequest result = sizing("5000", "10.00").capBuyQuantity(buy(100, "1000"),
                 account("1000000", "1000000", List.of()), new BigDecimal("100"));
 
         assertEquals(5, result.quantity());

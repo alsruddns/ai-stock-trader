@@ -48,10 +48,13 @@ class PaperOpsLimits:
         if min(self.max_quote_age_seconds, self.max_signal_bar_age_seconds,
                self.max_open_positions, self.max_consecutive_losses) <= 0:
             raise ValueError("paper operation limits must be positive")
-        if (self.max_daily_loss_pct <= 0 or self.max_position_equity_pct <= 0
-                or self.trade_risk_equity_pct <= 0 or self.atr_stop_multiple <= 0
+        if (self.max_daily_loss_pct <= 0 or self.max_daily_loss_pct > Decimal("1.00")
+                or self.max_position_equity_pct <= 0 or self.max_position_equity_pct > Decimal("10.00")
+                or self.trade_risk_equity_pct <= 0 or self.trade_risk_equity_pct > Decimal("0.25")
+                or self.max_open_positions > 3 or self.max_consecutive_losses > 3
+                or self.atr_stop_multiple <= 0
                 or self.flatten_before_close_minutes < 0):
-            raise ValueError("paper operation risk limits are invalid")
+            raise ValueError("paper operation limits cannot exceed the approved initial trading limits")
 
 
 @dataclass(frozen=True)
