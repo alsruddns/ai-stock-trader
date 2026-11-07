@@ -79,18 +79,35 @@ class KisOrderIntentPostgresIntegrationTest {
             entityManager.clear();
 
             KisOrderIntent persisted = kisOrderRepository.findById(key).orElseThrow();
-            persisted.reconcile(2, 2, new BigDecimal("104.500000"), false, false);
+            persisted.reconcile(2, 0, new BigDecimal("104.500000"), true, false);
             entityManager.flush();
             entityManager.clear();
             KisOrderIntent reloaded = kisOrderRepository.findById(key).orElseThrow();
 
             assertEquals(KisEnvironment.REAL, reloaded.getEnvironment());
+            assertEquals(KisRealExitStatus.ARMED, reloaded.getRealExitStatus());
             assertEquals(new BigDecimal("4.000000"), reloaded.getExitStopDistancePerShare());
             assertEquals(new BigDecimal("2.0000"), reloaded.getExitRewardRiskMultiple());
             assertEquals(new BigDecimal("100.500000"), reloaded.getExitStopPrice());
             assertEquals(0, reloaded.getExitTargetPrice().compareTo(new BigDecimal("112.500000")));
             assertEquals(List.of(key), kisOrderRepository.findExitManagedRealBuyCandidates(
                             KisEnvironment.REAL, Market.US, "aapl").stream()
+                    .map(KisOrderIntent::getIdempotencyKey).toList());
+
+            assertEquals(0, kisOrderRepository.claimRealExit(key, UUID.randomUUID(), "STOP_LOSS", 3,
+                    new BigDecimal("100.500000")));
+            UUID exitOrderKey = UUID.randomUUID();
+            assertEquals(1, kisOrderRepository.claimRealExit(key, exitOrderKey, "STOP_LOSS", 2,
+                    new BigDecimal("100.500000")));
+            assertEquals(0, kisOrderRepository.claimRealExit(key, UUID.randomUUID(), "STOP_LOSS", 2,
+                    new BigDecimal("100.500000")));
+            KisOrderIntent claimed = kisOrderRepository.findById(key).orElseThrow();
+            assertEquals(KisRealExitStatus.EXIT_PENDING, claimed.getRealExitStatus());
+            assertEquals(exitOrderKey, claimed.getRealExitOrderKey());
+            assertEquals(2, claimed.getRealExitQuantity());
+            assertEquals(new BigDecimal("100.500000"), claimed.getRealExitLimitPrice());
+            assertEquals(List.of(key), kisOrderRepository.findExitManagedRealBuyCandidates(
+                            KisEnvironment.REAL, Market.US, "AAPL").stream()
                     .map(KisOrderIntent::getIdempotencyKey).toList());
         } finally {
             kisOrderRepository.deleteById(key);

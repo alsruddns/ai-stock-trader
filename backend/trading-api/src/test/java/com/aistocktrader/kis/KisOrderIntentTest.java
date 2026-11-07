@@ -50,17 +50,21 @@ class KisOrderIntentTest {
     @Test
     void realBuyExitThresholdsAreDerivedFromPersistedPlanAndObservedAverageFill() {
         KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL,
-                new OrderRequest(Market.US, "AAPL", OrderSide.BUY, 3,
+                new OrderRequest(Market.US, "AAPL", OrderSide.BUY, 4,
                         new BigDecimal("105"), Currency.USD, "ORB_VWAP", "model-1"), "NASD",
                 new BigDecimal("4"), new BigDecimal("2"));
 
+        assertEquals(KisRealExitStatus.WAITING_FOR_ENTRY, intent.getRealExitStatus());
         assertEquals(new BigDecimal("4"), intent.getExitStopDistancePerShare());
         assertEquals(new BigDecimal("2"), intent.getExitRewardRiskMultiple());
         assertNull(intent.getExitStopPrice());
         assertNull(intent.getExitTargetPrice());
 
-        intent.reconcile(2, 1, new BigDecimal("104.500000"), false, false);
+        intent.reconcile(2, 2, new BigDecimal("104.500000"), false, false);
+        assertEquals(KisRealExitStatus.WAITING_FOR_ENTRY, intent.getRealExitStatus());
+        intent.reconcile(4, 0, new BigDecimal("104.500000"), false, false);
 
+        assertEquals(KisRealExitStatus.ARMED, intent.getRealExitStatus());
         assertEquals(new BigDecimal("100.500000"), intent.getExitStopPrice());
         assertEquals(new BigDecimal("112.500000"), intent.getExitTargetPrice());
     }
@@ -82,5 +86,18 @@ class KisOrderIntentTest {
                 new OrderRequest(Market.KR, "005930", OrderSide.SELL, 1,
                         new BigDecimal("100"), Currency.KRW), null,
                 new BigDecimal("5"), new BigDecimal("2")));
+    }
+
+    @Test
+    void rejectedEntryClosesItsUnusedProtectivePlan() {
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                        new BigDecimal("100"), Currency.KRW), null,
+                new BigDecimal("5"), new BigDecimal("2"));
+
+        intent.reject("RISK_BLOCKED");
+
+        assertEquals(KisOrderStatus.REJECTED, intent.getStatus());
+        assertEquals(KisRealExitStatus.CLOSED, intent.getRealExitStatus());
     }
 }

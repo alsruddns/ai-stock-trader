@@ -58,6 +58,16 @@ public class KisOrderIntent {
     private BigDecimal exitStopDistancePerShare;
     @Column(name = "exit_reward_risk_multiple", precision = 10, scale = 4)
     private BigDecimal exitRewardRiskMultiple;
+    @Enumerated(EnumType.STRING) @Column(name = "real_exit_status", nullable = false, length = 24)
+    private KisRealExitStatus realExitStatus = KisRealExitStatus.NOT_APPLICABLE;
+    @Column(name = "real_exit_reason", length = 24)
+    private String realExitReason;
+    @Column(name = "real_exit_order_key")
+    private UUID realExitOrderKey;
+    @Column(name = "real_exit_quantity")
+    private Integer realExitQuantity;
+    @Column(name = "real_exit_limit_price", precision = 20, scale = 6)
+    private BigDecimal realExitLimitPrice;
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
     @Column(name = "updated_at", nullable = false)
@@ -91,6 +101,7 @@ public class KisOrderIntent {
             }
             this.exitStopDistancePerShare = exitStopDistancePerShare;
             this.exitRewardRiskMultiple = exitRewardRiskMultiple;
+            this.realExitStatus = KisRealExitStatus.WAITING_FOR_ENTRY;
         }
         filledQuantity = 0; remainingQuantity = request.quantity();
         status = KisOrderStatus.SUBMITTING; createdAt = Instant.now(); updatedAt = createdAt;
@@ -122,7 +133,13 @@ public class KisOrderIntent {
         brokerResponseCode = "0"; // Clear a prior cancel rejection before starting a new attempt.
         updatedAt = Instant.now();
     }
-    public void reject(String code) { status = KisOrderStatus.REJECTED; brokerResponseCode = code; updatedAt = Instant.now(); }
+    public void reject(String code) {
+        status = KisOrderStatus.REJECTED;
+        brokerResponseCode = code;
+        if (realExitStatus == KisRealExitStatus.WAITING_FOR_ENTRY
+                && (filledQuantity == null || filledQuantity == 0)) realExitStatus = KisRealExitStatus.CLOSED;
+        updatedAt = Instant.now();
+    }
     public void reconcile(int filled, int remaining, BigDecimal averagePrice, boolean cancelled, boolean rejected) {
         if (filled < 0 || remaining < 0 || filled > quantity || filled + remaining > quantity) return;
         if (filledQuantity != null && filled < filledQuantity) return;
@@ -132,6 +149,10 @@ public class KisOrderIntent {
         filledQuantity = filled;
         remainingQuantity = remaining;
         averageFillPrice = averagePrice;
+        if (exitStopDistancePerShare != null && realExitStatus == KisRealExitStatus.WAITING_FOR_ENTRY) {
+            if (filled == 0 && (rejected || cancelled)) realExitStatus = KisRealExitStatus.CLOSED;
+            else if (filled > 0 && remaining == 0) realExitStatus = KisRealExitStatus.ARMED;
+        }
         if (rejected && filled == 0) status = KisOrderStatus.REJECTED;
         else if (filled == quantity) status = KisOrderStatus.FILLED;
         else if (cancelled && remaining == 0) status = KisOrderStatus.CANCELLED;
@@ -168,6 +189,11 @@ public class KisOrderIntent {
     public BigDecimal getAverageFillPrice() { return averageFillPrice; }
     public BigDecimal getExitStopDistancePerShare() { return exitStopDistancePerShare; }
     public BigDecimal getExitRewardRiskMultiple() { return exitRewardRiskMultiple; }
+    public KisRealExitStatus getRealExitStatus() { return realExitStatus; }
+    public String getRealExitReason() { return realExitReason; }
+    public UUID getRealExitOrderKey() { return realExitOrderKey; }
+    public Integer getRealExitQuantity() { return realExitQuantity; }
+    public BigDecimal getRealExitLimitPrice() { return realExitLimitPrice; }
     public BigDecimal getExitStopPrice() {
         return averageFillPrice == null || exitStopDistancePerShare == null
                 ? null : averageFillPrice.subtract(exitStopDistancePerShare);

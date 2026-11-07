@@ -24,7 +24,7 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
             KisEnvironment environment, com.aistocktrader.order.Market market,
             Collection<KisOrderStatus> statuses, UUID idempotencyKey);
 
-    /** Restart recovery lookup for REAL BUY plans whose broker has confirmed at least one share. */
+    /** Restart recovery lookup for REAL BUY plans whose broker confirmed the entry is no longer open. */
     @Query("""
             select intent from KisOrderIntent intent
              where intent.environment = :environment
@@ -34,11 +34,60 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
                and intent.exitStopDistancePerShare is not null
                and intent.exitRewardRiskMultiple is not null
                and intent.filledQuantity > 0
+               and intent.realExitStatus in (com.aistocktrader.kis.KisRealExitStatus.ARMED,
+                                               com.aistocktrader.kis.KisRealExitStatus.EXIT_PENDING)
              order by intent.updatedAt asc
             """)
     List<KisOrderIntent> findExitManagedRealBuyCandidates(@Param("environment") KisEnvironment environment,
                                                            @Param("market") com.aistocktrader.order.Market market,
                                                            @Param("symbol") String symbol);
+
+    /** Claims exactly one protective sell attempt before any external order request. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Transactional
+    @Query(value = """
+            UPDATE kis_order_intent
+               SET real_exit_status = 'EXIT_PENDING',
+                   real_exit_reason = :reason,
+                   real_exit_order_key = :exitOrderKey,
+                   real_exit_quantity = :quantity,
+                   real_exit_limit_price = :limitPrice,
+                   updated_at = CURRENT_TIMESTAMP
+             WHERE idempotency_key = :entryOrderKey
+               AND environment = 'REAL' AND side = 'BUY'
+               AND real_exit_status = 'ARMED'
+               AND filled_quantity > 0
+               AND :quantity > 0 AND :quantity <= filled_quantity
+               AND :limitPrice > 0
+               AND :reason IN ('STOP_LOSS', 'TAKE_PROFIT', 'SESSION_END')
+            """, nativeQuery = true)
+    int claimRealExit(@Param("entryOrderKey") UUID entryOrderKey,
+                      @Param("exitOrderKey") UUID exitOrderKey,
+                      @Param("reason") String reason,
+                      @Param("quantity") int quantity,
+                      @Param("limitPrice") java.math.BigDecimal limitPrice);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Transactional
+    @Query(value = """
+            UPDATE kis_order_intent
+               SET real_exit_status = 'MANUAL_REVIEW', updated_at = CURRENT_TIMESTAMP
+             WHERE idempotency_key = :entryOrderKey
+               AND environment = 'REAL' AND side = 'BUY'
+               AND real_exit_status = 'ARMED'
+            """, nativeQuery = true)
+    int markRealExitManualReview(@Param("entryOrderKey") UUID entryOrderKey);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Transactional
+    @Query(value = """
+            UPDATE kis_order_intent
+               SET real_exit_status = 'CLOSED', updated_at = CURRENT_TIMESTAMP
+             WHERE idempotency_key = :entryOrderKey
+               AND environment = 'REAL' AND side = 'BUY'
+               AND real_exit_status IN ('ARMED', 'EXIT_PENDING')
+            """, nativeQuery = true)
+    int closeRealExitPlan(@Param("entryOrderKey") UUID entryOrderKey);
 
     @Modifying
     @Transactional
