@@ -14,6 +14,7 @@ from app.paper_automation import PaperAutoTrader
 from app.paper_ops import PaperOpsLimits
 from app.market_stream import MinuteBarAggregator
 from app.quant import MinuteBar
+from app.real_signal_orders import RealSignalOrderOutcomeUnknown, real_signal_idempotency_key
 
 
 def test_watchlist_normalizes_and_deduplicates_valid_symbols() -> None:
@@ -504,6 +505,185 @@ def test_live_mode_blocks_paper_session_monitor(monkeypatch) -> None:
 
     assert runtime.status()["state"] == "BLOCKED"
     assert runtime.status()["last_error"] == "PAPER_MODE_REQUIRED"
+
+
+def test_real_signal_monitor_requires_its_own_opt_in(monkeypatch) -> None:
+    monkeypatch.setenv("TRADING_MODE", "real")
+    monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
+    monkeypatch.setenv("REAL_SIGNAL_MONITOR_ENABLED", "false")
+    runtime = PaperSessionFeedMonitor()
+
+    asyncio.run(runtime.start())
+
+    assert runtime.status()["state"] == "DISABLED"
+    assert runtime._real_signal_queue is None
+    assert runtime._real_signal_task is None
+
+
+def test_real_signal_monitor_uses_real_feed_for_both_markets_without_order_gates(monkeypatch) -> None:
+    monkeypatch.setenv("TRADING_MODE", "real")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("REAL_SIGNAL_MONITOR_ENABLED", "true")
+    monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "false")
+    monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
+    monkeypatch.setenv("KIS_REAL_APP_KEY", "real-key")
+    monkeypatch.setenv("KIS_REAL_APP_SECRET", "real-secret")
+    monkeypatch.setenv("KIS_REAL_ACCOUNT_NUMBER", "1234567801")
+    monkeypatch.setenv("PAPER_WATCHLIST", "KR:005930;US:AAPL:NAS")
+    for name in (
+        "KIS_REAL_ORDERS_ENABLED", "KIS_ACCOUNT_READ_ENABLED", "KIS_REAL_ACCOUNT_READ_ENABLED",
+        "REAL_PROTECTIVE_EXIT_MANAGER_ENABLED", "KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED",
+        "KIS_REAL_RECONCILIATION_ENABLED", "REAL_SIGNAL_SUBMISSION_ENABLED",
+    ):
+        monkeypatch.setenv(name, "false")
+    runtime = PaperSessionFeedMonitor()
+    feeds = []
+
+    async def hold_feed(watches, settings):
+        feeds.append((tuple(watches), settings.kis.environment))
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(runtime, "_run", hold_feed)
+
+    async def scenario():
+        await runtime.start()
+        await asyncio.sleep(0)
+        status = runtime.status()
+        await runtime.stop()
+        return status
+
+    status = asyncio.run(scenario())
+
+    assert len(feeds) == 1
+    assert {watch.market for watch in feeds[0][0]} == {"KR", "US"}
+    assert feeds[0][1] == "real"
+    assert status["mode"] == "REAL_SIGNAL"
+    assert status["real_signal_state"] == "LOCKED_BY_SAFETY_GATES"
+    assert status["orders_enabled"] is False
+    assert runtime._real_signal_client is None
+
+
+def test_real_signal_submission_stays_locked_without_real_rest_evidence_settings(monkeypatch) -> None:
+    monkeypatch.setenv("TRADING_MODE", "real")
+    monkeypatch.setenv("REAL_SIGNAL_MONITOR_ENABLED", "true")
+    monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
+    monkeypatch.setenv("KIS_REAL_APP_KEY", "real-key")
+    monkeypatch.setenv("KIS_REAL_APP_SECRET", "real-secret")
+    monkeypatch.setenv("KIS_REAL_ACCOUNT_NUMBER", "1234567801")
+    monkeypatch.setenv("PAPER_WATCHLIST", "KR:005930")
+    monkeypatch.setenv("KIS_ENVIRONMENT", "paper")
+    monkeypatch.setenv("KIS_MARKET_DATA_ENABLED", "false")
+    monkeypatch.setattr("app.paper_runtime.snapshot_store.enabled", lambda: True)
+    for name in (
+        "LIVE_TRADING_ENABLED", "KIS_REAL_ORDERS_ENABLED", "KIS_ACCOUNT_READ_ENABLED",
+        "KIS_REAL_ACCOUNT_READ_ENABLED", "REAL_PROTECTIVE_EXIT_MANAGER_ENABLED",
+        "KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED", "KIS_REAL_RECONCILIATION_ENABLED",
+        "REAL_SIGNAL_SUBMISSION_ENABLED",
+    ):
+        monkeypatch.setenv(name, "true")
+    runtime = PaperSessionFeedMonitor()
+
+    async def hold_feed(_watches, _settings):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(runtime, "_run", hold_feed)
+
+    async def scenario():
+        await runtime.start()
+        status = runtime.status()
+        await runtime.stop()
+        return status
+
+    status = asyncio.run(scenario())
+
+    assert status["real_signal_state"] == "LOCKED_KIS_REST_SETTINGS"
+    assert status["orders_enabled"] is False
+    assert runtime._real_signal_client is None
+    assert runtime._real_signal_queue is None
+
+
+def test_real_signal_worker_sends_stable_key_for_approved_closed_bar(monkeypatch) -> None:
+    watch = parse_watchlist("US:AAPL:NAS")[0]
+    timestamp = datetime(2026, 11, 6, 15, 0, tzinfo=ZoneInfo("America/New_York"))
+    bar = MinuteBar(timestamp, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"), 1000,
+                    Decimal("5"))
+    decision = {
+        "market": "US", "symbol": "AAPL", "signal": "BUY_CANDIDATE", "strategy_id": "ORB_VWAP",
+        "model_id": "model-v1", "evaluated_at": timestamp.isoformat(),
+    }
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def submit_signal(self, **values):
+            self.calls.append(values)
+            return {"status": "ACCEPTED"}
+
+    runtime = PaperSessionFeedMonitor()
+    runtime._real_monitor_mode = True
+    runtime._real_signal_queue = asyncio.Queue(maxsize=2)
+    runtime._real_signal_client = Client()
+
+    async def scenario():
+        task = asyncio.create_task(runtime._real_signal_loop())
+        runtime._queue_real_signal(watch, bar, decision)
+        for _ in range(100):
+            if runtime.status()["real_signal_state"] == "SUBMITTED":
+                break
+            await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+    expected_key = real_signal_idempotency_key(
+        market="US", symbol="AAPL", exchange="NAS", bar_timestamp=timestamp, model_id="model-v1",
+    )
+    assert len(runtime._real_signal_client.calls) == 1
+    assert runtime._real_signal_client.calls[0] == {
+        "idempotency_key": expected_key, "market": "US", "symbol": "AAPL", "exchange": "NAS",
+    }
+    assert runtime.status()["last_real_signal"]["idempotency_key"] == str(expected_key)
+
+
+def test_real_signal_worker_stops_after_ambiguous_write_and_never_retries(monkeypatch) -> None:
+    watch = parse_watchlist("KR:005930")[0]
+    timestamp = datetime(2026, 11, 6, 10, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+    bar = MinuteBar(timestamp, Decimal("70000"), Decimal("70100"), Decimal("69900"), Decimal("70000"),
+                    1000, Decimal("5"))
+    decision = {
+        "market": "KR", "symbol": "005930", "signal": "BUY_CANDIDATE", "strategy_id": "ORB_VWAP",
+        "model_id": "model-v1", "evaluated_at": timestamp.isoformat(),
+    }
+    class Client:
+        calls = 0
+
+        def submit_signal(self, **_values):
+            self.calls += 1
+            raise RealSignalOrderOutcomeUnknown("do not expose this detail")
+
+    runtime = PaperSessionFeedMonitor()
+    runtime._real_monitor_mode = True
+    runtime._real_signal_queue = asyncio.Queue(maxsize=2)
+    runtime._real_signal_client = Client()
+
+    async def scenario():
+        task = asyncio.create_task(runtime._real_signal_loop())
+        runtime._queue_real_signal(watch, bar, decision)
+        for _ in range(100):
+            if runtime.status()["real_signal_state"] == "MANUAL_RECONCILIATION_REQUIRED":
+                break
+            await asyncio.sleep(0.01)
+        runtime._queue_real_signal(watch, bar, decision)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+    assert runtime._real_signal_client.calls == 1
+    assert runtime.status()["real_signal_error"] == "SIGNAL_OUTCOME_UNKNOWN"
 
 
 def test_us_paper_watchlist_requires_separate_read_only_real_market_data_switch(monkeypatch) -> None:

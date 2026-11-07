@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import httpx
@@ -9,6 +10,7 @@ from app.real_signal_orders import (
     RealSignalOrderError,
     RealSignalOrderOutcomeUnknown,
     SpringRealSignalOrderClient,
+    real_signal_idempotency_key,
     real_signal_submission_enabled,
 )
 
@@ -95,6 +97,66 @@ def test_unknown_transport_outcome_is_never_retried(monkeypatch) -> None:
 def test_local_only_endpoint_is_required() -> None:
     with pytest.raises(ValueError):
         SpringRealSignalOrderClient("http://example.com")
+
+
+def test_real_signal_idempotency_key_is_stable_across_timezones_and_model_switches() -> None:
+    timestamp = datetime(2026, 11, 6, 14, 30, tzinfo=timezone.utc)
+    same_in_seoul = timestamp.astimezone(timezone(timedelta(hours=9)))
+
+    first = real_signal_idempotency_key(
+        market="KR", symbol="005930", exchange=None, bar_timestamp=timestamp, model_id="model-v1",
+    )
+    restarted = real_signal_idempotency_key(
+        market="KR", symbol="005930", exchange=None, bar_timestamp=same_in_seoul, model_id="model-v1",
+    )
+    changed_model = real_signal_idempotency_key(
+        market="KR", symbol="005930", exchange=None, bar_timestamp=timestamp, model_id="model-v2",
+    )
+
+    assert first == restarted
+    assert first == changed_model
+
+
+def test_real_signal_idempotency_key_requires_timezone_and_market_exchange_pair() -> None:
+    with pytest.raises(ValueError):
+        real_signal_idempotency_key(
+            market="US", symbol="AAPL", exchange="NASD",
+            bar_timestamp=datetime(2026, 11, 6, 14, 30), model_id="model-v1",
+        )
+    with pytest.raises(ValueError):
+        real_signal_idempotency_key(
+            market="US", symbol="AAPL", exchange=None,
+            bar_timestamp=datetime(2026, 11, 6, 14, 30, tzinfo=timezone.utc), model_id="model-v1",
+        )
+
+
+def test_real_signal_idempotency_key_normalizes_us_exchange_aliases() -> None:
+    timestamp = datetime(2026, 11, 6, 14, 30, tzinfo=timezone.utc)
+    nas = real_signal_idempotency_key(
+        market="US", symbol="AAPL", exchange="NAS", bar_timestamp=timestamp, model_id="model-v1",
+    )
+    nasd = real_signal_idempotency_key(
+        market="US", symbol="AAPL", exchange="NASD", bar_timestamp=timestamp, model_id="model-v1",
+    )
+
+    assert nas == nasd
+
+
+def test_server_5xx_is_treated_as_unknown_and_never_retried(monkeypatch) -> None:
+    enable_real_signal_gates(monkeypatch)
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(500, json={"detail": "internal error"})
+
+    client = SpringRealSignalOrderClient(http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(RealSignalOrderOutcomeUnknown):
+        client.submit_signal(idempotency_key=uuid4(), market="KR", symbol="005930")
+
+    assert calls == 1
+    client.close()
 
 
 def test_all_real_gates_must_be_enabled(monkeypatch) -> None:

@@ -1,14 +1,16 @@
-"""Opt-in local paper-session monitor with separately gated market data feeds.
+"""Opt-in local market-session monitor with separately gated market data feeds.
 
 KR market data comes from the KIS paper WebSocket. US delayed market data can
 use a separately enabled KIS REAL WebSocket while all order writes remain on
-Spring's local paper ledger; this module has no KIS order client.
+Spring's local paper ledger. The separately opted-in REAL monitor can forward
+server-verified signal references to Spring; it never calls KIS order APIs.
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+import re
 import threading
 from collections import deque
 from dataclasses import dataclass
@@ -24,6 +26,9 @@ from .market_stream import MinuteBarAggregator, parse_trade_frame
 from .quant import MinuteBar, QuantConfig, _atr, exchange_session_date, orb_vwap_entry_candidate
 from .paper_automation import PaperAutomationReadiness, PaperAutoTrader, PaperEntryDecision
 from .paper_broker import PaperBrokerError, SpringPaperBrokerClient
+from .real_signal_orders import (RealSignalOrderError, RealSignalOrderOutcomeUnknown,
+                                 SpringRealSignalOrderClient, real_signal_idempotency_key,
+                                 real_signal_submission_enabled)
 from .market_calendar import exchange_continuous_session_window
 from .paper_ops import PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate, exchange_session_window, size_paper_order
 from .paper_risk import baseline_capture_open, daily_loss_percent, paper_equity_snapshot
@@ -85,6 +90,8 @@ class PaperSessionFeedMonitor:
         self._stream_tasks: list[asyncio.Task] = []
         self._candidate_tasks: list[asyncio.Task] = []
         self._watches_by_feed: dict[str, list[PaperWatch]] = {}
+        self._feed_by_watch: dict[str, str] = {}
+        self._real_monitor_mode = False
         self._subscription_update_queues: dict[
             str, asyncio.Queue[tuple[PaperWatch, str, asyncio.Future[None]]]
         ] = {}
@@ -102,12 +109,17 @@ class PaperSessionFeedMonitor:
             "automation_state": "DISABLED", "automation_error": None,
             "bar_storage_state": "DISABLED", "bar_storage_error": None,
             "candidate_refresh_by_market": {},
+            "real_signal_state": "DISABLED", "last_real_signal": None,
         }
         self._aggregators: dict[str, MinuteBarAggregator] = {}
         self._bars: dict[str, deque[MinuteBar]] = {}
         self._decisions: dict[str, dict[str, object]] = {}
         self._automation_queue: asyncio.Queue[tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]] | None = None
         self._automation_task: asyncio.Task | None = None
+        self._real_signal_queue: asyncio.Queue[tuple[PaperWatch, MinuteBar, dict[str, object]]] | None = None
+        self._real_signal_task: asyncio.Task | None = None
+        self._real_signal_client: SpringRealSignalOrderClient | None = None
+        self._real_signal_blocked = False
         self._bar_storage_queue: asyncio.Queue[
             tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]
         ] | None = None
@@ -136,14 +148,23 @@ class PaperSessionFeedMonitor:
             return {key: dict(value) for key, value in self._decisions.items()}
 
     async def start(self) -> None:
-        if os.getenv("PAPER_SESSION_MONITOR_ENABLED", "false").strip().lower() != "true":
+        mode = os.getenv("TRADING_MODE", "paper").strip().lower()
+        self._real_monitor_mode = mode == "real"
+        monitor_enabled = os.getenv(
+            "REAL_SIGNAL_MONITOR_ENABLED" if self._real_monitor_mode else "PAPER_SESSION_MONITOR_ENABLED", "false",
+        ).strip().lower() == "true"
+        if not monitor_enabled:
             return
-        settings = StreamSettings.from_environment("paper")
-        if os.getenv("TRADING_MODE", "paper").strip().lower() != "paper" or os.getenv("LIVE_TRADING_ENABLED", "false").strip().lower() == "true":
+        if mode not in {"paper", "real"}:
+            self._set_status(state="BLOCKED", enabled=False, last_error="TRADING_MODE_MISMATCH")
+            return
+        if mode == "paper" and os.getenv("LIVE_TRADING_ENABLED", "false").strip().lower() == "true":
             self._set_status(state="BLOCKED", enabled=False, last_error="PAPER_MODE_REQUIRED")
             return
+        settings = StreamSettings.from_environment("real" if self._real_monitor_mode else "paper")
         if not settings.enabled:
-            self._set_status(state="BLOCKED", enabled=False, last_error="PAPER_KIS_STREAM_NOT_CONFIGURED")
+            reason = "REAL_KIS_STREAM_NOT_CONFIGURED" if self._real_monitor_mode else "PAPER_KIS_STREAM_NOT_CONFIGURED"
+            self._set_status(state="BLOCKED", enabled=False, last_error=reason)
             return
         try:
             watches = parse_watchlist(os.getenv("PAPER_WATCHLIST", ""))
@@ -156,29 +177,49 @@ class PaperSessionFeedMonitor:
         feed_groups: dict[str, tuple[tuple[PaperWatch, ...], StreamSettings]] = {}
         kr_watches = tuple(watch for watch in watches if watch.market == "KR")
         us_watches = tuple(watch for watch in watches if watch.market == "US")
-        if kr_watches:
+        if self._real_monitor_mode:
             if not settings.kis.app_key or not settings.kis.app_secret:
-                self._set_status(state="BLOCKED", enabled=False, last_error="PAPER_KR_STREAM_NOT_CONFIGURED")
+                self._set_status(state="BLOCKED", enabled=False, last_error="REAL_KIS_STREAM_NOT_CONFIGURED")
                 return
-            feed_groups["paper"] = (kr_watches, settings)
-        if us_watches:
-            if os.getenv("KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED", "false").strip().lower() != "true":
-                self._set_status(state="BLOCKED", enabled=False, last_error="REAL_US_MARKET_DATA_STREAM_DISABLED")
-                return
-            us_settings = StreamSettings.from_environment("real")
-            if not us_settings.kis.app_key or not us_settings.kis.app_secret:
-                self._set_status(state="BLOCKED", enabled=False, last_error="REAL_US_MARKET_DATA_STREAM_NOT_CONFIGURED")
-                return
-            feed_groups["real"] = (us_watches, us_settings)
+            feed_groups["real"] = (watches, settings)
+        else:
+            if kr_watches:
+                if not settings.kis.app_key or not settings.kis.app_secret:
+                    self._set_status(state="BLOCKED", enabled=False, last_error="PAPER_KR_STREAM_NOT_CONFIGURED")
+                    return
+                feed_groups["paper"] = (kr_watches, settings)
+            if us_watches:
+                if os.getenv("KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED", "false").strip().lower() != "true":
+                    self._set_status(state="BLOCKED", enabled=False, last_error="REAL_US_MARKET_DATA_STREAM_DISABLED")
+                    return
+                us_settings = StreamSettings.from_environment("real")
+                if not us_settings.kis.app_key or not us_settings.kis.app_secret:
+                    self._set_status(state="BLOCKED", enabled=False, last_error="REAL_US_MARKET_DATA_STREAM_NOT_CONFIGURED")
+                    return
+                feed_groups["real"] = (us_watches, us_settings)
         self._watches_by_feed = {
             environment: list(group_watches)
             for environment, (group_watches, _settings) in feed_groups.items()
+        }
+        self._feed_by_watch = {
+            watch.key: environment
+            for environment, group_watches in self._watches_by_feed.items()
+            for watch in group_watches
         }
         self._subscription_update_queues = {
             environment: asyncio.Queue()
             for environment in feed_groups
         }
         persistence_enabled = snapshot_store.enabled()
+        real_submission_ready = (
+            real_signal_submission_enabled()
+            and os.getenv("KIS_ENVIRONMENT", "paper").strip().lower() == "real"
+            and os.getenv("KIS_MARKET_DATA_ENABLED", "false").strip().lower() == "true"
+        )
+        if self._real_monitor_mode and real_submission_ready and not persistence_enabled:
+            self._set_status(state="BLOCKED", enabled=False, last_error="REAL_SIGNAL_BAR_PERSISTENCE_REQUIRED",
+                             real_signal_state="BLOCKED_BAR_PERSISTENCE_REQUIRED")
+            return
         if (os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true"
                 and not persistence_enabled):
             self._set_status(
@@ -211,7 +252,9 @@ class PaperSessionFeedMonitor:
                         restored_count += len(restored)
             except Exception:
                 self._set_status(
-                    state="BLOCKED", enabled=False, last_error="PAPER_BAR_HISTORY_RESTORE_FAILED",
+                    state="BLOCKED", enabled=False,
+                    last_error="REAL_BAR_HISTORY_RESTORE_FAILED" if self._real_monitor_mode
+                    else "PAPER_BAR_HISTORY_RESTORE_FAILED",
                     bar_storage_state="ERROR", bar_storage_error="POSTGRES_BAR_RESTORE_FAILED",
                     automation_state="BLOCKED", automation_error="BAR_HISTORY_RESTORE_FAILED",
                 )
@@ -237,15 +280,31 @@ class PaperSessionFeedMonitor:
                     self._automation_queue = asyncio.Queue(maxsize=100)
                     self._automation_task = asyncio.create_task(self._automation_loop(limits))
                     self._set_status(automation_state="EXIT_MONITORING", automation_error=None)
+        if self._real_monitor_mode:
+            if (real_submission_ready and re.fullmatch(r"\d{10}", settings.kis.account_number)
+                    and settings.kis.app_key and settings.kis.app_secret):
+                self._real_signal_queue = asyncio.Queue(maxsize=100)
+                self._real_signal_client = SpringRealSignalOrderClient()
+                self._real_signal_task = asyncio.create_task(self._real_signal_loop())
+                self._set_status(real_signal_state="READY", last_real_signal=None)
+            else:
+                self._set_status(real_signal_state=(
+                    "LOCKED_KIS_REST_SETTINGS" if real_signal_submission_enabled()
+                    and (os.getenv("KIS_ENVIRONMENT", "paper").strip().lower() != "real"
+                         or os.getenv("KIS_MARKET_DATA_ENABLED", "false").strip().lower() != "true")
+                    else "LOCKED_BY_SAFETY_GATES"
+                ))
         self._set_status(
             state="CONNECTING", enabled=True, subscriptions=len(watches), last_error=None,
+            mode="REAL_SIGNAL" if self._real_monitor_mode else "PAPER",
             stream_connections={environment: "CONNECTING" for environment in feed_groups},
         )
         self._stream_tasks = [
             asyncio.create_task(self._run(group_watches, group_settings))
             for group_watches, group_settings in feed_groups.values()
         ]
-        if os.getenv("PAPER_CANDIDATE_AUTO_REFRESH_ENABLED", "false").strip().lower() == "true":
+        if (not self._real_monitor_mode
+                and os.getenv("PAPER_CANDIDATE_AUTO_REFRESH_ENABLED", "false").strip().lower() == "true"):
             self._candidate_tasks = [
                 asyncio.create_task(self._candidate_refresh_loop(market))
                 for market in ("KR", "US")
@@ -278,7 +337,7 @@ class PaperSessionFeedMonitor:
             if total + len(normalized) > 40:
                 raise ValueError("paper monitor supports at most 40 subscriptions")
             for watch in normalized:
-                environment = "paper" if watch.market == "KR" else "real"
+                environment = self._feed_for_watch(watch)
                 queue = self._subscription_update_queues.get(environment)
                 if queue is None or status.get("stream_connections", {}).get(environment) != "RUNNING":
                     raise RuntimeError(f"{environment} market feed is not running")
@@ -286,8 +345,9 @@ class PaperSessionFeedMonitor:
                 await self._prepare_watch(watch)
             pending_sends: list[asyncio.Future[None]] = []
             for watch in normalized:
-                environment = "paper" if watch.market == "KR" else "real"
+                environment = self._feed_for_watch(watch)
                 self._watches_by_feed[environment].append(watch)
+                self._feed_by_watch[watch.key] = environment
                 if discovered:
                     self._discovered_watch_keys.add(watch.key)
                 sent = asyncio.get_running_loop().create_future()
@@ -312,13 +372,13 @@ class PaperSessionFeedMonitor:
             status = self.status()
             requested = [watch for watch in watches if watch.key in self._discovered_watch_keys]
             for watch in requested:
-                environment = "paper" if watch.market == "KR" else "real"
+                environment = self._feed_for_watch(watch)
                 if (not status.get("enabled") or environment not in self._subscription_update_queues
                         or status.get("stream_connections", {}).get(environment) != "RUNNING"):
                     raise RuntimeError(f"{environment} market feed is not running")
             pending_sends: list[asyncio.Future[None]] = []
             for watch in requested:
-                environment = "paper" if watch.market == "KR" else "real"
+                environment = self._feed_for_watch(watch)
                 self._watches_by_feed[environment] = [
                     active for active in self._watches_by_feed[environment] if active.key != watch.key
                 ]
@@ -335,6 +395,7 @@ class PaperSessionFeedMonitor:
                 raise RuntimeError("KIS WebSocket unsubscription request failed") from exc
             finally:
                 for watch in requested:
+                    self._feed_by_watch.pop(watch.key, None)
                     self._aggregators.pop(watch.key, None)
                     self._bars.pop(watch.key, None)
                     self._decisions.pop(watch.key, None)
@@ -342,6 +403,11 @@ class PaperSessionFeedMonitor:
                 count = sum(len(feed) for feed in self._watches_by_feed.values())
                 self._set_status(subscriptions=count)
             return [watch.key for watch in requested]
+
+    def _feed_for_watch(self, watch: PaperWatch) -> str:
+        if self._real_monitor_mode:
+            return "real"
+        return "paper" if watch.market == "KR" else "real"
 
     async def refresh_discovered_watches(
         self, market: str, desired: tuple[PaperWatch, ...],
@@ -408,6 +474,8 @@ class PaperSessionFeedMonitor:
         self._stream_tasks = []
         automation_task = self._automation_task
         self._automation_task = None
+        real_signal_task = self._real_signal_task
+        self._real_signal_task = None
         storage_task = self._bar_storage_task
         self._bar_storage_task = None
         for task in candidate_tasks:
@@ -430,6 +498,24 @@ class PaperSessionFeedMonitor:
                 await automation_task
             except asyncio.CancelledError:
                 pass
+        if real_signal_task is not None:
+            queue = self._real_signal_queue
+            if queue is not None:
+                try:
+                    await asyncio.wait_for(queue.join(), timeout=8)
+                except TimeoutError:
+                    self._real_signal_blocked = True
+                    self._set_status(real_signal_state="MANUAL_RECONCILIATION_REQUIRED",
+                                     real_signal_error="SHUTDOWN_DURING_SIGNAL_HANDOFF")
+            real_signal_task.cancel()
+            try:
+                await real_signal_task
+            except asyncio.CancelledError:
+                pass
+        if self._real_signal_client is not None:
+            self._real_signal_client.close()
+            self._real_signal_client = None
+        self._real_signal_queue = None
         if storage_task is not None:
             queue = self._bar_storage_queue
             if queue is not None:
@@ -445,6 +531,7 @@ class PaperSessionFeedMonitor:
             self._bar_storage_queue = None
         if self.status().get("enabled"):
             self._set_status(state="STOPPED", enabled=False)
+        self._real_monitor_mode = False
 
     async def _candidate_refresh_loop(self, market: Literal["KR", "US"]) -> None:
         """Refresh candidate-only subscriptions once before each exchange session."""
@@ -684,7 +771,7 @@ class PaperSessionFeedMonitor:
                     continue
                 bar = self._aggregators[watch.key].add(tick)
                 with self._lock:
-                    feed = "paper" if watch.market == "KR" else "real"
+                    feed = self._feed_by_watch.get(watch.key, self._feed_for_watch(watch))
                     received_at = datetime.now().astimezone().isoformat()
                     feed_ticks = dict(self._status["ticks_received_by_feed"])
                     feed_ticks[feed] = int(feed_ticks.get(feed, 0)) + 1
@@ -707,11 +794,88 @@ class PaperSessionFeedMonitor:
                         if self._bar_storage_queue is not None:
                             # Persist market data independently from the opt-in paper order worker.
                             self._queue_bar_storage(watch, bar, decision, quotes)
-                        elif self._automation_queue is not None:
+                        if self._automation_queue is not None:
                             try:
                                 self._automation_queue.put_nowait((watch, bar, decision, quotes))
                             except asyncio.QueueFull:
                                 self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
+                        self._queue_real_signal(watch, bar, decision)
+
+    def _queue_real_signal(self, watch: PaperWatch, bar: MinuteBar, decision: dict[str, object]) -> None:
+        queue = self._real_signal_queue
+        if queue is None or self._real_signal_blocked:
+            return
+        if (not self._real_monitor_mode or decision.get("signal") != "BUY_CANDIDATE"
+                or decision.get("market") != watch.market or decision.get("symbol") != watch.symbol
+                or decision.get("evaluated_at") != bar.timestamp.isoformat()
+                or decision.get("strategy_id") != "ORB_VWAP" or not decision.get("model_id")):
+            return
+        try:
+            queue.put_nowait((watch, bar, dict(decision)))
+            self._set_status(real_signal_state="QUEUED", real_signal_error=None)
+        except asyncio.QueueFull:
+            self._real_signal_blocked = True
+            self._set_status(real_signal_state="BLOCKED_QUEUE_FULL",
+                             real_signal_error="SIGNAL_QUEUE_CAPACITY_EXCEEDED")
+
+    async def _real_signal_loop(self) -> None:
+        client = self._real_signal_client
+        if client is None:
+            self._real_signal_blocked = True
+            self._set_status(real_signal_state="BLOCKED_CLIENT_UNAVAILABLE")
+            return
+        while True:
+            queue = self._real_signal_queue
+            if queue is None:
+                return
+            watch, bar, decision = await queue.get()
+            model_id = str(decision.get("model_id", ""))
+            try:
+                key = real_signal_idempotency_key(
+                    market=watch.market, symbol=watch.symbol, exchange=watch.exchange,
+                    bar_timestamp=bar.timestamp, model_id=model_id,
+                )
+                result = await asyncio.to_thread(
+                    client.submit_signal, idempotency_key=key, market=watch.market,
+                    symbol=watch.symbol, exchange=watch.exchange,
+                )
+                order_status = str(result.get("status", "UNKNOWN")).upper()
+                self._set_status(
+                    real_signal_state=("SUBMITTED" if order_status in {"ACCEPTED", "PARTIALLY_FILLED", "FILLED"}
+                                       else "REJECTED" if order_status == "REJECTED" else "UNKNOWN"),
+                    real_signal_error=None if order_status != "UNKNOWN" else "ORDER_STATUS_UNKNOWN",
+                    last_real_signal={
+                        "market": watch.market, "symbol": watch.symbol, "order_status": order_status,
+                        "idempotency_key": str(key), "submitted_at": datetime.now(timezone.utc).isoformat(),
+                        "executable": False,
+                    },
+                )
+                if order_status not in {"ACCEPTED", "PARTIALLY_FILLED", "FILLED", "REJECTED"}:
+                    self._real_signal_blocked = True
+            except RealSignalOrderOutcomeUnknown:
+                self._real_signal_blocked = True
+                self._set_status(
+                    real_signal_state="MANUAL_RECONCILIATION_REQUIRED",
+                    real_signal_error="SIGNAL_OUTCOME_UNKNOWN",
+                    last_real_signal={
+                        "market": watch.market, "symbol": watch.symbol,
+                        "idempotency_key": str(real_signal_idempotency_key(
+                            market=watch.market, symbol=watch.symbol, exchange=watch.exchange,
+                            bar_timestamp=bar.timestamp, model_id=model_id,
+                        )),
+                        "submitted_at": datetime.now(timezone.utc).isoformat(), "executable": False,
+                    },
+                )
+            except RealSignalOrderError:
+                self._real_signal_blocked = True
+                self._set_status(real_signal_state="BLOCKED_SPRING_REJECTED",
+                                 real_signal_error="SPRING_REJECTED_SIGNAL_HANDOFF")
+            except Exception:
+                self._real_signal_blocked = True
+                self._set_status(real_signal_state="MANUAL_RECONCILIATION_REQUIRED",
+                                 real_signal_error="UNEXPECTED_SIGNAL_HANDOFF_FAILURE")
+            finally:
+                queue.task_done()
 
     async def _automation_loop(self, limits: PaperOpsLimits) -> None:
         broker = SpringPaperBrokerClient()

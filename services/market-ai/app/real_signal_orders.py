@@ -6,14 +6,18 @@ This client never calls KIS directly and never retries a write whose outcome may
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from typing import Literal
 from urllib.parse import urlparse
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import httpx
 
 Market = Literal["KR", "US"]
 _US_EXCHANGES = {"NAS", "NASD", "NYS", "NYSE", "AMS", "AMEX"}
+_CANONICAL_US_EXCHANGE = {
+    "NAS": "NAS", "NASD": "NAS", "NYS": "NYS", "NYSE": "NYS", "AMS": "AMS", "AMEX": "AMS",
+}
 
 
 class RealSignalOrderError(RuntimeError):
@@ -22,6 +26,26 @@ class RealSignalOrderError(RuntimeError):
 
 class RealSignalOrderOutcomeUnknown(RealSignalOrderError):
     """The signal write may have reached Spring; reconcile the idempotency key before acting."""
+
+
+def real_signal_idempotency_key(
+    *, market: Market, symbol: str, exchange: str | None, bar_timestamp: datetime, model_id: str,
+) -> UUID:
+    """Create one order key per instrument and closed bar, stable across restarts and model switches."""
+    if bar_timestamp.tzinfo is None or bar_timestamp.utcoffset() is None:
+        raise ValueError("REAL signal bar timestamp must be timezone-aware")
+    normalized_market = market.strip().upper()
+    normalized_symbol = symbol.strip().upper()
+    normalized_exchange = exchange.strip().upper() if exchange else ""
+    normalized_model = model_id.strip()
+    if normalized_market not in {"KR", "US"} or not normalized_symbol or not normalized_model:
+        raise ValueError("REAL signal identity is invalid")
+    if (normalized_market == "US") != bool(normalized_exchange):
+        raise ValueError("REAL signal exchange must be present for US and absent for KR")
+    bar_utc = bar_timestamp.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    canonical_exchange = _CANONICAL_US_EXCHANGE.get(normalized_exchange, normalized_exchange)
+    identity = "|".join((normalized_market, normalized_symbol, canonical_exchange, bar_utc))
+    return uuid5(NAMESPACE_URL, f"ai-stock-trader-real-signal:{identity}")
 
 
 def real_signal_submission_enabled() -> bool:
@@ -82,6 +106,10 @@ class SpringRealSignalOrderClient:
             raise RealSignalOrderOutcomeUnknown(
                 "REAL signal outcome is unknown; reconcile the idempotency key before acting"
             ) from exc
+        if response.status_code >= 500:
+            raise RealSignalOrderOutcomeUnknown(
+                "Spring server outcome is unknown; reconcile the idempotency key before acting"
+            )
         if response.status_code not in {200, 202, 422}:
             raise RealSignalOrderError(f"Spring rejected REAL signal submission (HTTP {response.status_code})")
         try:
