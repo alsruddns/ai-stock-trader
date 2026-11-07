@@ -15,12 +15,16 @@ def test_local_environment_file_overrides_inherited_value_and_prefers_local(tmp_
     (tmp_path / ".env").write_text("KIS_PAPER_APP_KEY=other-key\n", encoding="utf-8")
     monkeypatch.setenv("KIS_PAPER_APP_KEY", "inherited-key")
     monkeypatch.setenv("KIS_REAL_APP_KEY", "stale-inherited-key")
+    monkeypatch.setenv("REAL_SIGNAL_MONITOR_ENABLED", "true")
+    monkeypatch.setenv("REAL_SIGNAL_SUBMISSION_ENABLED", "true")
 
     loaded = probe.load_local_environment(tmp_path)
 
     assert loaded.name == ".env_local"
     assert os.environ["KIS_PAPER_APP_KEY"] == "local-key"
     assert "KIS_REAL_APP_KEY" not in os.environ
+    assert "REAL_SIGNAL_MONITOR_ENABLED" not in os.environ
+    assert "REAL_SIGNAL_SUBMISSION_ENABLED" not in os.environ
 
 
 @pytest.mark.parametrize("environment", ["paper", "real"])

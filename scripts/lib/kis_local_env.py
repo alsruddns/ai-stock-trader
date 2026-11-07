@@ -13,6 +13,8 @@ def load_local_environment(repository: Path) -> Path:
         for key in tuple(os.environ):
             if (key.startswith(("KIS_", "POSTGRES_")) or key in {
                 "TRADING_MODE", "LIVE_TRADING_ENABLED", "PAPER_AUTOTRADING_ENABLED",
+                "REAL_SIGNAL_MONITOR_ENABLED", "REAL_SIGNAL_SUBMISSION_ENABLED",
+                "REAL_PROTECTIVE_EXIT_MANAGER_ENABLED",
             }):
                 os.environ.pop(key, None)
         for line in path.read_text(encoding="utf-8-sig").splitlines():

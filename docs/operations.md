@@ -47,6 +47,16 @@ Set-Location .\services\market-ai
 - Python KIS 읽기 전용 스모크는 `.\scripts\test-paper-kis-python.ps1`로 실행합니다. PAPER 키·시장 시세 스위치·전체/PAPER 계좌 읽기 게이트를 검사한 뒤 국내·미국 REST 시세 및 계좌 GET 네 건만 요청하며, 응답에 키·시크릿·계좌번호가 없는지도 확인합니다. 주문·자동매매 잠금이 꺼져 있으면 요청하지 않습니다.
 - 실계좌 잔고의 읽기 전용 확인은 `.\scripts\test-real-kis-account-readonly.ps1 -EnableReadOnlyGetForThisRun`으로 별도 실행할 수 있습니다. 이 옵션은 전체/REAL 계좌 읽기 허용을 테스트 실행 중에만 설정하고, 종료 때 호출 셸의 환경변수를 원래 상태로 복원하며 `.env_local`은 변경하지 않습니다. 스크립트는 PostgreSQL, 계좌번호 형식, `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, PAPER/REAL 주문 잠금, `KIS_REAL_RECONCILIATION_ENABLED=false`를 검사하고 국내·미국 잔고 GET만 요청합니다. 자격정보 값은 출력하지 않습니다. `.env_local`의 read switches를 직접 켜도 되지만, API 실행 프로세스에서 REAL 읽기가 열릴 수 있으므로 검증 후 기본 잠금으로 되돌리세요.
 
+### PAPER WebSocket 연결 사전점검
+
+다음 명령은 PAPER WebSocket 승인 키와 국내 종목 구독을 확인합니다. `.env_local`에 `KIS_WEBSOCKET_ENABLED=true`를 설정해야 하며, PAPER 모드·실주문·PAPER 주문·자동매매·REAL 시세·REAL 조회·REAL 대조 스위치는 꺼져 있어야 합니다. probe 프로세스는 로컬 파일에 있는 REAL 앱 자격정보를 비운 뒤 실행합니다. PostgreSQL 공유 호출 제한이 켜져 있어야 합니다. 국내 장중 tick 확인은 아래처럼 `--wait-for-tick-seconds`를 지정합니다. 이 PAPER probe는 국내 구독만 지원합니다. 미국 시세 스트림은 PAPER 환경이 아닌 별도의 읽기 전용 REAL 시세 경로를 사용합니다.
+
+```powershell
+.\services\market-ai\.venv\Scripts\python.exe .\scripts\probe-kis-paper-websocket.py --market KR --symbol 005930 --wait-for-tick-seconds 120
+```
+
+`acknowledged_no_tick`은 KIS 구독 승인만 확인된 상태이고 장중 시세 수신을 뜻하지 않습니다. tick 대기를 지정한 실행은 실제 tick이 오지 않으면 실패 코드로 끝납니다. 출력은 상태와 안전 응답코드만 포함하며 승인 키와 원시 시세는 출력하거나 저장하지 않습니다. 구독 해제 요청을 보낸 뒤 연결을 닫고 주문 API는 호출하지 않습니다.
+
 ### P3 종목 후보 발굴
 
 읽기 전용 후보 순위는 거래소 정규 연속매매 중에 `GET /api/v1/market/candidates/KR?minimum_turnover=1` 또는 `GET /api/v1/market/candidates/US?exchange=NAS&minimum_turnover=1`으로 조회합니다. 국내는 KIS 거래대금순 정렬, 미국은 거래대금순 API를 사용합니다. 후보마다 현재가·거래량·거래대금·호가 스프레드를 확인하며, 호가가 없거나 매수·매도 가격이 교차하면 필터 통과로 표시하지 않습니다. 예시의 1은 호출 형식만 보여 주는 값이며 권장 투자 기준이 아닙니다. `minimum_turnover`는 KRW 또는 USD 단위로 반드시 지정해야 합니다.
