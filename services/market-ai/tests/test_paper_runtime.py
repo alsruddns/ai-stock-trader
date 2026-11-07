@@ -12,6 +12,7 @@ import pytest
 from app.paper_runtime import PaperSessionFeedMonitor, PaperWatch, parse_watchlist
 from app.paper_automation import PaperAutoTrader
 from app.paper_ops import PaperOpsLimits
+from app.market_stream import MinuteBarAggregator
 from app.quant import MinuteBar
 
 
@@ -79,6 +80,140 @@ def test_monitor_refuses_dynamic_watch_when_market_feed_is_not_running() -> None
         with pytest.raises(RuntimeError, match="not running"):
             await runtime.add_watches((PaperWatch("KR", "000660"),))
         assert [watch.symbol for watch in runtime._watches_by_feed["paper"]] == ["005930"]
+
+    asyncio.run(scenario())
+
+
+def test_monitor_unsubscribes_only_a_candidate_watch_after_safe_reconciliation(monkeypatch) -> None:
+    async def scenario():
+        runtime = PaperSessionFeedMonitor()
+        manual = PaperWatch("KR", "005930")
+        candidate = PaperWatch("KR", "000660")
+        runtime._watches_by_feed = {"paper": [manual, candidate]}
+        runtime._subscription_update_queues = {"paper": asyncio.Queue()}
+        runtime._discovered_watch_keys = {candidate.key}
+        runtime._aggregators[candidate.key] = MinuteBarAggregator()
+        runtime._bars[candidate.key] = deque(maxlen=5_000)
+        runtime._decisions[candidate.key] = {"signal": "HOLD"}
+        runtime._latest_quotes[("KR", candidate.symbol)] = (Decimal("100"), datetime.now().astimezone())
+        runtime._set_status(
+            state="RUNNING", enabled=True, subscriptions=2,
+            stream_connections={"paper": "RUNNING"},
+        )
+        class FakeUpstream:
+            def __init__(self):
+                self.sent = []
+
+            async def send(self, message):
+                self.sent.append(json.loads(message))
+
+        upstream = FakeUpstream()
+        writer = asyncio.create_task(
+            runtime._write_subscription_updates(upstream, "approval", "paper", {manual.key, candidate.key})
+        )
+        try:
+            removed = await runtime.remove_discovered_watches((candidate,))
+            await asyncio.wait_for(runtime._subscription_update_queues["paper"].join(), timeout=1)
+        finally:
+            writer.cancel()
+            try:
+                await writer
+            except asyncio.CancelledError:
+                pass
+
+        assert removed == [candidate.key]
+        assert upstream.sent[0]["header"]["tr_type"] == "2"
+        assert upstream.sent[0]["body"]["input"] == {"tr_id": "H0STCNT0", "tr_key": "000660"}
+        assert runtime._watches_by_feed["paper"] == [manual]
+        assert candidate.key not in runtime._bars
+        assert ("KR", candidate.symbol) not in runtime._latest_quotes
+
+    asyncio.run(scenario())
+
+
+def test_candidate_refresh_preserves_old_subscriptions_if_any_order_is_open(monkeypatch) -> None:
+    class Broker:
+        def get_watchlist_protection_state(self):
+            return {"open_orders": 1, "held_symbols": set()}
+
+        def close(self):
+            pass
+
+    async def scenario():
+        monkeypatch.setattr("app.paper_runtime.SpringPaperBrokerClient", Broker)
+        monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "false")
+        runtime = PaperSessionFeedMonitor()
+        old = PaperWatch("KR", "000660")
+        current = PaperWatch("KR", "005930")
+        runtime._watches_by_feed = {"paper": [old, current]}
+        runtime._subscription_update_queues = {"paper": asyncio.Queue()}
+        runtime._discovered_watch_keys = {old.key}
+        runtime._set_status(
+            state="RUNNING", enabled=True, subscriptions=2,
+            stream_connections={"paper": "RUNNING"},
+        )
+        async def prepare(_watch):
+            return None
+        monkeypatch.setattr(runtime, "_prepare_watch", prepare)
+        result = await runtime.refresh_discovered_watches("KR", (current,))
+        assert result["removed"] == []
+        assert result["preserved"] == 1
+        assert old.key in runtime._discovered_watch_keys
+
+    asyncio.run(scenario())
+
+
+def test_candidate_refresh_keeps_held_symbol_and_unsubscribes_only_unused_candidate(monkeypatch) -> None:
+    class Broker:
+        def get_watchlist_protection_state(self):
+            return {"open_orders": 0, "held_symbols": {("KR", "000660")}}
+
+        def close(self):
+            pass
+
+    async def scenario():
+        monkeypatch.setattr("app.paper_runtime.SpringPaperBrokerClient", Broker)
+        monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "false")
+        runtime = PaperSessionFeedMonitor()
+        held = PaperWatch("KR", "000660")
+        stale = PaperWatch("KR", "000001")
+        current = PaperWatch("KR", "005930")
+        runtime._watches_by_feed = {"paper": [held, stale, current]}
+        runtime._subscription_update_queues = {"paper": asyncio.Queue()}
+        runtime._discovered_watch_keys = {held.key, stale.key}
+        runtime._set_status(
+            state="RUNNING", enabled=True, subscriptions=3,
+            stream_connections={"paper": "RUNNING"},
+        )
+        class FakeUpstream:
+            def __init__(self):
+                self.sent = []
+
+            async def send(self, message):
+                self.sent.append(json.loads(message))
+
+        upstream = FakeUpstream()
+        writer = asyncio.create_task(
+            runtime._write_subscription_updates(
+                upstream, "approval", "paper", {held.key, stale.key, current.key},
+            )
+        )
+        try:
+            result = await runtime.refresh_discovered_watches("KR", (current,))
+            await asyncio.wait_for(runtime._subscription_update_queues["paper"].join(), timeout=1)
+        finally:
+            writer.cancel()
+            try:
+                await writer
+            except asyncio.CancelledError:
+                pass
+
+        assert result["preserved"] == 1
+        assert result["removed"] == [stale.key]
+        assert held in runtime._watches_by_feed["paper"]
+        assert stale not in runtime._watches_by_feed["paper"]
+        assert upstream.sent[0]["header"]["tr_type"] == "2"
+        assert upstream.sent[0]["body"]["input"] == {"tr_id": "H0STCNT0", "tr_key": "000001"}
 
     asyncio.run(scenario())
 

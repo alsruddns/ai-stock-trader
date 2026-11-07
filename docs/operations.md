@@ -52,6 +52,8 @@ Set-Location .\services\market-ai
 
 실행 중인 PAPER 시세 감시기에 필터 통과 종목을 추가하려면 별도 잠금 `PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED=true`를 `.env_local`에서 설정한 뒤 `POST /api/v1/market/candidates/KR/subscribe?minimum_turnover=1000000000` 또는 `POST /api/v1/market/candidates/US/subscribe?exchange=NAS&minimum_turnover=1000000`을 사용합니다. 모니터와 해당 시장 WebSocket이 연결된 연속매매 시간에만 동작하며 PAPER 모드와 실전 거래 비활성도 다시 검사합니다. 기존 종목은 제거하지 않고, 감시기 전체 최대 40개로 제한합니다. 응답은 로컬 WebSocket 등록 요청이 전송됐음을 뜻하며 KIS의 등록 승인이나 신호·주문 가능성을 보증하지 않습니다. 감시기 추가는 실시간 시세 취득만 수행하며 `PAPER_AUTOTRADING_ENABLED`와 주문 안전 게이트를 따릅니다. 기본 잠금은 `false`이고, 현재 운영 `.env_local`은 변경하지 않았습니다.
 
+후보 목록을 교체하려면 `POST /api/v1/market/candidates/KR/refresh-subscriptions?minimum_turnover=1000000000` 또는 `POST /api/v1/market/candidates/US/refresh-subscriptions?exchange=NAS&minimum_turnover=1000000`을 사용합니다. 이 작업은 `PAPER_AUTOTRADING_ENABLED=false`일 때만 허용하고 Spring PAPER 운영 요약의 보유 종목·미체결 주문을 먼저 확인합니다. 보유 종목 구독은 유지하고, 미체결 주문이 하나라도 있으면 이전 후보 구독 전체를 보존합니다. Spring 응답 누락·오류·형식 불일치는 교체 작업을 중단합니다. 제거 대상은 이 API로 추가된 후보 구독으로 한정하며 `.env_local`의 수동 `PAPER_WATCHLIST` 종목은 유지합니다. 실시간 해제 요청을 보낸 뒤에도 KIS 승인 응답은 아직 검증되지 않았습니다.
+
 ### 국내 PAPER 취소 사전조회 점검
 
 KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는지 확인할 때만 아래 읽기 전용 명령을 사용합니다. `KIS_ACCOUNT_READ_ENABLED=true`, `KIS_PAPER_ACCOUNT_READ_ENABLED=true`가 필요하며 PAPER/REAL 주문, REAL 계좌조회, REAL 주문대조 스위치는 `false`여야 합니다. 이 도구는 PostgreSQL 공유 호출 제한을 지키며 GET만 보냅니다.

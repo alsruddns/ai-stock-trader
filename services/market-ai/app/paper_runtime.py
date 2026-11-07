@@ -70,9 +70,11 @@ class PaperSessionFeedMonitor:
         self._stream_tasks: list[asyncio.Task] = []
         self._watches_by_feed: dict[str, list[PaperWatch]] = {}
         self._subscription_update_queues: dict[
-            str, asyncio.Queue[tuple[PaperWatch, asyncio.Future[None]]]
+            str, asyncio.Queue[tuple[PaperWatch, str, asyncio.Future[None]]]
         ] = {}
         self._watch_update_lock = asyncio.Lock()
+        self._candidate_reconcile_lock = asyncio.Lock()
+        self._discovered_watch_keys: set[str] = set()
         self._status: dict[str, object] = {
             "state": "DISABLED", "enabled": False, "subscriptions": 0,
             "ticks_received": 0, "bars_closed": 0, "last_tick_at": None,
@@ -224,7 +226,9 @@ class PaperSessionFeedMonitor:
             for group_watches, group_settings in feed_groups.values()
         ]
 
-    async def add_watches(self, watches: tuple[PaperWatch, ...]) -> dict[str, object]:
+    async def add_watches(
+        self, watches: tuple[PaperWatch, ...], *, discovered: bool = False,
+    ) -> dict[str, object]:
         """Add bounded read-only subscriptions to an already running market feed."""
         if not watches:
             return {"added": [], "subscriptions": int(self.status().get("subscriptions", 0))}
@@ -258,9 +262,11 @@ class PaperSessionFeedMonitor:
             for watch in normalized:
                 environment = "paper" if watch.market == "KR" else "real"
                 self._watches_by_feed[environment].append(watch)
+                if discovered:
+                    self._discovered_watch_keys.add(watch.key)
                 sent = asyncio.get_running_loop().create_future()
                 pending_sends.append(sent)
-                self._subscription_update_queues[environment].put_nowait((watch, sent))
+                self._subscription_update_queues[environment].put_nowait((watch, "1", sent))
             if pending_sends:
                 try:
                     await asyncio.wait_for(asyncio.gather(*pending_sends), timeout=5)
@@ -271,6 +277,84 @@ class PaperSessionFeedMonitor:
             count = sum(len(feed) for feed in self._watches_by_feed.values())
             self._set_status(subscriptions=count)
             return {"added": [watch.key for watch in normalized], "subscriptions": count}
+
+    async def remove_discovered_watches(self, watches: tuple[PaperWatch, ...]) -> list[str]:
+        """Unsubscribe candidate-only watches after the caller proves they are unused."""
+        if os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true":
+            raise RuntimeError("candidate subscriptions cannot be removed while PAPER automation is enabled")
+        async with self._watch_update_lock:
+            status = self.status()
+            requested = [watch for watch in watches if watch.key in self._discovered_watch_keys]
+            for watch in requested:
+                environment = "paper" if watch.market == "KR" else "real"
+                if (not status.get("enabled") or environment not in self._subscription_update_queues
+                        or status.get("stream_connections", {}).get(environment) != "RUNNING"):
+                    raise RuntimeError(f"{environment} market feed is not running")
+            pending_sends: list[asyncio.Future[None]] = []
+            for watch in requested:
+                environment = "paper" if watch.market == "KR" else "real"
+                self._watches_by_feed[environment] = [
+                    active for active in self._watches_by_feed[environment] if active.key != watch.key
+                ]
+                self._discovered_watch_keys.discard(watch.key)
+                sent = asyncio.get_running_loop().create_future()
+                pending_sends.append(sent)
+                self._subscription_update_queues[environment].put_nowait((watch, "2", sent))
+            try:
+                if pending_sends:
+                    await asyncio.wait_for(asyncio.gather(*pending_sends), timeout=5)
+            except TimeoutError as exc:
+                raise RuntimeError("KIS WebSocket unsubscription send timed out") from exc
+            except Exception as exc:
+                raise RuntimeError("KIS WebSocket unsubscription request failed") from exc
+            finally:
+                for watch in requested:
+                    self._aggregators.pop(watch.key, None)
+                    self._bars.pop(watch.key, None)
+                    self._decisions.pop(watch.key, None)
+                    self._latest_quotes.pop((watch.market, watch.symbol.upper()), None)
+                count = sum(len(feed) for feed in self._watches_by_feed.values())
+                self._set_status(subscriptions=count)
+            return [watch.key for watch in requested]
+
+    async def refresh_discovered_watches(
+        self, market: str, desired: tuple[PaperWatch, ...],
+    ) -> dict[str, object]:
+        """Replace stale candidate subscriptions while protecting paper positions/orders."""
+        if market not in {"KR", "US"} or any(watch.market != market for watch in desired):
+            raise ValueError("candidate refresh market does not match its watchlist")
+        if os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true":
+            raise RuntimeError("candidate refresh requires PAPER automation to be disabled")
+        async with self._candidate_reconcile_lock:
+            broker = SpringPaperBrokerClient()
+            try:
+                protection = await asyncio.to_thread(broker.get_watchlist_protection_state)
+            except PaperBrokerError as exc:
+                raise RuntimeError("paper positions and open orders could not be verified") from exc
+            finally:
+                broker.close()
+            desired_keys = {watch.key for watch in desired}
+            held_symbols = protection["held_symbols"]
+            open_orders = int(protection["open_orders"])
+            protected = tuple(
+                watch for feed in self._watches_by_feed.values() for watch in feed
+                if watch.market == market and watch.key in self._discovered_watch_keys
+                and watch.key not in desired_keys
+                and (open_orders > 0 or (watch.market, watch.symbol.upper()) in held_symbols)
+            )
+            preserved = len(protected)
+            removable = tuple(
+                watch for feed in self._watches_by_feed.values() for watch in feed
+                if watch.market == market and watch.key in self._discovered_watch_keys
+                and watch.key not in desired_keys and watch not in protected
+            )
+            removed = await self.remove_discovered_watches(removable)
+            added_result = await self.add_watches(desired, discovered=True)
+            return {
+                "added": added_result["added"], "removed": removed,
+                "preserved": preserved, "open_orders": open_orders,
+                "subscriptions": added_result["subscriptions"],
+            }
 
     async def _prepare_watch(self, watch: PaperWatch) -> None:
         if watch.key not in self._bars:
@@ -418,26 +502,36 @@ class PaperSessionFeedMonitor:
         return min(current_delay * 2, 30)
 
     @staticmethod
-    def _subscription_json(key: str, watch: PaperWatch) -> str:
+    def _subscription_json(key: str, watch: PaperWatch, *, tr_type: str = "1") -> str:
         import json
 
-        return json.dumps(subscription_message(key, watch.market, watch.symbol, watch.exchange), separators=(",", ":"))
+        return json.dumps(
+            subscription_message(key, watch.market, watch.symbol, watch.exchange, tr_type=tr_type),
+            separators=(",", ":"),
+        )
 
     async def _write_subscription_updates(self, upstream, key: str, environment: str, sent_keys: set[str]) -> None:
         queue = self._subscription_update_queues.get(environment)
         if queue is None:
             return
         while True:
-            watch, sent = await queue.get()
+            watch, tr_type, sent = await queue.get()
             try:
-                if watch.key not in sent_keys:
-                    await upstream.send(self._subscription_json(key, watch))
+                if tr_type == "1" and watch.key not in sent_keys:
+                    await upstream.send(self._subscription_json(key, watch, tr_type=tr_type))
                     sent_keys.add(watch.key)
+                elif tr_type == "2" and watch.key in sent_keys:
+                    await upstream.send(self._subscription_json(key, watch, tr_type=tr_type))
+                    sent_keys.discard(watch.key)
                 if not sent.done():
                     sent.set_result(None)
             except Exception as exc:
                 if not sent.done():
                     sent.set_exception(exc)
+                try:
+                    await upstream.close()
+                except Exception:
+                    pass
                 raise
             finally:
                 queue.task_done()

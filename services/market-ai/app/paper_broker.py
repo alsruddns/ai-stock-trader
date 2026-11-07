@@ -136,6 +136,31 @@ class SpringPaperBrokerClient:
         except (httpx.HTTPError, ValueError) as exc:
             raise PaperBrokerError("local paper risk summary is unavailable") from exc
 
+    def get_watchlist_protection_state(self) -> dict[str, object]:
+        """Read local PAPER positions and open-order count before dropping subscriptions."""
+        try:
+            response = self._http.get(f"{self.base_url}/api/v1/operations/summary")
+            response.raise_for_status()
+            payload = response.json()
+            open_orders = payload.get("openOrders") if isinstance(payload, dict) else None
+            positions = payload.get("positions") if isinstance(payload, dict) else None
+            if type(open_orders) is not int or open_orders < 0 or not isinstance(positions, list):
+                raise ValueError("paper watchlist protection state has an invalid shape")
+            held: set[tuple[str, str]] = set()
+            for position in positions:
+                if not isinstance(position, dict):
+                    raise ValueError("paper position has an invalid shape")
+                market = str(position.get("market", "")).upper()
+                symbol = str(position.get("symbol", "")).strip().upper()
+                quantity = position.get("quantity")
+                if market not in {"KR", "US"} or not symbol or type(quantity) is not int or quantity < 0:
+                    raise ValueError("paper position has invalid identifiers")
+                if quantity > 0:
+                    held.add((market, symbol))
+            return {"open_orders": open_orders, "held_symbols": held}
+        except (httpx.HTTPError, ValueError) as exc:
+            raise PaperBrokerError("paper watchlist protection state is unavailable") from exc
+
     def get_daily_risk_baselines(self, session_date: date) -> list[dict]:
         return self._get_list(
             f"/api/v1/orders/paper/risk-baselines/{session_date.isoformat()}",

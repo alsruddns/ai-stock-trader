@@ -5,7 +5,7 @@ from uuid import UUID
 import httpx
 import pytest
 
-from app.paper_broker import PaperBrokerOutcomeUnknown, SpringPaperBrokerClient
+from app.paper_broker import PaperBrokerError, PaperBrokerOutcomeUnknown, SpringPaperBrokerClient
 
 
 def test_paper_order_adapter_uses_idempotency_key_and_local_route() -> None:
@@ -119,4 +119,28 @@ def test_operations_summary_exposes_only_local_paper_risk_counters() -> None:
     broker = SpringPaperBrokerClient(http_client=client)
     assert broker.get_operations_summary()["consecutiveLosingTrades"] == 2
     assert seen[0].url.path == "/api/v1/operations/summary"
+    client.close()
+
+
+def test_watchlist_protection_state_requires_valid_positions_and_open_order_count() -> None:
+    client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={
+        "openOrders": 1,
+        "positions": [
+            {"market": "KR", "symbol": "005930", "quantity": 2},
+            {"market": "US", "symbol": "AAPL", "quantity": 0},
+        ],
+    })))
+    broker = SpringPaperBrokerClient(http_client=client)
+    state = broker.get_watchlist_protection_state()
+    assert state == {"open_orders": 1, "held_symbols": {("KR", "005930")}}
+    client.close()
+
+
+def test_watchlist_protection_state_fails_closed_on_malformed_ledger() -> None:
+    client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={
+        "openOrders": 0, "positions": [{"market": "KR", "symbol": "005930"}],
+    })))
+    broker = SpringPaperBrokerClient(http_client=client)
+    with pytest.raises(PaperBrokerError, match="protection state is unavailable"):
+        broker.get_watchlist_protection_state()
     client.close()

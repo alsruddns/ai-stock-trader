@@ -492,8 +492,9 @@ def test_candidate_subscription_route_adds_only_filtered_symbols(monkeypatch) ->
                 ),
             ]
 
-    async def add_watches(watches):
+    async def add_watches(watches, *, discovered):
         assert watches == (PaperWatch("KR", "005930"),)
+        assert discovered is True
         return {"added": ["KR:005930:"], "subscriptions": 2}
 
     monkeypatch.setattr(main, "get_kis_candidate_client", lambda _market: FakeKisClient())
@@ -507,6 +508,66 @@ def test_candidate_subscription_route_adds_only_filtered_symbols(monkeypatch) ->
         "market": "KR", "exchange": None, "considered": 2,
         "added": ["KR:005930:"], "subscriptions": 2, "executable": False,
     }
+
+
+def test_candidate_refresh_route_blocks_while_paper_automation_is_enabled(monkeypatch) -> None:
+    monkeypatch.setenv("PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED", "true")
+    monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "true")
+    monkeypatch.setattr(
+        main, "get_kis_candidate_client",
+        lambda _market: (_ for _ in ()).throw(AssertionError("refresh must stop before KIS")),
+    )
+    response = client.post(
+        "/api/v1/market/candidates/KR/refresh-subscriptions?minimum_turnover=1",
+    )
+    assert response.status_code == 423
+    assert response.json()["detail"] == "PAPER automation must be disabled during candidate refresh"
+
+
+def test_candidate_refresh_route_reports_position_protected_reconciliation(monkeypatch) -> None:
+    from app.paper_runtime import PaperWatch
+
+    monkeypatch.setenv("PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED", "true")
+    monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "false")
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setattr(main.paper_session_monitor, "status", lambda: {
+        "enabled": True, "stream_connections": {"paper": "RUNNING"},
+    })
+    monkeypatch.setattr(
+        main, "exchange_continuous_session_window",
+        lambda _market, now: (now - timedelta(minutes=1), now + timedelta(minutes=1)),
+    )
+
+    class FakeKisClient:
+        def get_ranked_candidates(self, *_args, **_kwargs):
+            return [MarketCandidate(
+                market="KR", symbol="005930", name="Samsung", exchange=None, rank=1,
+                currency="KRW", price=Decimal("70000"), volume=1000,
+                turnover=Decimal("70000000"), best_ask=Decimal("70001"),
+                best_bid=Decimal("70000"), spread_bps=Decimal("0.14"),
+                passes_market_filter=True, filter_reason="MARKET_FILTERS_PASSED",
+            )]
+
+    async def refresh(market, desired):
+        assert market == "KR"
+        assert desired == (PaperWatch("KR", "005930"),)
+        return {
+            "added": [], "removed": [], "preserved": 1, "open_orders": 1, "subscriptions": 2,
+        }
+
+    monkeypatch.setattr(main, "get_kis_candidate_client", lambda _market: FakeKisClient())
+    monkeypatch.setattr(main.paper_session_monitor, "refresh_discovered_watches", refresh)
+    response = client.post(
+        "/api/v1/market/candidates/KR/refresh-subscriptions?minimum_turnover=1",
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["preserved"] == 1
+    assert body["open_orders"] == 1
+    assert body["removed"] == []
+    assert body["executable"] is False
 
 
 def test_kis_database_rate_limit_failure_returns_service_unavailable() -> None:
