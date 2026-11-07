@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -36,6 +37,86 @@ class StreamSettings:
     def websocket_url(self) -> str:
         port = "31000" if self.kis.environment == "paper" else "21000"
         return f"{_WS_HOST}{port}"
+
+
+class SubscriptionAcknowledgementError(RuntimeError):
+    """A KIS WebSocket subscription was explicitly rejected."""
+
+    def __init__(self, broker_code: str | None) -> None:
+        self.broker_code = broker_code
+        super().__init__("KIS WebSocket subscription was rejected")
+
+
+class SubscriptionAcknowledgementTimeoutError(RuntimeError):
+    """KIS did not acknowledge the requested market-data subscriptions in time."""
+
+
+class SubscriptionAckTracker:
+    """Require one positive KIS acknowledgement for every requested transaction id."""
+
+    def __init__(self, required_by_transaction_id: dict[str, int]) -> None:
+        if (not required_by_transaction_id
+                or any(not re.fullmatch(r"[A-Z0-9]{1,32}", key) or count < 1
+                       for key, count in required_by_transaction_id.items())):
+            raise ValueError("subscription acknowledgement requirements are invalid")
+        self._required = dict(required_by_transaction_id)
+        self._accepted: Counter[str] = Counter()
+
+    @property
+    def complete(self) -> bool:
+        return all(self._accepted[key] >= count for key, count in self._required.items())
+
+    @property
+    def status(self) -> dict[str, int | bool]:
+        return {
+            "accepted_count": sum(min(self._accepted[key], count) for key, count in self._required.items()),
+            "required_count": sum(self._required.values()),
+            "complete": self.complete,
+        }
+
+    def observe(self, frame: str | bytes) -> bool:
+        acknowledgement = parse_subscription_ack(frame)
+        if acknowledgement is None:
+            return self.complete
+        transaction_id = acknowledgement["transaction_id"]
+        if transaction_id not in self._required:
+            return self.complete
+        if not acknowledgement["accepted"]:
+            raise SubscriptionAcknowledgementError(acknowledgement["broker_code"])
+        if self._accepted[transaction_id] < self._required[transaction_id]:
+            self._accepted[transaction_id] += 1
+        return self.complete
+
+
+def parse_subscription_ack(frame: str | bytes) -> dict[str, str | bool] | None:
+    """Parse only bounded KIS subscribe responses; do not retain or emit raw messages."""
+    if isinstance(frame, bytes):
+        frame = frame.decode("utf-8", errors="replace")
+    if len(frame) > 100_000:
+        return None
+    try:
+        message = json.loads(frame)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(message, dict):
+        return None
+    header = message.get("header") if isinstance(message.get("header"), dict) else {}
+    body = message.get("body") if isinstance(message.get("body"), dict) else {}
+    transaction_id = header.get("tr_id")
+    response_code = body.get("rt_cd")
+    if not isinstance(transaction_id, str) or not re.fullmatch(r"[A-Z0-9]{1,32}", transaction_id):
+        return None
+    if str(response_code) not in {"0", "1"}:
+        return None
+    broker_code = body.get("msg_cd")
+    return {
+        "transaction_id": transaction_id,
+        "accepted": str(response_code) == "0",
+        "broker_code": (
+            broker_code if isinstance(broker_code, str)
+            and re.fullmatch(r"[A-Za-z0-9_-]{1,32}", broker_code) else "UNSPECIFIED"
+        ),
+    }
 
 
 def approval_key(settings: KisSettings, client: httpx.Client | None = None) -> str:

@@ -9,7 +9,8 @@ import pytest
 from app.kis import KisApiError, KisSettings
 from app.kis_rate_limit import SharedRateLimitUnavailable
 from app.kis_stream import (
-    StreamSettings, approval_key, is_pingpong_frame, normalize_stream_frame,
+    StreamSettings, SubscriptionAckTracker, SubscriptionAcknowledgementError,
+    approval_key, is_pingpong_frame, normalize_stream_frame, parse_subscription_ack,
     reply_to_pingpong, subscription_message,
 )
 
@@ -120,3 +121,39 @@ def test_stream_url_selects_distinct_paper_and_real_ports() -> None:
     real = StreamSettings(True, KisSettings(True, "real", "k", "s"))
     assert paper.websocket_url == "ws://ops.koreainvestment.com:31000"
     assert real.websocket_url == "ws://ops.koreainvestment.com:21000"
+
+
+def test_subscription_ack_tracker_requires_every_requested_subscription() -> None:
+    tracker = SubscriptionAckTracker({"H0STCNT0": 1, "HDFSCNT0": 2})
+    assert tracker.complete is False
+    assert tracker.observe('{"header":{"tr_id":"HDFSCNT0"},"body":{"rt_cd":"0"}}') is False
+    assert tracker.status == {"accepted_count": 1, "required_count": 3, "complete": False}
+    assert tracker.observe('{"header":{"tr_id":"OTHER"},"body":{"rt_cd":"0"}}') is False
+    assert tracker.observe('{"header":{"tr_id":"HDFSCNT0"},"body":{"rt_cd":"0"}}') is False
+    assert tracker.observe('{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0"}}') is True
+    assert tracker.complete is True
+
+
+def test_subscription_ack_tracker_caps_duplicate_acknowledgements() -> None:
+    tracker = SubscriptionAckTracker({"H0STCNT0": 1})
+    positive_ack = '{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0"}}'
+    assert tracker.observe(positive_ack) is True
+    tracker.observe(positive_ack)
+    assert tracker.status == {"accepted_count": 1, "required_count": 1, "complete": True}
+
+
+def test_subscription_ack_tracker_reports_sanitized_rejection_code_only() -> None:
+    tracker = SubscriptionAckTracker({"HDFSCNT0": 1})
+    rejection = ('{"header":{"tr_id":"HDFSCNT0"},"body":{"rt_cd":"1",'
+                 '"msg_cd":"SAFE_CODE","msg1":"private details"}}')
+    with pytest.raises(SubscriptionAcknowledgementError) as exc:
+        tracker.observe(rejection)
+    assert exc.value.broker_code == "SAFE_CODE"
+    assert "private details" not in str(exc.value)
+
+
+def test_subscription_ack_parser_rejects_untrusted_codes_and_oversized_frames() -> None:
+    malformed_code = '{"header":{"tr_id":"HDFSCNT0"},"body":{"rt_cd":"0","msg_cd":"private token!"}}'
+    ack = parse_subscription_ack(malformed_code)
+    assert ack == {"transaction_id": "HDFSCNT0", "accepted": True, "broker_code": "UNSPECIFIED"}
+    assert parse_subscription_ack("x" * 100_001) is None

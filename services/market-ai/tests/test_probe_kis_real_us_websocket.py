@@ -121,6 +121,47 @@ def test_main_validates_subscription_before_approval(monkeypatch, capsys) -> Non
     assert json.loads(capsys.readouterr().out)["reason"] == "INVALID_SUBSCRIPTION"
 
 
+def test_probe_refuses_a_duplicate_socket_when_managed_real_feed_is_active(monkeypatch, capsys) -> None:
+    for key, value in SAFE_SWITCHES.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(probe, "load_local_environment", lambda _repository: Path(".env_local"))
+    monkeypatch.setattr(probe, "local_real_feed_is_active", lambda: True)
+    monkeypatch.setattr(probe.KisSettings, "from_environment", classmethod(
+        lambda *_args: pytest.fail("an active managed REAL feed must block a second socket"),
+    ))
+
+    assert probe.main("AAPL", "NAS", 0) == 2
+    assert json.loads(capsys.readouterr().out)["reason"] == "LOCAL_REAL_STREAM_ALREADY_ACTIVE"
+
+
+def test_local_real_feed_status_blocks_on_unreadable_api_and_allows_no_api(monkeypatch) -> None:
+    monkeypatch.setattr(probe.httpx, "get", lambda *_args, **_kwargs: (_ for _ in ()).throw(probe.httpx.ConnectError("offline")))
+    assert probe.local_real_feed_is_active() is False
+
+    monkeypatch.setattr(probe.httpx, "get", lambda *_args, **_kwargs: (_ for _ in ()).throw(probe.httpx.TimeoutException("unavailable")))
+    assert probe.local_real_feed_is_active() is None
+
+
+def test_local_real_feed_status_detects_active_and_disabled_managed_feeds(monkeypatch) -> None:
+    class Response:
+        status_code = 200
+
+        def __init__(self, status: dict[str, Any]):
+            self.status = status
+
+        def json(self) -> dict[str, Any]:
+            return self.status
+
+    monkeypatch.setattr(probe.httpx, "get", lambda *_args, **_kwargs: Response({
+        "enabled": True, "stream_connections": {"paper": "RUNNING", "real": "RUNNING"},
+    }))
+    assert probe.local_real_feed_is_active() is True
+    monkeypatch.setattr(probe.httpx, "get", lambda *_args, **_kwargs: Response({
+        "enabled": False, "stream_connections": {"real": "STOPPED"},
+    }))
+    assert probe.local_real_feed_is_active() is False
+
+
 def test_real_us_probe_sanitizes_rejection_and_does_not_unsubscribe(monkeypatch) -> None:
     upstream = FakeWebSocket([
         json.dumps({"header": {"tr_id": "HDFSCNT0"}, "body": {
@@ -151,6 +192,7 @@ def test_main_isolates_accounts_and_order_switches_before_real_stream(monkeypatc
     monkeypatch.setenv("KIS_REAL_ACCOUNT_NUMBER", "private-account-number")
     monkeypatch.setenv("KIS_PAPER_APP_KEY", "private-paper-app-key")
     monkeypatch.setattr(probe, "load_local_environment", lambda _repository: Path(".env_local"))
+    monkeypatch.setattr(probe, "local_real_feed_is_active", lambda: False)
 
     settings = SimpleNamespace(enabled=True, app_key="private-real-app-key", app_secret="private-real-app-secret", shared_rate_limit_enabled=True)
     stream = SimpleNamespace(enabled=True, websocket_url="ws://real.invalid:21000")

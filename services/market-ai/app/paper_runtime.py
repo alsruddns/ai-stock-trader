@@ -21,7 +21,11 @@ from zoneinfo import ZoneInfo
 
 from . import snapshot_store
 from .ai_pipeline import LocalModelRegistry
-from .kis_stream import StreamSettings, approval_key, normalize_stream_frame, reply_to_pingpong, subscription_message
+from .kis_stream import (
+    StreamSettings, SubscriptionAckTracker, SubscriptionAcknowledgementError,
+    SubscriptionAcknowledgementTimeoutError, approval_key,
+    normalize_stream_frame, reply_to_pingpong, subscription_message,
+)
 from .market_stream import MinuteBarAggregator, parse_trade_frame
 from .quant import MinuteBar, QuantConfig, _atr, exchange_session_date, orb_vwap_entry_candidate
 from .paper_automation import PaperAutomationReadiness, PaperAutoTrader, PaperEntryDecision
@@ -32,6 +36,8 @@ from .real_signal_orders import (RealSignalOrderError, RealSignalOrderOutcomeUnk
 from .market_calendar import exchange_continuous_session_window
 from .paper_ops import PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate, exchange_session_window, size_paper_order
 from .paper_risk import baseline_capture_open, daily_loss_percent, paper_equity_snapshot
+
+SUBSCRIPTION_ACK_TIMEOUT_SECONDS = 15
 
 
 def next_market_session_open(market: Literal["KR", "US"], now: datetime) -> datetime:
@@ -106,6 +112,7 @@ class PaperSessionFeedMonitor:
             "last_tick_received_at_by_feed": {"paper": None, "real": None},
             "bars_closed_by_feed": {"paper": 0, "real": 0},
             "last_error": None, "orders_enabled": False,
+            "subscription_acknowledgements_by_feed": {}, "last_subscription_error_code": None,
             "automation_state": "DISABLED", "automation_error": None,
             "bar_storage_state": "DISABLED", "bar_storage_error": None,
             "candidate_refresh_by_market": {},
@@ -662,6 +669,7 @@ class PaperSessionFeedMonitor:
         delay = 1
         while True:
             connected_at: float | None = None
+            subscription_tracker: SubscriptionAckTracker | None = None
             try:
                 key = await asyncio.to_thread(approval_key, settings.kis)
                 import websockets
@@ -669,6 +677,13 @@ class PaperSessionFeedMonitor:
                 async with websockets.connect(settings.websocket_url, ping_interval=30, close_timeout=3) as upstream:
                     connected_at = asyncio.get_running_loop().time()
                     active_watches = self._watches_by_feed.get(environment, list(watches))
+                    required_by_transaction_id: dict[str, int] = {}
+                    for watch in active_watches:
+                        transaction_id = "H0STCNT0" if watch.market == "KR" else "HDFSCNT0"
+                        required_by_transaction_id[transaction_id] = required_by_transaction_id.get(transaction_id, 0) + 1
+                    subscription_tracker = SubscriptionAckTracker(required_by_transaction_id)
+                    self._set_connection_state(environment, "SUBSCRIBING")
+                    self._set_subscription_ack_status(environment, subscription_tracker.status)
                     sent_keys: set[str] = set()
                     for watch in tuple(active_watches):
                         await upstream.send(self._subscription_json(key, watch))
@@ -676,11 +691,39 @@ class PaperSessionFeedMonitor:
                     update_task = asyncio.create_task(
                         self._write_subscription_updates(upstream, key, environment, sent_keys)
                     )
-                    self._set_connection_state(environment, "RUNNING")
                     try:
-                        async for frame in upstream:
+                        acknowledgement_deadline = (
+                            asyncio.get_running_loop().time() + SUBSCRIPTION_ACK_TIMEOUT_SECONDS
+                        )
+                        while True:
+                            if subscription_tracker.complete:
+                                frame = await upstream.recv()
+                            else:
+                                remaining = acknowledgement_deadline - asyncio.get_running_loop().time()
+                                if remaining <= 0:
+                                    raise SubscriptionAcknowledgementTimeoutError()
+                                try:
+                                    frame = await asyncio.wait_for(upstream.recv(), timeout=remaining)
+                                except asyncio.TimeoutError as exc:
+                                    raise SubscriptionAcknowledgementTimeoutError() from exc
                             if await reply_to_pingpong(upstream, frame):
                                 continue
+                            if not subscription_tracker.complete:
+                                try:
+                                    acknowledged = subscription_tracker.observe(frame)
+                                except SubscriptionAcknowledgementError as exc:
+                                    self._set_status(
+                                        last_subscription_error_code=exc.broker_code,
+                                        subscription_acknowledgements_by_feed={
+                                            **self.status().get("subscription_acknowledgements_by_feed", {}),
+                                            environment: subscription_tracker.status,
+                                        },
+                                    )
+                                    raise
+                                self._set_subscription_ack_status(environment, subscription_tracker.status)
+                                if acknowledged:
+                                    self._set_status(last_subscription_error_code=None)
+                                    self._set_connection_state(environment, "RUNNING")
                             self._consume(frame, tuple(self._watches_by_feed.get(environment, watches)))
                     finally:
                         update_task.cancel()
@@ -690,12 +733,30 @@ class PaperSessionFeedMonitor:
                             pass
             except asyncio.CancelledError:
                 raise
+            except SubscriptionAcknowledgementError:
+                connected_seconds = (asyncio.get_running_loop().time() - connected_at
+                                     if connected_at is not None else 0)
+                delay = self._next_reconnect_delay(delay, connected_seconds)
+                self._set_connection_state(environment, "RECONNECTING")
+                self._set_status(last_error="KIS_SUBSCRIPTION_REJECTED")
+                await asyncio.sleep(delay)
+            except SubscriptionAcknowledgementTimeoutError:
+                connected_seconds = (asyncio.get_running_loop().time() - connected_at
+                                     if connected_at is not None else 0)
+                delay = self._next_reconnect_delay(delay, connected_seconds)
+                self._set_connection_state(environment, "RECONNECTING")
+                self._set_status(last_error="KIS_SUBSCRIPTION_ACK_TIMEOUT")
+                await asyncio.sleep(delay)
             except Exception:
                 connected_seconds = (asyncio.get_running_loop().time() - connected_at
                                      if connected_at is not None else 0)
                 delay = self._next_reconnect_delay(delay, connected_seconds)
                 self._set_connection_state(environment, "RECONNECTING")
                 await asyncio.sleep(delay)
+
+    def _set_subscription_ack_status(self, environment: str, status: dict[str, int | bool]) -> None:
+        current = self.status().get("subscription_acknowledgements_by_feed", {})
+        self._set_status(subscription_acknowledgements_by_feed={**current, environment: status})
 
     def _set_connection_state(self, environment: str, state: str) -> None:
         with self._lock:

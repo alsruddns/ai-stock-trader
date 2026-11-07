@@ -457,6 +457,84 @@ def test_multi_feed_status_only_reports_running_when_all_streams_are_connected()
     assert runtime.status()["last_error"] == "KIS_STREAM_UNAVAILABLE"
 
 
+def test_websocket_feed_is_not_running_until_all_kis_subscription_acks_arrive(monkeypatch) -> None:
+    class AckConnection:
+        def __init__(self, runtime):
+            self.runtime = runtime
+            self.received = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send(self, _message):
+            return None
+
+        async def recv(self):
+            self.received += 1
+            if self.received == 1:
+                assert self.runtime.status()["stream_connections"]["real"] == "SUBSCRIBING"
+                return '{"header":{"tr_id":"HDFSCNT0"},"body":{"rt_cd":"0"}}'
+            assert self.runtime.status()["stream_connections"]["real"] == "RUNNING"
+            raise asyncio.CancelledError
+
+    runtime = PaperSessionFeedMonitor()
+    connection = AckConnection(runtime)
+    watch = parse_watchlist("US:AAPL:NAS")[0]
+    monkeypatch.setattr("app.paper_runtime.approval_key", lambda _settings: "approval")
+    monkeypatch.setitem(sys.modules, "websockets", SimpleNamespace(connect=lambda *_args, **_kwargs: connection))
+    settings = SimpleNamespace(kis=SimpleNamespace(environment="real"), websocket_url="ws://mock.invalid")
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(runtime._run((watch,), settings))
+
+    status = runtime.status()
+    assert status["stream_connections"]["real"] == "RUNNING"
+    assert status["subscription_acknowledgements_by_feed"]["real"] == {
+        "accepted_count": 1, "required_count": 1, "complete": True,
+    }
+
+
+def test_websocket_subscription_ack_timeout_keeps_feed_unavailable(monkeypatch) -> None:
+    class SilentConnection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send(self, _message):
+            return None
+
+        async def recv(self):
+            await asyncio.Future()
+
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("US:AAPL:NAS")[0]
+    delays = []
+
+    async def stop_after_timeout(delay):
+        delays.append(delay)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr("app.paper_runtime.approval_key", lambda _settings: "approval")
+    monkeypatch.setattr("app.paper_runtime.SUBSCRIPTION_ACK_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr("app.paper_runtime.asyncio.sleep", stop_after_timeout)
+    monkeypatch.setitem(sys.modules, "websockets", SimpleNamespace(connect=lambda *_args, **_kwargs: SilentConnection()))
+    settings = SimpleNamespace(kis=SimpleNamespace(environment="real"), websocket_url="ws://mock.invalid")
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(runtime._run((watch,), settings))
+
+    status = runtime.status()
+    assert status["stream_connections"]["real"] == "RECONNECTING"
+    assert status["last_error"] == "KIS_SUBSCRIPTION_ACK_TIMEOUT"
+    assert status["subscription_acknowledgements_by_feed"]["real"]["complete"] is False
+    assert delays == [2]
+
+
 def test_websocket_run_keeps_backoff_across_repeated_short_connections(monkeypatch) -> None:
     class DroppingConnection:
         async def __aenter__(self):

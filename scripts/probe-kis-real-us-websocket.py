@@ -15,6 +15,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 sys.path.insert(0, str(repository / "scripts" / "lib"))
 
 import websockets
+import httpx
 from app.kis import KisSettings
 from app.kis_stream import (
     StreamSettings,
@@ -46,6 +47,26 @@ _FORBIDDEN_SWITCHES = (
     "REAL_PROTECTIVE_EXIT_MANAGER_ENABLED",
     "KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED",
 )
+
+
+def local_real_feed_is_active() -> bool | None:
+    """Avoid a second KIS socket while the managed local REAL feed owns one."""
+    try:
+        response = httpx.get("http://127.0.0.1:18000/api/v1/paper/session", timeout=1.5)
+    except httpx.ConnectError:
+        return False
+    except httpx.HTTPError:
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        status = response.json()
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(status, dict) or not isinstance(status.get("stream_connections"), dict):
+        return None
+    active_states = {"CONNECTING", "SUBSCRIBING", "RUNNING", "RECONNECTING"}
+    return bool(status.get("enabled") and status["stream_connections"].get("real") in active_states)
 
 
 def isolate_read_only_us_market_data_process() -> None:
@@ -189,6 +210,14 @@ def main(
         subscription_message("probe", "US", symbol, exchange)
     except ValueError:
         print(json.dumps({"status": "blocked", "reason": "INVALID_SUBSCRIPTION"}))
+        return 2
+
+    local_feed_active = local_real_feed_is_active()
+    if local_feed_active is None:
+        print(json.dumps({"status": "blocked", "reason": "LOCAL_REAL_STREAM_STATUS_UNAVAILABLE"}))
+        return 2
+    if local_feed_active:
+        print(json.dumps({"status": "blocked", "reason": "LOCAL_REAL_STREAM_ALREADY_ACTIVE"}))
         return 2
 
     isolate_read_only_us_market_data_process()
