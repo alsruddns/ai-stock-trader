@@ -303,6 +303,71 @@ class KisRealOrderClientTest {
     }
 
     @Test
+    void domesticSessionExecutionLookupReturnsOnlyValidatedBrokerExecutions() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_id", "TTTC8001R"))
+                .andExpect(queryParam("INQR_STRT_DT", "20261106"))
+                .andExpect(queryParam("CCLD_DVSN", "01"))
+                .andExpect(queryParam("EXCG_ID_DVSN_CD", "ALL"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[{"odno":"7201","pdno":"005930","sll_buy_dvsn_cd":"02","ord_gno_brno":"ORG02"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        var executions = new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                .getRealSessionExecutions(Market.KR, java.time.LocalDate.of(2026, 11, 6));
+
+        assertEquals(List.of(new KisRealOrderClient.KisBrokerSessionExecution(
+                "7201", "005930", OrderSide.BUY, "ORG02")), executions);
+        server.verify();
+    }
+
+    @Test
+    void overseasSessionExecutionLookupQueriesAllUsExchanges() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/overseas-stock/v1/trading/inquire-ccnl?")))
+                .andExpect(header("tr_id", "TTTS3035R"))
+                .andExpect(queryParam("ORD_STRT_DT", "20261106"))
+                .andExpect(queryParam("CCLD_NCCS_DVSN", "01"))
+                .andExpect(queryParam("OVRS_EXCG_CD", "%25"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output":[{"odno":"7202","ovrs_pdno":"AAPL","sll_buy_dvsn":"01"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        var executions = new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                .getRealSessionExecutions(Market.US, java.time.LocalDate.of(2026, 11, 6));
+
+        assertEquals(List.of(new KisRealOrderClient.KisBrokerSessionExecution(
+                "7202", "AAPL", OrderSide.SELL, "")), executions);
+        server.verify();
+    }
+
+    @Test
+    void incompleteSessionExecutionRowsFailClosed() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/overseas-stock/v1/trading/inquire-ccnl?")))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output":[{"odno":"7203","ovrs_pdno":"AAPL"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThrows(KisApiException.class, () -> new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                .getRealSessionExecutions(Market.US, java.time.LocalDate.of(2026, 11, 6)));
+        server.verify();
+    }
+
+    @Test
     void realOrderTimeoutIsMarkedUnknownAndNotAutomaticallyRetried() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

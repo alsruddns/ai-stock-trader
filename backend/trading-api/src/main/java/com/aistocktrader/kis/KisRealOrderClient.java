@@ -18,8 +18,11 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -275,6 +278,106 @@ public class KisRealOrderClient {
         }
         return Optional.empty();
     }
+
+    /** Read-only complete session execution lookup used to detect trades outside this application's ledger. */
+    public List<KisBrokerSessionExecution> getRealSessionExecutions(Market market, LocalDate sessionDate) {
+        requireRealAccountReadEnabled();
+        if (market == null || sessionDate == null) {
+            throw new IllegalArgumentException("A market and exchange-local session date are required.");
+        }
+        KisProperties.Account credentials = properties.credentials(KisEnvironment.REAL);
+        String account = credentials.accountNumber();
+        String date = sessionDate.format(DateTimeFormatter.BASIC_ISO_DATE);
+        String path = market == Market.KR
+                ? "/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
+                : "/uapi/overseas-stock/v1/trading/inquire-ccnl";
+        String trId = market == Market.KR ? "TTTC8001R" : "TTTS3035R";
+        String rowsField = market == Market.KR ? "output1" : "output";
+        String fkField = market == Market.KR ? "CTX_AREA_FK100" : "CTX_AREA_FK200";
+        String nkField = market == Market.KR ? "CTX_AREA_NK100" : "CTX_AREA_NK200";
+        String continuation = "";
+        String nextSearch = "";
+        String nextKey = "";
+        var executions = new LinkedHashMap<String, KisBrokerSessionExecution>();
+        for (int pageNumber = 0; pageNumber < 20; pageNumber++) {
+            MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+            params.add("CANO", account.substring(0, 8));
+            params.add("ACNT_PRDT_CD", account.substring(8));
+            if (market == Market.KR) {
+                params.add("INQR_STRT_DT", date); params.add("INQR_END_DT", date);
+                params.add("SLL_BUY_DVSN_CD", "00"); params.add("INQR_DVSN", "01");
+                params.add("PDNO", ""); params.add("CCLD_DVSN", "01");
+                params.add("ORD_GNO_BRNO", ""); params.add("ODNO", "");
+                params.add("INQR_DVSN_3", "00"); params.add("INQR_DVSN_1", "");
+                params.add("EXCG_ID_DVSN_CD", "ALL");
+                params.add("CTX_AREA_FK100", nextSearch); params.add("CTX_AREA_NK100", nextKey);
+            } else {
+                params.add("PDNO", ""); params.add("ORD_STRT_DT", date); params.add("ORD_END_DT", date);
+                params.add("SLL_BUY_DVSN", "00"); params.add("CCLD_NCCS_DVSN", "01");
+                params.add("OVRS_EXCG_CD", "%"); params.add("SORT_SQN", "DS");
+                params.add("ORD_DT", ""); params.add("ORD_GNO_BRNO", ""); params.add("ODNO", "");
+                params.add("CTX_AREA_FK200", nextSearch); params.add("CTX_AREA_NK200", nextKey);
+            }
+            BrokerQueryResponse query = get(path, trId, params, continuation, credentials);
+            JsonNode response = query.body();
+            if (response == null || !"0".equals(response.path("rt_cd").asText())) {
+                throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                        "KIS session execution lookup failed (code "
+                                + safeCode(response == null ? "unknown" : response.path("msg_cd").asText("unknown")) + ").");
+            }
+            JsonNode rows = response.path(rowsField);
+            if (!rows.isArray() && !rows.isObject()) {
+                throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution response is incomplete.");
+            }
+            if (rows.isArray()) {
+                for (JsonNode row : rows) addSessionExecution(executions, row);
+            } else if (!rows.isEmpty()) {
+                addSessionExecution(executions, rows);
+            }
+            String responseContinuation = query.continuation();
+            if (!"M".equalsIgnoreCase(responseContinuation) && !"F".equalsIgnoreCase(responseContinuation)) {
+                return List.copyOf(executions.values());
+            }
+            if (pageNumber == 19) {
+                throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                        "KIS session execution lookup exceeded the supported pagination limit.");
+            }
+            nextSearch = response.path(fkField.toLowerCase(Locale.ROOT)).asText("");
+            nextKey = response.path(nkField.toLowerCase(Locale.ROOT)).asText("");
+            if (nextSearch.isBlank() || nextKey.isBlank()) {
+                throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution pagination is incomplete.");
+            }
+            continuation = "N";
+        }
+        throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution pagination did not complete.");
+    }
+
+    private static void addSessionExecution(Map<String, KisBrokerSessionExecution> executions, JsonNode row) {
+        String orderNumber = firstText(row, "odno", "ODNO");
+        String symbol = firstText(row, "pdno", "PDNO", "ovrs_pdno", "OVRS_PDNO");
+        String sideCode = firstText(row, "sll_buy_dvsn_cd", "SLL_BUY_DVSN_CD", "sll_buy_dvsn", "SLL_BUY_DVSN");
+        OrderSide side = switch (sideCode.trim().toUpperCase(Locale.ROOT)) {
+            case "01", "SELL" -> OrderSide.SELL;
+            case "02", "BUY" -> OrderSide.BUY;
+            default -> null;
+        };
+        String organization = firstText(row, "ord_gno_brno", "ORD_GNO_BRNO",
+                "krx_fwdg_ord_orgno", "KRX_FWDG_ORD_ORGNO");
+        if (orderNumber.isBlank() || symbol.isBlank() || side == null) {
+            throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution row is incomplete.");
+        }
+        KisBrokerSessionExecution value = new KisBrokerSessionExecution(orderNumber, symbol, side, organization);
+        KisBrokerSessionExecution previous = executions.putIfAbsent(orderNumber, value);
+        if (previous != null && (!previous.symbol().equalsIgnoreCase(value.symbol())
+                || previous.side() != value.side()
+                || (!previous.organizationNumber().isBlank() && !value.organizationNumber().isBlank()
+                    && !previous.organizationNumber().equalsIgnoreCase(value.organizationNumber())))) {
+            throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution rows conflict.");
+        }
+    }
+
+    public record KisBrokerSessionExecution(String orderNumber, String symbol, OrderSide side,
+                                           String organizationNumber) { }
 
     private BrokerQueryResponse get(String path, String trId, MultiValueMap<String, String> params,
                                    String continuation, KisProperties.Account credentials) {

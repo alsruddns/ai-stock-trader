@@ -28,6 +28,7 @@ public class KisRealConsecutiveLossService {
     private final KisRealSessionPositionBaselineStore positionBaselines;
     private final KisRealDailyRiskBaselineService dailyRiskBaselines;
     private final KisOrderIntentRepository intents;
+    private final KisRealOrderClient realOrders;
     private final KisRealTradingCostProperties costs;
     private final KisRealizedPnlCalculator calculator = new KisRealizedPnlCalculator();
 
@@ -36,6 +37,7 @@ public class KisRealConsecutiveLossService {
                                          KisRealSessionPositionBaselineStore positionBaselines,
                                          KisRealDailyRiskBaselineService dailyRiskBaselines,
                                          KisOrderIntentRepository intents,
+                                         KisRealOrderClient realOrders,
                                          KisRealTradingCostProperties costs) {
         this.properties = properties;
         this.accounts = accounts;
@@ -43,6 +45,7 @@ public class KisRealConsecutiveLossService {
         this.positionBaselines = positionBaselines;
         this.dailyRiskBaselines = dailyRiskBaselines;
         this.intents = intents;
+        this.realOrders = realOrders;
         this.costs = costs;
     }
 
@@ -75,12 +78,20 @@ public class KisRealConsecutiveLossService {
                 var marketCosts = costs.forMarket(market);
                 if (marketCosts == null || !marketCosts.valid()) return Optional.empty();
                 List<KisOrderIntent> orders = intents.findByEnvironmentAndMarketAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
-                        KisEnvironment.REAL, market, baseline.get().capturedAt());
+                        KisEnvironment.REAL, market, session.openAt());
                 List<KisRealizedPnlCalculator.TradeFill> fills = new ArrayList<>();
+                Map<String, KisOrderIntent> filledOrdersByBrokerNumber = new HashMap<>();
                 for (KisOrderIntent order : orders) {
                     if (order.getStatus() != KisOrderStatus.FILLED && order.getStatus() != KisOrderStatus.CANCELLED
                             && order.getStatus() != KisOrderStatus.REJECTED) return Optional.empty();
                     if (order.getFilledQuantity() == null || order.getFilledQuantity() <= 0) continue;
+                    if (order.getCreatedAt() == null || order.getCreatedAt().isBefore(baseline.get().capturedAt())
+                            || order.getBrokerOrderNumber() == null || order.getBrokerOrderNumber().isBlank()
+                            || (market == Market.KR && (order.getBrokerOrganizationNumber() == null
+                                || order.getBrokerOrganizationNumber().isBlank()))
+                            || filledOrdersByBrokerNumber.putIfAbsent(order.getBrokerOrderNumber(), order) != null) {
+                        return Optional.empty();
+                    }
                     if (order.getAverageFillPrice() == null || order.getAverageFillPrice().signum() <= 0) {
                         return Optional.empty();
                     }
@@ -89,6 +100,22 @@ public class KisRealConsecutiveLossService {
                     fills.add(new KisRealizedPnlCalculator.TradeFill(order.getIdempotencyKey().toString(),
                             order.getSymbol(), order.getSide(), order.getFilledQuantity(),
                             order.getAverageFillPrice(), order.getLastFillAt()));
+                }
+                List<KisRealOrderClient.KisBrokerSessionExecution> brokerExecutions =
+                        realOrders.getRealSessionExecutions(market, session.sessionDate());
+                Map<String, KisRealOrderClient.KisBrokerSessionExecution> executionsByNumber = new HashMap<>();
+                for (var execution : brokerExecutions) {
+                    KisOrderIntent intent = filledOrdersByBrokerNumber.get(execution.orderNumber());
+                    if (intent == null || !intent.getSymbol().equalsIgnoreCase(execution.symbol())
+                            || intent.getSide() != execution.side()
+                            || (market == Market.KR && !intent.getBrokerOrganizationNumber().equalsIgnoreCase(
+                                    execution.organizationNumber()))) return Optional.empty();
+                    if (executionsByNumber.putIfAbsent(execution.orderNumber(), execution) != null) {
+                        return Optional.empty();
+                    }
+                }
+                if (!executionsByNumber.keySet().containsAll(filledOrdersByBrokerNumber.keySet())) {
+                    return Optional.empty();
                 }
                 List<KisRealizedPnlCalculator.OpeningPosition> opening = baseline.get().positions().stream()
                         .map(position -> new KisRealizedPnlCalculator.OpeningPosition(position.symbol(),
