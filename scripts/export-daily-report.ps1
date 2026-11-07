@@ -8,6 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'lib\operations-report.ps1')
 $reportDirectory = Join-Path $repoRoot ".local\reports"
 New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($WaitTimeoutSeconds)
@@ -30,35 +31,61 @@ if ($null -eq $report) {
     throw 'The local Spring operations API returned no report.'
 }
 
-function Get-OptionalLocalJson([string]$Url) {
-    try { return Invoke-RestMethod -Uri $Url -TimeoutSec 5 }
-    catch { return $null }
-}
-
-$pythonHealth = Get-OptionalLocalJson "$PythonApiBaseUrl/api/v1/health"
-$paperSession = Get-OptionalLocalJson "$PythonApiBaseUrl/api/v1/paper/session"
-$aiModels = Get-OptionalLocalJson "$PythonApiBaseUrl/api/v1/ai/models"
+$endpointStatus = [ordered]@{}
+$healthResult = Invoke-AiTraderOptionalJsonRequest "$PythonApiBaseUrl/api/v1/health"
+$endpointStatus['python.health'] = [ordered]@{ state = $healthResult.state; httpStatus = $healthResult.http_status; errorType = $healthResult.error_type }
+$pythonHealth = $healthResult.data
+$paperSessionResult = Invoke-AiTraderOptionalJsonRequest "$PythonApiBaseUrl/api/v1/paper/session"
+$endpointStatus['python.paper_session'] = [ordered]@{ state = $paperSessionResult.state; httpStatus = $paperSessionResult.http_status; errorType = $paperSessionResult.error_type }
+$paperSession = $paperSessionResult.data
+$modelsResult = Invoke-AiTraderOptionalJsonRequest "$PythonApiBaseUrl/api/v1/ai/models"
+$endpointStatus['python.ai_models'] = [ordered]@{ state = $modelsResult.state; httpStatus = $modelsResult.http_status; errorType = $modelsResult.error_type }
+$aiModels = $modelsResult.data
 $marketSessions = @{ KR = $null; US = $null }
 $marketDataQuality = @{ KR = $null; US = $null }
 foreach ($market in @('KR', 'US')) {
-    $marketSessions[$market] = Get-OptionalLocalJson "$PythonApiBaseUrl/api/v1/market/sessions/$market"
-    if (-not $paperSession -or -not $paperSession.decisions) { continue }
+    $sessionResult = Invoke-AiTraderOptionalJsonRequest "$PythonApiBaseUrl/api/v1/market/sessions/$market"
+    $endpointStatus["python.market_session_$market"] = [ordered]@{ state = $sessionResult.state; httpStatus = $sessionResult.http_status; errorType = $sessionResult.error_type }
+    $marketSessions[$market] = $sessionResult.data
+    if (-not $paperSession -or -not $paperSession.decisions) {
+        $endpointStatus["python.market_data_quality_$market"] = [ordered]@{ state = 'SKIPPED_NO_DECISIONS'; httpStatus = $null; errorType = $null }
+        continue
+    }
     $symbols = @($paperSession.decisions.PSObject.Properties |
         ForEach-Object { $_.Value } |
         Where-Object { $_.market -eq $market -and $_.symbol } |
         ForEach-Object { ([string]$_.symbol).Trim().ToUpperInvariant() } |
         Select-Object -Unique)
-    if ($symbols.Count -lt 1 -or $symbols.Count -gt 50) { continue }
+    if ($symbols.Count -lt 1) {
+        $endpointStatus["python.market_data_quality_$market"] = [ordered]@{ state = 'SKIPPED_NO_SYMBOLS'; httpStatus = $null; errorType = $null }
+        continue
+    }
+    if ($symbols.Count -gt 50) {
+        $endpointStatus["python.market_data_quality_$market"] = [ordered]@{ state = 'SKIPPED_SYMBOL_LIMIT'; httpStatus = $null; errorType = $null }
+        continue
+    }
     $query = @('latest_closed=true') + @($symbols | ForEach-Object {
         'symbols=' + [Uri]::EscapeDataString($_)
     })
     $qualityUrl = "${PythonApiBaseUrl}/api/v1/market/session-quality/${market}?" + ($query -join '&')
-    $marketDataQuality[$market] = Get-OptionalLocalJson $qualityUrl
+    $qualityResult = Invoke-AiTraderOptionalJsonRequest $qualityUrl
+    $endpointStatus["python.market_data_quality_$market"] = [ordered]@{ state = $qualityResult.state; httpStatus = $qualityResult.http_status; errorType = $qualityResult.error_type }
+    $marketDataQuality[$market] = $qualityResult.data
 }
 
-$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 2 -Force
+$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 3 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
-$report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($null -ne $pythonHealth) -Force
+$report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
+$endpointStates = @($endpointStatus.Values | ForEach-Object { $_.state })
+$optionalDataStatus = if (@($endpointStates | Where-Object { $_ -in @('HTTP_ERROR', 'UNREACHABLE') }).Count -gt 0) {
+    'PARTIAL'
+} elseif (@($endpointStates | Where-Object { $_ -ne 'AVAILABLE' }).Count -gt 0) {
+    'INCOMPLETE'
+} else {
+    'COMPLETE'
+}
+$report | Add-Member -MemberType NoteProperty -Name optionalDataStatus -Value $optionalDataStatus -Force
+$report | Add-Member -MemberType NoteProperty -Name endpointStatus -Value $endpointStatus -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonHealth -Value $pythonHealth -Force
 $report | Add-Member -MemberType NoteProperty -Name paperSession -Value $paperSession -Force
 $report | Add-Member -MemberType NoteProperty -Name aiModels -Value $aiModels -Force

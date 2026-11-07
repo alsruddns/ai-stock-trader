@@ -32,7 +32,9 @@ jobs:
             'scripts/lib/paper-safety.ps1',
             'scripts/lib/local-postgres-binding.ps1',
             'scripts/run-model-retraining.ps1',
-            'scripts/run-model-holdout-evaluation.ps1'
+            'scripts/run-model-holdout-evaluation.ps1',
+            'scripts/lib/operations-report.ps1',
+            'scripts/export-daily-report.ps1'
           )
           foreach ($scriptFile in $scriptFiles) {
             $tokens = $null
@@ -58,6 +60,11 @@ jobs:
           $modelSafetyResult = Invoke-Pester -Path 'scripts/tests/paper-safety.Tests.ps1' -PassThru
           if ($modelSafetyResult.FailedCount -gt 0 -or $modelSafetyResult.PassedCount -ne 4) {
             throw "Scheduled model safety tests failed: passed=$($modelSafetyResult.PassedCount), failed=$($modelSafetyResult.FailedCount)."
+          }
+
+          $reportResult = Invoke-Pester -Path 'scripts/tests/operations-report.Tests.ps1' -PassThru
+          if ($reportResult.FailedCount -gt 0 -or $reportResult.PassedCount -ne 4) {
+            throw "Operations report tests failed: passed=$($reportResult.PassedCount), failed=$($reportResult.FailedCount)."
           }
 
       - name: Check local stack restart safety under Windows PowerShell 5.1
