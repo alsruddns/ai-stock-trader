@@ -7,6 +7,7 @@ KIS Developers 고객의 소리에 아래 내용을 전달할 수 있습니다. 
 안녕하세요. Windows 로컬 PC에서 본인 KIS 계좌의 Open API 읽기 전용 연결을 설정하고 있습니다. 모의투자와 실전투자에 발급된 자격정보를 각각 해당 환경에 넣어 OAuth 토큰 발급만 확인했으나, 두 환경 모두 HTTP 403과 오류코드 `EGW00002`(서버 에러)가 반환됩니다.
 
 - 점검 시각: 2026-11-07 10:59 KST(PAPER), 11:00 KST(REAL), 11:05 KST(PAPER 잔고 읽기 재확인)
+- 추가 PAPER OAuth 재점검: 2026-11-07 11:11 KST, HTTP 403, `EGW00002`
 - PAPER 서버: `https://openapivts.koreainvestment.com:29443`
 - REAL 서버: `https://openapi.koreainvestment.com:9443`
 - 인증 경로: `POST /oauth2/tokenP`, `client_credentials`
