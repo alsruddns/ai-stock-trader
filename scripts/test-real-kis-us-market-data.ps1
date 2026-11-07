@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
     [switch]$EnableReadOnlyGetForThisRun,
+    [ValidateSet('KR', 'US', 'ALL')] [string]$Market = 'ALL',
+    [string]$KoreanSymbol = '005930',
     [string]$Symbol = 'AAPL',
     [ValidateSet('NAS', 'NYS', 'AMS')] [string]$Exchange = 'NAS'
 )
@@ -32,7 +34,7 @@ try {
     }
 
     if (-not $EnableReadOnlyGetForThisRun) {
-        throw 'Pass -EnableReadOnlyGetForThisRun to opt in to one isolated REAL quote GET.'
+        throw 'Pass -EnableReadOnlyGetForThisRun to opt in to isolated REAL market-data GETs.'
     }
     if ($env:TRADING_MODE -ne 'paper' -or $env:LIVE_TRADING_ENABLED -ne 'false' -or
         $env:KIS_PAPER_ORDERS_ENABLED -ne 'false' -or $env:KIS_REAL_ORDERS_ENABLED -ne 'false' -or
@@ -48,7 +50,7 @@ try {
         throw 'The shared PostgreSQL KIS rate limiter must remain enabled.'
     }
 
-    # Process-only opt-in for a single quote GET. The child never receives account or PAPER credentials.
+    # Process-only opt-in. The child never receives account or PAPER credentials.
     $env:KIS_ENVIRONMENT = 'paper'
     $env:KIS_REAL_MARKET_DATA_ENABLED = 'true'
     $env:KIS_SHARED_RATE_LIMIT_ENABLED = 'true'
@@ -59,8 +61,8 @@ try {
     $python = Join-Path $repoRoot 'services\market-ai\.venv\Scripts\python.exe'
     if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'Repository Python virtual environment is missing.' }
     $probe = Join-Path $PSScriptRoot 'probe-kis-real-us-quote.py'
-    & $python $probe --symbol $Symbol --exchange $Exchange
-    if ($LASTEXITCODE -ne 0) { throw 'REAL US quote probe failed; inspect its sanitized JSON result.' }
+    & $python $probe --market $Market --kr-symbol $KoreanSymbol --symbol $Symbol --exchange $Exchange
+    if ($LASTEXITCODE -ne 0) { throw 'REAL quote probe failed; inspect its sanitized JSON result.' }
 }
 finally {
     $currentEnvironment = [Environment]::GetEnvironmentVariables('Process')

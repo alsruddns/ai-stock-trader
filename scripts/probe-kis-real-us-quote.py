@@ -1,4 +1,4 @@
-"""One-shot REAL US quote diagnostic. This module has no order or account APIs."""
+"""One-shot REAL KR/US quote diagnostic. This module has no order or account APIs."""
 
 from __future__ import annotations
 
@@ -43,12 +43,30 @@ def validate_configuration(environment: Mapping[str, str]) -> None:
         raise ValueError("PostgreSQL credentials are required for the shared KIS rate limiter")
 
 
-def safe_success_result(symbol: str, exchange: str, currency: str, retrieved_at: str,
-                        has_spread: bool) -> dict[str, object]:
+def requested_instruments(market: str, kr_symbol: str, us_symbol: str,
+                          exchange: str) -> list[tuple[str, str, str | None]]:
+    if market not in {"KR", "US", "ALL"}:
+        raise ValueError("market must be KR, US, or ALL")
+    normalized_kr = kr_symbol.strip()
+    normalized_us = us_symbol.strip().upper()
+    if market in {"KR", "ALL"} and not re.fullmatch(r"\d{6}", normalized_kr):
+        raise ValueError("KR symbol must contain six digits")
+    if market in {"US", "ALL"} and not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,15}", normalized_us):
+        raise ValueError("US symbol must contain 1 to 16 letters, digits, dots, or hyphens")
+    instruments: list[tuple[str, str, str | None]] = []
+    if market in {"KR", "ALL"}:
+        instruments.append(("KR", normalized_kr, None))
+    if market in {"US", "ALL"}:
+        instruments.append(("US", normalized_us, exchange))
+    return instruments
+
+
+def safe_success_result(market: str, symbol: str, exchange: str | None, currency: str,
+                        retrieved_at: str, has_spread: bool) -> dict[str, object]:
     return {
         "status": "ok",
         "environment": "real_market_data_read_only",
-        "market": "US",
+        "market": market,
         "symbol": symbol,
         "exchange": exchange,
         "currency": currency,
@@ -63,26 +81,37 @@ def safe_success_result(symbol: str, exchange: str, currency: str, retrieved_at:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--symbol", default="AAPL")
+    parser.add_argument("--market", choices=("KR", "US", "ALL"), default="ALL")
+    parser.add_argument("--kr-symbol", default="005930")
+    parser.add_argument("--symbol", default="AAPL", help="US symbol")
     parser.add_argument("--exchange", choices=("NAS", "NYS", "AMS"), default="NAS")
     arguments = parser.parse_args()
-    symbol = arguments.symbol.strip().upper()
-    if not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,15}", symbol):
-        parser.error("symbol must contain 1 to 16 letters, digits, dots, or hyphens")
 
     try:
         validate_configuration(os.environ)
+        instruments = requested_instruments(
+            arguments.market, arguments.kr_symbol, arguments.symbol, arguments.exchange,
+        )
         settings = KisSettings.from_environment("real")
         client = KisReadOnlyClient(settings)
         try:
-            quote = client.get_quote("US", symbol, arguments.exchange)
+            quotes = [
+                (market, client.get_quote(market, symbol, exchange))
+                for market, symbol, exchange in instruments
+            ]
         finally:
             client.close()
-        result = safe_success_result(
-            quote.symbol, quote.exchange or arguments.exchange, quote.currency,
-            quote.retrieved_at.astimezone(timezone.utc).isoformat(),
-            quote.best_ask is not None and quote.best_bid is not None,
-        )
+        result = {
+            "status": "ok",
+            "environment": "real_market_data_read_only",
+            "quotes": [safe_success_result(
+                market, quote.symbol, quote.exchange,
+                quote.currency, quote.retrieved_at.astimezone(timezone.utc).isoformat(),
+                quote.best_ask is not None and quote.best_bid is not None,
+            ) for market, quote in quotes],
+            "orders_called": False,
+            "account_reads_called": False,
+        }
         print(json.dumps(result, separators=(",", ":")))
         return 0
     except (KisApiError, KisSharedRateLimitUnavailable, ValueError) as exc:

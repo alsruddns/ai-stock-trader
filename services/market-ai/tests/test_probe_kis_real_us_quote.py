@@ -60,10 +60,35 @@ def test_real_quote_probe_fails_closed_for_unsafe_or_incomplete_configuration(na
 
 
 def test_real_quote_probe_success_result_never_contains_quote_price_or_credentials() -> None:
-    result = PROBE.safe_success_result("AAPL", "NAS", "USD", "2026-11-08T00:00:00+00:00", True)
+    result = PROBE.safe_success_result("US", "AAPL", "NAS", "USD", "2026-11-08T00:00:00+00:00", True)
     assert result["status"] == "ok"
     assert result["environment"] == "real_market_data_read_only"
     assert result["orders_called"] is False
     assert result["account_reads_called"] is False
     assert "price" not in result
     assert "real-secret" not in str(result)
+
+
+def test_real_quote_probe_requests_both_markets_through_one_client() -> None:
+    assert PROBE.requested_instruments("ALL", "005930", "aapl", "NAS") == [
+        ("KR", "005930", None),
+        ("US", "AAPL", "NAS"),
+    ]
+
+
+def test_real_quote_probe_accepts_market_specific_single_quote_requests() -> None:
+    assert PROBE.requested_instruments("KR", "005930", "ignored", "NAS") == [
+        ("KR", "005930", None),
+    ]
+    assert PROBE.requested_instruments("US", "ignored", "aapl", "NAS") == [
+        ("US", "AAPL", "NAS"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("market", "kr_symbol", "us_symbol"),
+    [("ALL", "5930", "AAPL"), ("KR", "00A930", "AAPL"), ("US", "005930", "bad symbol")],
+)
+def test_real_quote_probe_rejects_invalid_market_symbols(market: str, kr_symbol: str, us_symbol: str) -> None:
+    with pytest.raises(ValueError):
+        PROBE.requested_instruments(market, kr_symbol, us_symbol, "NAS")
