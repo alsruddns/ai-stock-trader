@@ -79,9 +79,11 @@ public class KisRealConsecutiveLossService {
                     if (order.getAverageFillPrice() == null || order.getAverageFillPrice().signum() <= 0) {
                         return Optional.empty();
                     }
+                    if (order.getLastFillAt() == null || order.getLastFillAt().isBefore(session.openAt())
+                            || order.getLastFillAt().isAfter(session.closeAt())) return Optional.empty();
                     fills.add(new KisRealizedPnlCalculator.TradeFill(order.getIdempotencyKey().toString(),
                             order.getSymbol(), order.getSide(), order.getFilledQuantity(),
-                            order.getAverageFillPrice(), order.getUpdatedAt()));
+                            order.getAverageFillPrice(), order.getLastFillAt()));
                 }
                 List<KisRealizedPnlCalculator.OpeningPosition> opening = baseline.get().positions().stream()
                         .map(position -> new KisRealizedPnlCalculator.OpeningPosition(position.symbol(),
@@ -106,6 +108,9 @@ public class KisRealConsecutiveLossService {
             }
             realized.sort(java.util.Comparator.comparing(KisRealizedPnlCalculator.RealizedTrade::executedAt)
                     .thenComparing(KisRealizedPnlCalculator.RealizedTrade::id));
+            for (int index = 1; index < realized.size(); index++) {
+                if (realized.get(index - 1).executedAt().equals(realized.get(index).executedAt())) return Optional.empty();
+            }
             int losses = 0;
             for (int index = realized.size() - 1; index >= 0; index--) {
                 if (realized.get(index).netPnl().signum() >= 0) break;

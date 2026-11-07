@@ -58,6 +58,8 @@ public class KisOrderIntent {
     private Instant createdAt;
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+    @Column(name = "last_fill_at")
+    private Instant lastFillAt;
 
     protected KisOrderIntent() { }
 
@@ -147,4 +149,8 @@ public class KisOrderIntent {
     public BigDecimal getAverageFillPrice() { return averageFillPrice; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public Instant getLastFillAt() { return lastFillAt; }
+    void recordFillTime(Instant fillAt) {
+        if (fillAt != null && (lastFillAt == null || fillAt.isAfter(lastFillAt))) lastFillAt = fillAt;
+    }
 }

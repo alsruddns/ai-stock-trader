@@ -46,11 +46,11 @@ class KisRealConsecutiveLossServiceTest {
     }
 
     @Test
-    void confirmedLosingRoundTripProducesOneConsecutiveNetLoss() throws InterruptedException {
+    void confirmedLosingRoundTripProducesOneConsecutiveNetLoss() {
         var fixture = new Fixture(true);
-        KisOrderIntent buy = terminalIntent(OrderSide.BUY, "10", "BUY01");
-        Thread.sleep(5); // Preserve a strict order timestamp on databases with millisecond precision.
-        KisOrderIntent sell = terminalIntent(OrderSide.SELL, "9", "SELL01");
+        Instant executionBase = Instant.now().minus(Duration.ofMinutes(1));
+        KisOrderIntent buy = terminalIntent(OrderSide.BUY, "10", "BUY01", executionBase);
+        KisOrderIntent sell = terminalIntent(OrderSide.SELL, "9", "SELL01", executionBase.plusSeconds(1));
         when(fixture.intents.findByEnvironmentAndMarketAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
                 eq(KisEnvironment.REAL), eq(Market.KR), any(Instant.class))).thenReturn(List.of(buy, sell));
         when(fixture.accounts.getBalance(eq(KisEnvironment.REAL), eq(Market.US), any(), any(), any()))
@@ -61,6 +61,16 @@ class KisRealConsecutiveLossServiceTest {
         assertTrue(result.isPresent());
         assertEquals(1, result.get().consecutiveLosses());
         assertEquals(0, result.get().totalOpenPositionsAcrossMarkets());
+    }
+
+    @Test
+    void filledOrderWithoutBrokerExecutionTimeMakesLossHistoryUnknown() {
+        var fixture = new Fixture(true);
+        KisOrderIntent buy = terminalIntent(OrderSide.BUY, "10", "BUY01", null);
+        when(fixture.intents.findByEnvironmentAndMarketAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+                eq(KisEnvironment.REAL), eq(Market.KR), any(Instant.class))).thenReturn(List.of(buy));
+
+        assertTrue(fixture.service.evaluate(Market.KR, account(Market.KR, List.of())).isEmpty());
     }
 
     @Test
@@ -98,12 +108,13 @@ class KisRealConsecutiveLossServiceTest {
                 BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO);
     }
 
-    private static KisOrderIntent terminalIntent(OrderSide side, String price, String brokerNumber) {
+    private static KisOrderIntent terminalIntent(OrderSide side, String price, String brokerNumber, Instant fillAt) {
         var request = new OrderRequest(Market.KR, "005930", side, 1, new BigDecimal(price), Currency.KRW);
         var intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL, request, null);
         intent.accept(new KisOrderReceipt("real", "KR", "005930", side.name(), brokerNumber, "ORG01",
                 "0", Instant.now()));
         intent.reconcile(1, 0, new BigDecimal(price), false, false);
+        intent.recordFillTime(fillAt);
         return intent;
     }
 

@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 import java.util.List;
@@ -21,6 +22,15 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
     boolean existsByEnvironmentAndMarketAndStatusInAndIdempotencyKeyNot(
             KisEnvironment environment, com.aistocktrader.order.Market market,
             Collection<KisOrderStatus> statuses, UUID idempotencyKey);
+
+    @Modifying
+    @Transactional
+    @Query(value = """
+            UPDATE kis_order_intent
+               SET last_fill_at = CASE WHEN last_fill_at IS NULL OR last_fill_at < :fillAt THEN :fillAt ELSE last_fill_at END
+             WHERE idempotency_key = :key AND environment = 'REAL' AND broker_order_number IS NOT NULL
+            """, nativeQuery = true)
+    int recordRealFillTime(@Param("key") UUID key, @Param("fillAt") Instant fillAt);
 
     @Query("select intent.status, count(intent) from KisOrderIntent intent where intent.environment = :environment group by intent.status")
     List<Object[]> countStatusesByEnvironment(@Param("environment") KisEnvironment environment);

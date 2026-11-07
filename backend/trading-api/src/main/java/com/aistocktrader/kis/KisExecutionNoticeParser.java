@@ -8,6 +8,7 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalTime;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -42,6 +43,7 @@ public final class KisExecutionNoticeParser {
 
             int orderIndex = 2;
             int sideIndex = 4;
+            int timeIndex = market == Market.KR ? 11 : 10;
             int symbolIndex = market == Market.KR ? 8 : 7;
             int quantityIndex = market == Market.KR ? 9 : 8;
             int priceIndex = market == Market.KR ? 10 : 9;
@@ -61,8 +63,9 @@ public final class KisExecutionNoticeParser {
             };
             int quantity = Integer.parseInt(fields[quantityIndex]);
             BigDecimal price = new BigDecimal(fields[priceIndex]);
+            LocalTime fillTime = LocalTime.parse(fields[timeIndex], java.time.format.DateTimeFormatter.ofPattern("HHmmss"));
             if (side == null || quantity <= 0 || price.signum() <= 0) return Optional.empty();
-            return Optional.of(new ExecutionNotice(market, brokerOrderNumber, symbol, side, quantity, price));
+            return Optional.of(new ExecutionNotice(market, brokerOrderNumber, symbol, side, quantity, price, fillTime));
         } catch (Exception ignored) {
             return Optional.empty();
         }
@@ -80,5 +83,5 @@ public final class KisExecutionNoticeParser {
     }
 
     public record ExecutionNotice(Market market, String brokerOrderNumber, String symbol, OrderSide side,
-                                  int fillQuantity, BigDecimal fillPrice) { }
+                                  int fillQuantity, BigDecimal fillPrice, LocalTime fillTime) { }
 }

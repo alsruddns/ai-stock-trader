@@ -39,6 +39,7 @@ public class KisRealExecutionNoticeClient {
     private final String htsId;
     private final KisProperties properties;
     private final KisOrderIntentRepository intents;
+    private final KisMarketSessionClient sessions;
     private final KisRealOrderOrchestrator orders;
     private final KisRestRateLimiter rateLimiter;
     private final RestClient http;
@@ -60,12 +61,14 @@ public class KisRealExecutionNoticeClient {
             @Value("${kis.real-execution-notices-enabled:false}") boolean enabled,
             @Value("${kis.real-hts-id:}") String htsId,
             KisProperties properties, KisOrderIntentRepository intents,
+            KisMarketSessionClient sessions,
             KisRealOrderOrchestrator orders, KisRestRateLimiter rateLimiter,
             RestClient.Builder restClientBuilder, ObjectMapper mapper) {
         this.enabled = enabled;
         this.htsId = htsId == null ? "" : htsId.trim();
         this.properties = properties;
         this.intents = intents;
+        this.sessions = sessions;
         this.orders = orders;
         this.rateLimiter = rateLimiter;
         this.http = restClientBuilder.build();
@@ -150,6 +153,19 @@ public class KisRealExecutionNoticeClient {
                 .filter(intent -> intent.getSymbol().equalsIgnoreCase(notice.symbol())
                         && intent.getSide() == notice.side())
                 .ifPresent(intent -> {
+                    try {
+                        var session = sessions.session(notice.market());
+                        if (!session.session() || session.sessionDate() == null || session.openAt() == null
+                                || session.closeAt() == null) return;
+                        java.time.ZoneId zone = notice.market() == com.aistocktrader.order.Market.KR
+                                ? java.time.ZoneId.of("Asia/Seoul") : java.time.ZoneId.of("America/New_York");
+                        Instant fillAt = session.sessionDate().atTime(notice.fillTime()).atZone(zone).toInstant();
+                        if (fillAt.isBefore(session.openAt()) || fillAt.isAfter(session.closeAt())) return;
+                        intents.recordRealFillTime(intent.getIdempotencyKey(), fillAt);
+                    } catch (RuntimeException exception) {
+                        log.warn("KIS REAL fill timestamp unavailable ({})", exception.getClass().getSimpleName());
+                        return;
+                    }
                     Instant now = Instant.now();
                     Instant previous = lastQueuedByOrder.compute(intent.getIdempotencyKey(), (key, prior) ->
                             prior == null || Duration.between(prior, now).toMillis() >= 1_000 ? now : prior);

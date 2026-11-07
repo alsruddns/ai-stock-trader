@@ -30,6 +30,7 @@ class KisExecutionNoticeParserTest {
         fields[8] = "005930";
         fields[9] = "2";
         fields[10] = "71000";
+        fields[11] = "091501";
         fields[12] = "N";
         fields[13] = "2";
 
@@ -42,6 +43,7 @@ class KisExecutionNoticeParserTest {
         assertEquals(OrderSide.BUY, notice.side());
         assertEquals(2, notice.fillQuantity());
         assertEquals(0, new BigDecimal("71000").compareTo(notice.fillPrice()));
+        assertEquals(java.time.LocalTime.of(9, 15, 1), notice.fillTime());
         assertTrue(!notice.toString().contains("1234567801"));
         assertTrue(!notice.toString().contains("HTS123"));
     }
@@ -57,6 +59,7 @@ class KisExecutionNoticeParserTest {
         fields[7] = "AAPL";
         fields[8] = "1";
         fields[9] = "191.25";
+        fields[10] = "093012";
         fields[11] = "N";
         fields[12] = "2";
         String encoded = encrypt(String.join("^", fields));
@@ -67,11 +70,16 @@ class KisExecutionNoticeParserTest {
         assertEquals(Market.US, notice.market());
         assertEquals(OrderSide.SELL, notice.side());
         assertEquals(0, new BigDecimal("191.25").compareTo(notice.fillPrice()));
+        assertEquals(java.time.LocalTime.of(9, 30, 12), notice.fillTime());
         assertEquals(Optional.empty(), KisExecutionNoticeParser.parseReal("H0GSCNI0", encoded,
                 KEY, IV, "OTHER", "1234567801"));
         assertEquals(Optional.empty(), KisExecutionNoticeParser.parseReal("H0GSCNI0", encoded,
                 KEY, IV, "HTS123", "0000000000"));
         fields[12] = "1";
+        assertEquals(Optional.empty(), KisExecutionNoticeParser.parseReal("H0GSCNI0",
+                encrypt(String.join("^", fields)), KEY, IV, "HTS123", "1234567801"));
+        fields[12] = "2";
+        fields[10] = "badtime";
         assertEquals(Optional.empty(), KisExecutionNoticeParser.parseReal("H0GSCNI0",
                 encrypt(String.join("^", fields)), KEY, IV, "HTS123", "1234567801"));
     }
