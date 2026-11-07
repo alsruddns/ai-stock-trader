@@ -15,13 +15,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 $service = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'"
 if (-not $service) { throw "PostgreSQL service '$ServiceName' was not found." }
-$dataDirectoryMatch = [regex]::Match($service.PathName, '-D\s+(?:"(?<quoted>[^"]+)"|(?<plain>\S+))')
-if (-not $dataDirectoryMatch.Success) { throw 'Could not locate the PostgreSQL data directory from the Windows service definition.' }
-$dataDirectory = if ($dataDirectoryMatch.Groups['quoted'].Success) {
-    $dataDirectoryMatch.Groups['quoted'].Value
-} else {
-    $dataDirectoryMatch.Groups['plain'].Value
-}
+$dataDirectory = Get-PostgresDataDirectoryFromServicePath -ServicePathName $service.PathName
 $configPath = Join-Path $dataDirectory 'postgresql.conf'
 $backupDirectory = Join-Path $env:ProgramData 'AIStockTrader\backups'
 $wasRunning = (Get-Service -Name $ServiceName).Status -eq 'Running'

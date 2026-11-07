@@ -1,3 +1,15 @@
+function Get-PostgresDataDirectoryFromServicePath {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ServicePathName)
+
+    $match = [regex]::Match($ServicePathName, '-D\s+(?:"(?<quoted>[^"]+)"|(?<plain>\S+))')
+    if (-not $match.Success) {
+        throw 'Could not locate the PostgreSQL data directory from the Windows service definition.'
+    }
+    if ($match.Groups['quoted'].Success) { return $match.Groups['quoted'].Value }
+    return $match.Groups['plain'].Value
+}
+
 function Set-PostgresListenAddressesLoopback {
     [CmdletBinding()]
     param(

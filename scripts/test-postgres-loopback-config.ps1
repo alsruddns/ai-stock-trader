@@ -7,6 +7,16 @@ foreach ($path in @((Join-Path $PSScriptRoot 'configure-postgres-loopback.ps1'),
 }
 . (Join-Path $PSScriptRoot 'lib\postgres-config.ps1')
 
+$servicePath = '"C:\Program Files\PostgreSQL\16\bin\pg_ctl.exe" runservice -N "postgresql-x64-16" -D "C:\Program Files\PostgreSQL\16\data" -w'
+$discoveredDataPath = Get-PostgresDataDirectoryFromServicePath -ServicePathName $servicePath
+if ($discoveredDataPath -ne 'C:\Program Files\PostgreSQL\16\data') { throw 'Quoted PostgreSQL service data paths must be discovered exactly.' }
+$plainPath = Get-PostgresDataDirectoryFromServicePath -ServicePathName 'pg_ctl.exe runservice -D C:\PostgreSQL\data -w'
+if ($plainPath -ne 'C:\PostgreSQL\data') { throw 'Unquoted PostgreSQL service data paths must be discovered exactly.' }
+$missingDataPathRejected = $false
+try { Get-PostgresDataDirectoryFromServicePath -ServicePathName 'pg_ctl.exe runservice -N postgres' | Out-Null }
+catch { $missingDataPathRejected = $_.Exception.Message -like 'Could not locate the PostgreSQL data directory*' }
+if (-not $missingDataPathRejected) { throw 'A service definition without a data directory must be rejected.' }
+
 $root = Join-Path ([System.IO.Path]::GetTempPath()) ('ai-stock-trader-postgres-config-' + [guid]::NewGuid().ToString('N'))
 $config = Join-Path $root 'postgresql.conf'
 $backups = Join-Path $root 'backups'
