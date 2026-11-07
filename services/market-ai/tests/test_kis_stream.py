@@ -11,7 +11,7 @@ from app.kis_rate_limit import SharedRateLimitUnavailable
 from app.kis_stream import (
     StreamSettings, SubscriptionAckTracker, SubscriptionAcknowledgementError,
     approval_key, is_pingpong_frame, normalize_stream_frame, parse_subscription_ack,
-    reply_to_pingpong, subscription_message,
+    reply_to_pingpong, subscription_message, subscription_messages,
 )
 
 
@@ -60,10 +60,22 @@ def test_subscription_message_uses_official_domestic_and_overseas_tr_ids() -> No
     assert us["header"]["custtype"] == "P"
 
 
+def test_domestic_watch_subscribes_to_trade_and_orderbook_but_us_stays_single_stream() -> None:
+    kr = subscription_messages("approval", "KR", "005930")
+    us = subscription_messages("approval", "US", "AAPL", "NAS")
+    assert [message["body"]["input"]["tr_id"] for message in kr] == ["H0STCNT0", "H0STASP0"]
+    assert [message["body"]["input"]["tr_key"] for message in kr] == ["005930", "005930"]
+    assert [message["body"]["input"]["tr_id"] for message in us] == ["HDFSCNT0"]
+    assert all(message["header"]["tr_type"] == "1" for message in kr + us)
+
+
 def test_subscription_message_supports_official_unsubscribe_type() -> None:
     message = subscription_message("approval", "KR", "005930", tr_type="2")
     assert message["header"]["tr_type"] == "2"
     assert message["body"]["input"] == {"tr_id": "H0STCNT0", "tr_key": "005930"}
+    assert [item["header"]["tr_type"] for item in subscription_messages(
+        "approval", "KR", "005930", tr_type="2",
+    )] == ["2", "2"]
 
 
 def test_subscription_message_rejects_unsupported_subscription_type() -> None:
@@ -140,6 +152,17 @@ def test_subscription_ack_tracker_caps_duplicate_acknowledgements() -> None:
     assert tracker.observe(positive_ack) is True
     tracker.observe(positive_ack)
     assert tracker.status == {"accepted_count": 1, "required_count": 1, "complete": True}
+
+
+def test_subscription_ack_tracker_can_require_more_subscriptions_after_initial_connection() -> None:
+    tracker = SubscriptionAckTracker({"H0STCNT0": 1})
+    assert tracker.observe('{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0"}}') is True
+
+    tracker.require("H0STASP0")
+
+    assert tracker.complete is False
+    assert tracker.status == {"accepted_count": 1, "required_count": 2, "complete": False}
+    assert tracker.observe('{"header":{"tr_id":"H0STASP0"},"body":{"rt_cd":"0"}}') is True
 
 
 def test_subscription_ack_tracker_reports_sanitized_rejection_code_only() -> None:

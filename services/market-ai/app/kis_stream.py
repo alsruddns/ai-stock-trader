@@ -74,6 +74,11 @@ class SubscriptionAckTracker:
             "complete": self.complete,
         }
 
+    def require(self, transaction_id: str, count: int = 1) -> None:
+        if not re.fullmatch(r"[A-Z0-9]{1,32}", transaction_id) or count < 1:
+            raise ValueError("subscription acknowledgement requirement is invalid")
+        self._required[transaction_id] = self._required.get(transaction_id, 0) + count
+
     def observe(self, frame: str | bytes) -> bool:
         acknowledgement = parse_subscription_ack(frame)
         if acknowledgement is None:
@@ -171,6 +176,20 @@ def subscription_message(
         "header": {"approval_key": key, "custtype": "P", "tr_type": tr_type, "content-type": "utf-8"},
         "body": {"input": {"tr_id": tr_id, "tr_key": tr_key}},
     }
+
+
+def subscription_messages(
+    key: str, market: Market, symbol: str, exchange: str | None = None, *, tr_type: str = "1",
+) -> tuple[dict, ...]:
+    """Subscribe to trades and, for KR symbols, the independent domestic orderbook stream."""
+    trade = subscription_message(key, market, symbol, exchange, tr_type=tr_type)
+    if market != "KR":
+        return (trade,)
+    quote = {
+        "header": dict(trade["header"]),
+        "body": {"input": {"tr_id": "H0STASP0", "tr_key": symbol.strip().upper()}},
+    }
+    return trade, quote
 
 
 def is_pingpong_frame(frame: str | bytes) -> bool:

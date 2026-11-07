@@ -28,6 +28,15 @@ class TradeTick:
         return (self.ask - self.bid) / midpoint * Decimal(10_000) if midpoint else None
 
 
+@dataclass(frozen=True)
+class OrderBookQuote:
+    market: str
+    symbol: str
+    timestamp: datetime
+    bid: Decimal | None
+    ask: Decimal | None
+
+
 def _number(value: str, name: str) -> Decimal:
     try:
         parsed = Decimal(value)
@@ -91,6 +100,48 @@ def parse_trade_frame(frame: str, market: str, exchange: str | None = None) -> l
     return ticks
 
 
+def parse_domestic_orderbook_frame(
+    frame: str, *, received_at: datetime | None = None,
+) -> list[OrderBookQuote]:
+    """Parse best bid/ask from official domestic KIS H0STASP0 frames."""
+    parts = frame.split("|", 3)
+    if len(parts) != 4 or parts[0] != "0" or parts[1] != "H0STASP0":
+        raise ValueError("only unencrypted domestic H0STASP0 frames are supported")
+    try:
+        count = int(parts[2])
+    except ValueError as exc:
+        raise ValueError("invalid KIS frame record count") from exc
+    width = 63
+    if count <= 0 or count > 100:
+        raise ValueError("KIS frame record count is outside the supported range")
+    fields = parts[3].split("^")
+    if len(fields) < width * count:
+        raise ValueError("KIS orderbook frame did not contain all declared records")
+    zone = ZoneInfo("Asia/Seoul")
+    reference = received_at or datetime.now(zone)
+    if reference.tzinfo is None or reference.utcoffset() is None:
+        raise ValueError("KIS orderbook receive time must include a timezone")
+    reference = reference.astimezone(zone)
+    quotes: list[OrderBookQuote] = []
+    for index in range(count):
+        row = fields[index * width:(index + 1) * width]
+        try:
+            clock = datetime.strptime(row[1], "%H%M%S").time()
+            timestamp = datetime.combine(reference.date(), clock, zone)
+            bid_value = _number(row[13], "best bid")
+            ask_value = _number(row[3], "best ask")
+        except (ValueError, IndexError):
+            continue
+        if not row[0].strip():
+            continue
+        quotes.append(OrderBookQuote(
+            "KR", row[0].strip(), timestamp,
+            bid_value if bid_value > 0 else None,
+            ask_value if ask_value > 0 else None,
+        ))
+    return quotes
+
+
 class MinuteBarAggregator:
     """Aggregate ordered exchange ticks; flushes a bar only when its minute closes."""
 
@@ -101,7 +152,21 @@ class MinuteBarAggregator:
         self._volume = 0
         self._bid: Decimal | None = None
         self._ask: Decimal | None = None
+        self._quote_minute: datetime | None = None
         self._last_tick: datetime | None = None
+
+    def update_quote(self, quote: OrderBookQuote) -> bool:
+        if quote.timestamp.tzinfo is None or quote.timestamp.utcoffset() is None:
+            raise ValueError("orderbook timestamp must include a timezone")
+        if self._symbol is not None and quote.symbol != self._symbol:
+            raise ValueError("an aggregator instance accepts one symbol at a time")
+        minute = quote.timestamp.replace(second=0, microsecond=0)
+        if self._minute is not None and minute < self._minute:
+            return False
+        self._symbol = quote.symbol
+        self._quote_minute = minute
+        self._bid, self._ask = quote.bid, quote.ask
+        return True
 
     def add(self, tick: TradeTick) -> MinuteBar | None:
         minute = tick.timestamp.replace(second=0, microsecond=0)
@@ -117,21 +182,20 @@ class MinuteBarAggregator:
             self._minute = minute
             self._open = self._high = self._low = self._close = tick.price
             self._volume = tick.volume
-            self._bid, self._ask = tick.bid, tick.ask
+            if self._quote_minute is None or self._quote_minute < minute:
+                self._bid = self._ask = None
+                self._quote_minute = None
         elif self._minute is None:
             self._minute = minute
             self._open = self._high = self._low = self._close = tick.price
             self._volume = tick.volume
-            self._bid, self._ask = tick.bid, tick.ask
         else:
             self._high = max(self._high, tick.price)
             self._low = min(self._low, tick.price)
             self._close = tick.price
             self._volume += tick.volume
-            if tick.bid is not None:
-                self._bid = tick.bid
-            if tick.ask is not None:
-                self._ask = tick.ask
+        if tick.bid is not None and tick.ask is not None:
+            self.update_quote(OrderBookQuote(tick.market, tick.symbol, tick.timestamp, tick.bid, tick.ask))
         return completed
 
     def flush(self) -> MinuteBar | None:
@@ -141,11 +205,14 @@ class MinuteBarAggregator:
         self._minute = None
         self._symbol = None
         self._last_tick = None
+        self._quote_minute = None
+        self._bid = self._ask = None
         return bar
 
     def _build_bar(self) -> MinuteBar:
         spread: Decimal | None = None
-        if self._bid is not None and self._ask is not None and self._bid > 0 and self._ask >= self._bid:
+        if (self._quote_minute == self._minute and self._bid is not None and self._ask is not None
+                and self._bid > 0 and self._ask >= self._bid):
             mid = (self._bid + self._ask) / Decimal(2)
             spread = (self._ask - self._bid) / mid * Decimal(10_000)
         return MinuteBar(self._minute, self._open, self._high, self._low, self._close, self._volume, spread)

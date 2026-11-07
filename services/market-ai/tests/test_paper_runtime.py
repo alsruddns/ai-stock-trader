@@ -13,7 +13,7 @@ import pytest
 from app.paper_runtime import PaperSessionFeedMonitor, PaperWatch, next_market_session_open, parse_watchlist
 from app.paper_automation import PaperAutoTrader
 from app.paper_ops import PaperOpsLimits
-from app.market_stream import MinuteBarAggregator
+from app.market_stream import MinuteBarAggregator, OrderBookQuote, TradeTick
 from app.quant import MinuteBar
 from app.real_signal_orders import RealSignalOrderOutcomeUnknown, real_signal_idempotency_key
 
@@ -24,9 +24,18 @@ def test_watchlist_normalizes_and_deduplicates_valid_symbols() -> None:
 
 
 def test_watchlist_respects_kis_forty_subscription_limit() -> None:
-    entries = ";".join(f"KR:{index:06d}" for index in range(1, 42))
+    entries = ";".join(f"US:SYM{index:02d}:NAS" for index in range(1, 42))
     with pytest.raises(ValueError, match="at most 40"):
         parse_watchlist(entries)
+
+
+def test_domestic_quote_stream_counts_toward_kis_subscription_capacity() -> None:
+    valid = ";".join(f"KR:{index:06d}" for index in range(1, 21))
+    invalid = ";".join(f"KR:{index:06d}" for index in range(1, 22))
+
+    assert len(parse_watchlist(valid)) == 20
+    with pytest.raises(ValueError, match="at most 40"):
+        parse_watchlist(invalid)
 
 
 @pytest.mark.parametrize(
@@ -495,6 +504,73 @@ def test_websocket_feed_is_not_running_until_all_kis_subscription_acks_arrive(mo
     assert status["subscription_acknowledgements_by_feed"]["real"] == {
         "accepted_count": 1, "required_count": 1, "complete": True,
     }
+
+
+def test_domestic_feed_waits_for_trade_and_orderbook_subscription_acks(monkeypatch) -> None:
+    class AckConnection:
+        def __init__(self, runtime):
+            self.runtime = runtime
+            self.received = 0
+            self.sent = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send(self, message):
+            self.sent.append(json.loads(message)["body"]["input"]["tr_id"])
+
+        async def recv(self):
+            self.received += 1
+            if self.received == 1:
+                assert self.runtime.status()["stream_connections"]["paper"] == "SUBSCRIBING"
+                return '{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0"}}'
+            if self.received == 2:
+                assert self.runtime.status()["stream_connections"]["paper"] == "SUBSCRIBING"
+                return '{"header":{"tr_id":"H0STASP0"},"body":{"rt_cd":"0"}}'
+            assert self.runtime.status()["stream_connections"]["paper"] == "RUNNING"
+            raise asyncio.CancelledError
+
+    runtime = PaperSessionFeedMonitor()
+    connection = AckConnection(runtime)
+    watch = parse_watchlist("KR:005930")[0]
+    monkeypatch.setattr("app.paper_runtime.approval_key", lambda _settings: "approval")
+    monkeypatch.setitem(sys.modules, "websockets", SimpleNamespace(connect=lambda *_args, **_kwargs: connection))
+    settings = SimpleNamespace(kis=SimpleNamespace(environment="paper"), websocket_url="ws://mock.invalid")
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(runtime._run((watch,), settings))
+
+    assert connection.sent == ["H0STCNT0", "H0STASP0"]
+    assert runtime.status()["subscription_acknowledgements_by_feed"]["paper"] == {
+        "accepted_count": 2, "required_count": 2, "complete": True,
+    }
+
+
+def test_runtime_routes_domestic_orderbook_updates_to_matching_symbol_aggregator(monkeypatch) -> None:
+    zone = ZoneInfo("Asia/Seoul")
+    watch = parse_watchlist("KR:005930")[0]
+    runtime = PaperSessionFeedMonitor()
+    aggregate = MinuteBarAggregator()
+    runtime._aggregators[watch.key] = aggregate
+    runtime._feed_by_watch[watch.key] = "paper"
+    first_tick = TradeTick("KR", "005930", datetime(2026, 11, 6, 10, 1, 1, tzinfo=zone),
+                           Decimal("100"), 1, None, None)
+    next_tick = TradeTick("KR", "005930", datetime(2026, 11, 6, 10, 2, 1, tzinfo=zone),
+                          Decimal("101"), 1, None, None)
+    aggregate.add(first_tick)
+    quote = OrderBookQuote("KR", "005930", datetime(2026, 11, 6, 10, 1, 30, tzinfo=zone),
+                           Decimal("99"), Decimal("101"))
+    monkeypatch.setattr("app.paper_runtime.parse_domestic_orderbook_frame", lambda *_args, **_kwargs: [quote])
+
+    runtime._consume("0|H0STASP0|1|quote", (watch,))
+
+    completed = aggregate.add(next_tick)
+    assert completed is not None
+    assert completed.spread_bps == Decimal("200")
+    assert runtime.status()["orderbook_updates_by_feed"]["paper"] == 1
 
 
 def test_websocket_subscription_ack_timeout_keeps_feed_unavailable(monkeypatch) -> None:

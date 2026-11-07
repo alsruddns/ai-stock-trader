@@ -3,7 +3,9 @@ from decimal import Decimal
 
 import pytest
 
-from app.market_stream import MinuteBarAggregator, TradeTick, parse_trade_frame
+from app.market_stream import (
+    MinuteBarAggregator, OrderBookQuote, TradeTick, parse_domestic_orderbook_frame, parse_trade_frame,
+)
 
 
 def _frame(tr_id: str, width: int, values: dict[int, str]) -> str:
@@ -40,6 +42,24 @@ def test_parse_domestic_multi_record_frame_uses_trade_volume_not_cumulative_volu
     ticks = parse_trade_frame("0|H0STCNT0|2|" + "^".join(rows), "KR")
 
     assert [tick.volume for tick in ticks] == [3, 5]
+
+
+def test_parse_domestic_orderbook_frame_extracts_best_prices_from_official_columns() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    frame = _frame("H0STASP0", 63, {
+        0: "005930", 1: "100101", 3: "73510", 13: "73500",
+    })
+    quotes = parse_domestic_orderbook_frame(
+        frame, received_at=datetime(2026, 11, 6, 10, 1, 2, tzinfo=ZoneInfo("Asia/Seoul")),
+    )
+
+    assert len(quotes) == 1
+    assert quotes[0].symbol == "005930"
+    assert quotes[0].timestamp.isoformat() == "2026-11-06T10:01:01+09:00"
+    assert quotes[0].bid == Decimal("73500")
+    assert quotes[0].ask == Decimal("73510")
 
 
 def test_parse_overseas_trade_frame_uses_exchange_local_timestamp() -> None:
@@ -79,3 +99,42 @@ def test_minute_aggregator_emits_closed_bar_and_rejects_out_of_order_ticks() -> 
     with pytest.raises(ValueError, match="chronological"):
         aggregate.add(first)
     assert aggregate.flush().volume == 4
+
+
+def test_minute_aggregator_uses_same_minute_orderbook_quote_for_spread() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo("Asia/Seoul")
+    aggregate = MinuteBarAggregator()
+    first = TradeTick("KR", "005930", datetime(2026, 11, 6, 10, 1, 1, tzinfo=zone), Decimal("100"), 2, None, None)
+    next_minute = TradeTick("KR", "005930", datetime(2026, 11, 6, 10, 2, 1, tzinfo=zone), Decimal("101"), 3, None, None)
+    aggregate.add(first)
+    assert aggregate.update_quote(OrderBookQuote(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 30, tzinfo=zone), Decimal("99"), Decimal("101"),
+    ))
+
+    completed = aggregate.add(next_minute)
+
+    assert completed is not None
+    assert completed.spread_bps == Decimal("200")
+
+
+def test_minute_aggregator_rejects_stale_orderbook_quote_for_spread() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo("Asia/Seoul")
+    aggregate = MinuteBarAggregator()
+    first = TradeTick("KR", "005930", datetime(2026, 11, 6, 10, 1, 40, tzinfo=zone), Decimal("100"), 2, None, None)
+    assert aggregate.add(first) is None
+    assert not aggregate.update_quote(OrderBookQuote(
+        "KR", "005930", datetime(2026, 11, 6, 10, 0, 59, tzinfo=zone), Decimal("99"), Decimal("101"),
+    ))
+
+    completed = aggregate.add(TradeTick(
+        "KR", "005930", datetime(2026, 11, 6, 10, 2, 1, tzinfo=zone), Decimal("101"), 3, None, None,
+    ))
+
+    assert completed is not None
+    assert completed.spread_bps is None

@@ -9,6 +9,7 @@ server-verified signal references to Spring; it never calls KIS order APIs.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import threading
@@ -24,9 +25,9 @@ from .ai_pipeline import LocalModelRegistry
 from .kis_stream import (
     StreamSettings, SubscriptionAckTracker, SubscriptionAcknowledgementError,
     SubscriptionAcknowledgementTimeoutError, approval_key,
-    normalize_stream_frame, reply_to_pingpong, subscription_message,
+    normalize_stream_frame, reply_to_pingpong, subscription_message, subscription_messages,
 )
-from .market_stream import MinuteBarAggregator, parse_trade_frame
+from .market_stream import MinuteBarAggregator, parse_domestic_orderbook_frame, parse_trade_frame
 from .quant import MinuteBar, QuantConfig, _atr, exchange_session_date, orb_vwap_entry_candidate
 from .paper_automation import PaperAutomationReadiness, PaperAutoTrader, PaperEntryDecision
 from .paper_broker import PaperBrokerError, SpringPaperBrokerClient
@@ -83,7 +84,7 @@ def parse_watchlist(value: str) -> tuple[PaperWatch, ...]:
         if watch.key not in seen:
             watches.append(watch)
             seen.add(watch.key)
-    if len(watches) > 40:
+    if sum(2 if watch.market == "KR" else 1 for watch in watches) > 40:
         raise ValueError("paper monitor supports at most 40 subscriptions")
     return tuple(watches)
 
@@ -110,6 +111,8 @@ class PaperSessionFeedMonitor:
             "last_tick_received_at": None,
             "ticks_received_by_feed": {"paper": 0, "real": 0},
             "last_tick_received_at_by_feed": {"paper": None, "real": None},
+            "orderbook_updates_by_feed": {"paper": 0, "real": 0},
+            "last_orderbook_received_at_by_feed": {"paper": None, "real": None},
             "bars_closed_by_feed": {"paper": 0, "real": 0},
             "last_error": None, "orders_enabled": False,
             "subscription_acknowledgements_by_feed": {}, "last_subscription_error_code": None,
@@ -348,8 +351,11 @@ class PaperSessionFeedMonitor:
                 if candidate.key not in seen:
                     normalized.append(candidate)
                     seen.add(candidate.key)
-            total = sum(len(feed) for feed in self._watches_by_feed.values())
-            if total + len(normalized) > 40:
+            total = sum(
+                sum(2 if watch.market == "KR" else 1 for watch in feed)
+                for feed in self._watches_by_feed.values()
+            )
+            if total + sum(2 if watch.market == "KR" else 1 for watch in normalized) > 40:
                 raise ValueError("paper monitor supports at most 40 subscriptions")
             for watch in normalized:
                 environment = self._feed_for_watch(watch)
@@ -679,26 +685,65 @@ class PaperSessionFeedMonitor:
                     active_watches = self._watches_by_feed.get(environment, list(watches))
                     required_by_transaction_id: dict[str, int] = {}
                     for watch in active_watches:
-                        transaction_id = "H0STCNT0" if watch.market == "KR" else "HDFSCNT0"
-                        required_by_transaction_id[transaction_id] = required_by_transaction_id.get(transaction_id, 0) + 1
+                        transaction_ids = ("H0STCNT0", "H0STASP0") if watch.market == "KR" else ("HDFSCNT0",)
+                        for transaction_id in transaction_ids:
+                            required_by_transaction_id[transaction_id] = (
+                                required_by_transaction_id.get(transaction_id, 0) + 1
+                            )
                     subscription_tracker = SubscriptionAckTracker(required_by_transaction_id)
+                    acknowledgement_changed = asyncio.Event()
                     self._set_connection_state(environment, "SUBSCRIBING")
                     self._set_subscription_ack_status(environment, subscription_tracker.status)
                     sent_keys: set[str] = set()
                     for watch in tuple(active_watches):
-                        await upstream.send(self._subscription_json(key, watch))
+                        for message in self._subscription_jsons(key, watch):
+                            await upstream.send(message)
                         sent_keys.add(watch.key)
                     update_task = asyncio.create_task(
-                        self._write_subscription_updates(upstream, key, environment, sent_keys)
+                        self._write_subscription_updates(
+                            upstream, key, environment, sent_keys, subscription_tracker, acknowledgement_changed,
+                        )
                     )
                     try:
-                        acknowledgement_deadline = (
-                            asyncio.get_running_loop().time() + SUBSCRIPTION_ACK_TIMEOUT_SECONDS
-                        )
+                        acknowledgement_deadline: float | None = None
                         while True:
                             if subscription_tracker.complete:
-                                frame = await upstream.recv()
+                                acknowledgement_deadline = None
+                                receive_task = asyncio.create_task(upstream.recv())
+                                changed_task = asyncio.create_task(acknowledgement_changed.wait())
+                                done, _pending = await asyncio.wait(
+                                    {receive_task, changed_task}, return_when=asyncio.FIRST_COMPLETED,
+                                )
+                                if receive_task in done:
+                                    changed_task.cancel()
+                                    try:
+                                        await changed_task
+                                    except asyncio.CancelledError:
+                                        pass
+                                    frame = receive_task.result()
+                                    if acknowledgement_changed.is_set():
+                                        acknowledgement_changed.clear()
+                                        if not subscription_tracker.complete:
+                                            acknowledgement_deadline = (
+                                                asyncio.get_running_loop().time() + SUBSCRIPTION_ACK_TIMEOUT_SECONDS
+                                            )
+                                else:
+                                    receive_task.cancel()
+                                    try:
+                                        await receive_task
+                                    except asyncio.CancelledError:
+                                        pass
+                                    acknowledgement_changed.clear()
+                                    if not subscription_tracker.complete:
+                                        acknowledgement_deadline = (
+                                            asyncio.get_running_loop().time() + SUBSCRIPTION_ACK_TIMEOUT_SECONDS
+                                        )
+                                    continue
                             else:
+                                if acknowledgement_deadline is None:
+                                    acknowledgement_deadline = (
+                                        asyncio.get_running_loop().time() + SUBSCRIPTION_ACK_TIMEOUT_SECONDS
+                                    )
                                 remaining = acknowledgement_deadline - asyncio.get_running_loop().time()
                                 if remaining <= 0:
                                     raise SubscriptionAcknowledgementTimeoutError()
@@ -793,7 +838,19 @@ class PaperSessionFeedMonitor:
             separators=(",", ":"),
         )
 
-    async def _write_subscription_updates(self, upstream, key: str, environment: str, sent_keys: set[str]) -> None:
+    @staticmethod
+    def _subscription_jsons(key: str, watch: PaperWatch, *, tr_type: str = "1") -> tuple[str, ...]:
+        import json
+
+        return tuple(json.dumps(message, separators=(",", ":")) for message in subscription_messages(
+            key, watch.market, watch.symbol, watch.exchange, tr_type=tr_type,
+        ))
+
+    async def _write_subscription_updates(
+        self, upstream, key: str, environment: str, sent_keys: set[str],
+        subscription_tracker: SubscriptionAckTracker | None = None,
+        acknowledgement_changed: asyncio.Event | None = None,
+    ) -> None:
         queue = self._subscription_update_queues.get(environment)
         if queue is None:
             return
@@ -801,10 +858,21 @@ class PaperSessionFeedMonitor:
             watch, tr_type, sent = await queue.get()
             try:
                 if tr_type == "1" and watch.key not in sent_keys:
-                    await upstream.send(self._subscription_json(key, watch, tr_type=tr_type))
+                    messages = self._subscription_jsons(key, watch, tr_type=tr_type)
+                    if subscription_tracker is not None:
+                        for message in messages:
+                            transaction_id = json.loads(message)["body"]["input"]["tr_id"]
+                            subscription_tracker.require(transaction_id)
+                        self._set_subscription_ack_status(environment, subscription_tracker.status)
+                        self._set_connection_state(environment, "SUBSCRIBING")
+                        if acknowledgement_changed is not None:
+                            acknowledgement_changed.set()
+                    for message in messages:
+                        await upstream.send(message)
                     sent_keys.add(watch.key)
                 elif tr_type == "2" and watch.key in sent_keys:
-                    await upstream.send(self._subscription_json(key, watch, tr_type=tr_type))
+                    for message in self._subscription_jsons(key, watch, tr_type=tr_type):
+                        await upstream.send(message)
                     sent_keys.discard(watch.key)
                 if not sent.done():
                     sent.set_result(None)
@@ -827,6 +895,30 @@ class PaperSessionFeedMonitor:
             return
         transaction_id = normalized.get("transaction_id", "")
         payload = "|".join(("0", transaction_id, normalized.get("count", "1"), normalized.get("payload", "")))
+        if transaction_id == "H0STASP0":
+            try:
+                quotes = parse_domestic_orderbook_frame(
+                    payload, received_at=datetime.now(ZoneInfo("Asia/Seoul")),
+                )
+            except ValueError:
+                return
+            for watch in watches:
+                if watch.market != "KR":
+                    continue
+                for quote in quotes:
+                    if quote.symbol.upper() != watch.symbol.upper():
+                        continue
+                    if not self._aggregators[watch.key].update_quote(quote):
+                        continue
+                    feed = self._feed_by_watch.get(watch.key, self._feed_for_watch(watch))
+                    with self._lock:
+                        counts = dict(self._status["orderbook_updates_by_feed"])
+                        counts[feed] = int(counts.get(feed, 0)) + 1
+                        received = dict(self._status["last_orderbook_received_at_by_feed"])
+                        received[feed] = datetime.now().astimezone().isoformat()
+                        self._status["orderbook_updates_by_feed"] = counts
+                        self._status["last_orderbook_received_at_by_feed"] = received
+            return
         for watch in watches:
             expected = "H0STCNT0" if watch.market == "KR" else "HDFSCNT0"
             if transaction_id != expected:
