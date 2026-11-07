@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
 import java.sql.SQLException;
+import java.time.LocalDate;
 import java.util.Locale;
 
 @RestController
@@ -66,5 +67,19 @@ public class KisAccountController {
             }
         }
         return snapshot;
+    }
+
+    @GetMapping("/realized-pnl/real/{market}")
+    public KisRealizedPnlStatement realizedPnl(@PathVariable Market market,
+                                               @RequestParam LocalDate from,
+                                               @RequestParam LocalDate to,
+                                               @RequestParam(defaultValue = "NASD") String exchange) {
+        LocalDate koreaToday = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+        if (from.isAfter(koreaToday) || to.isAfter(koreaToday)) {
+            throw new KisApiException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "Statement dates cannot be in the future.");
+        }
+        return client.getRealizedPnlStatement(market, from, to,
+                exchange == null ? "NASD" : exchange.toUpperCase(Locale.ROOT));
     }
 }

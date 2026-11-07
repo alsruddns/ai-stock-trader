@@ -14,6 +14,7 @@
 | POST | `/api/v1/orders/paper/{id}/cancel` | Paper 취소 처리 |
 | GET | `/api/v1/orders/paper/positions` | Paper 포지션 조회 |
 | GET | `/api/v1/kis/accounts/{paper\|real}/{KR\|US}/balance` | KIS 계좌 읽기 전용 잔고조회 |
+| GET | `/api/v1/kis/accounts/realized-pnl/real/{KR\|US}?from=YYYY-MM-DD&to=YYYY-MM-DD` | KIS REAL 기간손익 원문 조회(최대 31일, REAL 계좌읽기 스위치 필요) |
 | WS | `/api/v1/market/stream` | KIS 국내·미국 실시간 체결 데이터 읽기 전용 릴레이 |
 | POST | `/api/v1/strategies/orb-vwap/backtest` | 전달된 단일 세션 봉 데이터의 ORB/VWAP 비용 반영 백테스트 |
 | POST | `/api/v1/ai/models/{model_id}/predict` | 등록 모델의 비실행 예측 확률 미리보기 |
@@ -39,6 +40,8 @@ PAPER 장부 주문 정정은 동일 주문의 `Idempotency-Key`별로 한 번�
 KIS API는 기본 잠금(`KIS_ACCOUNT_READ_ENABLED=false`)입니다. 조회를 열려면 전체 스위치와 환경별 스위치를 모두 설정해야 합니다. REAL 조회에는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`가 추가로 필요하며 기본값은 false입니다. 종목별 매수가능액 확인 시 `symbol`과 `unitPrice`를 함께 전달합니다. 미국 조회의 `exchange`는 PAPER·REAL 공통 지원 코드인 `NASD`, `NYSE`, `AMEX` 중 하나입니다. KIS 공식 예제의 REAL 전용 추가 코드 `NAS`는 현재 경로에서 허용하지 않습니다. 계좌 API는 계좌번호, App Key, App Secret을 응답에 포함하지 않습니다.
 
 국내·미국 계좌 조회는 KIS 잔고 응답에 보유목록(`output1`)과 요약(`output2`)이 유효한 배열 또는 객체로 포함되어야 성공합니다. 보유 종목 행에 종목번호나 수량이 없거나 유효하지 않으면 전체 조회를 HTTP `502`로 거부하며, 부분 목록을 빈 계좌로 표시하지 않습니다. REAL 주문 위험검사는 보유수량이 양수인 종목에 평가금액이 없거나 음수인 계좌 스냅샷도 거부합니다.
+
+기간손익 조회는 REAL 계좌에 한해 `/api/v1/kis/accounts/realized-pnl/real/KR?from=2026-11-02&to=2026-11-06` 또는 `.../US?...&exchange=NASD`를 사용합니다. 전체 계좌 읽기와 REAL 계좌 읽기 스위치가 모두 필요하며 요청은 GET만 수행하고 DB에 저장하지 않습니다. 31일 이내의 날짜만 허용합니다. KIS `output1` 상세와 `output2` 요약은 JSON 원문으로 반환합니다. 공식 예제는 컨테이너와 페이지 커서는 확인하지만 두 시장의 손익 필드 의미를 같은 기준으로 매핑하지 않으므로, 이 응답을 자동 위험 계산이나 확정 회계 값으로 취급하지 않습니다. 해외 기간손익은 KIS 안내상 매매일 다음 날부터 조회 가능하고 참고용 손익이며 양도소득세 계산과 다릅니다. 수수료 비용 포함 기준도 KIS 안내를 함께 확인해야 하므로, 자동화 손익과 실제 정산의 필드 단위 대조는 아직 미완료입니다.
 
 ## KIS REST 요청 범위
 

@@ -334,6 +334,82 @@ class KisAccountClientTest {
         server.verify();
     }
 
+    @Test
+    void domesticRealizedPnlStatementUsesOfficialRealReadOnlyContractAndPages() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisAccountClient client = new KisAccountClient(propertiesBothEnvironments(), builder, new ObjectMapper());
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token("real-token"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(
+                        REAL_URL + "/uapi/domestic-stock/v1/trading/inquire-period-profit?")))
+                .andExpect(method(HttpMethod.GET)).andExpect(header("tr_id", "TTTC8708R"))
+                .andExpect(queryParam("CANO", "87654321"))
+                .andExpect(queryParam("INQR_STRT_DT", "20261102"))
+                .andExpect(queryParam("INQR_END_DT", "20261106"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[{"pdno":"005930","rlzt_pfls_amt":"120"}],"output2":{"total":"120"},"ctx_area_fk100":"fk-next","ctx_area_nk100":"nk-next"}
+                        """, MediaType.APPLICATION_JSON).header("tr_cont", "M"));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(
+                        REAL_URL + "/uapi/domestic-stock/v1/trading/inquire-period-profit?")))
+                .andExpect(header("tr_id", "TTTC8708R")).andExpect(header("tr_cont", "N"))
+                .andExpect(queryParam("CTX_AREA_FK100", "fk-next"))
+                .andExpect(queryParam("CTX_AREA_NK100", "nk-next"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[{"pdno":"000660","rlzt_pfls_amt":"80"}],"output2":{"total":"120"}}
+                        """, MediaType.APPLICATION_JSON));
+
+        KisRealizedPnlStatement result = client.getRealizedPnlStatement(Market.KR,
+                java.time.LocalDate.parse("2026-11-02"), java.time.LocalDate.parse("2026-11-06"), "NASD");
+
+        assertEquals(2, result.details().size());
+        assertEquals("120", result.summary().path("total").asText());
+        assertEquals("KIS_READ_ONLY_REALIZED_PNL_REST", result.source());
+        assertFalse(result.toString().contains("real-secret"));
+        server.verify();
+    }
+
+    @Test
+    void usRealizedPnlStatementUsesOfficialRealReadOnlyContract() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisAccountClient client = new KisAccountClient(propertiesBothEnvironments(), builder, new ObjectMapper());
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token("real-token"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(
+                        REAL_URL + "/uapi/overseas-stock/v1/trading/inquire-period-profit?")))
+                .andExpect(method(HttpMethod.GET)).andExpect(header("tr_id", "TTTS3039R"))
+                .andExpect(queryParam("OVRS_EXCG_CD", "NASD"))
+                .andExpect(queryParam("CRCY_CD", "USD"))
+                .andExpect(queryParam("WCRC_FRCR_DVSN_CD", "02"))
+                .andExpect(queryParam("CTX_AREA_FK200", ""))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[{"ovrs_pdno":"AAPL","ovrs_rlzt_pfls_amt":"7.25"}],"output2":{"ovrs_rlzt_pfls_amt":"7.25"}}
+                        """, MediaType.APPLICATION_JSON));
+
+        KisRealizedPnlStatement result = client.getRealizedPnlStatement(Market.US,
+                java.time.LocalDate.parse("2026-11-02"), java.time.LocalDate.parse("2026-11-06"), "NASD");
+
+        assertEquals("AAPL", result.details().get(0).path("ovrs_pdno").asText());
+        assertEquals("NASD", result.exchange());
+        server.verify();
+    }
+
+    @Test
+    void realizedPnlStatementRequiresRealReadSwitchAndBoundedDateRange() {
+        RestClient.Builder builder = RestClient.builder();
+        KisAccountClient client = new KisAccountClient(properties(true), builder, new ObjectMapper());
+
+        KisApiException disabled = assertThrows(KisApiException.class, () -> client.getRealizedPnlStatement(Market.KR,
+                java.time.LocalDate.parse("2026-11-01"), java.time.LocalDate.parse("2026-11-02"), null));
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, disabled.status());
+        KisApiException tooWide = assertThrows(KisApiException.class, () ->
+                new KisAccountClient(propertiesBothEnvironments(), RestClient.builder(), new ObjectMapper())
+                        .getRealizedPnlStatement(Market.US, java.time.LocalDate.parse("2026-10-01"),
+                                java.time.LocalDate.parse("2026-11-02"), "NASD"));
+        assertEquals(HttpStatus.BAD_REQUEST, tooWide.status());
+    }
+
     private KisProperties properties(boolean enabled) {
         return new KisProperties(enabled, false,
                 new KisProperties.Account("paper-key", "paper-secret", "1234567801"),

@@ -109,6 +109,87 @@ public class KisAccountClient {
                 mapPositions(balance.path("output1"), market), Instant.now(), "KIS_READ_ONLY_REST");
     }
 
+    /**
+     * Read-only KIS realized-profit statement. The vendor response is retained as JSON because
+     * KIS documents the output containers but not a stable cross-market field mapping here.
+     */
+    public KisRealizedPnlStatement getRealizedPnlStatement(Market market, java.time.LocalDate from,
+                                                            java.time.LocalDate to, String usExchange) {
+        requireEnabled(KisEnvironment.REAL);
+        if (market == null || from == null || to == null || to.isBefore(from)
+                || java.time.temporal.ChronoUnit.DAYS.between(from, to) > 30) {
+            throw new KisApiException(HttpStatus.BAD_REQUEST,
+                    "A valid realized-profit date range of at most 31 days is required.");
+        }
+        String account = properties.credentials(KisEnvironment.REAL).accountNumber();
+        String cano = account.substring(0, 8);
+        String product = account.substring(8, 10);
+        String path;
+        String trId;
+        Map<String, String> initialParams;
+        String detailsField = "output1";
+        String summaryField = "output2";
+        String fkField;
+        String nkField;
+        if (market == Market.KR) {
+            path = "/uapi/domestic-stock/v1/trading/inquire-period-profit";
+            trId = "TTTC8708R";
+            initialParams = Map.ofEntries(Map.entry("CANO", cano), Map.entry("ACNT_PRDT_CD", product),
+                    Map.entry("INQR_DVSN", "00"), Map.entry("SORT_DVSN", "00"), Map.entry("PDNO", ""),
+                    Map.entry("INQR_STRT_DT", from.toString().replace("-", "")),
+                    Map.entry("INQR_END_DT", to.toString().replace("-", "")), Map.entry("CBLC_DVSN", "00"),
+                    Map.entry("CTX_AREA_FK100", ""), Map.entry("CTX_AREA_NK100", ""));
+            fkField = "CTX_AREA_FK100";
+            nkField = "CTX_AREA_NK100";
+        } else {
+            String exchange = normalizeUsExchange(usExchange);
+            path = "/uapi/overseas-stock/v1/trading/inquire-period-profit";
+            trId = "TTTS3039R";
+            initialParams = Map.ofEntries(Map.entry("CANO", cano), Map.entry("ACNT_PRDT_CD", product),
+                    Map.entry("OVRS_EXCG_CD", exchange), Map.entry("NATN_CD", ""), Map.entry("CRCY_CD", "USD"),
+                    Map.entry("PDNO", ""), Map.entry("INQR_STRT_DT", from.toString().replace("-", "")),
+                    Map.entry("INQR_END_DT", to.toString().replace("-", "")), Map.entry("WCRC_FRCR_DVSN_CD", "02"),
+                    Map.entry("CTX_AREA_FK200", ""), Map.entry("CTX_AREA_NK200", ""));
+            fkField = "CTX_AREA_FK200";
+            nkField = "CTX_AREA_NK200";
+        }
+
+        Map<String, String> params = new HashMap<>(initialParams);
+        ArrayNode details = mapper.createArrayNode();
+        JsonNode summary = mapper.createObjectNode();
+        String continuation = "";
+        for (int pageNumber = 0; pageNumber < 20; pageNumber++) {
+            ApiPage page = getPage(KisEnvironment.REAL, path, trId, params, continuation);
+            JsonNode payload = page.body();
+            if (pageNumber == 0) {
+                JsonNode rows = payload.path(detailsField);
+                if (!rows.isArray() && !rows.isObject()) throw malformedAccountResponse();
+                if (rows.isArray()) rows.forEach(details::add);
+                else details.add(rows);
+                summary = payload.path(summaryField).deepCopy();
+                if (summary.isMissingNode() || summary.isNull()) throw malformedAccountResponse();
+            } else {
+                JsonNode rows = payload.path(detailsField);
+                if (!rows.isArray() && !rows.isObject()) throw malformedAccountResponse();
+                if (rows.isArray()) rows.forEach(details::add);
+                else details.add(rows);
+            }
+            String responseContinuation = page.continuation();
+            if (!"M".equalsIgnoreCase(responseContinuation) && !"F".equalsIgnoreCase(responseContinuation)) {
+                return new KisRealizedPnlStatement(market, from, to, market == Market.US ? normalizeUsExchange(usExchange) : null,
+                        Instant.now(), details, summary, "KIS_READ_ONLY_REALIZED_PNL_REST");
+            }
+            if (pageNumber == 19) {
+                throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                        "KIS realized-profit statement exceeded the supported pagination limit.");
+            }
+            params.put(fkField, payload.path(fkField.toLowerCase(java.util.Locale.ROOT)).asText(""));
+            params.put(nkField, payload.path(nkField.toLowerCase(java.util.Locale.ROOT)).asText(""));
+            continuation = "N";
+        }
+        throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS realized-profit statement pagination did not complete.");
+    }
+
     private JsonNode get(KisEnvironment environment, String path, String trId, Map<String, String> params) {
         return getPage(environment, path, trId, params, "").body();
     }

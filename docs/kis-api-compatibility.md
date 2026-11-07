@@ -20,6 +20,15 @@ The official sample lists `NASD`, `NYSE`, and `AMEX` for PAPER balance lookups; 
 
 These REST endpoints provide quote snapshots. The official domestic example directs clients to WebSocket for real-time quotes; the project's separate WebSocket stream is therefore the real-time path. Authenticated PAPER smoke on 2026-11-06 returned valid KIS REST quote contracts for KR symbol 005930 and US symbol AAPL. This verifies these two quote requests only; it does not validate account access, WebSocket continuity, or trading entitlement.
 
+## Read-only realized-profit statements
+
+| Market | Endpoint | REAL transaction ID | Current implementation |
+| --- | --- | --- | --- |
+| Korea | `/uapi/domestic-stock/v1/trading/inquire-period-profit` | `TTTC8708R` | Reads `output1` details and `output2` summary; follows `tr_cont` and `CTX_AREA_FK100`/`CTX_AREA_NK100` up to 20 pages. |
+| United States | `/uapi/overseas-stock/v1/trading/inquire-period-profit` | `TTTS3039R` | Uses NASD/NYSE/AMEX, USD and KRW-conversion mode `02`; follows `tr_cont` and `CTX_AREA_FK200`/`CTX_AREA_NK200` up to 20 pages. Official sample identifies this endpoint as REAL-only. |
+
+The API returns the unmodified `output1`/`output2` JSON payload for local operator review; the application does not persist it and does not use it as a risk input. Official examples establish endpoint, transaction ID, input parameters and output containers, but this check has not verified a stable field-level accounting mapping. The KIS overseas sample says period profit is available from the next trading day, is informational rather than tax-basis P&L, uses the sale-date exchange rate for KRW conversion, and includes sell costs (with same-day buy costs in its stated exception). This adapter is contract-tested with mocked responses only; the user's live statement has not been queried. See the [official domestic sample](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_domstk.py) and [official overseas sample](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_ovrseastk.py).
+
 ## Domestic order cancellation preflight
 
 The domestic cancel adapter calls `/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl` with REAL transaction ID `TTTC0084R`, `INQR_DVSN_1=0`, and `INQR_DVSN_2=0`. It follows the response cursor (up to 10 pages), matches the symbol, broker order number, and organization number, requires a positive `psbl_qty`, and requires that value to equal the most recent open quantity before the cancel POST is allowed. Missing rows, unsupported responses, pagination without a cursor, or quantity mismatches fail closed. The official sample requires this availability lookup before a domestic revise/cancel request and documents up to 50 rows per page. The PAPER sample does not publish a simulator transaction ID; observed PAPER `VTTC0084R`/legacy requests were unsupported, so domestic PAPER cancellation stays disabled until KIS confirms a supported path. This integration was verified with Mock requests only, not with a REAL cancellation.
