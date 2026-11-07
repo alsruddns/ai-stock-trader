@@ -120,6 +120,7 @@ class PaperSessionFeedMonitor:
         self._real_signal_task: asyncio.Task | None = None
         self._real_signal_client: SpringRealSignalOrderClient | None = None
         self._real_signal_blocked = False
+        self._paper_entry_queue_blocked = False
         self._bar_storage_queue: asyncio.Queue[
             tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]
         ] | None = None
@@ -272,6 +273,7 @@ class PaperSessionFeedMonitor:
             if not readiness.enabled:
                 self._set_status(automation_state="BLOCKED", automation_error="PAPER_AUTOMATION_SAFETY_SWITCH")
             else:
+                self._paper_entry_queue_blocked = False
                 try:
                     limits = PaperOpsLimits.from_environment()
                 except ValueError:
@@ -798,6 +800,7 @@ class PaperSessionFeedMonitor:
                             try:
                                 self._automation_queue.put_nowait((watch, bar, decision, quotes))
                             except asyncio.QueueFull:
+                                self._paper_entry_queue_blocked = True
                                 self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
                         self._queue_real_signal(watch, bar, decision)
 
@@ -914,6 +917,9 @@ class PaperSessionFeedMonitor:
                     if (self._bar_storage_queue is not None
                             and self.status().get("bar_storage_state") != "RUNNING"):
                         entry_result = {"state": "BLOCKED", "reason": "BAR_PERSISTENCE_UNAVAILABLE"}
+                    elif self._paper_entry_queue_blocked:
+                        entry_result = {"state": "BLOCKED", "reason": "PAPER_WORKER_QUEUE_FULL",
+                                        "executable": False}
                     else:
                         entry_result = await asyncio.to_thread(
                             self._manage_strategy_entry, broker, trader, watch, bar, decision, quotes, limits
@@ -1166,6 +1172,7 @@ class PaperSessionFeedMonitor:
                 try:
                     self._automation_queue.put_nowait((watch, bar, decision, quotes))
                 except asyncio.QueueFull:
+                    self._paper_entry_queue_blocked = True
                     self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
 
     def _set_status(self, **values: object) -> None:

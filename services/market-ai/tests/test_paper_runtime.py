@@ -727,6 +727,52 @@ def test_real_signal_queue_overflow_discards_unsent_candidates_and_blocks_worker
     assert runtime.status()["real_signal_state"] == "BLOCKED_QUEUE_FULL"
 
 
+def test_paper_worker_queue_overflow_blocks_entries_but_keeps_exit_checks(monkeypatch) -> None:
+    watch = parse_watchlist("KR:005930")[0]
+    timestamp = datetime(2026, 11, 6, 10, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+    bar = MinuteBar(timestamp, Decimal("70000"), Decimal("70100"), Decimal("69900"), Decimal("70000"),
+                    1000, Decimal("5"))
+    runtime = PaperSessionFeedMonitor()
+    runtime._automation_queue = asyncio.Queue()
+    runtime._automation_queue.put_nowait((watch, bar, {"signal": "BUY_CANDIDATE"}, {}))
+    runtime._paper_entry_queue_blocked = True
+    called = {"exit": 0, "entry": 0}
+
+    class Broker:
+        def close(self):
+            pass
+
+    class Trader:
+        def close(self):
+            pass
+
+    def check_exit(*_args):
+        called["exit"] += 1
+        return {"state": "EXIT_MONITORING", "reason": "CHECKED"}
+
+    def check_entry(*_args):
+        called["entry"] += 1
+        return {"state": "FILLED"}
+
+    monkeypatch.setattr("app.paper_runtime.SpringPaperBrokerClient", Broker)
+    monkeypatch.setattr("app.paper_runtime.PaperAutoTrader", lambda _broker: Trader())
+    monkeypatch.setattr(runtime, "_capture_daily_baseline", lambda *_args: None)
+    monkeypatch.setattr(runtime, "_manage_strategy_exit", check_exit)
+    monkeypatch.setattr(runtime, "_manage_strategy_entry", check_entry)
+
+    async def scenario():
+        task = asyncio.create_task(runtime._automation_loop(PaperOpsLimits()))
+        await asyncio.wait_for(runtime._automation_queue.join(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+    assert called == {"exit": 1, "entry": 0}
+    assert runtime.status()["last_automation_result"]["reason"] == "PAPER_WORKER_QUEUE_FULL"
+
+
 def test_us_paper_watchlist_requires_separate_read_only_real_market_data_switch(monkeypatch) -> None:
     monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
     monkeypatch.setenv("TRADING_MODE", "paper")
