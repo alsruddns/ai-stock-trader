@@ -53,7 +53,7 @@ class KisRealProtectiveExitMonitorTest {
         when(marketData.quoteForExit(Market.KR, "005930", null)).thenReturn(
                 new KisMarketAiEvidenceClient.ExitQuote(Market.KR, "005930", null,
                         new BigDecimal("94"), new BigDecimal("93.99"), new BigDecimal("94.01"), now));
-        when(accounts.getBalance(eq(KisEnvironment.REAL), eq(Market.KR), eq("005930"), any(), isNull()))
+        when(accounts.getBalance(eq(KisEnvironment.REAL), eq(Market.KR), isNull(), isNull(), isNull()))
                 .thenReturn(account(2));
         when(intents.claimRealExit(eq(plan.getIdempotencyKey()), any(UUID.class), eq("STOP_LOSS"), eq(2),
                 eq(new BigDecimal("93.99")))).thenReturn(1);
@@ -95,6 +95,7 @@ class KisRealProtectiveExitMonitorTest {
     void stopLossClaimsOneDurableSellUsingFreshBestBid() {
         monitor.monitorRealPositions();
 
+        verify(accounts).getBalance(KisEnvironment.REAL, Market.KR, null, null, null);
         verify(intents).claimRealExit(eq(plan.getIdempotencyKey()), any(UUID.class), eq("STOP_LOSS"), eq(2),
                 eq(new BigDecimal("93.99")));
         verify(orders).submit(any(UUID.class), argThat(request -> request.market() == Market.KR
@@ -104,7 +105,7 @@ class KisRealProtectiveExitMonitorTest {
 
     @Test
     void accountQuantityMismatchMovesPlanToManualReviewWithoutSubmitting() {
-        when(accounts.getBalance(eq(KisEnvironment.REAL), eq(Market.KR), eq("005930"), any(), isNull()))
+        when(accounts.getBalance(eq(KisEnvironment.REAL), eq(Market.KR), isNull(), isNull(), isNull()))
                 .thenReturn(account(3));
 
         monitor.monitorRealPositions();

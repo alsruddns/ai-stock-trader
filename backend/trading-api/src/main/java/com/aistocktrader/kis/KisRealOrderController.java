@@ -56,8 +56,9 @@ public class KisRealOrderController {
             @Valid @RequestBody OrderRequest request) {
         requireRealOrderPathEnabled(request.side() == com.aistocktrader.order.OrderSide.BUY);
         String normalizedExchange = exchange == null ? null : exchange.trim().toUpperCase(Locale.ROOT);
-        KisAccountSnapshot account = accounts.getBalance(KisEnvironment.REAL, request.market(), request.symbol(),
-                request.limitPrice(), normalizedExchange);
+        boolean buy = request.side() == com.aistocktrader.order.OrderSide.BUY;
+        KisAccountSnapshot account = accounts.getBalance(KisEnvironment.REAL, request.market(),
+                buy ? request.symbol() : null, buy ? request.limitPrice() : null, normalizedExchange);
         KisOrderIntentResponse response = orders.submit(idempotencyKey, request, normalizedExchange, account);
         HttpStatus status = response.status() == KisOrderStatus.REJECTED
                 ? HttpStatus.UNPROCESSABLE_ENTITY : HttpStatus.ACCEPTED;

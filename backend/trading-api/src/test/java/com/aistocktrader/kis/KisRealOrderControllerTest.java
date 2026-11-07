@@ -122,6 +122,33 @@ class KisRealOrderControllerTest {
     }
 
     @Test
+    void realSellReadsPositionsWithoutRequestingBuyPower() {
+        TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true,
+                BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100));
+        KisRealOrderController controller = controller(safety, properties(true, true));
+        UUID key = UUID.randomUUID();
+        OrderRequest sell = new OrderRequest(Market.KR, "005930", OrderSide.SELL, 1,
+                BigDecimal.valueOf(70000), Currency.KRW);
+        var position = new KisAccountSnapshot.Position("005930", "Samsung", BigDecimal.ONE, BigDecimal.ONE,
+                BigDecimal.valueOf(70000), BigDecimal.valueOf(70000), BigDecimal.valueOf(70000),
+                BigDecimal.ZERO, BigDecimal.ZERO);
+        KisAccountSnapshot account = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.valueOf(70000), List.of(position), Instant.now(),
+                "KIS_READ_ONLY_REST");
+        KisOrderIntentResponse expected = new KisOrderIntentResponse(key, "real", "KR", "005930", "SELL", 1,
+                "70000", "KRW", KisOrderStatus.ACCEPTED, "broker-order", "broker-org", "0",
+                0, 1, null, Instant.now(), Instant.now());
+        when(accounts.getBalance(KisEnvironment.REAL, Market.KR, null, null, null)).thenReturn(account);
+        when(orders.submit(key, sell, null, account)).thenReturn(expected);
+
+        var response = controller.submit(key, null, sell);
+
+        assertEquals(HttpStatus.ACCEPTED, response.getStatusCode());
+        verify(accounts).getBalance(KisEnvironment.REAL, Market.KR, null, null, null);
+        verify(orders).submit(key, sell, null, account);
+    }
+
+    @Test
     void realSignalUsesServerQuoteAndVerifiedMetadataInsteadOfCallerSuppliedSizing() {
         TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true, true,
                 BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100));
@@ -194,13 +221,14 @@ class KisRealOrderControllerTest {
         KisOrderIntentResponse expected = new KisOrderIntentResponse(key, "real", "KR", "005930", "SELL", 1,
                 "1000", "KRW", KisOrderStatus.ACCEPTED, "broker-order", "broker-org", "0",
                 0, 1, null, Instant.now(), Instant.now());
-        when(accounts.getBalance(KisEnvironment.REAL, Market.KR, "005930", BigDecimal.valueOf(1000), null))
+        when(accounts.getBalance(KisEnvironment.REAL, Market.KR, null, null, null))
                 .thenReturn(account);
         when(orders.submit(key, sell, null, account)).thenReturn(expected);
 
         var response = controller.submit(key, null, sell);
 
         assertEquals(HttpStatus.ACCEPTED, response.getStatusCode());
+        verify(accounts).getBalance(KisEnvironment.REAL, Market.KR, null, null, null);
         verify(orders).submit(key, sell, null, account);
     }
 

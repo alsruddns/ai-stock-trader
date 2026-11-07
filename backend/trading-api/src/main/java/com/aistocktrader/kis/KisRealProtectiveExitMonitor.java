@@ -126,8 +126,8 @@ public class KisRealProtectiveExitMonitor {
             intents.markRealExitManualReview(plan.getIdempotencyKey());
             return;
         }
-        KisAccountSnapshot account = accounts.getBalance(KisEnvironment.REAL, plan.getMarket(), plan.getSymbol(),
-                quote.price(), plan.getExchangeCode());
+        KisAccountSnapshot account = accounts.getBalance(KisEnvironment.REAL, plan.getMarket(), null,
+                null, plan.getExchangeCode());
         if (!freshRealAccount(account, plan.getMarket(), Instant.now())) return;
         List<KisAccountSnapshot.Position> matching = account.positions() == null ? List.of()
                 : account.positions().stream().filter(position -> position != null
@@ -171,8 +171,8 @@ public class KisRealProtectiveExitMonitor {
         }
         // The claim is durable before POST. If the process stopped before the intent was saved,
         // recreate it with the same persisted key and identical order fields.
-        KisAccountSnapshot account = accounts.getBalance(KisEnvironment.REAL, plan.getMarket(), plan.getSymbol(),
-                plan.getRealExitLimitPrice(), plan.getExchangeCode());
+        KisAccountSnapshot account = accounts.getBalance(KisEnvironment.REAL, plan.getMarket(), null,
+                null, plan.getExchangeCode());
         if (!freshRealAccount(account, plan.getMarket(), Instant.now())) return;
         List<KisAccountSnapshot.Position> matching = account.positions().stream()
                 .filter(position -> position != null && plan.getSymbol().equalsIgnoreCase(position.symbol())).toList();
