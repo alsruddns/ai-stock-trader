@@ -64,6 +64,23 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          $postgresScripts = @(
+            'scripts/lib/postgres-config.ps1',
+            'scripts/configure-postgres-loopback.ps1',
+            'scripts/test-postgres-loopback-config.ps1'
+          )
+          foreach ($postgresScript in $postgresScripts) {
+            $postgresTokens = $null
+            $postgresErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $postgresScript), [ref]$postgresTokens, [ref]$postgresErrors
+            ) | Out-Null
+            if ($postgresErrors.Count -gt 0) {
+              $postgresErrors | ForEach-Object { Write-Error "$postgresScript`: $($_.Message)" }
+            }
+          }
+
+          & 'scripts/test-postgres-loopback-config.ps1'
           $restartScript = 'scripts/restart-local-stack-task.ps1'
           $tokens = $null
           $parseErrors = $null
