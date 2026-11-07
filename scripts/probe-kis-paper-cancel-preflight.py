@@ -16,8 +16,10 @@ from app.kis import KisApiError, KisReadOnlyClient, KisSettings
 from kis_local_env import load_local_environment
 
 
-def main(transaction_id: str = "VTTC0084R") -> int:
-    if transaction_id not in {"VTTC0084R", "TTTC0084R", "VTTC8036R", "TTTC8036R"}:
+def main(transaction_id: str = "TTTC0084R") -> int:
+    # The official sample documents only TTTC0084R. The official PAPER matrix
+    # does not mark this inquiry as supported, so do not guess PAPER TR IDs.
+    if transaction_id != "TTTC0084R":
         print(json.dumps({"status": "blocked", "reason": "UNSUPPORTED_TRANSACTION_ID"}))
         return 2
     try:
@@ -127,5 +129,5 @@ def main(transaction_id: str = "VTTC0084R") -> int:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Read-only PAPER cancel-preflight service probe.")
-    parser.add_argument("--transaction-id", choices=("VTTC0084R", "TTTC0084R", "VTTC8036R", "TTTC8036R"), default="VTTC0084R")
+    parser.add_argument("--transaction-id", choices=("TTTC0084R",), default="TTTC0084R")
     raise SystemExit(main(parser.parse_args().transaction_id))

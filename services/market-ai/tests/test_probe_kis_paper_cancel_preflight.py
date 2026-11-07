@@ -60,7 +60,7 @@ class _FakeClient:
 
 
 def _configure_safe_probe(
-    monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any], transaction_id: str = "VTTC0084R",
+    monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any], transaction_id: str = "TTTC0084R",
 ) -> _FakeClient:
     for key, value in SAFE_SWITCHES.items():
         monkeypatch.setenv(key, value)
@@ -76,26 +76,37 @@ def _configure_safe_probe(
     return client
 
 
-@pytest.mark.parametrize("transaction_id", ["VTTC0084R", "TTTC0084R", "VTTC8036R", "TTTC8036R"])
-def test_paper_preflight_probe_reports_only_sanitized_shape(
-    monkeypatch: pytest.MonkeyPatch, capsys, transaction_id: str,
+def test_paper_preflight_probe_uses_official_transaction_id_and_reports_only_sanitized_shape(
+    monkeypatch: pytest.MonkeyPatch, capsys,
 ) -> None:
     client = _configure_safe_probe(monkeypatch, {
         "rt_cd": "0", "msg_cd": "OK", "output": [{"psbl_qty": "2", "odno": "private-order-number"}],
-    }, transaction_id)
+    })
 
-    assert probe.main(transaction_id) == 0
+    assert probe.main() == 0
 
     output = capsys.readouterr().out
     assert '"status": "supported"' in output
     assert '"broker_result_code": "0"' in output
-    assert f'"transaction_id": "{transaction_id}"' in output
+    assert '"transaction_id": "TTTC0084R"' in output
     assert '"returned_row_count": 1' in output
     assert '"cancel_quantity_field_observed": true' in output
     assert '"order_or_cancel_sent": false' in output
     assert "private-order-number" not in output
     assert "test-app-secret" not in output
     assert client.closed
+
+
+@pytest.mark.parametrize("transaction_id", ["VTTC0084R", "VTTC8036R", "TTTC8036R"])
+def test_probe_rejects_unverified_transaction_ids_before_loading_credentials(
+    monkeypatch: pytest.MonkeyPatch, capsys, transaction_id: str,
+) -> None:
+    monkeypatch.setattr(probe, "load_local_environment", lambda _repository: pytest.fail("credentials must not be loaded"))
+    monkeypatch.setattr(probe, "KisReadOnlyClient", lambda _settings: pytest.fail("KIS client must not be created"))
+
+    assert probe.main(transaction_id) == 2
+
+    assert '"reason": "UNSUPPORTED_TRANSACTION_ID"' in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(("key", "unsafe_value"), [
