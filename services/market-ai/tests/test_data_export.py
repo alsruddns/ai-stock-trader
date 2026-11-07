@@ -5,13 +5,62 @@ import json
 
 import pytest
 
-from app.data_export import build_minute_bar_export, validate_websocket_session_rows, write_minute_bar_export
+from app.data_export import (
+    build_minute_bar_export,
+    summarize_session_coverage,
+    validate_websocket_session_rows,
+    write_minute_bar_export,
+)
 from app.data_provenance import load_data_provenance
 
 
 def _row(timestamp: datetime, source: str = "KIS_REST_MINUTE_CHART") -> tuple:
     return (timestamp, Decimal("100.1"), Decimal("101.0"), Decimal("99.5"),
             Decimal("100.5"), 1200, Decimal("4.2"), source)
+
+
+@pytest.mark.parametrize(
+    ("market", "opened", "expected_bars"),
+    [
+        ("KR", datetime(2026, 11, 5, 0, 0, tzinfo=timezone.utc), 380),
+        ("US", datetime(2026, 11, 5, 14, 30, tzinfo=timezone.utc), 390),
+    ],
+)
+def test_session_coverage_reports_complete_bars_and_spreads(market, opened, expected_bars) -> None:
+    rows = [_row(opened + timedelta(minutes=index)) for index in range(expected_bars)]
+
+    summary = summarize_session_coverage(rows, market=market)
+
+    assert summary == [{
+        "session_date": "2026-11-05",
+        "bars": expected_bars,
+        "expected_bars": expected_bars,
+        "complete": True,
+        "bars_with_spread": expected_bars,
+        "spread_complete": True,
+        "sources": ["KIS_REST_MINUTE_CHART"],
+    }]
+
+
+def test_session_coverage_marks_gaps_duplicates_and_missing_spreads() -> None:
+    opened = datetime(2026, 11, 5, 14, 30, tzinfo=timezone.utc)
+    rows = [_row(opened + timedelta(minutes=index)) for index in range(390)]
+    rows[42] = (*rows[42][:6], None, rows[42][7])
+    rows[43] = _row(opened + timedelta(minutes=42))
+
+    summary = summarize_session_coverage(rows, market="US")[0]
+
+    assert summary["complete"] is False
+    assert summary["bars"] == 390
+    assert summary["bars_with_spread"] == 389
+    assert summary["spread_complete"] is False
+
+
+def test_session_coverage_rejects_non_session_rows() -> None:
+    with pytest.raises(ValueError, match="inside a verified continuous session"):
+        summarize_session_coverage(
+            [_row(datetime(2026, 11, 5, 13, 30, tzinfo=timezone.utc))], market="US"
+        )
 
 
 def test_kis_export_applies_confirmed_personal_rights_to_hash_bound_sidecar(tmp_path) -> None:

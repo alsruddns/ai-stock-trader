@@ -17,6 +17,46 @@ from zoneinfo import ZoneInfo
 from .market_calendar import exchange_continuous_session_window
 
 
+def summarize_session_coverage(rows: Sequence[tuple], *, market: str) -> list[dict[str, object]]:
+    """Report complete-minute and spread coverage by exchange session without changing data."""
+    normalized_market = market.strip().upper()
+    if normalized_market not in {"KR", "US"}:
+        raise ValueError("market must be KR or US")
+    zone = ZoneInfo("Asia/Seoul" if normalized_market == "KR" else "America/New_York")
+    sessions: dict[date, list[tuple]] = {}
+    for row in rows:
+        if len(row) < 8 or row[0].tzinfo is None or row[0].utcoffset() is None:
+            raise ValueError("session coverage requires timezone-aware timestamps and source")
+        session_date = row[0].astimezone(zone).date()
+        sessions.setdefault(session_date, []).append(row)
+
+    summaries: list[dict[str, object]] = []
+    for session_date, session_rows in sorted(sessions.items()):
+        window = exchange_continuous_session_window(
+            normalized_market,
+            datetime.combine(session_date, datetime.min.time(), tzinfo=zone) + timedelta(hours=12),
+        )
+        if window is None:
+            raise ValueError("session coverage contains a non-session date")
+        opened, closed = window
+        if any(not opened <= row[0].astimezone(timezone.utc) < closed for row in session_rows):
+            raise ValueError("session coverage rows must fall inside a verified continuous session")
+        expected_count = int((closed - opened).total_seconds() // 60)
+        expected_timestamps = [opened + timedelta(minutes=index) for index in range(expected_count)]
+        actual_timestamps = sorted(row[0].astimezone(timezone.utc) for row in session_rows)
+        spread_count = sum(row[6] is not None for row in session_rows)
+        summaries.append({
+            "session_date": session_date.isoformat(),
+            "bars": len(session_rows),
+            "expected_bars": expected_count,
+            "complete": actual_timestamps == expected_timestamps,
+            "bars_with_spread": spread_count,
+            "spread_complete": actual_timestamps == expected_timestamps and spread_count == expected_count,
+            "sources": sorted({str(row[7]) for row in session_rows if row[7]}),
+        })
+    return summaries
+
+
 def validate_websocket_session_rows(rows: Sequence[tuple], *, market: str, expected_source: str) -> None:
     """Require exact, spread-complete regular-session bars from the expected KIS feed."""
     normalized_market = market.strip().upper()

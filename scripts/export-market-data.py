@@ -13,7 +13,7 @@ repository = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repository / "services" / "market-ai"))
 
 import psycopg
-from app.data_export import validate_websocket_session_rows, write_minute_bar_export
+from app.data_export import summarize_session_coverage, validate_websocket_session_rows, write_minute_bar_export
 from app.market_calendar import exchange_continuous_session_window
 
 
@@ -112,12 +112,14 @@ def main() -> int:
     ]
 
     sources = sorted({row[7] for row in rows if row[7]})
+    session_coverage = summarize_session_coverage(rows, market=market)
     if args.dry_run:
         print(json.dumps({
             "market": market,
             "symbol": symbol,
             "row_count": len(rows),
             "sources": sources,
+            "session_coverage": session_coverage,
             "dry_run": True,
             "files_written": False,
         }, ensure_ascii=False, indent=2))
@@ -145,6 +147,7 @@ def main() -> int:
         "symbol": symbol,
         "row_count": len(rows),
         "sources": sources,
+        "session_coverage": session_coverage,
         "csv_path": str(output_path.relative_to(repository)),
         "provenance_path": str(sidecar_path.relative_to(repository)),
         "dataset_sha256": sidecar["dataset_sha256"],
