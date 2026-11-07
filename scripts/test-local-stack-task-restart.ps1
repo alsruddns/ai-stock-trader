@@ -1,5 +1,23 @@
 $ErrorActionPreference = 'Stop'
 
+$startLocalPath = Join-Path $PSScriptRoot 'start-local.ps1'
+if (-not (Select-String -Path $startLocalPath -Pattern 'lib\\local-api-binding\.ps1' -Quiet)) {
+    throw 'The local Spring launcher must apply the loopback-only API binding.'
+}
+$bindingPath = Join-Path $PSScriptRoot 'lib\local-api-binding.ps1'
+$hadServerAddress = Test-Path Env:SERVER_ADDRESS
+$previousServerAddress = $env:SERVER_ADDRESS
+try {
+    $env:SERVER_ADDRESS = '0.0.0.0'
+    . $bindingPath
+    if ($env:SERVER_ADDRESS -ne '127.0.0.1') {
+        throw 'An external server bind address must be overridden by the local binding policy.'
+    }
+} finally {
+    if ($hadServerAddress) { $env:SERVER_ADDRESS = $previousServerAddress }
+    else { Remove-Item Env:SERVER_ADDRESS -ErrorAction SilentlyContinue }
+}
+
 $restartPath = Join-Path $PSScriptRoot 'restart-local-stack-task.ps1'
 $tokens = $null
 $parseErrors = $null

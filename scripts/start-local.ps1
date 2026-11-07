@@ -24,6 +24,8 @@ foreach ($line in Get-Content -LiteralPath $envPath) {
     [Environment]::SetEnvironmentVariable($name, $value, 'Process')
 }
 
+. (Join-Path $PSScriptRoot 'lib\local-api-binding.ps1')
+
 if ($PaperOnly) {
     $env:TRADING_MODE = 'paper'
     $env:LIVE_TRADING_ENABLED = 'false'
