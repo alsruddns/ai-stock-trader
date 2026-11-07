@@ -1,15 +1,19 @@
 package com.aistocktrader.kis;
 
 import com.aistocktrader.order.Market;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.time.LocalDate;
+import java.util.ArrayList;
+
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Explicit opt-in only: performs read-only REAL account balance GET requests; never submits orders. */
+/** Explicit opt-in only: performs read-only REAL account and statement GET requests; never submits orders. */
 @EnabledIfEnvironmentVariable(named = "RUN_KIS_REAL_ACCOUNT_INTEGRATION_TESTS", matches = "true")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class KisRealAccountIntegrationTest {
@@ -44,5 +48,36 @@ class KisRealAccountIntegrationTest {
         assertEquals(KisEnvironment.REAL, snapshot.environment());
         assertEquals(Market.US, snapshot.market());
         assertEquals("USD", snapshot.currency());
+    }
+
+    @Test
+    void readsDomesticRealizedPnlFieldNamesWithoutPrintingFinancialValues() {
+        KisRealizedPnlStatement statement = client.getRealizedPnlStatement(
+                Market.KR, LocalDate.of(2026, 11, 5), LocalDate.of(2026, 11, 6), null);
+        assertEquals(Market.KR, statement.market());
+        assertEquals("KIS_READ_ONLY_REALIZED_PNL_REST", statement.source());
+        printFieldNamesOnly(statement);
+    }
+
+    @Test
+    void readsUsRealizedPnlFieldNamesWithoutPrintingFinancialValues() {
+        KisRealizedPnlStatement statement = client.getRealizedPnlStatement(
+                Market.US, LocalDate.of(2026, 11, 5), LocalDate.of(2026, 11, 6), "NASD");
+        assertEquals(Market.US, statement.market());
+        assertEquals("KIS_READ_ONLY_REALIZED_PNL_REST", statement.source());
+        printFieldNamesOnly(statement);
+    }
+
+    private static void printFieldNamesOnly(KisRealizedPnlStatement statement) {
+        System.out.printf("KIS REAL statement schema market=%s detailFields=%s summaryFields=%s; values suppressed%n",
+                statement.market(), fieldNames(statement.details()), fieldNames(statement.summary()));
+    }
+
+    private static String fieldNames(JsonNode node) {
+        JsonNode sample = node.isArray() && !node.isEmpty() ? node.get(0) : node;
+        if (!sample.isObject()) return "[]";
+        ArrayList<String> names = new ArrayList<>();
+        sample.fieldNames().forEachRemaining(names::add);
+        return String.join(",", names);
     }
 }
