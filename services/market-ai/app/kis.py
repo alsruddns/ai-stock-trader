@@ -30,6 +30,8 @@ DOMESTIC_MINUTE_CHART_PATH = "/uapi/domestic-stock/v1/quotations/inquire-time-da
 OVERSEAS_MINUTE_CHART_PATH = "/uapi/overseas-price/v1/quotations/inquire-time-itemchartprice"
 DOMESTIC_VOLUME_RANK_PATH = "/uapi/domestic-stock/v1/quotations/volume-rank"
 OVERSEAS_TRADE_VALUE_RANK_PATH = "/uapi/overseas-stock/v1/ranking/trade-pbmn"
+KIS_MINUTE_CHART_PAGE_SIZE = 120
+MAX_OVERSEAS_MINUTE_SESSION_PAGES = 20
 
 
 class KisApiError(RuntimeError):
@@ -211,6 +213,18 @@ class AccountBalance:
     positions: list[dict[str, Any]]
     retrieved_at: datetime
     source: str = "KIS_REST_ACCOUNT_SNAPSHOT"
+
+
+@dataclass(frozen=True)
+class HistoricalMinuteSession:
+    """A bounded historical read plus non-price pagination diagnostics."""
+
+    bars: list["MinuteBar"]
+    pages_fetched: int
+    source_record_count: int
+    first_source_timestamp: datetime | None
+    last_source_timestamp: datetime | None
+    continuation_states: list[str]
 
 
 def _decimal(value: Any, field: str) -> Decimal | None:
@@ -618,7 +632,7 @@ class KisReadOnlyClient:
         except (ArithmeticError, TypeError, ValueError) as exc:
             raise KisApiError("KIS minute chart response contained invalid bar data") from exc
         bars.sort(key=lambda bar: bar.timestamp)
-        if len(bars) > 120 or len({bar.timestamp for bar in bars}) != len(bars):
+        if len(bars) > KIS_MINUTE_CHART_PAGE_SIZE or len({bar.timestamp for bar in bars}) != len(bars):
             raise KisApiError("KIS minute chart response exceeded the supported page contract")
         return bars
 
@@ -699,9 +713,19 @@ class KisReadOnlyClient:
         return [bar for bar in bars if session_date is None or bar.timestamp.date() == session_date]
 
     def get_overseas_minute_session_bars(
-        self, symbol: str, exchange: Exchange, session_date: date, *, max_pages: int = 10,
+        self, symbol: str, exchange: Exchange, session_date: date, *,
+        max_pages: int = MAX_OVERSEAS_MINUTE_SESSION_PAGES,
     ) -> list["MinuteBar"]:
         """Fetch a bounded historical US session using KIS previous-day pagination."""
+        return self.get_overseas_minute_session_snapshot(
+            symbol, exchange, session_date, max_pages=max_pages,
+        ).bars
+
+    def get_overseas_minute_session_snapshot(
+        self, symbol: str, exchange: Exchange, session_date: date, *,
+        max_pages: int = MAX_OVERSEAS_MINUTE_SESSION_PAGES,
+    ) -> HistoricalMinuteSession:
+        """Return requested bars with safe page-count and source-time diagnostics."""
         from .quant import MinuteBar
 
         if self.settings.environment != "real":
@@ -711,8 +735,8 @@ class KisReadOnlyClient:
             raise ValueError("US symbols may contain only letters, digits, dot, or hyphen")
         if exchange not in {"NAS", "NYS", "AMS"}:
             raise ValueError("exchange must be NAS, NYS, or AMS")
-        if not 1 <= max_pages <= 10:
-            raise ValueError("max_pages must be between 1 and 10")
+        if not 1 <= max_pages <= MAX_OVERSEAS_MINUTE_SESSION_PAGES:
+            raise ValueError(f"max_pages must be between 1 and {MAX_OVERSEAS_MINUTE_SESSION_PAGES}")
         exchange_code = {"NAS": "NAS", "NYS": "NYS", "AMS": "AMS"}[exchange]
         from .market_calendar import exchange_continuous_session_window
 
@@ -720,10 +744,14 @@ class KisReadOnlyClient:
             "US", datetime.combine(session_date, datetime_time(hour=12), tzinfo=ZoneInfo("America/New_York")),
         )
         if session_window is None:
-            return []
+            return HistoricalMinuteSession([], 0, 0, None, None, [])
         session_open, session_close = (instant.astimezone(timezone.utc) for instant in session_window)
 
         bars_by_time: dict[datetime, MinuteBar] = {}
+        source_timestamps: list[datetime] = []
+        source_record_count = 0
+        pages_fetched = 0
+        continuation_states: list[str] = []
         continuation = ""
         next_page = ""
         keyb = ""
@@ -733,6 +761,10 @@ class KisReadOnlyClient:
                 normalized_symbol, exchange_code, pinc="1", next_page=next_page,
                 keyb=keyb, continuation=continuation,
             )
+            pages_fetched += 1
+            source_record_count += len(page)
+            source_timestamps.extend(bar.timestamp for bar in page)
+            continuation_states.append(response_continuation or "EMPTY")
             for bar in page:
                 bar_at = bar.timestamp.astimezone(timezone.utc)
                 if bar.timestamp.date() != session_date or not session_open <= bar_at < session_close:
@@ -747,7 +779,9 @@ class KisReadOnlyClient:
                 break
             if response_continuation not in {"", "D", "E", "F", "M", "N"}:
                 raise KisApiError("KIS overseas minute response returned an unsupported continuation state")
-            if response_continuation not in {"M", "F"}:
+            # KIS may omit the continuation header on a full page. In that case
+            # the documented NEXT/KEYB cursor still allows a bounded older-page read.
+            if response_continuation not in {"M", "F"} and len(page) < KIS_MINUTE_CHART_PAGE_SIZE:
                 break
             if page_number + 1 == max_pages:
                 raise KisApiError("KIS overseas minute session exceeded the supported pagination limit")
@@ -758,7 +792,16 @@ class KisReadOnlyClient:
             next_page = "1"
             continuation = "N"
 
-        return [bars_by_time[timestamp] for timestamp in sorted(bars_by_time)]
+        first_source_timestamp = min(source_timestamps) if source_timestamps else None
+        last_source_timestamp = max(source_timestamps) if source_timestamps else None
+        return HistoricalMinuteSession(
+            bars=[bars_by_time[timestamp] for timestamp in sorted(bars_by_time)],
+            pages_fetched=pages_fetched,
+            source_record_count=source_record_count,
+            first_source_timestamp=first_source_timestamp,
+            last_source_timestamp=last_source_timestamp,
+            continuation_states=continuation_states,
+        )
 
     def _get_overseas_minute_page(
         self, symbol: str, exchange_code: str, *, pinc: str, next_page: str,
@@ -768,7 +811,8 @@ class KisReadOnlyClient:
 
         params = {
             "AUTH": "", "EXCD": exchange_code, "SYMB": symbol,
-            "NMIN": "1", "PINC": pinc, "NEXT": next_page, "NREC": "120", "FILL": "", "KEYB": keyb,
+            "NMIN": "1", "PINC": pinc, "NEXT": next_page,
+            "NREC": str(KIS_MINUTE_CHART_PAGE_SIZE), "FILL": "", "KEYB": keyb,
         }
         request_headers = {
             "authorization": f"Bearer {self._access_token()}", "appkey": self.settings.app_key,
@@ -822,7 +866,7 @@ class KisReadOnlyClient:
         except (ArithmeticError, TypeError, ValueError) as exc:
             raise KisApiError("KIS overseas minute chart response contained invalid bar data") from exc
         bars.sort(key=lambda bar: bar.timestamp)
-        if len(bars) > 120 or len({bar.timestamp for bar in bars}) != len(bars):
+        if len(bars) > KIS_MINUTE_CHART_PAGE_SIZE or len({bar.timestamp for bar in bars}) != len(bars):
             raise KisApiError("KIS overseas minute chart response exceeded the supported page contract")
         return bars, response.headers.get("tr_cont", "").strip().upper()
 

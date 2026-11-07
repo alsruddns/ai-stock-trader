@@ -3,7 +3,8 @@ from fastapi import HTTPException
 import pytest
 from app import main
 from app.main import app, get_kis_client, get_kis_real_market_data_client, get_market_data_client
-from app.kis import KisRateLimitError, KisSharedRateLimitUnavailable, MarketCandidate, Quote
+from app.kis import (HistoricalMinuteSession, KisRateLimitError,
+                     KisSharedRateLimitUnavailable, MarketCandidate, Quote)
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -355,14 +356,21 @@ def test_quote_route_returns_normalized_snapshot() -> None:
 
 def test_overseas_minute_session_route_uses_real_read_only_client() -> None:
     class FakeKisClient:
-        def get_overseas_minute_session_bars(self, symbol, exchange, session_date):
+        def get_overseas_minute_session_snapshot(self, symbol, exchange, session_date):
             assert symbol == "AAPL"
             assert exchange == "NAS"
             assert session_date == date(2026, 11, 5)
-            return [MinuteBar(
-                timestamp=datetime.fromisoformat("2026-11-05T09:30:00-05:00"), open=Decimal("100"),
-                high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
-            )]
+            return HistoricalMinuteSession(
+                bars=[MinuteBar(
+                    timestamp=datetime.fromisoformat("2026-11-05T09:30:00-05:00"), open=Decimal("100"),
+                    high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
+                )],
+                pages_fetched=2,
+                source_record_count=240,
+                first_source_timestamp=datetime.fromisoformat("2026-11-05T09:30:00-05:00"),
+                last_source_timestamp=datetime.fromisoformat("2026-11-06T09:30:00-05:00"),
+                continuation_states=["M", "D"],
+            )
 
     app.dependency_overrides[get_kis_real_market_data_client] = lambda: FakeKisClient()
     try:
@@ -375,6 +383,11 @@ def test_overseas_minute_session_route_uses_real_read_only_client() -> None:
         assert body["session_date"] == "2026-11-05"
         assert body["source"] == "KIS_REST_MINUTE_SESSION"
         assert body["spread_bps_available"] is False
+        assert body["source_pages_fetched"] == 2
+        assert body["source_records_seen"] == 240
+        assert body["source_first_bar_at"] == "2026-11-05T09:30:00-05:00"
+        assert body["source_last_bar_at"] == "2026-11-06T09:30:00-05:00"
+        assert body["source_continuation_states"] == ["M", "D"]
         assert body["bars"][0]["spread_bps"] is None
     finally:
         app.dependency_overrides.clear()

@@ -14,8 +14,9 @@ from zoneinfo import ZoneInfo
 from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, WebSocket, WebSocketDisconnect
 import psycopg
 from pydantic import BaseModel, Field
-from .kis import (AccountBalance, Exchange, KisApiError, KisReadOnlyClient, KisSettings,
-                  KisRateLimitError, KisSharedRateLimitUnavailable, Market, Quote)
+from .kis import (AccountBalance, Exchange, HistoricalMinuteSession, KisApiError,
+                  KisReadOnlyClient, KisSettings, KisRateLimitError,
+                  KisSharedRateLimitUnavailable, Market, Quote)
 from . import snapshot_store
 from . import kis_stream
 from .ai_pipeline import LocalModelRegistry
@@ -163,6 +164,11 @@ class HistoricalMinuteBarsResponse(BaseModel):
     source: str
     spread_bps_available: bool
     bars: list[QuantBarRequest]
+    source_pages_fetched: int | None = None
+    source_records_seen: int | None = None
+    source_first_bar_at: datetime | None = None
+    source_last_bar_at: datetime | None = None
+    source_continuation_states: list[str] | None = None
 
 
 class AiPredictionRequest(BaseModel):
@@ -712,13 +718,21 @@ def get_overseas_minute_session_bars(
     """Fetch one bounded historical US session through the separately gated REAL KIS client."""
     normalized_symbol = symbol.upper()
     try:
-        bars = client.get_overseas_minute_session_bars(normalized_symbol, exchange, session_date)
+        history: HistoricalMinuteSession = client.get_overseas_minute_session_snapshot(
+            normalized_symbol, exchange, session_date,
+        )
+        bars = history.bars
         _persist_snapshot(lambda: snapshot_store.store_minute_bars(
             "US", normalized_symbol, bars, source="KIS_REST_MINUTE_SESSION",
         ))
         return HistoricalMinuteBarsResponse(
             market="US", symbol=normalized_symbol, session_date=session_date,
             source="KIS_REST_MINUTE_SESSION", spread_bps_available=False,
+            source_pages_fetched=history.pages_fetched,
+            source_records_seen=history.source_record_count,
+            source_first_bar_at=history.first_source_timestamp,
+            source_last_bar_at=history.last_source_timestamp,
+            source_continuation_states=history.continuation_states,
             bars=[QuantBarRequest(
                 timestamp=bar.timestamp, open=bar.open, high=bar.high, low=bar.low, close=bar.close,
                 volume=bar.volume, spread_bps=None,

@@ -468,7 +468,8 @@ def test_overseas_minute_session_pages_back_to_requested_date_with_separate_curs
         KisSettings(True, "real", "real-key", "real-secret"),
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
-    bars = client.get_overseas_minute_session_bars("aapl", "NAS", date(2026, 11, 5))
+    history = client.get_overseas_minute_session_snapshot("aapl", "NAS", date(2026, 11, 5))
+    bars = history.bars
 
     assert [bar.timestamp.isoformat() for bar in bars] == [
         "2026-11-05T09:30:00-05:00", "2026-11-05T15:58:00-05:00", "2026-11-05T15:59:00-05:00",
@@ -480,6 +481,56 @@ def test_overseas_minute_session_pages_back_to_requested_date_with_separate_curs
     assert second.url.params["KEYB"] == "20261106092900"
     assert second.headers["tr_cont"] == "N"
     assert all(bar.spread_bps is None for bar in bars)
+    assert history.pages_fetched == 3
+    assert history.source_record_count == 6
+    assert history.first_source_timestamp.isoformat() == "2026-11-04T15:59:00-05:00"
+    assert history.last_source_timestamp.isoformat() == "2026-11-06T09:31:00-05:00"
+    assert history.continuation_states == ["M", "M", "D"]
+    client.close()
+
+
+def test_overseas_minute_session_uses_cursor_when_full_page_has_no_continuation_header() -> None:
+    requests_seen: list[httpx.Request] = []
+    first_rows = []
+    first_start = datetime(2026, 11, 6, 16, 0)
+    for minute in range(120):
+        timestamp = first_start + timedelta(minutes=minute)
+        first_rows.append({
+            "xymd": timestamp.strftime("%Y%m%d"), "xhms": timestamp.strftime("%H%M%S"),
+            "open": "100", "high": "101", "low": "99", "last": "100.5", "evol": "1000",
+        })
+    older_rows = [
+        {"xymd": "20261105", "xhms": "155900", "open": "110", "high": "111",
+         "low": "109", "last": "110.5", "evol": "1500"},
+        {"xymd": "20261104", "xhms": "155900", "open": "99", "high": "100",
+         "low": "98", "last": "99.5", "evol": "900"},
+    ]
+    chart_requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal chart_requests
+        requests_seen.append(request)
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        chart_requests += 1
+        if chart_requests == 1:
+            return httpx.Response(200, json={"rt_cd": "0", "output2": first_rows})
+        return httpx.Response(200, headers={"tr_cont": "D"}, json={"rt_cd": "0", "output2": older_rows})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "real", "real-key", "real-secret"),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    history = client.get_overseas_minute_session_snapshot("AAPL", "NAS", date(2026, 11, 5))
+
+    chart = [request for request in requests_seen if request.url.path.endswith("inquire-time-itemchartprice")]
+    assert history.pages_fetched == 2
+    assert history.source_record_count == 122
+    assert history.continuation_states == ["EMPTY", "D"]
+    assert [bar.timestamp.isoformat() for bar in history.bars] == ["2026-11-05T15:59:00-05:00"]
+    assert chart[1].url.params["NEXT"] == "1"
+    assert chart[1].url.params["KEYB"] == "20261106155900"
+    assert chart[1].headers["tr_cont"] == "N"
     client.close()
 
 
@@ -498,6 +549,18 @@ def test_overseas_minute_session_fails_closed_when_pagination_repeats() -> None:
     )
     with pytest.raises(KisApiError, match="did not move backward"):
         client.get_overseas_minute_session_bars("AAPL", "NAS", date(2026, 11, 6))
+    client.close()
+
+
+def test_overseas_minute_session_page_limit_is_bounded_to_twenty() -> None:
+    client = KisReadOnlyClient(
+        KisSettings(True, "real", "real-key", "real-secret"),
+        http_client=httpx.Client(transport=httpx.MockTransport(
+            lambda request: pytest.fail("invalid page limit must not make a request")
+        )),
+    )
+    with pytest.raises(ValueError, match="between 1 and 20"):
+        client.get_overseas_minute_session_bars("AAPL", "NAS", date(2026, 11, 5), max_pages=21)
     client.close()
 
 
