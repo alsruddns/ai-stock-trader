@@ -20,6 +20,10 @@ The official sample lists `NASD`, `NYSE`, and `AMEX` for PAPER balance lookups; 
 | United States | Buy/sell | `/uapi/overseas-stock/v1/trading/order` | `TTTT1002U` buy, `TTTT1006U` sell | Matches official sample for US exchanges `NASD`, `NYSE`, and `AMEX`, uppercase request fields, and limit-order type. |
 | United States | Cancel | `/uapi/overseas-stock/v1/trading/order-rvsecncl` | `TTTT1004U` | Matches official cancel path and request fields; intent is reconciled before a remaining-quantity cancellation. |
 
+### Domestic PAPER cancellation gate
+
+The current official support matrix marks domestic cash orders, revise/cancel orders, and daily order/fill inquiry as PAPER-supported, but does not mark the domestic cancelable-order inquiry as PAPER-supported. The PAPER daily inquiry uses `VTTC0081R` and is used here for post-order reconciliation. The official domestic cancel sample separately requires calling `inquire-psbl-rvsecncl` and checking `output.psbl_qty` before submitting a cancel. Its `rmn_qty` from daily inquiry is not treated as an equivalent substitute for that required preflight. Domestic PAPER cancellation therefore remains locked until KIS confirms a supported PAPER preflight TR and a read-only or mock contract verifies its response. [KIS official PAPER support matrix](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md) · [official daily order/fill inquiry sample](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_daily_ccld/inquire_daily_ccld.py) · [official domestic cancel sample](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_rvsecncl/order_rvsecncl.py)
+
 This is a source-level compatibility review only. The current KIS OAuth/connection error prevents live account or order verification; no REAL order request was sent. The REAL API remains locked in local configuration.
 
 ## Read-only quote snapshots
