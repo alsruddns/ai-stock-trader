@@ -72,7 +72,8 @@ $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $arguments 
 $trigger = New-ScheduledTaskTrigger -Once -At $runAt
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 2) -MultipleInstances IgnoreNew
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 2) -MultipleInstances IgnoreNew
 $description = "Runs rights-gated $Market candidate training for $symbolValue using $($sessionList.Count) exchange sessions; candidates remain unapproved; no orders."
 
 if ($PSCmdlet.ShouldProcess($taskName, "Register unapproved candidate training for $Market $symbolValue at $runAt")) {
