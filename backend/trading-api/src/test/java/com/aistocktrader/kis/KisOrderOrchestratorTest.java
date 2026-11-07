@@ -171,6 +171,38 @@ class KisOrderOrchestratorTest {
     }
 
     @Test
+    void transientKisServerErrorDoesNotMarkOrderRejectedOrResubmit() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = buyRequest();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", request, null);
+        when(intents.prepare(any(), anyString(), any(), nullable(String.class)))
+                .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true),
+                        new KisOrderIntentStore.PreparedIntent(intent, false));
+        when(accounts.getBalance(any(), any(), any(), any(), nullable(String.class))).thenReturn(
+                new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR, "KRW", new BigDecimal("100000"),
+                        new BigDecimal("100000"), List.of(), Instant.now(), "test"));
+        when(orders.placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(),
+                any(), any(), nullable(String.class))).thenThrow(new KisApiException(HttpStatus.BAD_GATEWAY,
+                "KIS rejected the paper order (code EGW00002)."));
+        when(intents.markUnknown(key)).thenAnswer(invocation -> {
+            intent.markUnknown();
+            return intent;
+        });
+
+        KisOrderIntentResponse response = orchestrator.submitPaperOrder(key, request, null);
+
+        assertEquals(KisOrderStatus.UNKNOWN, response.status());
+        verify(intents).markUnknown(key);
+        verify(intents, never()).reject(key, "EGW00002");
+        assertEquals(KisOrderStatus.UNKNOWN,
+                orchestrator.submitPaperOrder(key, request, null).status());
+        verify(orders).placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(),
+                any(), any(), nullable(String.class));
+        verify(orders, org.mockito.Mockito.times(1)).placePaperLimitOrder(any(), anyString(), any(),
+                org.mockito.ArgumentMatchers.anyInt(), any(), any(), nullable(String.class));
+    }
+
+    @Test
     void databaseDuplicateRaceReadsExistingIntentWithoutBrokerSubmission() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();

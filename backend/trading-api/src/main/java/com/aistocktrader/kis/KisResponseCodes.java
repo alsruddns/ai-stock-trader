@@ -14,4 +14,8 @@ final class KisResponseCodes {
         Matcher matcher = DELIMITED_SAFE_CODE.matcher(message);
         return matcher.find() ? matcher.group(1) : fallback;
     }
+
+    static boolean indicatesIndeterminateOrderOutcome(String message) {
+        return "EGW00002".equals(fromErrorMessage(message, ""));
+    }
 }
