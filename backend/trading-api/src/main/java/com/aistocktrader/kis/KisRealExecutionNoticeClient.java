@@ -155,13 +155,9 @@ public class KisRealExecutionNoticeClient {
                 .ifPresent(intent -> {
                     try {
                         var session = sessions.session(notice.market());
-                        if (!session.session() || session.sessionDate() == null || session.openAt() == null
-                                || session.closeAt() == null) return;
-                        java.time.ZoneId zone = notice.market() == com.aistocktrader.order.Market.KR
-                                ? java.time.ZoneId.of("Asia/Seoul") : java.time.ZoneId.of("America/New_York");
-                        Instant fillAt = session.sessionDate().atTime(notice.fillTime()).atZone(zone).toInstant();
-                        if (fillAt.isBefore(session.openAt()) || fillAt.isAfter(session.closeAt())) return;
-                        intents.recordRealFillTime(intent.getIdempotencyKey(), fillAt);
+                        Instant fillAt = KisExecutionNoticeTime.resolve(notice, session, Instant.now()).orElse(null);
+                        if (fillAt == null) return;
+                        if (intents.recordRealFillTime(intent.getIdempotencyKey(), fillAt) != 1) return;
                     } catch (RuntimeException exception) {
                         log.warn("KIS REAL fill timestamp unavailable ({})", exception.getClass().getSimpleName());
                         return;
