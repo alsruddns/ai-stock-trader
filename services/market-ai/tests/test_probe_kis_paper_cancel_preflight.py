@@ -51,7 +51,7 @@ class _FakeClient:
         assert url.endswith("/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl")
         assert headers["tr_id"] == self.expected_transaction_id
         assert headers["custtype"] == "P"
-        assert params["INQR_DVSN_1"] == ("1" if self.expected_transaction_id.endswith("8036R") else "0")
+        assert params["INQR_DVSN_1"] == "1"
         assert params["INQR_DVSN_2"] == "0"
         return _Response(self.payload)
 
