@@ -37,6 +37,32 @@ class KisRealOrderControllerTest {
     }
 
     @Test
+    void paperModeRejectsRealReconciliationBeforeLoadingIntentOrCallingBroker() {
+        KisRealOrderController controller = controller(
+                new TradingSafetyProperties("paper", false, false, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
+                properties(false, false));
+
+        KisApiException exception = assertThrows(KisApiException.class,
+                () -> controller.reconcile(UUID.randomUUID()));
+
+        assertEquals(HttpStatus.LOCKED, exception.status());
+        verifyNoInteractions(intents, accounts, orders);
+    }
+
+    @Test
+    void paperModeRejectsRealCancellationBeforeLoadingIntentOrCallingBroker() {
+        KisRealOrderController controller = controller(
+                new TradingSafetyProperties("paper", false, false, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
+                properties(false, false));
+
+        KisApiException exception = assertThrows(KisApiException.class,
+                () -> controller.cancel(UUID.randomUUID()));
+
+        assertEquals(HttpStatus.LOCKED, exception.status());
+        verifyNoInteractions(intents, accounts, orders);
+    }
+
+    @Test
     void enabledRealPathReadsCurrentAccountBeforeDelegatingTheOrder() {
         TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true,
                 BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100));
