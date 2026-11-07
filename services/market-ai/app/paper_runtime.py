@@ -815,8 +815,20 @@ class PaperSessionFeedMonitor:
             self._set_status(real_signal_state="QUEUED", real_signal_error=None)
         except asyncio.QueueFull:
             self._real_signal_blocked = True
+            self._discard_queued_real_signals(queue)
             self._set_status(real_signal_state="BLOCKED_QUEUE_FULL",
                              real_signal_error="SIGNAL_QUEUE_CAPACITY_EXCEEDED")
+
+    @staticmethod
+    def _discard_queued_real_signals(queue: asyncio.Queue) -> None:
+        """Drop unsent candidates after backpressure; never drain the signal worker's in-flight item."""
+        while True:
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            else:
+                queue.task_done()
 
     async def _real_signal_loop(self) -> None:
         client = self._real_signal_client

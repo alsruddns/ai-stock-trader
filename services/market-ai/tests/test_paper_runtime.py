@@ -686,6 +686,47 @@ def test_real_signal_worker_stops_after_ambiguous_write_and_never_retries(monkey
     assert runtime.status()["real_signal_error"] == "SIGNAL_OUTCOME_UNKNOWN"
 
 
+def test_real_signal_queue_overflow_discards_unsent_candidates_and_blocks_worker() -> None:
+    watch = parse_watchlist("KR:005930")[0]
+    timestamp = datetime(2026, 11, 6, 10, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+    bar = MinuteBar(timestamp, Decimal("70000"), Decimal("70100"), Decimal("69900"), Decimal("70000"),
+                    1000, Decimal("5"))
+    decision = {
+        "market": "KR", "symbol": "005930", "signal": "BUY_CANDIDATE", "strategy_id": "ORB_VWAP",
+        "model_id": "model-v1", "evaluated_at": timestamp.isoformat(),
+    }
+
+    class Client:
+        calls = 0
+
+        def submit_signal(self, **_values):
+            self.calls += 1
+            return {"status": "ACCEPTED"}
+
+    runtime = PaperSessionFeedMonitor()
+    runtime._real_monitor_mode = True
+    runtime._real_signal_queue = asyncio.Queue(maxsize=1)
+    runtime._real_signal_client = Client()
+    runtime._real_signal_queue.put_nowait((watch, bar, decision))
+    runtime._queue_real_signal(watch, bar, decision)
+
+    assert runtime._real_signal_blocked is True
+    assert runtime._real_signal_queue.empty()
+
+    async def scenario():
+        await asyncio.wait_for(runtime._real_signal_queue.join(), timeout=0.1)
+        task = asyncio.create_task(runtime._real_signal_loop())
+        await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+    assert runtime._real_signal_client.calls == 0
+    assert runtime.status()["real_signal_state"] == "BLOCKED_QUEUE_FULL"
+
+
 def test_us_paper_watchlist_requires_separate_read_only_real_market_data_switch(monkeypatch) -> None:
     monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
     monkeypatch.setenv("TRADING_MODE", "paper")
