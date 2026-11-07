@@ -5,11 +5,27 @@ import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.TransactionSystemException;
+import com.aistocktrader.kis.KisApiException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class ApiExceptionHandlerTest {
+    @Test
+    void kisErrorsExposeSanitizedBrokerCodeWithoutRawResponse() {
+        ApiExceptionHandler handler = new ApiExceptionHandler();
+        KisApiException exception = new KisApiException(HttpStatus.BAD_GATEWAY,
+                "KIS authentication request was rejected (HTTP 403, code EGW00002).");
+
+        var response = handler.kisError(exception);
+
+        assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
+        assertEquals("KIS authentication request was rejected (HTTP 403, code EGW00002).",
+                response.getBody().get("error"));
+        assertFalse(response.getBody().toString().contains("appsecret"));
+        assertFalse(response.getBody().toString().contains("error_description"));
+    }
+
     @Test
     void databaseFailuresReturnServiceUnavailableWithoutLeakingDriverDetails() {
         ApiExceptionHandler handler = new ApiExceptionHandler();
