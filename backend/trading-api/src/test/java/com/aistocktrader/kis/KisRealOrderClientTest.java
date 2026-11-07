@@ -47,6 +47,18 @@ class KisRealOrderClientTest {
     }
 
     @Test
+    void disabledProductionGatesBlockCancelBeforeTokenOrCancelRequest() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisRealOrderClient client = new KisRealOrderClient(properties(true, true),
+                new TradingSafetyProperties("paper", false, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)), builder);
+
+        assertThrows(IllegalStateException.class, () -> client.cancelRealOrder(
+                Market.US, "AAPL", "7001", null, 1, "NASD"));
+        server.verify();
+    }
+
+    @Test
     void unapprovedRiskDecisionBlocksBeforeTokenOrOrderRequest() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -67,7 +79,9 @@ class KisRealOrderClientTest {
         server.expect(requestTo(REAL_URL + "/uapi/domestic-stock/v1/trading/order-cash"))
                 .andExpect(header("authorization", "Bearer real-token"))
                 .andExpect(header("appkey", "real-key"))
+                .andExpect(header("appsecret", "real-secret"))
                 .andExpect(header("tr_id", "TTTC0012U"))
+                .andExpect(header("custtype", "P"))
                 .andExpect(jsonPath("$.CANO").value("87654321"))
                 .andExpect(jsonPath("$.ACNT_PRDT_CD").value("01"))
                 .andExpect(jsonPath("$.PDNO").value("005930"))
