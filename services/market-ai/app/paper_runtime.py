@@ -861,18 +861,27 @@ class PaperSessionFeedMonitor:
                     symbol=watch.symbol, exchange=watch.exchange,
                 )
                 order_status = str(result.get("status", "UNKNOWN")).upper()
+                queue_overflowed = (
+                    self._real_signal_blocked
+                    and self.status().get("real_signal_state") == "BLOCKED_QUEUE_FULL"
+                )
+                if order_status not in {"ACCEPTED", "PARTIALLY_FILLED", "FILLED", "REJECTED"}:
+                    self._real_signal_blocked = True
                 self._set_status(
-                    real_signal_state=("SUBMITTED" if order_status in {"ACCEPTED", "PARTIALLY_FILLED", "FILLED"}
-                                       else "REJECTED" if order_status == "REJECTED" else "UNKNOWN"),
-                    real_signal_error=None if order_status != "UNKNOWN" else "ORDER_STATUS_UNKNOWN",
+                    real_signal_state=("MANUAL_RECONCILIATION_REQUIRED" if order_status not in {
+                        "ACCEPTED", "PARTIALLY_FILLED", "FILLED", "REJECTED",
+                    } else "BLOCKED_QUEUE_FULL" if queue_overflowed else
+                        "SUBMITTED" if order_status in {"ACCEPTED", "PARTIALLY_FILLED", "FILLED"}
+                        else "REJECTED"),
+                    real_signal_error=("ORDER_STATUS_UNKNOWN" if order_status not in {
+                        "ACCEPTED", "PARTIALLY_FILLED", "FILLED", "REJECTED",
+                    } else "SIGNAL_QUEUE_CAPACITY_EXCEEDED" if queue_overflowed else None),
                     last_real_signal={
                         "market": watch.market, "symbol": watch.symbol, "order_status": order_status,
                         "idempotency_key": str(key), "submitted_at": datetime.now(timezone.utc).isoformat(),
                         "executable": False,
                     },
                 )
-                if order_status not in {"ACCEPTED", "PARTIALLY_FILLED", "FILLED", "REJECTED"}:
-                    self._real_signal_blocked = True
             except RealSignalOrderOutcomeUnknown:
                 self._real_signal_blocked = True
                 self._set_status(

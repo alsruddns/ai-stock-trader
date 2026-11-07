@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import json
 import sys
+import threading
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -725,6 +726,61 @@ def test_real_signal_queue_overflow_discards_unsent_candidates_and_blocks_worker
 
     assert runtime._real_signal_client.calls == 0
     assert runtime.status()["real_signal_state"] == "BLOCKED_QUEUE_FULL"
+
+
+def test_real_signal_inflight_response_cannot_clear_queue_overflow_lock() -> None:
+    watch = parse_watchlist("KR:005930")[0]
+    timestamp = datetime(2026, 11, 6, 10, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+    started = threading.Event()
+    release = threading.Event()
+
+    class Client:
+        def submit_signal(self, **_values):
+            started.set()
+            if not release.wait(timeout=2):
+                raise TimeoutError("test handoff was not released")
+            return {"status": "ACCEPTED"}
+
+    runtime = PaperSessionFeedMonitor()
+    runtime._real_monitor_mode = True
+    runtime._real_signal_queue = asyncio.Queue(maxsize=1)
+    runtime._real_signal_client = Client()
+
+    def candidate(bar_time):
+        bar = MinuteBar(bar_time, Decimal("70000"), Decimal("70100"), Decimal("69900"), Decimal("70000"),
+                        1000, Decimal("5"))
+        decision = {
+            "market": "KR", "symbol": "005930", "signal": "BUY_CANDIDATE", "strategy_id": "ORB_VWAP",
+            "model_id": "model-v1", "evaluated_at": bar_time.isoformat(),
+        }
+        return bar, decision
+
+    async def scenario():
+        first_bar, first_decision = candidate(timestamp)
+        task = asyncio.create_task(runtime._real_signal_loop())
+        runtime._queue_real_signal(watch, first_bar, first_decision)
+        assert await asyncio.to_thread(started.wait, 1)
+
+        queued_bar, queued_decision = candidate(timestamp + timedelta(minutes=1))
+        runtime._real_signal_queue.put_nowait((watch, queued_bar, queued_decision))
+        overflow_bar, overflow_decision = candidate(timestamp + timedelta(minutes=2))
+        runtime._queue_real_signal(watch, overflow_bar, overflow_decision)
+        release.set()
+
+        for _ in range(100):
+            status = runtime.status()
+            if (status.get("last_real_signal") or {}).get("order_status") == "ACCEPTED":
+                break
+            await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+    assert runtime.status()["real_signal_state"] == "BLOCKED_QUEUE_FULL"
+    assert runtime.status()["real_signal_error"] == "SIGNAL_QUEUE_CAPACITY_EXCEEDED"
+    assert runtime.status()["last_real_signal"]["order_status"] == "ACCEPTED"
 
 
 def test_paper_worker_queue_overflow_blocks_entries_but_keeps_exit_checks(monkeypatch) -> None:
