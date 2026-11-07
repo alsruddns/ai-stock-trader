@@ -39,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -178,6 +179,45 @@ class KisOrderIntentPostgresIntegrationTest {
             verify(kisRealOrderOrchestrator).submit(eq(claimed.getRealExitOrderKey()), any(OrderRequest.class),
                     isNull(), any(KisAccountSnapshot.class));
         } finally {
+            kisOrderRepository.deleteById(entryKey);
+        }
+    }
+
+    @Test
+    void concurrentPostgresProtectiveExitClaimsAllowOnlyOneWorker() throws Exception {
+        UUID entryKey = UUID.randomUUID();
+        UUID exitKeyA = UUID.randomUUID();
+        UUID exitKeyB = UUID.randomUUID();
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            OrderRequest buy = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                    new BigDecimal("100"), Currency.KRW);
+            store.prepare(entryKey, "c".repeat(64), KisEnvironment.REAL, buy, null,
+                    new BigDecimal("5"), new BigDecimal("2"));
+            KisOrderIntent entry = kisOrderRepository.findById(entryKey).orElseThrow();
+            entry.reconcile(1, 0, new BigDecimal("100"), false, false);
+            kisOrderRepository.saveAndFlush(entry);
+
+            var start = new CountDownLatch(1);
+            var claimA = pool.submit(() -> {
+                start.await();
+                return kisOrderRepository.claimRealExit(entryKey, exitKeyA, "STOP_LOSS", 1,
+                        new BigDecimal("95"));
+            });
+            var claimB = pool.submit(() -> {
+                start.await();
+                return kisOrderRepository.claimRealExit(entryKey, exitKeyB, "STOP_LOSS", 1,
+                        new BigDecimal("95"));
+            });
+            start.countDown();
+
+            int winners = claimA.get(10, TimeUnit.SECONDS) + claimB.get(10, TimeUnit.SECONDS);
+            KisOrderIntent claimed = kisOrderRepository.findById(entryKey).orElseThrow();
+            assertEquals(1, winners);
+            assertEquals(KisRealExitStatus.EXIT_PENDING, claimed.getRealExitStatus());
+            assertTrue(List.of(exitKeyA, exitKeyB).contains(claimed.getRealExitOrderKey()));
+        } finally {
+            pool.shutdownNow();
             kisOrderRepository.deleteById(entryKey);
         }
     }
