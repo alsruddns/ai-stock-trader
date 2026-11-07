@@ -43,3 +43,75 @@ function Write-AiTraderModelRetrainingFailureReport {
     }
     Set-AiTraderAtomicJsonFile -Path $Path -Value $report -Depth 8
 }
+
+function Get-AiTraderModelRetrainingSummary {
+    param([Parameter(Mandatory)][string]$Directory)
+
+    if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
+        return [pscustomobject]@{ state = 'NO_RUNS'; latestRun = $null }
+    }
+    $latestFile = Get-ChildItem -LiteralPath $Directory -Filter '*.json' -File -ErrorAction SilentlyContinue |
+        Sort-Object -Property LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+    if ($null -eq $latestFile) {
+        return [pscustomobject]@{ state = 'NO_RUNS'; latestRun = $null }
+    }
+    try {
+        $document = Get-Content -LiteralPath $latestFile.FullName -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
+    }
+    $validStatuses = @('candidate_created_review_required', 'export_failed', 'training_failed', 'candidate_verification_failed')
+    if ($null -eq $document -or $document.status -notin $validStatuses -or
+        $document.run_id -notmatch '^(kr|us)-[a-z0-9.-]+-\d{8}-[a-f0-9]{12}$' -or
+        $document.market -notin @('KR', 'US') -or [string]::IsNullOrWhiteSpace([string]$document.symbol)) {
+        return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
+    }
+
+    $candidateCount = 0
+    $allCandidatesUnapproved = $null
+    $orphanArtifactCount = 0
+    if ($document.status -eq 'candidate_created_review_required') {
+        $candidates = @($document.candidates)
+        if ($candidates.Count -eq 0 -or @($candidates | Where-Object {
+            $_.model_id -notmatch '^(lightgbm|xgboost)-[a-f0-9]{32}$' -or $_.approved -ne $false
+        }).Count -gt 0) {
+            return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
+        }
+        $candidateCount = $candidates.Count
+        $allCandidatesUnapproved = $true
+    } else {
+        $candidateIds = @($document.candidate_model_ids)
+        if (@($candidateIds | Where-Object { $_ -notmatch '^(lightgbm|xgboost)-[a-f0-9]{32}$' }).Count -gt 0) {
+            return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
+        }
+        $candidateCount = $candidateIds.Count
+        $orphanArtifacts = @($document.orphan_candidate_artifacts)
+        if (@($orphanArtifacts | Where-Object { $_ -notmatch '^(lightgbm|xgboost)-[a-f0-9]{32}\.joblib$' }).Count -gt 0) {
+            return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
+        }
+        $orphanArtifactCount = $orphanArtifacts.Count
+    }
+
+    return [pscustomobject]@{
+        state = 'AVAILABLE'
+        latestRun = [pscustomobject]@{
+            runId = [string]$document.run_id
+            status = [string]$document.status
+            failureStage = if ($document.failure_stage -in @('data_export', 'candidate_training', 'candidate_verification')) {
+                [string]$document.failure_stage
+            } else { $null }
+            market = [string]$document.market
+            symbol = [string]$document.symbol
+            fromDate = [string]$document.from_date
+            toDate = [string]$document.to_date
+            recordedAtUtc = $latestFile.LastWriteTimeUtc.ToString('o')
+            candidateModelCount = $candidateCount
+            allCandidatesUnapproved = $allCandidatesUnapproved
+            orphanArtifactCount = $orphanArtifactCount
+            errorType = if ($document.error_type -match '^[A-Za-z][A-Za-z0-9.]{0,79}$') {
+                [string]$document.error_type
+            } else { $null }
+        }
+    }
+}

@@ -56,3 +56,77 @@ Describe 'Model retraining failure reports' {
         @(Get-ChildItem -LiteralPath $directory -File | Where-Object { $_.Name -match '\.tmp(?:\.bak)?$' }).Count | Should Be 0
     }
 }
+
+Describe 'Model retraining operations summary' {
+    It 'reports no prior runs without treating it as a failed run' {
+        $directory = Join-Path $TestDrive 'no-retraining-runs'
+
+        $summary = Get-AiTraderModelRetrainingSummary -Directory $directory
+
+        $summary.state | Should Be 'NO_RUNS'
+        $summary.latestRun | Should Be $null
+    }
+
+    It 'summarizes an unapproved candidate without copying arbitrary report fields' {
+        $directory = Join-Path $TestDrive 'candidate-summary'
+        New-Item -ItemType Directory -Path $directory | Out-Null
+        $path = Join-Path $directory 'latest.json'
+        $document = [ordered]@{
+            run_id = 'us-aapl-20261107-aaaaaaaaaaaa'
+            status = 'candidate_created_review_required'
+            market = 'US'
+            symbol = 'AAPL'
+            from_date = '2026-11-02'
+            to_date = '2026-11-06'
+            dataset_path = 'secret-local-path'
+            secret = 'secret-field-value'
+            candidates = @(@{ model_id = 'lightgbm-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; approved = $false })
+        }
+        Set-AiTraderAtomicJsonFile -Path $path -Value $document
+
+        $summary = Get-AiTraderModelRetrainingSummary -Directory $directory
+        $serialized = $summary | ConvertTo-Json -Depth 6 -Compress
+
+        $summary.state | Should Be 'AVAILABLE'
+        $summary.latestRun.status | Should Be 'candidate_created_review_required'
+        $summary.latestRun.candidateModelCount | Should Be 1
+        $summary.latestRun.allCandidatesUnapproved | Should Be $true
+        $serialized | Should Not Match 'secret-local-path|secret-field-value'
+    }
+
+    It 'summarizes a failed run from sanitized fields only' {
+        $directory = Join-Path $TestDrive 'failure-summary'
+        New-Item -ItemType Directory -Path $directory | Out-Null
+        $path = Join-Path $directory 'latest.json'
+        Write-AiTraderModelRetrainingFailureReport -Path $path -RunId 'kr-005930-20261106-cccccccccccc' `
+            -FailureStage 'data_export' -Market 'KR' -Symbol '005930' `
+            -FromDate '2026-11-02' -ToDate '2026-11-06' -DatasetPath 'data/model-candidates/test.csv' `
+            -Exception ([System.InvalidOperationException]::new('secret-bearing database detail'))
+
+        $summary = Get-AiTraderModelRetrainingSummary -Directory $directory
+        $serialized = $summary | ConvertTo-Json -Depth 6 -Compress
+
+        $summary.state | Should Be 'AVAILABLE'
+        $summary.latestRun.status | Should Be 'export_failed'
+        $summary.latestRun.failureStage | Should Be 'data_export'
+        $summary.latestRun.errorType | Should Be 'InvalidOperationException'
+        $serialized | Should Not Match 'secret-bearing database detail'
+    }
+
+    It 'does not hide a corrupt newest report behind an older valid one' {
+        $directory = Join-Path $TestDrive 'corrupt-latest'
+        New-Item -ItemType Directory -Path $directory | Out-Null
+        $validPath = Join-Path $directory 'older.json'
+        $corruptPath = Join-Path $directory 'newest.json'
+        Write-AiTraderModelRetrainingFailureReport -Path $validPath -RunId 'us-aapl-20261106-dddddddddddd' `
+            -FailureStage 'data_export' -Market 'US' -Symbol 'AAPL' `
+            -FromDate '2026-11-02' -ToDate '2026-11-05' -DatasetPath 'data/model-candidates/older.csv'
+        Set-Content -LiteralPath $corruptPath -Value '{not-json' -Encoding utf8
+        [IO.File]::SetLastWriteTimeUtc($corruptPath, [DateTime]::UtcNow.AddMinutes(1))
+
+        $summary = Get-AiTraderModelRetrainingSummary -Directory $directory
+
+        $summary.state | Should Be 'INVALID_REPORT'
+        $summary.latestRun | Should Be $null
+    }
+}

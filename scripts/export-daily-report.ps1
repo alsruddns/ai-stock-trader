@@ -3,12 +3,14 @@ param(
     [string]$PythonApiBaseUrl = "http://127.0.0.1:8000",
     [ValidateRange(0, 3600)] [int]$WaitTimeoutSeconds = 0,
     [ValidateRange(1, 300)] [int]$RetryIntervalSeconds = 10,
-    [string]$OutputPath
+    [string]$OutputPath,
+    [string]$ModelRetrainingReportDirectory
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'lib\operations-report.ps1')
+. (Join-Path $PSScriptRoot 'lib\model-retraining-report.ps1')
 $reportDirectory = Join-Path $repoRoot ".local\reports"
 New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($WaitTimeoutSeconds)
@@ -41,6 +43,20 @@ $paperSession = $paperSessionResult.data
 $modelsResult = Invoke-AiTraderOptionalJsonRequest "$PythonApiBaseUrl/api/v1/ai/models"
 $endpointStatus['python.ai_models'] = [ordered]@{ state = $modelsResult.state; httpStatus = $modelsResult.http_status; errorType = $modelsResult.error_type }
 $aiModels = $modelsResult.data
+if ([string]::IsNullOrWhiteSpace($ModelRetrainingReportDirectory)) {
+    $retrainingDirectory = Join-Path $repoRoot '.local\models\retraining'
+} elseif ([IO.Path]::IsPathRooted($ModelRetrainingReportDirectory)) {
+    $retrainingDirectory = $ModelRetrainingReportDirectory
+} else {
+    $retrainingDirectory = Join-Path $repoRoot $ModelRetrainingReportDirectory
+}
+$modelRetraining = Get-AiTraderModelRetrainingSummary -Directory $retrainingDirectory
+$endpointStatus['local.model_retraining'] = [ordered]@{
+    state = $modelRetraining.state
+    latestStatus = $modelRetraining.latestRun.status
+    failureStage = $modelRetraining.latestRun.failureStage
+    errorType = $modelRetraining.latestRun.errorType
+}
 $marketSessions = @{ KR = $null; US = $null }
 $marketDataQuality = @{ KR = $null; US = $null }
 foreach ($market in @('KR', 'US')) {
@@ -73,7 +89,7 @@ foreach ($market in @('KR', 'US')) {
     $marketDataQuality[$market] = $qualityResult.data
 }
 
-$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 3 -Force
+$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 4 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
 $endpointStates = @($endpointStatus.Values | ForEach-Object { $_.state })
@@ -89,6 +105,7 @@ $report | Add-Member -MemberType NoteProperty -Name endpointStatus -Value $endpo
 $report | Add-Member -MemberType NoteProperty -Name pythonHealth -Value $pythonHealth -Force
 $report | Add-Member -MemberType NoteProperty -Name paperSession -Value $paperSession -Force
 $report | Add-Member -MemberType NoteProperty -Name aiModels -Value $aiModels -Force
+$report | Add-Member -MemberType NoteProperty -Name modelRetraining -Value $modelRetraining -Force
 $report | Add-Member -MemberType NoteProperty -Name marketSessions -Value $marketSessions -Force
 $report | Add-Member -MemberType NoteProperty -Name marketDataQuality -Value $marketDataQuality -Force
 

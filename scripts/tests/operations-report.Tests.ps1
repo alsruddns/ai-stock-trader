@@ -1,4 +1,5 @@
 . (Join-Path $PSScriptRoot '..\lib\operations-report.ps1')
+. (Join-Path $PSScriptRoot '..\lib\model-retraining-report.ps1')
 
 Describe 'Optional operations report endpoint diagnostics' {
     It 'marks a successful endpoint as available and retains its JSON data' {
@@ -50,14 +51,17 @@ Describe 'Daily operations report endpoint health summary' {
         }
 
         $outputPath = Join-Path $TestDrive 'operations-report.json'
+        $retrainingDirectory = Join-Path $TestDrive 'no-retraining-runs'
         & (Join-Path $PSScriptRoot '..\export-daily-report.ps1') `
-            -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath | Out-Null
+            -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath `
+            -ModelRetrainingReportDirectory $retrainingDirectory | Out-Null
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 3
+        $report.reportSchemaVersion | Should Be 4
         $report.pythonConnected | Should Be $true
         $report.optionalDataStatus | Should Be 'INCOMPLETE'
         $report.endpointStatus.'python.market_data_quality_KR'.state | Should Be 'SKIPPED_NO_SYMBOLS'
+        $report.endpointStatus.'local.model_retraining'.state | Should Be 'NO_RUNS'
     }
 
     It 'marks an optional Python endpoint failure as partial and omits its error message' {
@@ -71,8 +75,10 @@ Describe 'Daily operations report endpoint health summary' {
         }
 
         $outputPath = Join-Path $TestDrive 'partial-operations-report.json'
+        $retrainingDirectory = Join-Path $TestDrive 'no-retraining-runs'
         & (Join-Path $PSScriptRoot '..\export-daily-report.ps1') `
-            -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath | Out-Null
+            -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath `
+            -ModelRetrainingReportDirectory $retrainingDirectory | Out-Null
         $json = Get-Content -LiteralPath $outputPath -Raw
         $report = $json | ConvertFrom-Json
 
@@ -80,5 +86,35 @@ Describe 'Daily operations report endpoint health summary' {
         $report.endpointStatus.'python.ai_models'.state | Should Be 'UNREACHABLE'
         $report.endpointStatus.'python.ai_models'.errorType | Should Be 'WebException'
         $json | Should Not Match 'secret-bearing exception detail'
+    }
+
+    It 'includes the latest model retraining outcome in the local operations report' {
+        Mock Invoke-RestMethod {
+            if ($Uri -like '*api/v1/operations/summary') { return [pscustomobject]@{ tradingMode = 'paper' } }
+            if ($Uri -like '*api/v1/health') { return @{ status = 'ok' } }
+            if ($Uri -like '*api/v1/paper/session') { return @{ decisions = @{} } }
+            if ($Uri -like '*api/v1/ai/models') { return @{ models = @() } }
+            if ($Uri -like '*api/v1/market/sessions/*') { return @{ market = $Uri } }
+            throw 'Unexpected report endpoint.'
+        }
+
+        $outputPath = Join-Path $TestDrive 'retraining-operations-report.json'
+        $retrainingDirectory = Join-Path $TestDrive 'training-run'
+        New-Item -ItemType Directory -Path $retrainingDirectory | Out-Null
+        Write-AiTraderModelRetrainingFailureReport `
+            -Path (Join-Path $retrainingDirectory 'latest.json') `
+            -RunId 'us-aapl-20261107-cccccccccccc' -FailureStage 'candidate_training' `
+            -Market 'US' -Symbol 'AAPL' -FromDate '2026-11-02' -ToDate '2026-11-06' `
+            -DatasetPath 'data/model-candidates/test.csv' -Exception ([System.ArgumentException]::new('private diagnostic'))
+        & (Join-Path $PSScriptRoot '..\export-daily-report.ps1') `
+            -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath `
+            -ModelRetrainingReportDirectory $retrainingDirectory | Out-Null
+        $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
+
+        $report.modelRetraining.latestRun.status | Should Be 'training_failed'
+        $report.modelRetraining.latestRun.failureStage | Should Be 'candidate_training'
+        $report.endpointStatus.'local.model_retraining'.errorType | Should Be 'ArgumentException'
+        $json = Get-Content -LiteralPath $outputPath -Raw
+        $json | Should Not Match 'private diagnostic'
     }
 }
