@@ -534,6 +534,54 @@ def test_overseas_minute_session_uses_cursor_when_full_page_has_no_continuation_
     client.close()
 
 
+def test_overseas_minute_session_recovers_full_day_across_many_empty_header_pages(
+    monkeypatch,
+) -> None:
+    requests_seen: list[httpx.Request] = []
+    eastern = timezone(timedelta(hours=-5))
+    first_timestamp = datetime(2026, 11, 4, 18, 0, tzinfo=eastern)
+    rows = []
+    for minute in range(1800):
+        timestamp = first_timestamp + timedelta(minutes=minute)
+        rows.append({
+            "xymd": timestamp.strftime("%Y%m%d"), "xhms": timestamp.strftime("%H%M%S"),
+            "open": "100", "high": "101", "low": "99", "last": "100.5", "evol": "1000",
+        })
+    chart_requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal chart_requests
+        requests_seen.append(request)
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        page_index = chart_requests
+        chart_requests += 1
+        end = len(rows) - page_index * 120
+        start = end - 120
+        continuation = "" if page_index == 0 else ("D" if page_index == 12 else "N")
+        return httpx.Response(200, headers={"tr_cont": continuation},
+                              json={"rt_cd": "0", "output2": rows[start:end]})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "real", "real-key", "real-secret"),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setattr(client, "_wait_for_rest_slot", lambda: None)
+    history = client.get_overseas_minute_session_snapshot("AAPL", "NAS", date(2026, 11, 5))
+
+    chart = [request for request in requests_seen if request.url.path.endswith("inquire-time-itemchartprice")]
+    assert history.pages_fetched == 13
+    assert history.source_record_count == 1560
+    assert len(history.bars) == 390
+    assert history.bars[0].timestamp.isoformat() == "2026-11-05T09:30:00-05:00"
+    assert history.bars[-1].timestamp.isoformat() == "2026-11-05T15:59:00-05:00"
+    assert history.continuation_states == ["EMPTY", *(["N"] * 11), "D"]
+    assert chart[1].url.params["NEXT"] == "1"
+    assert chart[1].url.params["KEYB"] == "20261105215900"
+    assert chart[-1].url.params["PINC"] == "1"
+    client.close()
+
+
 def test_overseas_minute_session_fails_closed_when_pagination_repeats() -> None:
     page = [{"xymd": "20261106", "xhms": "093000", "open": "100", "high": "101",
              "low": "99", "last": "100.5", "evol": "1000"}]
