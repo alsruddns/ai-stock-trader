@@ -26,6 +26,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -33,6 +34,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import com.aistocktrader.config.TradingSafetyProperties;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -73,6 +75,7 @@ class KisOrderIntentPostgresIntegrationTest {
     @Autowired PaperFillRepository paperFillRepository;
     @Autowired PaperPositionRepository paperPositionRepository;
     @Autowired PaperOrderAmendmentRepository paperOrderAmendments;
+    @Autowired JdbcTemplate jdbcTemplate;
     @Autowired EntityManager entityManager;
     @Autowired KisOrderOrchestrator kisOrders;
     @Autowired KisOrderIntentRepository kisOrderRepository;
@@ -841,6 +844,72 @@ class KisOrderIntentPostgresIntegrationTest {
         assertEquals(0, settledCash.compareTo(recoveredCash));
         assertEquals(1, position.getQuantity());
         assertEquals(1L, paperFillRepository.findByFillKey(fillKey).stream().count());
+    }
+
+    @Test
+    void concurrentDuplicatePaperFillSettlesOnceAndBothCallsConverge() throws Exception {
+        UUID orderKey = UUID.randomUUID();
+        UUID fillKey = UUID.randomUUID();
+        String symbol = String.format(java.util.Locale.ROOT, "%06d",
+                java.util.concurrent.ThreadLocalRandom.current().nextInt(100000, 1_000_000));
+        BigDecimal initialBalance = new BigDecimal("1000000");
+        var priorCash = paperCashRepository.findById(Currency.KRW);
+        paperCashRepository.save(new PaperCashBalance(Currency.KRW, initialBalance));
+        var order = paperOrders.submit(new OrderRequest(Market.KR, symbol, OrderSide.BUY, 2,
+                new BigDecimal("70000"), Currency.KRW), orderKey);
+        var request = new PaperFillRequest(fillKey, 1, new BigDecimal("70000"));
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+
+        try {
+            var first = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                return paperOrders.recordPaperFill(order.getId(), request);
+            });
+            var second = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                return paperOrders.recordPaperFill(order.getId(), request);
+            });
+
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            var firstResult = first.get(10, TimeUnit.SECONDS);
+            var secondResult = second.get(10, TimeUnit.SECONDS);
+            assertEquals(com.aistocktrader.order.OrderStatus.PARTIALLY_FILLED, firstResult.getStatus());
+            assertEquals(com.aistocktrader.order.OrderStatus.PARTIALLY_FILLED, secondResult.getStatus());
+            assertEquals(1, firstResult.getFilledQuantity());
+            assertEquals(1, secondResult.getFilledQuantity());
+
+            var fill = paperFillRepository.findByFillKey(fillKey).orElseThrow();
+            var persistedOrder = paperOrderRepository.findById(order.getId()).orElseThrow();
+            var position = paperPositionRepository.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0).stream()
+                    .filter(item -> item.getSymbol().equals(symbol)).findFirst().orElseThrow();
+            BigDecimal remainingCash = paperCashRepository.findById(Currency.KRW).orElseThrow().getBalance();
+            assertEquals(order.getId(), fill.getOrderId());
+            assertEquals(1, persistedOrder.getFilledQuantity());
+            assertEquals(1, position.getQuantity());
+            assertEquals(0, initialBalance.subtract(new BigDecimal("70000")).subtract(fill.getTransactionCost())
+                    .compareTo(remainingCash));
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+            pool.awaitTermination(10, TimeUnit.SECONDS);
+            paperFillRepository.findByFillKey(fillKey).ifPresent(paperFillRepository::delete);
+            paperPositionRepository.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0).stream()
+                    .filter(item -> item.getSymbol().equals(symbol)).forEach(paperPositionRepository::delete);
+            paperOrderRepository.findByIdempotencyKey(orderKey)
+                    .ifPresent(item -> paperOrderRepository.deleteById(item.getId()));
+            if (priorCash.isPresent()) {
+                PaperCashBalance original = priorCash.orElseThrow();
+                jdbcTemplate.update("UPDATE paper_cash_balance SET balance = ?, updated_at = ? WHERE currency = ?",
+                        original.getBalance(), Timestamp.from(original.getUpdatedAt()), Currency.KRW.name());
+            } else {
+                paperCashRepository.deleteById(Currency.KRW);
+            }
+        }
     }
 
     @Test

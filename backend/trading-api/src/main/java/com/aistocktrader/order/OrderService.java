@@ -93,17 +93,16 @@ public class OrderService {
         requirePaperMode();
         var priorFill = fills.findByFillKey(request.fillKey());
         if (priorFill.isPresent()) {
-            PaperFillRecord recorded = priorFill.get();
-            if (!recorded.getOrderId().equals(orderId) || recorded.getQuantity() != request.quantity()
-                    || recorded.getFillPrice().compareTo(request.fillPrice()) != 0
-                    || !samePrice(recorded.getStrategyStopPrice(), request.stopPrice())
-                    || !samePrice(recorded.getStrategyTargetPrice(), request.targetPrice())) {
-                throw new IdempotencyConflictException("Fill-Key was already used for a different fill.");
-            }
+            validatePaperFillIdempotency(orderId, request, priorFill.get());
             return orders.findById(orderId).orElseThrow(() -> new NoSuchElementException("Order not found."));
         }
         OrderRecord order = orders.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new NoSuchElementException("Order not found."));
+        var racedFill = fills.findByFillKey(request.fillKey());
+        if (racedFill.isPresent()) {
+            validatePaperFillIdempotency(orderId, request, racedFill.get());
+            return order;
+        }
         validateStrategyRisk(order, request);
         PaperCashBalance cash = cashBalances.findByCurrencyForUpdate(order.getCurrency())
                 .orElseThrow(() -> new IllegalStateException("Paper cash account is not initialized."));
@@ -265,6 +264,16 @@ public class OrderService {
 
     private static boolean samePrice(BigDecimal left, BigDecimal right) {
         return left == null ? right == null : right != null && left.compareTo(right) == 0;
+    }
+
+    private static void validatePaperFillIdempotency(Long orderId, PaperFillRequest request,
+                                                      PaperFillRecord recorded) {
+        if (!recorded.getOrderId().equals(orderId) || recorded.getQuantity() != request.quantity()
+                || recorded.getFillPrice().compareTo(request.fillPrice()) != 0
+                || !samePrice(recorded.getStrategyStopPrice(), request.stopPrice())
+                || !samePrice(recorded.getStrategyTargetPrice(), request.targetPrice())) {
+            throw new IdempotencyConflictException("Fill-Key was already used for a different fill.");
+        }
     }
 
     private void requirePaperMode() {
