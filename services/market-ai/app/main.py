@@ -20,6 +20,7 @@ from . import kis_stream
 from .ai_pipeline import LocalModelRegistry
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from .paper_ops import exchange_session_window, korean_calendar_compatibility
+from .paper_automation import PaperAutomationReadiness
 from .market_calendar import latest_closed_session_date
 from .paper_runtime import paper_session_monitor
 from .session_quality import audit_minute_bar_session
@@ -211,7 +212,7 @@ def health() -> dict[str, str | bool]:
         "kis_market_data_enabled": settings.enabled,
         "paper_session_monitor": paper_session_monitor.status()["state"],
         "kr_calendar_compatibility": korean_calendar_compatibility(),
-        "paper_automation_enabled": False,
+        "paper_automation_enabled": PaperAutomationReadiness.from_environment().enabled,
         "live_trading_enabled": False,
     }
 

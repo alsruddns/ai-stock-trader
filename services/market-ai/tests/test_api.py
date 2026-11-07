@@ -270,6 +270,20 @@ def test_live_mode_never_enables_python_paper_automation(monkeypatch) -> None:
     monkeypatch.delenv("TRADING_MODE", raising=False)
 
 
+def test_health_reports_paper_automation_opt_in(monkeypatch) -> None:
+    monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "true")
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("KIS_PAPER_ORDERS_ENABLED", "false")
+    response = client.get("/api/v1/health")
+    assert response.status_code == 200
+    assert response.json()["paper_automation_enabled"] is True
+
+    monkeypatch.setenv("KIS_PAPER_ORDERS_ENABLED", "true")
+    response = client.get("/api/v1/health")
+    assert response.json()["paper_automation_enabled"] is False
+
+
 def test_analysis_preview_cannot_be_executed() -> None:
     response = client.post("/api/v1/analysis/momentum", json={
         "market": "KR", "symbol": "005930", "bars": [{"close": value} for value in [100, 100, 100, 100, 100, 110]]
