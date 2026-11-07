@@ -148,6 +148,7 @@ class KisOrderIntentPostgresIntegrationTest {
         } finally {
             start.countDown();
             pool.shutdownNow();
+            pool.awaitTermination(10, TimeUnit.SECONDS);
             paperOrderAmendments.findByOrderIdAndIdempotencyKey(created.getId(), amendmentKey)
                     .ifPresent(paperOrderAmendments::delete);
             paperOrderRepository.deleteById(created.getId());
@@ -207,9 +208,102 @@ class KisOrderIntentPostgresIntegrationTest {
         } finally {
             start.countDown();
             pool.shutdownNow();
+            pool.awaitTermination(10, TimeUnit.SECONDS);
             paperOrderAmendments.findByOrderIdAndIdempotencyKey(created.getId(), amendmentKey)
                     .ifPresent(paperOrderAmendments::delete);
             paperOrderRepository.deleteById(created.getId());
+        }
+    }
+
+    @Test
+    void concurrentDuplicatePaperOrderSubmissionsWithSameKeyPersistOneOrder() throws Exception {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                new BigDecimal("70000"), Currency.KRW);
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+
+        try {
+            var first = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                return paperOrders.submit(request, key);
+            });
+            var second = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                return paperOrders.submit(request, key);
+            });
+
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            var firstResult = first.get(10, TimeUnit.SECONDS);
+            var secondResult = second.get(10, TimeUnit.SECONDS);
+            assertEquals(firstResult.getId(), secondResult.getId());
+
+            var persisted = paperOrderRepository.findByIdempotencyKey(key).orElseThrow();
+            assertEquals(firstResult.getId(), persisted.getId());
+            assertEquals(2, persisted.getQuantity());
+            assertEquals(0, new BigDecimal("70000").compareTo(persisted.getLimitPrice()));
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+            pool.awaitTermination(10, TimeUnit.SECONDS);
+            paperOrderRepository.findByIdempotencyKey(key)
+                    .ifPresent(order -> paperOrderRepository.deleteById(order.getId()));
+        }
+    }
+
+    @Test
+    void concurrentReuseOfPaperOrderKeyWithDifferentTermsRejectsTheLoser() throws Exception {
+        UUID key = UUID.randomUUID();
+        OrderRequest firstRequest = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                new BigDecimal("70000"), Currency.KRW);
+        OrderRequest secondRequest = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
+                new BigDecimal("71000"), Currency.KRW);
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+
+        try {
+            var first = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                try {
+                    paperOrders.submit(firstRequest, key);
+                    return true;
+                } catch (IdempotencyConflictException expected) {
+                    return false;
+                }
+            });
+            var second = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                try {
+                    paperOrders.submit(secondRequest, key);
+                    return true;
+                } catch (IdempotencyConflictException expected) {
+                    return false;
+                }
+            });
+
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            boolean firstApplied = first.get(10, TimeUnit.SECONDS);
+            boolean secondApplied = second.get(10, TimeUnit.SECONDS);
+            assertTrue(firstApplied ^ secondApplied);
+
+            OrderRecord persisted = paperOrderRepository.findByIdempotencyKey(key).orElseThrow();
+            OrderRequest winner = firstApplied ? firstRequest : secondRequest;
+            assertEquals(winner.quantity(), persisted.getQuantity());
+            assertEquals(0, winner.limitPrice().compareTo(persisted.getLimitPrice()));
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+            pool.awaitTermination(10, TimeUnit.SECONDS);
+            paperOrderRepository.findByIdempotencyKey(key)
+                    .ifPresent(order -> paperOrderRepository.deleteById(order.getId()));
         }
     }
 
