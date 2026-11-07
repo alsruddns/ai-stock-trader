@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 type Ops = {
   generatedAt: string; tradingMode: string; liveTrading: string; paperAutomationEnabled: boolean;
-  kisAccountReadsEnabled: boolean; kisPaperAccountReadsEnabled: boolean; kisPaperOrdersEnabled: boolean; kisPaperDomesticCancelSupported: boolean; kisRealOrdersEnabled: boolean; kisRealAccountReadsEnabled: boolean; kisRealReconciliationEnabled: boolean;
+  kisAccountReadsEnabled: boolean; kisPaperAccountReadsEnabled: boolean; kisPaperOrdersEnabled: boolean; kisPaperDomesticCancelSupported: boolean; kisRealOrdersEnabled: boolean; kisRealAccountReadsEnabled: boolean; kisRealReconciliationEnabled: boolean; realProtectiveExitManagerEnabled: boolean; kisRealProtectiveExitAutomationEnabled: boolean;
   kisPaperCredentialsConfigured: boolean; kisRealCredentialsConfigured: boolean;
   realOrderCounts: Record<string, number>;
   paperKisOrderCounts: Record<string, number>;
@@ -46,6 +46,10 @@ export default function Dashboard() {
   }, []);
   useEffect(() => { const initial = window.setTimeout(() => void load(), 0); const timer = window.setInterval(load, 30000); return () => { window.clearTimeout(initial); window.clearInterval(timer); }; }, [load]);
   const ops = data?.operations;
+  const realEntryGatesOpen = Boolean(ops && ops.tradingMode === "real" && ops.liveTrading === "enabled"
+    && ops.kisRealOrdersEnabled && ops.kisAccountReadsEnabled && ops.kisRealAccountReadsEnabled
+    && ops.kisRealReconciliationEnabled && ops.realProtectiveExitManagerEnabled
+    && ops.kisRealProtectiveExitAutomationEnabled && ops.kisRealCredentialsConfigured);
   const connected = data?.springConnected ?? false;
   const pythonConnected = data?.pythonConnected ?? false;
   const states = ops?.orderCounts ?? {};
@@ -65,7 +69,7 @@ export default function Dashboard() {
 
   return <main className="shell">
     <header className="topbar"><div className="brand-mark">AT</div><div><p className="eyebrow">LOCAL TRADING SYSTEM</p><h1>운영 대시보드</h1></div><div className="top-actions"><span className="mode"><i /> {ops?.tradingMode.toUpperCase() ?? "PAPER"} MODE</span><button onClick={() => void load()} aria-label="새로고침">새로고침</button></div></header>
-    <section className="notice"><span className="notice-icon">!</span><div><strong>{ops?.tradingMode === "real" && ops?.kisRealOrdersEnabled && ops?.liveTrading === "enabled" ? "실거래 설정 확인 필요" : "실거래 잠금 상태"}</strong><p>이 화면은 조회 전용입니다. KIS 실주문 스위치와 실거래 허용 여부를 표시하며, paper 자동매매는 안전 조건을 통과한 경우 로컬 모의 장부에만 기록됩니다.</p></div><span className="locked">{ops?.tradingMode === "real" && ops?.kisRealOrdersEnabled && ops?.liveTrading === "enabled" ? "LIVE CONFIG ON" : "LIVE OFF"}</span></section>
+    <section className="notice"><span className="notice-icon">!</span><div><strong>{realEntryGatesOpen ? "실거래 진입 설정이 열려 있습니다" : "실거래 신규진입 잠금 상태"}</strong><p>이 화면은 조회 전용입니다. 실계좌 신규매수는 계좌읽기·체결대조·보호청산 준비 설정까지 모두 켜져야 허용됩니다. PAPER 자동매매는 로컬 모의 장부만 사용합니다.</p></div><span className="locked">{realEntryGatesOpen ? "ENTRY GATES ON" : "ENTRIES LOCKED"}</span></section>
     {error && <div className="error">{error}</div>}
     <section className="section-head"><div><p className="eyebrow">SYSTEM STATUS</p><h2>서비스 및 안전 스위치</h2></div><span className="updated">갱신 {data ? time(data.generatedAt) : "확인 중"}</span></section>
     <section className="status-grid">
@@ -74,6 +78,7 @@ export default function Dashboard() {
       <StatusCard title="P5 KR·US 거래 세션" good={Boolean(data?.marketSessions?.KR && data?.marketSessions?.US)} value={`KR ${marketSessionLabel(data?.marketSessions?.KR)} · US ${marketSessionLabel(data?.marketSessions?.US)}`} detail={`거래일 ${data?.marketSessions?.KR?.session_date ?? "미확인"} · XKRX 캘린더 ${calendarLabel(data?.paperSession?.kr_calendar_compatibility)} · 판정 불가 시 진입 차단`} />
       <StatusCard title="P3 저장 분봉 품질" good={qualitySessions.length > 0 && completeQualityCount === qualitySessions.length} value={qualitySummary} detail={qualityDetails || "정규장 세션 날짜에 대한 PostgreSQL 자료가 필요합니다."} />
       <StatusCard title="실거래 주문" good={false} value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} detail={`실주문 ${ops?.liveTrading.toUpperCase() ?? "DISABLED"} · KIS_REAL_ORDERS_ENABLED`} />
+      <StatusCard title="REAL 신규매수 보호" good={false} value={realEntryGatesOpen ? "진입 설정 열림" : "진입 잠금"} detail="보호청산 자동화 · 주문 대조 · 계좌 조회 모두 필요" />
       <StatusCard title="KIS 모의 주문" good={false} value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} detail="별도 활성 스위치" />
       <StatusCard title="국내 PAPER 취소" good={ops?.kisPaperDomesticCancelSupported ?? false} value={ops?.kisPaperDomesticCancelSupported ? "지원 확인됨" : "잠금"} detail="모의 취소 가능수량 조회 계약 미확인 · 시험 주문 제출 차단" />
       <StatusCard title="KIS 자격정보 설정" good={ops?.kisPaperCredentialsConfigured ?? false} value={ops?.kisPaperCredentialsConfigured ? "PAPER 값 입력됨" : "PAPER 값 미설정"} detail={`실계좌 ${ops?.kisRealCredentialsConfigured ? "입력됨" : "미설정"} · 계좌조회 스위치 PAPER ${ops?.kisAccountReadsEnabled && ops?.kisPaperAccountReadsEnabled ? "켜짐" : "잠금"} / REAL ${ops?.kisAccountReadsEnabled && ops?.kisRealAccountReadsEnabled ? "켜짐" : "잠금"} · 인증 성공 여부 아님`} />
@@ -100,7 +105,7 @@ export default function Dashboard() {
         {ops?.cashBalances.length ? <div className="cash-list">{ops.cashBalances.map(item => <div className="cash-row" key={item.currency}><span>{item.currency}</span><strong>{money(item.balance, item.currency)}</strong></div>)}</div> : <Empty text="가상 현금 잔고가 아직 없습니다." />}
       </div>
       <div className="panel"><div className="panel-title"><div><p className="eyebrow">RISK SNAPSHOT</p><h2>운영 제한</h2></div><span className="tag green">실거래 주문 잠금</span></div>
-        <div className="risk-list"><RiskRow label="운영 모드" value={ops?.tradingMode.toUpperCase() ?? "PAPER"} /><RiskRow label="실거래 허용" value={ops?.liveTrading.toUpperCase() ?? "DISABLED"} /><RiskRow label="KIS 실주문 스위치" value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="KIS 실계좌 조회" value={ops?.kisRealAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="REAL 체결 자동대조" value={ops?.kisRealReconciliationEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="KIS 공통 계좌 조회" value={ops?.kisAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="KIS 모의 주문" value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="국내 PAPER 취소" value={ops?.kisPaperDomesticCancelSupported ? "지원 확인" : "미지원·잠금"} /><RiskRow label="paper 거래비용" value={ops?.paperCostModelEnabled ? "설정 적용" : "비활성"} /><RiskRow label="paper 자동매매" value={automationLabel(data?.paperSession?.automation_state)} /><RiskRow label="연속 손실 주문" value={`${ops?.consecutiveLosingTrades ?? 0}회`} /></div>
+        <div className="risk-list"><RiskRow label="운영 모드" value={ops?.tradingMode.toUpperCase() ?? "PAPER"} /><RiskRow label="실거래 허용" value={ops?.liveTrading.toUpperCase() ?? "DISABLED"} /><RiskRow label="KIS 실주문 스위치" value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="KIS 실계좌 조회" value={ops?.kisRealAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="REAL 체결 자동대조" value={ops?.kisRealReconciliationEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="보호청산 준비" value={ops?.realProtectiveExitManagerEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="REAL 자동 보호매도" value={ops?.kisRealProtectiveExitAutomationEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="KIS 공통 계좌 조회" value={ops?.kisAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="KIS 모의 주문" value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="국내 PAPER 취소" value={ops?.kisPaperDomesticCancelSupported ? "지원 확인" : "미지원·잠금"} /><RiskRow label="paper 거래비용" value={ops?.paperCostModelEnabled ? "설정 적용" : "비활성"} /><RiskRow label="paper 자동매매" value={automationLabel(data?.paperSession?.automation_state)} /><RiskRow label="연속 손실 주문" value={`${ops?.consecutiveLosingTrades ?? 0}회`} /></div>
       </div>
     </section>
     <section className="two-col lower">

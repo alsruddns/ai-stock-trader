@@ -49,6 +49,7 @@ public class OperationsController {
     private final KisOrderIntentRepository kisIntents;
     private final boolean kisRealAccountReadsEnabled;
     private final boolean kisRealReconciliationEnabled;
+    private final boolean kisRealProtectiveExitAutomationEnabled;
     private final boolean paperCostModelEnabled;
     private final boolean kisPaperCredentialsConfigured;
     private final boolean kisRealCredentialsConfigured;
@@ -64,6 +65,7 @@ public class OperationsController {
                                 @Value("${kis.orders.paper-enabled:false}") boolean kisPaperOrdersEnabled,
                                 @Value("${kis.real-account-read-enabled:false}") boolean kisRealAccountReadsEnabled,
                                 @Value("${kis.real-reconciliation-enabled:false}") boolean kisRealReconciliationEnabled,
+                                @Value("${kis.real-protective-exit-automation-enabled:false}") boolean kisRealProtectiveExitAutomationEnabled,
                                 @Value("${paper.costs.enabled:false}") boolean paperCostModelEnabled) {
         this.orders = orders;
         this.positions = positions;
@@ -76,6 +78,7 @@ public class OperationsController {
         this.kisPaperOrdersEnabled = kisPaperOrdersEnabled;
         this.kisRealAccountReadsEnabled = kisRealAccountReadsEnabled;
         this.kisRealReconciliationEnabled = kisRealReconciliationEnabled;
+        this.kisRealProtectiveExitAutomationEnabled = kisRealProtectiveExitAutomationEnabled;
         this.paperCostModelEnabled = paperCostModelEnabled;
         this.kisPaperCredentialsConfigured = kisProperties.credentials(KisEnvironment.PAPER).configured();
         this.kisRealCredentialsConfigured = kisProperties.credentials(KisEnvironment.REAL).configured();
@@ -91,7 +94,7 @@ public class OperationsController {
                 new KisProperties(false, false,
                         new KisProperties.Account("", "", ""), new KisProperties.Account("", "", ""),
                         null, null, null), kisAccountReadsEnabled, kisAccountReadsEnabled, kisPaperOrdersEnabled,
-                kisRealAccountReadsEnabled, kisRealReconciliationEnabled, paperCostModelEnabled);
+                kisRealAccountReadsEnabled, kisRealReconciliationEnabled, false, paperCostModelEnabled);
     }
 
     @GetMapping("/summary")
@@ -131,7 +134,8 @@ public class OperationsController {
 
         return new OperationsSummary(now, safety.mode(), safety.liveTradingEnabled() ? "enabled" : "disabled",
                 false, kisAccountReadsEnabled, kisPaperAccountReadsEnabled, kisPaperOrdersEnabled, false, safety.realOrdersEnabled(),
-                kisRealAccountReadsEnabled, kisRealReconciliationEnabled, realOrderCounts, paperKisOrderCounts,
+                kisRealAccountReadsEnabled, kisRealReconciliationEnabled, safety.realProtectiveExitManagerEnabled(),
+                kisRealProtectiveExitAutomationEnabled, realOrderCounts, paperKisOrderCounts,
                 paperCostModelEnabled, transactionCostsToday,
                 realizedNetPnlToday, recentRealOrders, recentPaperKisOrders, counts, consecutiveLosingTrades,
                 counts.getOrDefault(OrderStatus.PENDING, 0L)
@@ -258,6 +262,8 @@ public class OperationsController {
                                     boolean kisPaperAccountReadsEnabled, boolean kisPaperOrdersEnabled,
                                     boolean kisPaperDomesticCancelSupported, boolean kisRealOrdersEnabled,
                                     boolean kisRealAccountReadsEnabled, boolean kisRealReconciliationEnabled,
+                                    boolean realProtectiveExitManagerEnabled,
+                                    boolean kisRealProtectiveExitAutomationEnabled,
                                     Map<KisOrderStatus, Long> realOrderCounts,
                                     Map<KisOrderStatus, Long> paperKisOrderCounts,
                                     boolean paperCostModelEnabled, Map<String, BigDecimal> paperTransactionCostsTodayByCurrency,
