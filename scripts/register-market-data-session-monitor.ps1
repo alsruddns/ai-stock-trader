@@ -22,9 +22,11 @@ $parsedDate = [DateTime]::ParseExact($SessionDate, 'yyyy-MM-dd', [Globalization.
 $pythonPath = Join-Path $repoRoot 'services\market-ai\.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $pythonPath)) { throw 'The project Python environment with exchange calendar support is required.' }
 $calendarCode = 'import sys; from datetime import date, datetime, time, timedelta, timezone; from zoneinfo import ZoneInfo; from app.market_calendar import exchange_session_window; market=sys.argv[1]; session_date=date.fromisoformat(sys.argv[2]); zone=ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York"); window=exchange_session_window(market, datetime.combine(session_date, time(12), tzinfo=zone)); print("CLOSED" if window is None else window[0].isoformat())'
+$calendarEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($calendarCode))
+$calendarBootstrap = "import base64;exec(base64.b64decode('$calendarEncoded'))"
 Push-Location (Join-Path $repoRoot 'services\market-ai')
 try {
-    $calendarResult = & $pythonPath -c $calendarCode $market $SessionDate
+    $calendarResult = & $pythonPath -c $calendarBootstrap $market $SessionDate
     if ($LASTEXITCODE -ne 0 -or $calendarResult -eq 'CLOSED' -or [string]::IsNullOrWhiteSpace([string]$calendarResult)) {
         throw "The official exchange calendar did not confirm a $market session on $SessionDate."
     }

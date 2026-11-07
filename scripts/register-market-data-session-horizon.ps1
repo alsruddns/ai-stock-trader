@@ -35,18 +35,20 @@ while found < count and day <= now.date() + timedelta(days=60):
         lead = timedelta(minutes=15 if market == "KR" else 5)
         run_at = (window[0] - lead).astimezone(korea)
         if run_at > now:
-            print(f"{day.isoformat()}|{run_at.isoformat()}")
+            print(day.isoformat() + "|" + run_at.isoformat())
             found += 1
     day += timedelta(days=1)
 if found < count:
     raise SystemExit("calendar horizon did not contain enough future sessions")
 '@
+$calendarEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($calendarCode))
+$calendarBootstrap = "import base64;exec(base64.b64decode('$calendarEncoded'))"
 
 $sessionsByMarket = @{}
 Push-Location (Join-Path $repoRoot 'services\market-ai')
 try {
     foreach ($market in @('KR', 'US')) {
-        $rows = @(& $pythonPath -c $calendarCode $market $SessionCount)
+        $rows = @(& $pythonPath -c $calendarBootstrap $market $SessionCount)
         if ($LASTEXITCODE -ne 0 -or $rows.Count -ne $SessionCount) {
             throw "The exchange calendar could not produce $SessionCount future $market sessions."
         }
