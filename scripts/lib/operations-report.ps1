@@ -27,3 +27,35 @@ function Invoke-AiTraderOptionalJsonRequest {
         }
     }
 }
+
+function Set-AiTraderAtomicJsonFile {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)]$Value,
+        [ValidateRange(1, 100)][int]$Depth = 12
+    )
+
+    $directory = Split-Path -Parent $Path
+    if ([string]::IsNullOrWhiteSpace($directory) -or -not (Test-Path -LiteralPath $directory -PathType Container)) {
+        throw 'The operations report output directory must already exist.'
+    }
+    $temporaryPath = Join-Path $directory ('.{0}.{1}.tmp' -f [IO.Path]::GetFileName($Path), [guid]::NewGuid().ToString('N'))
+    $backupPath = "$temporaryPath.bak"
+    try {
+        $json = $Value | ConvertTo-Json -Depth $Depth
+        [IO.File]::WriteAllText($temporaryPath, $json, [Text.Encoding]::UTF8)
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            [IO.File]::Replace($temporaryPath, $Path, $backupPath)
+        } else {
+            [IO.File]::Move($temporaryPath, $Path)
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryPath -Force
+        }
+        if (Test-Path -LiteralPath $backupPath -PathType Leaf) {
+            Remove-Item -LiteralPath $backupPath -Force
+        }
+    }
+}

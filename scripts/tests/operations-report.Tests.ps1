@@ -22,6 +22,20 @@ Describe 'Optional operations report endpoint diagnostics' {
         $result.error_type | Should Be 'WebException'
         $serialized | Should Not Match 'secret-bearing exception detail'
     }
+
+    It 'atomically replaces an existing JSON report without leaving a temporary file' {
+        $directory = Join-Path $TestDrive 'atomic-report'
+        New-Item -ItemType Directory -Path $directory | Out-Null
+        $path = Join-Path $directory 'operations.json'
+        Set-Content -LiteralPath $path -Value '{"version":1}' -Encoding utf8
+
+        Set-AiTraderAtomicJsonFile -Path $path -Value ([pscustomobject]@{ version = 2; state = 'COMPLETE' })
+
+        $report = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $report.version | Should Be 2
+        $report.state | Should Be 'COMPLETE'
+        @(Get-ChildItem -LiteralPath $directory -Filter '*.tmp').Count | Should Be 0
+    }
 }
 
 Describe 'Daily operations report endpoint health summary' {

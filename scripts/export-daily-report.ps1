@@ -102,5 +102,5 @@ if ([string]::IsNullOrWhiteSpace($OutputPath)) {
 }
 $outputDirectory = Split-Path -Parent $reportPath
 if ($outputDirectory) { New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null }
-$report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $reportPath -Encoding utf8
+Set-AiTraderAtomicJsonFile -Path $reportPath -Value $report -Depth 12
 Write-Output "Saved local operations report: $reportPath"
