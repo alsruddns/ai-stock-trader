@@ -10,6 +10,9 @@ import com.aistocktrader.order.PaperCashBalance;
 import com.aistocktrader.order.PaperCashRepository;
 import com.aistocktrader.order.PaperFillRepository;
 import com.aistocktrader.order.PaperFillRequest;
+import com.aistocktrader.order.PaperOrderAmendment;
+import com.aistocktrader.order.PaperOrderAmendmentRepository;
+import com.aistocktrader.order.PaperOrderAmendmentRequest;
 import com.aistocktrader.order.PaperPositionRepository;
 import com.aistocktrader.TradingApiApplication;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +24,7 @@ import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -44,6 +48,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,6 +70,7 @@ class KisOrderIntentPostgresIntegrationTest {
     @Autowired PaperCashRepository paperCashRepository;
     @Autowired PaperFillRepository paperFillRepository;
     @Autowired PaperPositionRepository paperPositionRepository;
+    @MockitoBean PaperOrderAmendmentRepository paperOrderAmendments;
     @Autowired EntityManager entityManager;
     @Autowired KisOrderOrchestrator kisOrders;
     @Autowired KisOrderIntentRepository kisOrderRepository;
@@ -73,6 +79,28 @@ class KisOrderIntentPostgresIntegrationTest {
     @MockitoBean KisMarketSessionClient kisMarketSessionClient;
     @MockitoBean KisMarketAiEvidenceClient kisMarketAiEvidenceClient;
     @MockitoBean KisRealOrderOrchestrator kisRealOrderOrchestrator;
+
+    @Test
+    void paperOrderAmendmentAuditFailureRollsBackTheOrderTermsInPostgres() {
+        UUID orderKey = UUID.randomUUID();
+        UUID amendmentKey = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                new BigDecimal("70000"), Currency.KRW);
+        var created = paperOrders.submit(request, orderKey);
+        doThrow(new DataIntegrityViolationException("simulated amendment audit persistence failure"))
+                .when(paperOrderAmendments).save(any(PaperOrderAmendment.class));
+
+        try {
+            assertThrows(DataIntegrityViolationException.class, () -> paperOrders.amendPaperOrder(created.getId(),
+                    amendmentKey, new PaperOrderAmendmentRequest(3, new BigDecimal("71000"))));
+
+            var reloaded = paperOrderRepository.findById(created.getId()).orElseThrow();
+            assertEquals(2, reloaded.getQuantity());
+            assertEquals(new BigDecimal("70000.000000"), reloaded.getLimitPrice());
+        } finally {
+            paperOrderRepository.deleteById(created.getId());
+        }
+    }
 
     @Test
     @Transactional
