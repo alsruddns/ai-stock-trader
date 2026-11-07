@@ -4,6 +4,36 @@ $startLocalPath = Join-Path $PSScriptRoot 'start-local.ps1'
 if (-not (Select-String -Path $startLocalPath -Pattern 'lib\\local-api-binding\.ps1' -Quiet)) {
     throw 'The local Spring launcher must apply the loopback-only API binding.'
 }
+$tokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile($startLocalPath, [ref]$tokens, [ref]$parseErrors) | Out-Null
+if ($parseErrors.Count -gt 0) { throw 'The local Spring launcher has PowerShell syntax errors.' }
+$postgresBindingPath = Join-Path $PSScriptRoot 'lib\local-postgres-binding.ps1'
+if (-not (Select-String -Path $startLocalPath -Pattern 'lib\\local-postgres-binding\.ps1' -Quiet)) {
+    throw 'The local Spring launcher must enforce PostgreSQL loopback binding.'
+}
+$tokens = $null
+$parseErrors = $null
+$postgresBindingAst = [System.Management.Automation.Language.Parser]::ParseFile(
+    $postgresBindingPath, [ref]$tokens, [ref]$parseErrors
+)
+if ($parseErrors.Count -gt 0) { throw 'The PostgreSQL loopback binding helper has PowerShell syntax errors.' }
+. $postgresBindingPath
+Assert-LocalPostgresBinding -ListenerAddresses @('127.0.0.1', '::1')
+foreach ($unsafeAddress in @('0.0.0.0', '::', '192.168.1.20')) {
+    $blocked = $false
+    try { Assert-LocalPostgresBinding -ListenerAddresses @($unsafeAddress) }
+    catch { $blocked = $_.Exception.Message -match 'non-loopback address' }
+    if (-not $blocked) { throw "PostgreSQL listener address $unsafeAddress must be rejected." }
+}
+$missingPostgres = $false
+try { Assert-LocalPostgresBinding -ListenerAddresses @() }
+catch { $missingPostgres = $_.Exception.Message -match 'No PostgreSQL listener' }
+if (-not $missingPostgres) { throw 'A missing PostgreSQL listener must be rejected.' }
+$invalidPort = $false
+try { Assert-LocalPostgresBinding -Port 0 -ListenerAddresses @('127.0.0.1') }
+catch { $invalidPort = $true }
+if (-not $invalidPort) { throw 'An invalid PostgreSQL port must be rejected.' }
 $bindingPath = Join-Path $PSScriptRoot 'lib\local-api-binding.ps1'
 $hadServerAddress = Test-Path Env:SERVER_ADDRESS
 $previousServerAddress = $env:SERVER_ADDRESS

@@ -2,7 +2,7 @@
 
 ## 로컬 실행
 
-1. PostgreSQL 서비스가 `localhost:5432`에서 실행 중인지 확인합니다.
+1. PostgreSQL 서비스가 `localhost:5432`에서 실행 중인지 확인합니다. `postgresql.conf`의 `listen_addresses`는 `localhost`여야 합니다. `start-local.ps1`은 지정된 포트의 listener가 loopback 전용이 아니면 Spring을 실행하지 않습니다. PostgreSQL 설정을 바꾸려면 관리자 권한 PowerShell에서 설정 파일을 백업하고 `listen_addresses = 'localhost'`로 바꾼 뒤 `Restart-Service postgresql-x64-16`을 실행합니다.
 2. 저장소 루트의 Git 제외 `.env_local`에 DB 비밀번호와 필요한 KIS 환경별 설정을 입력합니다.
 3. Spring Boot를 실행합니다: `.\scripts\start-local.ps1`
 4. Python API는 `services/market-ai` 가상환경에서 실행합니다. API는 `127.0.0.1`에만 바인딩합니다.

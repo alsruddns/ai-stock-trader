@@ -25,6 +25,18 @@ foreach ($line in Get-Content -LiteralPath $envPath) {
 }
 
 . (Join-Path $PSScriptRoot 'lib\local-api-binding.ps1')
+. (Join-Path $PSScriptRoot 'lib\local-postgres-binding.ps1')
+
+$postgresPort = 5432
+if (-not [string]::IsNullOrWhiteSpace($env:POSTGRES_PORT)) {
+    $parsedPostgresPort = 0
+    if (-not [int]::TryParse($env:POSTGRES_PORT, [ref]$parsedPostgresPort) -or
+        $parsedPostgresPort -lt 1 -or $parsedPostgresPort -gt 65535) {
+        throw 'POSTGRES_PORT must be an integer between 1 and 65535.'
+    }
+    $postgresPort = $parsedPostgresPort
+}
+Assert-LocalPostgresBinding -Port $postgresPort
 
 if ($PaperOnly) {
     $env:TRADING_MODE = 'paper'
