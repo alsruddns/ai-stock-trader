@@ -110,6 +110,7 @@ class PaperSessionFeedMonitor:
             "bar_storage_state": "DISABLED", "bar_storage_error": None,
             "candidate_refresh_by_market": {},
             "real_signal_state": "DISABLED", "last_real_signal": None,
+            "paper_reconciliation_required": False, "paper_unknown_idempotency_key": None,
         }
         self._aggregators: dict[str, MinuteBarAggregator] = {}
         self._bars: dict[str, deque[MinuteBar]] = {}
@@ -121,6 +122,8 @@ class PaperSessionFeedMonitor:
         self._real_signal_client: SpringRealSignalOrderClient | None = None
         self._real_signal_blocked = False
         self._paper_entry_queue_blocked = False
+        self._paper_reconciliation_required = False
+        self._paper_unknown_idempotency_key: str | None = None
         self._bar_storage_queue: asyncio.Queue[
             tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]
         ] | None = None
@@ -274,6 +277,9 @@ class PaperSessionFeedMonitor:
                 self._set_status(automation_state="BLOCKED", automation_error="PAPER_AUTOMATION_SAFETY_SWITCH")
             else:
                 self._paper_entry_queue_blocked = False
+                self._paper_reconciliation_required = False
+                self._paper_unknown_idempotency_key = None
+                self._set_status(paper_reconciliation_required=False, paper_unknown_idempotency_key=None)
                 try:
                     limits = PaperOpsLimits.from_environment()
                 except ValueError:
@@ -911,6 +917,8 @@ class PaperSessionFeedMonitor:
                                          daily_baseline=baseline_result)
                     result = await asyncio.to_thread(self._manage_strategy_exit, broker, trader, watch, bar, limits)
                     if result is not None:
+                        if result.get("state") == "UNKNOWN":
+                            self._require_paper_reconciliation(result)
                         self._set_status(automation_state=str(result.get("state", "EXIT_MONITORING")),
                                          automation_error=result.get("reason"),
                                          last_automation_result=result)
@@ -920,11 +928,16 @@ class PaperSessionFeedMonitor:
                     elif self._paper_entry_queue_blocked:
                         entry_result = {"state": "BLOCKED", "reason": "PAPER_WORKER_QUEUE_FULL",
                                         "executable": False}
+                    elif self._paper_reconciliation_required:
+                        entry_result = {"state": "BLOCKED", "reason": "PAPER_ORDER_RECONCILIATION_REQUIRED",
+                                        "executable": False}
                     else:
                         entry_result = await asyncio.to_thread(
                             self._manage_strategy_entry, broker, trader, watch, bar, decision, quotes, limits
                         )
                     if entry_result is not None:
+                        if entry_result.get("state") == "UNKNOWN":
+                            self._require_paper_reconciliation(entry_result)
                         self._set_status(automation_state=str(entry_result.get("state", "EXIT_MONITORING")),
                                          automation_error=entry_result.get("reason"),
                                          last_automation_result=entry_result)
@@ -937,6 +950,15 @@ class PaperSessionFeedMonitor:
         finally:
             trader.close()
             broker.close()
+
+    def _require_paper_reconciliation(self, result: dict[str, object]) -> None:
+        self._paper_reconciliation_required = True
+        key = result.get("idempotency_key")
+        self._paper_unknown_idempotency_key = str(key) if key else None
+        self._set_status(
+            paper_reconciliation_required=True,
+            paper_unknown_idempotency_key=self._paper_unknown_idempotency_key,
+        )
 
     @staticmethod
     def _manage_strategy_exit(broker: SpringPaperBrokerClient, trader: PaperAutoTrader,
