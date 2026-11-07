@@ -208,6 +208,20 @@ class KisRealOrderControllerTest {
     }
 
     @Test
+    void realBuyEntryStaysLockedWhenProtectiveAutomationOrReconciliationIsOff() {
+        TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true, true,
+                BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100));
+        KisRealOrderController controller = new KisRealOrderController(orders, intents, accounts,
+                properties(true, true), safety, marketAiEvidence, false, true);
+
+        KisApiException exception = assertThrows(KisApiException.class,
+                () -> controller.submit(UUID.randomUUID(), null, buyRequest()));
+
+        assertEquals(HttpStatus.LOCKED, exception.status());
+        verifyNoInteractions(accounts, orders, marketAiEvidence);
+    }
+
+    @Test
     void realSellRemainsAvailableWhenNewEntryGateIsClosed() {
         KisRealOrderController controller = controller(
                 new TradingSafetyProperties("real", true, true, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
@@ -233,7 +247,7 @@ class KisRealOrderControllerTest {
     }
 
     private KisRealOrderController controller(TradingSafetyProperties safety, KisProperties kis) {
-        return new KisRealOrderController(orders, intents, accounts, kis, safety, marketAiEvidence);
+        return new KisRealOrderController(orders, intents, accounts, kis, safety, marketAiEvidence, true, true);
     }
 
     private void assertAllRealPathsLocked(KisRealOrderController controller) {

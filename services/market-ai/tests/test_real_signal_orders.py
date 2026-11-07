@@ -21,6 +21,8 @@ def enable_real_signal_gates(monkeypatch) -> None:
         "KIS_ACCOUNT_READ_ENABLED": "true",
         "KIS_REAL_ACCOUNT_READ_ENABLED": "true",
         "REAL_PROTECTIVE_EXIT_MANAGER_ENABLED": "true",
+        "KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED": "true",
+        "KIS_REAL_RECONCILIATION_ENABLED": "true",
         "REAL_SIGNAL_SUBMISSION_ENABLED": "true",
     }.items():
         monkeypatch.setenv(key, value)
@@ -105,4 +107,14 @@ def test_all_real_gates_must_be_enabled(monkeypatch) -> None:
 def test_real_entries_stay_locked_until_protective_exit_manager_is_enabled(monkeypatch) -> None:
     enable_real_signal_gates(monkeypatch)
     monkeypatch.setenv("REAL_PROTECTIVE_EXIT_MANAGER_ENABLED", "false")
+    assert not real_signal_submission_enabled()
+
+
+@pytest.mark.parametrize("gate", [
+    "KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED",
+    "KIS_REAL_RECONCILIATION_ENABLED",
+])
+def test_real_entries_stay_locked_without_protective_automation_and_reconciliation(monkeypatch, gate: str) -> None:
+    enable_real_signal_gates(monkeypatch)
+    monkeypatch.setenv(gate, "false")
     assert not real_signal_submission_enabled()

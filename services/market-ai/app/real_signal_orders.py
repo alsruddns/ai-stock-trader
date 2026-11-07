@@ -34,6 +34,9 @@ def real_signal_submission_enabled() -> bool:
         "KIS_REAL_ACCOUNT_READ_ENABLED": "true",
         # Entries remain blocked until a restart-safe protective exit manager exists.
         "REAL_PROTECTIVE_EXIT_MANAGER_ENABLED": "true",
+        # The manager must be actively enabled and known orders must be reconciled.
+        "KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED": "true",
+        "KIS_REAL_RECONCILIATION_ENABLED": "true",
         "REAL_SIGNAL_SUBMISSION_ENABLED": "true",
     }
     return all(os.getenv(name, "").strip().lower() == value for name, value in expected.items())

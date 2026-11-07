@@ -4,7 +4,7 @@ import com.aistocktrader.config.TradingSafetyProperties;
 import com.aistocktrader.order.OrderRequest;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,24 +29,37 @@ public class KisRealOrderController {
     private final KisMarketAiEvidenceClient marketAiEvidence;
     private final KisProperties kisProperties;
     private final TradingSafetyProperties safety;
+    private final boolean protectiveExitAutomationEnabled;
+    private final boolean realReconciliationEnabled;
 
     @Autowired
     public KisRealOrderController(KisRealOrderOrchestrator orders, KisOrderIntentStore intents,
                                   KisAccountClient accounts, KisProperties kisProperties,
-                                  TradingSafetyProperties safety, KisMarketAiEvidenceClient marketAiEvidence) {
+                                  TradingSafetyProperties safety, KisMarketAiEvidenceClient marketAiEvidence,
+                                  @Value("${kis.real-protective-exit-automation-enabled:false}") boolean protectiveExitAutomationEnabled,
+                                  @Value("${kis.real-reconciliation-enabled:false}") boolean realReconciliationEnabled) {
         this.orders = orders;
         this.intents = intents;
         this.accounts = accounts;
         this.marketAiEvidence = marketAiEvidence;
         this.kisProperties = kisProperties;
         this.safety = safety;
+        this.protectiveExitAutomationEnabled = protectiveExitAutomationEnabled;
+        this.realReconciliationEnabled = realReconciliationEnabled;
+    }
+
+    /** Compatibility constructor for focused controller tests. */
+    public KisRealOrderController(KisRealOrderOrchestrator orders, KisOrderIntentStore intents,
+                                  KisAccountClient accounts, KisProperties kisProperties,
+                                  TradingSafetyProperties safety, KisMarketAiEvidenceClient marketAiEvidence) {
+        this(orders, intents, accounts, kisProperties, safety, marketAiEvidence, false, false);
     }
 
     /** Compatibility constructor for tests that exercise only the locked/raw-order paths. */
     public KisRealOrderController(KisRealOrderOrchestrator orders, KisOrderIntentStore intents,
                                   KisAccountClient accounts, KisProperties kisProperties,
                                   TradingSafetyProperties safety) {
-        this(orders, intents, accounts, kisProperties, safety, null);
+        this(orders, intents, accounts, kisProperties, safety, null, false, false);
     }
 
     @PostMapping
@@ -136,6 +149,10 @@ public class KisRealOrderController {
         if (requiresProtectiveExitManager && !safety.realProtectiveExitManagerEnabled()) {
             throw new KisApiException(HttpStatus.LOCKED,
                     "REAL entries require the verified protective exit manager to be enabled.");
+        }
+        if (requiresProtectiveExitManager && (!protectiveExitAutomationEnabled || !realReconciliationEnabled)) {
+            throw new KisApiException(HttpStatus.LOCKED,
+                    "REAL entries require enabled protective-exit automation and order reconciliation.");
         }
     }
 
