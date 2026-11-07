@@ -89,6 +89,9 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(new BigDecimal("2.0000"), reloaded.getExitRewardRiskMultiple());
             assertEquals(new BigDecimal("100.500000"), reloaded.getExitStopPrice());
             assertEquals(0, reloaded.getExitTargetPrice().compareTo(new BigDecimal("112.500000")));
+            assertEquals(List.of(key), kisOrderRepository.findExitManagedRealBuyCandidates(
+                            KisEnvironment.REAL, Market.US, "aapl").stream()
+                    .map(KisOrderIntent::getIdempotencyKey).toList());
         } finally {
             kisOrderRepository.deleteById(key);
         }

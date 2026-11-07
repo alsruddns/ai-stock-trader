@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
@@ -22,6 +23,22 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
     boolean existsByEnvironmentAndMarketAndStatusInAndIdempotencyKeyNot(
             KisEnvironment environment, com.aistocktrader.order.Market market,
             Collection<KisOrderStatus> statuses, UUID idempotencyKey);
+
+    /** Restart recovery lookup for REAL BUY plans whose broker has confirmed at least one share. */
+    @Query("""
+            select intent from KisOrderIntent intent
+             where intent.environment = :environment
+               and intent.market = :market
+               and upper(intent.symbol) = upper(:symbol)
+               and intent.side = com.aistocktrader.order.OrderSide.BUY
+               and intent.exitStopDistancePerShare is not null
+               and intent.exitRewardRiskMultiple is not null
+               and intent.filledQuantity > 0
+             order by intent.updatedAt asc
+            """)
+    List<KisOrderIntent> findExitManagedRealBuyCandidates(@Param("environment") KisEnvironment environment,
+                                                           @Param("market") com.aistocktrader.order.Market market,
+                                                           @Param("symbol") String symbol);
 
     @Modifying
     @Transactional
