@@ -41,4 +41,9 @@ public class KisRealTradingCostProperties {
             return null;
         }
     }
+
+    public boolean configuredFor(com.aistocktrader.order.Market market) {
+        KisRealizedPnlCalculator.Costs configured = forMarket(market);
+        return configured != null && configured.valid();
+    }
 }

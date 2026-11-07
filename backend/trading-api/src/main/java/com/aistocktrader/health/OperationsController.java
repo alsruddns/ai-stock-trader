@@ -7,6 +7,7 @@ import com.aistocktrader.kis.KisOrderIntentRepository;
 import com.aistocktrader.kis.KisOrderStatus;
 import com.aistocktrader.kis.KisProperties;
 import com.aistocktrader.kis.KisRealExitStatus;
+import com.aistocktrader.kis.KisRealTradingCostProperties;
 import com.aistocktrader.order.OrderRecord;
 import com.aistocktrader.order.OrderRepository;
 import com.aistocktrader.order.OrderStatus;
@@ -54,6 +55,8 @@ public class OperationsController {
     private final boolean paperCostModelEnabled;
     private final boolean kisPaperCredentialsConfigured;
     private final boolean kisRealCredentialsConfigured;
+    private final boolean kisRealKrCostsConfigured;
+    private final boolean kisRealUsCostsConfigured;
 
     @Autowired
     public OperationsController(OrderRepository orders, PaperPositionRepository positions,
@@ -61,6 +64,7 @@ public class OperationsController {
                                 TradingSafetyProperties safety,
                                 KisOrderIntentRepository kisIntents,
                                 KisProperties kisProperties,
+                                KisRealTradingCostProperties realTradingCosts,
                                 @Value("${kis.account-read-enabled:false}") boolean kisAccountReadsEnabled,
                                 @Value("${kis.paper-account-read-enabled:false}") boolean kisPaperAccountReadsEnabled,
                                 @Value("${kis.orders.paper-enabled:false}") boolean kisPaperOrdersEnabled,
@@ -83,6 +87,8 @@ public class OperationsController {
         this.paperCostModelEnabled = paperCostModelEnabled;
         this.kisPaperCredentialsConfigured = kisProperties.credentials(KisEnvironment.PAPER).configured();
         this.kisRealCredentialsConfigured = kisProperties.credentials(KisEnvironment.REAL).configured();
+        this.kisRealKrCostsConfigured = realTradingCosts.configuredFor(com.aistocktrader.order.Market.KR);
+        this.kisRealUsCostsConfigured = realTradingCosts.configuredFor(com.aistocktrader.order.Market.US);
     }
 
     public OperationsController(OrderRepository orders, PaperPositionRepository positions,
@@ -94,7 +100,8 @@ public class OperationsController {
         this(orders, positions, cash, fills, safety, kisIntents,
                 new KisProperties(false, false,
                         new KisProperties.Account("", "", ""), new KisProperties.Account("", "", ""),
-                        null, null, null), kisAccountReadsEnabled, kisAccountReadsEnabled, kisPaperOrdersEnabled,
+                        null, null, null), new KisRealTradingCostProperties("", "", "", "", "", ""),
+                kisAccountReadsEnabled, kisAccountReadsEnabled, kisPaperOrdersEnabled,
                 kisRealAccountReadsEnabled, kisRealReconciliationEnabled, false, paperCostModelEnabled);
     }
 
@@ -150,7 +157,8 @@ public class OperationsController {
                 + counts.getOrDefault(OrderStatus.UNKNOWN, 0L), fillsToday, allOrders.size(),
                 cashBalances, openPositions, costBasis, realizedPnlToday, recentOrders,
                 new PaperPerformanceAnalyzer().analyze(fills.findAllWithTradeDetails()),
-                kisPaperCredentialsConfigured, kisRealCredentialsConfigured);
+                kisPaperCredentialsConfigured, kisRealCredentialsConfigured, kisRealKrCostsConfigured,
+                kisRealUsCostsConfigured);
     }
 
     private int consecutiveLosingTrades() {
@@ -283,7 +291,8 @@ public class OperationsController {
                                     Map<String, BigDecimal> realizedPnlTodayGrossByCurrency,
                                     List<OrderView> recentOrders,
                                     List<PaperPerformanceAnalyzer.InstrumentPerformance> paperPerformanceByInstrument,
-                                    boolean kisPaperCredentialsConfigured, boolean kisRealCredentialsConfigured) { }
+                                    boolean kisPaperCredentialsConfigured, boolean kisRealCredentialsConfigured,
+                                    boolean kisRealKrCostsConfigured, boolean kisRealUsCostsConfigured) { }
 
     public record BrokerOrderView(String market, String symbol, String side, int quantity, Integer filledQuantity,
                                   Integer remainingQuantity, String currency, KisOrderStatus status,

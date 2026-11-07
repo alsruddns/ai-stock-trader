@@ -8,6 +8,7 @@ import com.aistocktrader.kis.KisOrderStatus;
 import com.aistocktrader.kis.KisOrderReceipt;
 import com.aistocktrader.kis.KisProperties;
 import com.aistocktrader.kis.KisRealExitStatus;
+import com.aistocktrader.kis.KisRealTradingCostProperties;
 import com.aistocktrader.order.Currency;
 import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderRequest;
@@ -50,10 +51,13 @@ class OperationsControllerTest {
 
         var summary = new OperationsController(orders, positions, cash, fills,
                 new TradingSafetyProperties("paper", false, BigDecimal.TEN, BigDecimal.TEN),
-                emptyKisIntents(), credentials, false, false, false, false, false, false, false).summary();
+                emptyKisIntents(), credentials, new KisRealTradingCostProperties("", "", "", "", "", ""),
+                false, false, false, false, false, false, false).summary();
 
         assertEquals(true, summary.kisPaperCredentialsConfigured());
         assertEquals(false, summary.kisRealCredentialsConfigured());
+        assertEquals(false, summary.kisRealKrCostsConfigured());
+        assertEquals(false, summary.kisRealUsCostsConfigured());
         assertEquals(false, summary.kisPaperAccountReadsEnabled());
         assertEquals(false, summary.kisPaperDomesticCancelSupported());
         assertEquals(false, summary.realProtectiveExitManagerEnabled());
