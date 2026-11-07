@@ -196,6 +196,31 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    void realExecutionTimestampIsMonotonicAndCannotBeWrittenToPaperIntent() {
+        UUID realKey = UUID.randomUUID();
+        UUID paperKey = UUID.randomUUID();
+        String brokerNumber = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        Instant earlier = Instant.parse("2026-11-06T14:00:01Z");
+        Instant later = Instant.parse("2026-11-06T14:00:02Z");
+        try {
+            store.prepare(realKey, hash("real-fill-time"), KisEnvironment.REAL, request(), null);
+            store.accept(realKey, receipt("real", brokerNumber));
+            store.prepare(paperKey, hash("paper-fill-time"), KisEnvironment.PAPER, request(), null);
+            store.accept(paperKey, receipt("paper", brokerNumber));
+
+            assertEquals(1, repository.recordRealFillTime(realKey, later));
+            assertEquals(1, repository.recordRealFillTime(realKey, earlier));
+            assertEquals(0, repository.recordRealFillTime(paperKey, later));
+            entityManager.clear();
+
+            assertEquals(later, repository.findById(realKey).orElseThrow().getLastFillAt());
+            assertNull(repository.findById(paperKey).orElseThrow().getLastFillAt());
+        } finally {
+            repository.deleteAllById(List.of(realKey, paperKey));
+        }
+    }
+
+    @Test
     void onlyOneConcurrentCallerCanClaimCancellationForAnOrder() throws Exception {
         UUID key = UUID.randomUUID();
         try {
