@@ -2,6 +2,8 @@ package com.aistocktrader.order;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.repository.query.Param;
 import java.util.Optional;
 import java.util.UUID;
 import java.time.Instant;
@@ -9,6 +11,21 @@ import java.time.Instant;
 public interface PaperFillRepository extends JpaRepository<PaperFillRecord, Long> {
     Optional<PaperFillRecord> findByFillKey(UUID fillKey);
     long countByFilledAtAfter(Instant cutoff);
+
+    @Modifying(flushAutomatically = true)
+    @Query(value = """
+            INSERT INTO paper_fill (order_id, fill_key, quantity, fill_price, transaction_cost,
+                                    strategy_stop_price, strategy_target_price, filled_at)
+            VALUES (:orderId, :fillKey, :quantity, :fillPrice, :transactionCost,
+                    :stopPrice, :targetPrice, :filledAt)
+            ON CONFLICT (fill_key) DO NOTHING
+            """, nativeQuery = true)
+    int insertIfFillKeyAbsent(@Param("orderId") Long orderId, @Param("fillKey") UUID fillKey,
+                              @Param("quantity") int quantity, @Param("fillPrice") java.math.BigDecimal fillPrice,
+                              @Param("transactionCost") java.math.BigDecimal transactionCost,
+                              @Param("stopPrice") java.math.BigDecimal stopPrice,
+                              @Param("targetPrice") java.math.BigDecimal targetPrice,
+                              @Param("filledAt") Instant filledAt);
 
     @Query(value = """
             SELECT f.order_id AS \"orderId\", f.filled_at AS \"filledAt\", f.quantity AS quantity,

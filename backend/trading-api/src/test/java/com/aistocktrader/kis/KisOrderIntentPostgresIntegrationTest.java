@@ -44,6 +44,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -901,6 +902,91 @@ class KisOrderIntentPostgresIntegrationTest {
             paperPositionRepository.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0).stream()
                     .filter(item -> item.getSymbol().equals(symbol)).forEach(paperPositionRepository::delete);
             paperOrderRepository.findByIdempotencyKey(orderKey)
+                    .ifPresent(item -> paperOrderRepository.deleteById(item.getId()));
+            if (priorCash.isPresent()) {
+                PaperCashBalance original = priorCash.orElseThrow();
+                jdbcTemplate.update("UPDATE paper_cash_balance SET balance = ?, updated_at = ? WHERE currency = ?",
+                        original.getBalance(), Timestamp.from(original.getUpdatedAt()), Currency.KRW.name());
+            } else {
+                paperCashRepository.deleteById(Currency.KRW);
+            }
+        }
+    }
+
+    @Test
+    void fillKeyReusedConcurrentlyAcrossDifferentOrdersIsRejectedWithoutSecondSettlement() throws Exception {
+        UUID firstOrderKey = UUID.randomUUID();
+        UUID secondOrderKey = UUID.randomUUID();
+        UUID fillKey = UUID.randomUUID();
+        String firstSymbol = String.format(java.util.Locale.ROOT, "%06d",
+                java.util.concurrent.ThreadLocalRandom.current().nextInt(100000, 1_000_000));
+        String secondSymbolCandidate;
+        do {
+            secondSymbolCandidate = String.format(java.util.Locale.ROOT, "%06d",
+                    java.util.concurrent.ThreadLocalRandom.current().nextInt(100000, 1_000_000));
+        } while (secondSymbolCandidate.equals(firstSymbol));
+        final String secondSymbol = secondSymbolCandidate;
+        BigDecimal initialBalance = new BigDecimal("1000000");
+        var priorCash = paperCashRepository.findById(Currency.KRW);
+        paperCashRepository.save(new PaperCashBalance(Currency.KRW, initialBalance));
+        var firstOrder = paperOrders.submit(new OrderRequest(Market.KR, firstSymbol, OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW), firstOrderKey);
+        var secondOrder = paperOrders.submit(new OrderRequest(Market.KR, secondSymbol, OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW), secondOrderKey);
+        var request = new PaperFillRequest(fillKey, 1, new BigDecimal("70000"));
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+
+        try {
+            var first = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                return paperOrders.recordPaperFill(firstOrder.getId(), request);
+            });
+            var second = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                return paperOrders.recordPaperFill(secondOrder.getId(), request);
+            });
+
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            var outcomes = List.of(first, second).stream().map(future -> {
+                try {
+                    return future.get(10, TimeUnit.SECONDS);
+                } catch (Exception exception) {
+                    return exception;
+                }
+            }).toList();
+
+            assertEquals(1, outcomes.stream().filter(OrderRecord.class::isInstance).count());
+            assertEquals(1, outcomes.stream().filter(java.util.concurrent.ExecutionException.class::isInstance).count());
+            assertInstanceOf(com.aistocktrader.order.IdempotencyConflictException.class,
+                    ((java.util.concurrent.ExecutionException) outcomes.stream()
+                            .filter(java.util.concurrent.ExecutionException.class::isInstance).findFirst().orElseThrow())
+                            .getCause());
+
+            var fill = paperFillRepository.findByFillKey(fillKey).orElseThrow();
+            assertEquals(1, paperOrderRepository.findById(firstOrder.getId()).orElseThrow().getFilledQuantity()
+                    + paperOrderRepository.findById(secondOrder.getId()).orElseThrow().getFilledQuantity());
+            assertTrue(fill.getOrderId().equals(firstOrder.getId()) || fill.getOrderId().equals(secondOrder.getId()));
+            assertEquals(1, paperPositionRepository.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0).stream()
+                    .filter(item -> item.getSymbol().equals(firstSymbol) || item.getSymbol().equals(secondSymbol))
+                    .mapToInt(com.aistocktrader.order.PaperPosition::getQuantity).sum());
+            assertEquals(0, initialBalance.subtract(new BigDecimal("70000")).subtract(fill.getTransactionCost())
+                    .compareTo(paperCashRepository.findById(Currency.KRW).orElseThrow().getBalance()));
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+            pool.awaitTermination(10, TimeUnit.SECONDS);
+            paperFillRepository.findByFillKey(fillKey).ifPresent(paperFillRepository::delete);
+            paperPositionRepository.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0).stream()
+                    .filter(item -> item.getSymbol().equals(firstSymbol) || item.getSymbol().equals(secondSymbol))
+                    .forEach(paperPositionRepository::delete);
+            paperOrderRepository.findByIdempotencyKey(firstOrderKey)
+                    .ifPresent(item -> paperOrderRepository.deleteById(item.getId()));
+            paperOrderRepository.findByIdempotencyKey(secondOrderKey)
                     .ifPresent(item -> paperOrderRepository.deleteById(item.getId()));
             if (priorCash.isPresent()) {
                 PaperCashBalance original = priorCash.orElseThrow();

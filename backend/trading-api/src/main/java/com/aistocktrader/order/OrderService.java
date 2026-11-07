@@ -108,6 +108,14 @@ public class OrderService {
                 .orElseThrow(() -> new IllegalStateException("Paper cash account is not initialized."));
         BigDecimal fillNotional = request.fillPrice().multiply(BigDecimal.valueOf(request.quantity()));
         BigDecimal transactionCost = costs.calculate(order.getMarket(), order.getSide(), order.getCurrency(), fillNotional);
+        int claimed = fills.insertIfFillKeyAbsent(order.getId(), request.fillKey(), request.quantity(),
+                request.fillPrice(), transactionCost, request.stopPrice(), request.targetPrice(), Instant.now());
+        if (claimed == 0) {
+            PaperFillRecord recorded = fills.findByFillKey(request.fillKey())
+                    .orElseThrow(() -> new IllegalStateException("Conflicting paper fill was not readable."));
+            validatePaperFillIdempotency(orderId, request, recorded);
+            return order;
+        }
         if (order.getSide() == OrderSide.SELL) {
             PaperPosition position = positions.findInstrumentForUpdate(order.getMarket(), order.getSymbol(), order.getCurrency())
                     .orElseThrow(() -> new IllegalArgumentException("Paper sell requires an existing position."));
@@ -143,7 +151,6 @@ public class OrderService {
             }
         }
         cashBalances.save(cash);
-        fills.save(new PaperFillRecord(order.getId(), request, transactionCost));
         return orders.save(order);
     }
 

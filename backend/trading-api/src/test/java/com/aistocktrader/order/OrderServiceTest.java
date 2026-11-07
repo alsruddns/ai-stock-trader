@@ -139,7 +139,6 @@ class OrderServiceTest {
         PaperCashBalance cash = new PaperCashBalance(Currency.KRW, new BigDecimal("1000000"));
         when(cashBalances.findByCurrencyForUpdate(Currency.KRW)).thenReturn(Optional.of(cash));
         when(cashBalances.save(any(PaperCashBalance.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(fills.save(any(PaperFillRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(orders.save(any(OrderRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OrderRecord partial = service().recordPaperFill(11L,
@@ -174,10 +173,10 @@ class OrderServiceTest {
         when(positions.save(any(PaperPosition.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(cashBalances.findByCurrencyForUpdate(Currency.KRW)).thenReturn(Optional.of(cash));
         when(cashBalances.save(any(PaperCashBalance.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(fills.save(any(PaperFillRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(orders.save(any(OrderRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
         OrderService service = new OrderService(orders, safeConfig(), fills, positions, cashBalances,
                 strategyRisks, calculator);
+        allowFillInsert();
 
         service.recordPaperFill(21L, new PaperFillRequest(UUID.randomUUID(), 10, new BigDecimal("100")));
         assertEquals(new BigDecimal("3999"), cash.getBalance());
@@ -190,10 +189,11 @@ class OrderServiceTest {
 
         assertEquals(new BigDecimal("5096"), cash.getBalance());
         assertEquals(0, position.getQuantity());
-        var recordedFills = org.mockito.ArgumentCaptor.forClass(PaperFillRecord.class);
-        verify(fills, times(2)).save(recordedFills.capture());
-        assertEquals(new BigDecimal("1"), recordedFills.getAllValues().get(0).getTransactionCost());
-        assertEquals(new BigDecimal("3"), recordedFills.getAllValues().get(1).getTransactionCost());
+        var recordedCosts = org.mockito.ArgumentCaptor.forClass(BigDecimal.class);
+        verify(fills, times(2)).insertIfFillKeyAbsent(any(), any(), anyInt(), any(), recordedCosts.capture(),
+                any(), any(), any());
+        assertEquals(new BigDecimal("1"), recordedCosts.getAllValues().get(0));
+        assertEquals(new BigDecimal("3"), recordedCosts.getAllValues().get(1));
     }
 
     @Test
@@ -211,7 +211,6 @@ class OrderServiceTest {
         when(cashBalances.save(any(PaperCashBalance.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(strategyRisks.findByPositionId(55L)).thenReturn(Optional.empty());
         when(strategyRisks.save(any(PaperStrategyRisk.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(fills.save(any(PaperFillRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(orders.save(any(OrderRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OrderRecord result = serviceWithStrategyRisks().recordPaperFill(12L, new PaperFillRequest(
@@ -252,7 +251,6 @@ class OrderServiceTest {
         when(cashBalances.findByCurrencyForUpdate(Currency.KRW))
                 .thenReturn(Optional.of(new PaperCashBalance(Currency.KRW, new BigDecimal("100000"))));
         when(cashBalances.save(any(PaperCashBalance.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(fills.save(any(PaperFillRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(orders.save(any(OrderRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OrderRecord result = serviceWithStrategyRisks().recordPaperFill(14L,
@@ -467,12 +465,19 @@ class OrderServiceTest {
     }
 
     private OrderService service() {
+        allowFillInsert();
         return new OrderService(orders, safeConfig(), fills, positions, cashBalances);
     }
     private OrderService serviceWithStrategyRisks() {
+        allowFillInsert();
         return new OrderService(orders, safeConfig(), fills, positions, cashBalances, strategyRisks);
     }
     private OrderService serviceWithAmendments() {
+        allowFillInsert();
         return new OrderService(orders, safeConfig(), fills, positions, cashBalances, strategyRisks, amendments);
+    }
+    private void allowFillInsert() {
+        lenient().when(fills.insertIfFillKeyAbsent(any(), any(), anyInt(), any(), any(), any(), any(), any()))
+                .thenReturn(1);
     }
 }
