@@ -9,26 +9,34 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$koreaZone = [TimeZoneInfo]::FindSystemTimeZoneById('Korea Standard Time')
+if ([TimeZoneInfo]::Local.Id -ne $koreaZone.Id) { throw 'Windows time zone must be Korea Standard Time (KST) for session task scheduling.' }
+$libPath = Join-Path $PSScriptRoot 'lib\exchange-session-monitor.ps1'
+. $libPath
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $market = if ($Feed -eq 'paper') { 'KR' } else { 'US' }
 $taskMarket = if ($Feed -eq 'paper') { 'KRX' } else { 'US' }
 $expectedBars = if ($Feed -eq 'paper') { 380 } else { 390 }
-$runTime = if ($Feed -eq 'paper') { '08:45' } else { '23:25' }
 $parsedDate = [DateTime]::ParseExact($SessionDate, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
-$runAt = $parsedDate.Add([TimeSpan]::ParseExact($runTime, 'hh\:mm', [Globalization.CultureInfo]::InvariantCulture))
-if ($runAt -le (Get-Date)) { throw 'The session monitor start time must still be in the future.' }
 
 $pythonPath = Join-Path $repoRoot 'services\market-ai\.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $pythonPath)) { throw 'The project Python environment with exchange calendar support is required.' }
-$calendarCode = 'import sys; from datetime import datetime, timedelta; from zoneinfo import ZoneInfo; from app.market_calendar import exchange_session_window; market=sys.argv[1]; zone=ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York"); at=datetime.fromisoformat(sys.argv[2]).replace(tzinfo=zone)+timedelta(hours=12); print("SESSION" if exchange_session_window(market, at) else "CLOSED")'
+$calendarCode = 'import sys; from datetime import date, datetime, time, timedelta, timezone; from zoneinfo import ZoneInfo; from app.market_calendar import exchange_session_window; market=sys.argv[1]; session_date=date.fromisoformat(sys.argv[2]); zone=ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York"); window=exchange_session_window(market, datetime.combine(session_date, time(12), tzinfo=zone)); print("CLOSED" if window is None else window[0].isoformat())'
 Push-Location (Join-Path $repoRoot 'services\market-ai')
 try {
     $calendarResult = & $pythonPath -c $calendarCode $market $SessionDate
-    if ($LASTEXITCODE -ne 0 -or $calendarResult -ne 'SESSION') {
+    if ($LASTEXITCODE -ne 0 -or $calendarResult -eq 'CLOSED' -or [string]::IsNullOrWhiteSpace([string]$calendarResult)) {
         throw "The official exchange calendar did not confirm a $market session on $SessionDate."
     }
 } finally {
     Pop-Location
+}
+
+$exchangeOpenUtc = [DateTimeOffset]::Parse([string]$calendarResult, [Globalization.CultureInfo]::InvariantCulture)
+$runAt = (Get-ExchangeSessionMonitorStart $market $exchangeOpenUtc).DateTime
+$runTime = $runAt.ToString('HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+if ($runAt -le [TimeZoneInfo]::ConvertTime([DateTimeOffset]::Now, $koreaZone).DateTime) {
+    throw 'The session monitor start time must still be in the future.'
 }
 
 $dateKey = $parsedDate.ToString('yyyyMMdd', [Globalization.CultureInfo]::InvariantCulture)

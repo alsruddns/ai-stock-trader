@@ -21,6 +21,13 @@ function ConvertTo-ExchangeSessionWindow($Response) {
     }
 }
 
+function Get-ExchangeSessionMonitorStart([string]$Market, [DateTimeOffset]$OpenUtc) {
+    if ($Market -notin @('KR', 'US')) { throw 'Market must be KR or US.' }
+    $leadMinutes = if ($Market -eq 'KR') { 15 } else { 5 }
+    $koreaZone = [TimeZoneInfo]::FindSystemTimeZoneById('Korea Standard Time')
+    return [TimeZoneInfo]::ConvertTime($OpenUtc.ToUniversalTime().AddMinutes(-$leadMinutes), $koreaZone)
+}
+
 function Get-ExchangeSessionPhase([DateTimeOffset]$Timestamp, $SessionWindow) {
     if (-not $SessionWindow) { return 'NOT_APPLICABLE' }
     $instant = $Timestamp.ToUniversalTime()

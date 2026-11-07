@@ -197,3 +197,20 @@ Describe 'Exchange session monitor calendar boundaries' {
         $symbolThrew | Should Be $true
     }
 }
+
+Describe 'Exchange session monitor registration times' {
+    It 'starts KRX monitoring 15 minutes before its 09:00 KST open' {
+        $start = Get-ExchangeSessionMonitorStart 'KR' ([DateTimeOffset]::Parse('2026-11-09T00:00:00Z'))
+        $start.ToString('yyyy-MM-dd HH:mm zzz') | Should Be '2026-11-09 08:45 +09:00'
+    }
+
+    It 'uses the winter US open and starts five minutes early' {
+        $start = Get-ExchangeSessionMonitorStart 'US' ([DateTimeOffset]::Parse('2026-11-09T14:30:00Z'))
+        $start.ToString('yyyy-MM-dd HH:mm zzz') | Should Be '2026-11-09 23:25 +09:00'
+    }
+
+    It 'uses the summer US open and starts five minutes early' {
+        $start = Get-ExchangeSessionMonitorStart 'US' ([DateTimeOffset]::Parse('2026-07-06T13:30:00Z'))
+        $start.ToString('yyyy-MM-dd HH:mm zzz') | Should Be '2026-07-06 22:25 +09:00'
+    }
+}
