@@ -19,6 +19,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'lib\paper-safety.ps1')
+$localSettings = Read-AiTraderLocalSafetySettings -RepositoryRoot $repoRoot
+Assert-AiTraderPaperSafetyLocks -Settings $localSettings
+
 $symbolValue = $Symbol.Trim().ToUpperInvariant()
 if ($Market -eq 'KR' -and $symbolValue -notmatch '^\d{6}$') {
     throw 'KR symbol must be a six-digit instrument code.'

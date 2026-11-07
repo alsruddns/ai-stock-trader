@@ -13,26 +13,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'lib\paper-safety.ps1')
+$localSettings = Read-AiTraderLocalSafetySettings -RepositoryRoot $repoRoot
+Assert-AiTraderPaperSafetyLocks -Settings $localSettings
+
 $symbolValue = $Symbol.Trim().ToUpperInvariant()
 if ($Market -eq 'KR' -and $symbolValue -notmatch '^\d{6}$') { throw 'KR symbol must be a six-digit instrument code.' }
 if ($Market -eq 'US' -and $symbolValue -notmatch '^[A-Z][A-Z0-9.-]{0,15}$') { throw 'US symbol must contain 1 to 16 letters, digits, dots, or hyphens.' }
 if ($FromDate.Date -gt $ToDate.Date) { throw 'FromDate must be on or before ToDate.' }
 if (-not (Test-Path -LiteralPath $PythonPath -PathType Leaf)) { throw "Python interpreter not found: $PythonPath" }
-
-$envFile = Join-Path $repoRoot '.env_local'
-if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) { throw 'The ignored .env_local file is required.' }
-$localSettings = @{}
-foreach ($line in Get-Content -LiteralPath $envFile) {
-    if ($line -match '^\s*([^#=]+)=(.*)$') { $localSettings[$matches[1].Trim()] = $matches[2].Trim().Trim('"').Trim("'") }
-}
-foreach ($required in @('TRADING_MODE', 'LIVE_TRADING_ENABLED', 'KIS_PAPER_ORDERS_ENABLED', 'KIS_REAL_ORDERS_ENABLED', 'PAPER_AUTOTRADING_ENABLED')) {
-    if (-not $localSettings.ContainsKey($required)) { throw "Required local safety setting '$required' is missing." }
-}
-if ($localSettings.TRADING_MODE -ne 'paper' -or $localSettings.LIVE_TRADING_ENABLED -ne 'false' -or
-    $localSettings.KIS_PAPER_ORDERS_ENABLED -ne 'false' -or $localSettings.KIS_REAL_ORDERS_ENABLED -ne 'false' -or
-    $localSettings.PAPER_AUTOTRADING_ENABLED -ne 'false') {
-    throw 'Holdout evaluation requires PAPER mode with all order and automation switches disabled.'
-}
 
 $runId = '{0}-{1}-holdout-{2}-{3}' -f $Market.ToLowerInvariant(), $symbolValue.ToLowerInvariant(), $FromDate.ToString('yyyyMMdd'), [guid]::NewGuid().ToString('N').Substring(0, 12)
 $csvPath = Join-Path $repoRoot "data\model-candidates\$runId.csv"
