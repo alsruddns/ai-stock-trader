@@ -8,11 +8,14 @@ import org.springframework.data.repository.query.Param;
 import java.util.UUID;
 import java.util.List;
 import java.util.Collection;
+import java.time.Instant;
 
 public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, UUID> {
     List<KisOrderIntent> findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment environment);
     List<KisOrderIntent> findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(
             KisEnvironment environment, Collection<KisOrderStatus> statuses);
+    List<KisOrderIntent> findByEnvironmentAndMarketAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+            KisEnvironment environment, com.aistocktrader.order.Market market, Instant createdAt);
     java.util.Optional<KisOrderIntent> findByEnvironmentAndMarketAndBrokerOrderNumber(
             KisEnvironment environment, com.aistocktrader.order.Market market, String brokerOrderNumber);
     boolean existsByEnvironmentAndMarketAndStatusInAndIdempotencyKeyNot(

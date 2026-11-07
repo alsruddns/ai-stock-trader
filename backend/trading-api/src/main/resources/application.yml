@@ -56,6 +56,13 @@ kis:
     app-key: ${KIS_REAL_APP_KEY:}
     app-secret: ${KIS_REAL_APP_SECRET:}
     account-number: ${KIS_REAL_ACCOUNT_NUMBER:}
+  real-costs:
+    kr-buy-commission-bps: ${KIS_REAL_KR_BUY_COMMISSION_BPS:}
+    kr-sell-commission-bps: ${KIS_REAL_KR_SELL_COMMISSION_BPS:}
+    kr-sell-tax-bps: ${KIS_REAL_KR_SELL_TAX_BPS:}
+    us-buy-commission-bps: ${KIS_REAL_US_BUY_COMMISSION_BPS:}
+    us-sell-commission-bps: ${KIS_REAL_US_SELL_COMMISSION_BPS:}
+    us-sell-tax-bps: ${KIS_REAL_US_SELL_TAX_BPS:}
   connect-timeout: ${KIS_CONNECT_TIMEOUT:3s}
   read-timeout: ${KIS_READ_TIMEOUT:8s}
   min-request-interval: ${KIS_MIN_REQUEST_INTERVAL:1s}

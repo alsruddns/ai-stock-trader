@@ -145,7 +145,7 @@ public class KisRealDailyRiskBaselineService {
         return market == Market.KR ? "KRW".equals(account.currency()) : "USD".equals(account.currency());
     }
 
-    private String accountFingerprint() {
+    String accountFingerprint() {
         KisProperties.Account account = properties.credentials(KisEnvironment.REAL);
         if (!account.configured()) throw new IllegalStateException("KIS REAL credentials are not configured.");
         try {

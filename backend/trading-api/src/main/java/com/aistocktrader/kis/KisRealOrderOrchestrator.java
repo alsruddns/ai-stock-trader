@@ -22,19 +22,37 @@ public class KisRealOrderOrchestrator {
     private final KisRealDailyRiskBaselineService dailyRiskBaselines;
     private final KisMarketAiEvidenceClient marketAiEvidence;
     private final KisRealAccountPortfolioPositionCounter portfolioPositions;
+    private final KisRealConsecutiveLossService consecutiveLosses;
 
     @Autowired
     public KisRealOrderOrchestrator(KisRealOrderClient orders, KisLiveOrderRiskGate riskGate,
                                     KisOrderIntentStore intents,
                                     KisRealDailyRiskBaselineService dailyRiskBaselines,
                                     KisMarketAiEvidenceClient marketAiEvidence,
-                                    KisRealAccountPortfolioPositionCounter portfolioPositions) {
+                                    KisRealAccountPortfolioPositionCounter portfolioPositions,
+                                    KisRealConsecutiveLossService consecutiveLosses) {
         this.orders = orders;
         this.riskGate = riskGate;
         this.intents = intents;
         this.dailyRiskBaselines = dailyRiskBaselines;
         this.marketAiEvidence = marketAiEvidence;
         this.portfolioPositions = portfolioPositions;
+        this.consecutiveLosses = consecutiveLosses;
+    }
+
+    /** Test-only compatibility constructor; absent server-side history must keep REAL buys blocked. */
+    public KisRealOrderOrchestrator(KisRealOrderClient orders, KisLiveOrderRiskGate riskGate,
+                                    KisOrderIntentStore intents) {
+        this(orders, riskGate, intents, null, null, null, null);
+    }
+
+    /** Test constructor; absent server-side consecutive-loss evidence must fail closed. */
+    public KisRealOrderOrchestrator(KisRealOrderClient orders, KisLiveOrderRiskGate riskGate,
+                                    KisOrderIntentStore intents,
+                                    KisRealDailyRiskBaselineService dailyRiskBaselines,
+                                    KisMarketAiEvidenceClient marketAiEvidence,
+                                    KisRealAccountPortfolioPositionCounter portfolioPositions) {
+        this(orders, riskGate, intents, dailyRiskBaselines, marketAiEvidence, portfolioPositions, null);
     }
 
     public KisOrderIntentResponse submit(UUID idempotencyKey, OrderRequest request, String exchange,
@@ -47,13 +65,24 @@ public class KisRealOrderOrchestrator {
                     dailyRiskBaselines.riskInputs(request.market(), realAccount);
             KisMarketAiEvidenceClient.Evidence aiEvidence = marketAiEvidence.inspect(request, exchange);
             Integer allMarketPositionCount = null;
+            int consecutiveLossCount = -1;
+            if (consecutiveLosses != null) {
+                var history = request.side() == com.aistocktrader.order.OrderSide.BUY
+                        ? consecutiveLosses.evaluate(request.market(), realAccount) : null;
+                if (history != null && history.isPresent()) {
+                    consecutiveLossCount = history.get().consecutiveLosses();
+                    allMarketPositionCount = history.get().totalOpenPositionsAcrossMarkets();
+                }
+            }
             if (request.side() == com.aistocktrader.order.OrderSide.BUY) {
-                var count = portfolioPositions.countOpenPositionsAcrossMarkets(realAccount);
-                if (count.isPresent()) allMarketPositionCount = count.getAsInt();
+                if (consecutiveLosses == null) {
+                    var count = portfolioPositions.countOpenPositionsAcrossMarkets(realAccount);
+                    if (count.isPresent()) allMarketPositionCount = count.getAsInt();
+                }
             }
             serverCheckedContext = new KisLiveRiskContext(aiEvidence.approvedModelCandidate(),
                     aiEvidence.quoteFresh(), true, dailyRisk.marketOpen(), unresolvedOrder,
-                    dailyRisk.dailyLossPercent(), -1,
+                    dailyRisk.dailyLossPercent(), consecutiveLossCount,
                     realAccount == null ? null : realAccount.accountEquity(), aiEvidence.stopDistancePerShare(),
                     allMarketPositionCount);
         }

@@ -91,11 +91,22 @@ KIS 접근 토큰 요청은 Spring과 Python이 PostgreSQL `kis_token_issue_rate
 
 기본은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`입니다. REAL 내부 오케스트레이터는 REAL 자격정보와 전체/REAL 계좌 읽기 스위치, 세 주문 잠금, 해당 주문과 3초 이내에 결합된 서버 내부 위험 승인이 있어야만 주문 요청을 보냅니다. 신규 매수의 동시 보유 한도는 국내·미국 KIS 잔고를 모두 읽어 합산합니다. 어느 한 시장의 잔고가 없거나 오래됐거나 종목 중복으로 모호하면 `ALL_MARKET_POSITION_COUNT_REQUIRED`로 차단합니다. 주문 의도를 먼저 DB에 기록하고, 부분체결 취소에는 잔량을 쓰며, 불명 결과는 자동 재전송하지 않습니다. 주기적 실계좌 체결 조회는 별도 잠금으로 기본 비활성입니다. UNKNOWN 중 주문번호가 없는 건은 자동 추측·재주문하지 않습니다. P6의 paper 세션·장애 검증 전까지 세 주문 잠금을 열지 않습니다.
 
-REAL 주문 위험검사는 Python AI·시세 API에서 현재 활성·승인·데이터 권리·검증 증거가 모두 유효한 모델과 요청 종목의 최근 `BUY_CANDIDATE` 결정을 확인합니다. 신호는 승인된 동일 모델이 생성하고 120초 이내여야 하며, ATR 손절 거리도 양수여야 합니다. KIS REST 시세는 출처·종목·시장과 3초 이내 시각을 확인합니다. API 장애, 불완전 응답, 종목 불일치 또는 오래된 값은 매수를 차단합니다. 이 신호 확인은 계좌별 연속손실 횟수의 서버 계산, 실시간 signal-to-order 공개 경로, 또는 전체 실전 운용 검증을 대신하지 않습니다.
+REAL 주문 위험검사는 Python AI·시세 API에서 현재 활성·승인·데이터 권리·검증 증거가 모두 유효한 모델과 요청 종목의 최근 `BUY_CANDIDATE` 결정을 확인합니다. 신호는 승인된 동일 모델이 생성하고 120초 이내여야 하며, ATR 손절 거리도 양수여야 합니다. KIS REST 시세는 출처·종목·시장과 3초 이내 시각을 확인합니다. API 장애, 불완전 응답, 종목 불일치 또는 오래된 값은 매수를 차단합니다. 이 신호 확인과 손실 원장 검사는 실시간 공개 signal-to-order 경로 및 전체 실전 운용 검증을 대신하지 않습니다.
 
-REAL 연속 손실 횟수의 서버 집계는 아직 연결되지 않았습니다. 이를 caller가 제공하지 못하게 했으며, 현재 검증된 횟수는 `미확인(-1)`로 처리되어 REAL 매수는 `CONSECUTIVE_LOSS_COUNT_INVALID`로 거부됩니다. KIS 공식 샘플은 국내 기간별 매매손익(`TTTC8715R`)과 해외 기간손익(`TTTS3039R`) 조회를 제공하지만, 해외 기간손익은 매매일 다음 날부터 조회 가능하다고 설명합니다. 이를 당일 실시간 거래별 연속 손실 계산에 대입하지 않습니다. [국내 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_domstk.py), [해외 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_ovrseastk.py).
+REAL 연속 손실 횟수는 서버가 세션 시작 보유원가와 확정된 KIS 주문 체결만으로 재구성합니다. 평균원가 방식으로 각 매도 순손익을 계산하고 국내·미국 시장 결과를 체결 확인 시각 순으로 합칩니다. KIS가 제공하는 체결 시각 자체를 저장하는 원장은 아직 별도 검증되지 않았으므로, 이 정렬은 서버가 체결을 확인한 시각을 사용합니다. 장부상 보유 수량이 현재 양 시장 KIS 잔고와 다르면, 진행 중 체결이 있으면, 어느 시장의 기준선이나 비용 설정이 없으면 매수를 차단합니다. 계좌별 비용률은 확인 후 `.env_local`에 다음 여섯 항목을 설정해야 하며 기본값은 비어 있습니다.
 
-REAL 주문의 누적 체결 관측은 Flyway V19 `kis_real_fill_snapshot`에 멱등 키와 체결 누적 수량별로 저장합니다. 동일 수량의 가격 정정은 최신 관측으로 갱신하고, 이전보다 낮은 누적 체결 응답은 주문 상태와 기록 모두를 후퇴시키지 않습니다. 이 기록은 손익 원가·수수료·환율이 포함된 완결 거래 원장이 아니므로, 연속 손실 계산의 근거로 사용하지 않습니다. 사용자는 KIS 데이터의 로컬 저장·백테스트·AI 학습 허용 범위를 확인했습니다. 실제 체결 데이터 조회는 별도 읽기 잠금이 열리기 전까지 실행되지 않습니다.
+```dotenv
+KIS_REAL_KR_BUY_COMMISSION_BPS=
+KIS_REAL_KR_SELL_COMMISSION_BPS=
+KIS_REAL_KR_SELL_TAX_BPS=
+KIS_REAL_US_BUY_COMMISSION_BPS=
+KIS_REAL_US_SELL_COMMISSION_BPS=
+KIS_REAL_US_SELL_TAX_BPS=
+```
+
+각 값은 매매금액 대비 basis points(1 bps = 0.01%)로 입력합니다. 체결 단가에는 실제 체결가를 쓰고, 수수료·매도세금은 설정한 계좌별 추정률을 적용합니다. KIS 체결통보에는 실제 수수료·세금이 없어 이 결과는 계좌 명세와 대조되기 전까지 추정치이며, 손익 기능만으로 실전 전환을 승인하지 않습니다. KIS 공식 기간손익은 해외 매매일 다음 날부터 제공되므로 장중 연속 손실 계산의 대체 자료로 사용하지 않습니다. [국내 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_domstk.py), [해외 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_ovrseastk.py).
+
+REAL 주문의 누적 체결 관측은 Flyway V19 `kis_real_fill_snapshot`에 멱등 키와 체결 누적 수량별로 저장합니다. 동일 수량의 가격 정정은 최신 관측으로 갱신하고, 이전보다 낮은 누적 체결 응답은 주문 상태와 기록 모두를 후퇴시키지 않습니다. 연속 손실 계산은 최종 주문 상태와 평균 체결가를 사용하고, 해당 스냅샷은 부분체결 재시작 복구 근거로 보존합니다. 실제 KIS 주문 조회는 별도 읽기 잠금이 열리기 전까지 실행되지 않습니다.
 
 Flyway V20은 KR·US 각 거래소 개장 후 3분 안에 REAL 계좌의 보유 종목·수량·KIS 보고 평균 매입단가를 계좌 지문과 세션별 불변 기준선으로 저장합니다. 빈 포트폴리오도 0건 기준선으로 저장해 “아직 기록 없음”과 구분합니다. 캘린더·계좌 응답이 오래됐거나 기준 데이터가 불완전하면 저장하지 않습니다. 이 초기 보유 원가는 향후 체결 원장 계산용이며, 그 자체로 당일 손익이나 거래 비용을 포함하지 않습니다. REAL 읽기 스위치가 꺼져 있으면 KIS 요청은 발생하지 않습니다. KIS는 잔고 응답에서 종목별 매입 평균가를 제공하며([공식 국내 잔고 예제](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_domstk.py)), 해외 기간손익은 매매일 익일부터 가능하므로 ([공식 해외주식 예제](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_ovrseastk.py)) 당일 거래별 손실 연속 계산에 직접 사용하지 않습니다.
 
