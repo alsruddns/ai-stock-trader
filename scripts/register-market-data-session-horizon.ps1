@@ -6,6 +6,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$schedulerLibrary = Join-Path $PSScriptRoot 'lib\market-session-scheduler.ps1'
+. $schedulerLibrary
 $koreaZone = [TimeZoneInfo]::FindSystemTimeZoneById('Korea Standard Time')
 if ([TimeZoneInfo]::Local.Id -ne $koreaZone.Id) { throw 'Windows time zone must be Korea Standard Time (KST) for session task scheduling.' }
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -63,6 +65,7 @@ try {
 }
 
 $registrar = Join-Path $PSScriptRoot 'register-market-data-session-monitor.ps1'
+$monitorPath = Join-Path $PSScriptRoot 'test-paper-websocket-monitor.ps1'
 $taskRows = @()
 foreach ($market in @('KR', 'US')) {
     $feed = if ($market -eq 'KR') { 'paper' } else { 'real' }
@@ -70,12 +73,16 @@ foreach ($market in @('KR', 'US')) {
     foreach ($session in $sessionsByMarket[$market]) {
         $dateKey = ([DateTime]::ParseExact($session.Date, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)).ToString('yyyyMMdd')
         $taskName = "AIStockTrader-$($taskMarket)-Session-Monitor-$dateKey"
-        $exists = [bool](Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)
-        $taskRows += [pscustomobject]@{ Market = $market; Feed = $feed; Date = $session.Date; RunAt = $session.RunAt; TaskName = $taskName; Exists = $exists }
+        $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if ($existingTask -and -not (Test-SessionMonitorTaskDefinition -Task $existingTask `
+                -MonitorPath $monitorPath -Feed $feed -ExpectedRunAt $session.RunAt)) {
+            throw "Existing task '$taskName' does not match the required enabled, read-only KST monitor definition; refusing to replace or count it."
+        }
+        $taskRows += [pscustomobject]@{ Market = $market; Feed = $feed; Date = $session.Date; RunAt = $session.RunAt; TaskName = $taskName; ExistingTask = $existingTask }
     }
 }
 
-$toRegister = @($taskRows | Where-Object { -not $_.Exists })
+$toRegister = @($taskRows | Where-Object { $null -eq $_.ExistingTask })
 Write-Output "Future sessions covered: $(@($taskRows | Where-Object {$_.Market -eq 'KR'}).Count) KR and $(@($taskRows | Where-Object {$_.Market -eq 'US'}).Count) US; adding $($toRegister.Count) missing tasks."
 foreach ($row in $toRegister) {
     if ($PSCmdlet.ShouldProcess($row.TaskName, "Register read-only $($row.Market) session monitor for $($row.Date) at $($row.RunAt.ToString('HH:mm')) KST")) {
@@ -85,8 +92,13 @@ foreach ($row in $toRegister) {
 
 if ($InstallDailyRefresh) {
     $refreshTaskName = 'AIStockTrader-Session-Monitor-Rolling-Registration'
-    if (Get-ScheduledTask -TaskName $refreshTaskName -ErrorAction SilentlyContinue) {
-        Write-Output "Daily refresh task '$refreshTaskName' already exists; it was left unchanged."
+    $existingRefreshTask = Get-ScheduledTask -TaskName $refreshTaskName -ErrorAction SilentlyContinue
+    if ($existingRefreshTask) {
+        if (-not (Test-SessionMonitorRefreshTaskDefinition -Task $existingRefreshTask `
+                -RegistrarPath $PSCommandPath -SessionCount $SessionCount)) {
+            throw "Existing task '$refreshTaskName' does not match the required daily 00:05 KST registration definition; refusing to replace it."
+        }
+        Write-Output "Verified existing daily refresh task '$refreshTaskName'; it was left unchanged."
     } else {
         $scriptArguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$PSCommandPath`" -SessionCount $SessionCount"
         $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $scriptArguments -WorkingDirectory $repoRoot

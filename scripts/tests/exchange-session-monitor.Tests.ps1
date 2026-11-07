@@ -1,4 +1,5 @@
 . (Join-Path $PSScriptRoot '../lib/exchange-session-monitor.ps1')
+. (Join-Path $PSScriptRoot '../lib/market-session-scheduler.ps1')
 
 Describe 'Exchange session monitor calendar boundaries' {
     It 'tracks the US regular session across Korea midnight' {
@@ -212,5 +213,49 @@ Describe 'Exchange session monitor registration times' {
     It 'uses the summer US open and starts five minutes early' {
         $start = Get-ExchangeSessionMonitorStart 'US' ([DateTimeOffset]::Parse('2026-07-06T13:30:00Z'))
         $start.ToString('yyyy-MM-dd HH:mm zzz') | Should Be '2026-07-06 22:25 +09:00'
+    }
+}
+
+function New-TestScheduledTask($State, $Arguments, $TriggerType, $StartBoundary, $DaysInterval = 1) {
+    [pscustomobject]@{
+        State = $State
+        Actions = @([pscustomobject]@{ Arguments = $Arguments })
+        Triggers = @([pscustomobject]@{
+            Enabled = $true
+            CimClass = [pscustomobject]@{ CimClassName = $TriggerType }
+            StartBoundary = $StartBoundary
+            DaysInterval = $DaysInterval
+        })
+        Principal = [pscustomobject]@{ RunLevel = 'Limited'; LogonType = 'Interactive' }
+        Settings = [pscustomobject]@{
+            WakeToRun = $true; StartWhenAvailable = $true; MultipleInstances = 'IgnoreNew'
+        }
+    }
+}
+
+Describe 'Existing market session task verification' {
+    It 'accepts only a matching limited KST monitor schedule' {
+        $task = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -RequireSessionClose' `
+            'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
+        (Test-SessionMonitorTaskDefinition $task 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
+            ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $true
+    }
+
+    It 'rejects disabled or mismatched monitor tasks' {
+        $disabled = New-TestScheduledTask 'Disabled' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -RequireSessionClose' `
+            'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
+        $wrongFeed = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed paper -RequireSessionClose' `
+            'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
+        (Test-SessionMonitorTaskDefinition $disabled 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
+            ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $false
+        (Test-SessionMonitorTaskDefinition $wrongFeed 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
+            ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $false
+    }
+
+    It 'requires the daily refresh job to match the intended registrar and horizon' {
+        $task = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\register-market-data-session-horizon.ps1" -SessionCount 10' `
+            'MSFT_TaskDailyTrigger' '2026-11-08T00:05:00+09:00'
+        (Test-SessionMonitorRefreshTaskDefinition $task 'C:\repo\scripts\register-market-data-session-horizon.ps1' 10) | Should Be $true
+        (Test-SessionMonitorRefreshTaskDefinition $task 'C:\repo\scripts\register-market-data-session-horizon.ps1' 12) | Should Be $false
     }
 }

@@ -29,6 +29,7 @@ jobs:
             'scripts/lib/kis-paper-order-preflight.ps1',
             'scripts/test-paper-websocket-monitor.ps1',
             'scripts/lib/exchange-session-monitor.ps1',
+            'scripts/lib/market-session-scheduler.ps1',
             'scripts/register-market-data-session-monitor.ps1',
             'scripts/register-market-data-session-horizon.ps1',
             'scripts/lib/paper-safety.ps1',
@@ -60,7 +61,7 @@ jobs:
           }
 
           $sessionResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -PassThru
-          if ($sessionResult.FailedCount -gt 0 -or $sessionResult.PassedCount -ne 18) {
+          if ($sessionResult.FailedCount -gt 0 -or $sessionResult.PassedCount -ne 21) {
             throw "Exchange session monitor tests failed: passed=$($sessionResult.PassedCount), failed=$($sessionResult.FailedCount)."
           }
 
