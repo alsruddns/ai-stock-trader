@@ -9,13 +9,13 @@
 - **LEAN:** 퀀트 전략의 과거 데이터 백테스트
 - **KIS Open API:** 국내·미국 주식의 기본 증권사 연결
 
-AI는 주문을 직접 제출하지 않습니다. Python의 모델 예측은 시장별로 버전이 구분되는 advisory 신호이며 `executable=false`를 유지합니다. Spring Boot에는 PAPER 주문 어댑터와 내부 전용 REAL 주문 어댑터/오케스트레이터가 있습니다. PAPER 주문은 `KIS_PAPER_ORDERS_ENABLED=false`, REAL 주문은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`를 포함한 별도 게이트로 잠겨 있습니다. REAL 주문 오케스트레이터는 공개 HTTP 경로에 연결되어 있지 않으며, 실제 KIS 계좌 주문은 이 개발 상태에서 전송하지 않았습니다.
+AI는 주문을 직접 제출하지 않습니다. Python의 모델 예측은 시장별로 버전이 구분되는 advisory 신호이며 `executable=false`를 유지합니다. Spring Boot에는 PAPER와 REAL 주문 어댑터 및 오케스트레이터가 있습니다. REAL 주문 HTTP 경로는 `/api/v1/kis/orders/real`이며 REAL 거래 모드, live 주문 스위치, 전체·REAL 계좌 읽기 스위치를 모두 통과해야 합니다. 기본값은 PAPER 모드와 모든 REAL 주문 잠금 비활성입니다. 실제 KIS 계좌 주문은 이 개발 상태에서 전송하지 않았습니다.
 
 Next.js 대시보드는 server-side API route를 통해 loopback Spring/Python API를 polling합니다. 주문 제출·취소 UI를 제공하지 않습니다. 모델 파일은 PostgreSQL에 저장하지 않고 `.local/models` 아래 로컬 아티팩트와 메타데이터로 관리하며, 승인·활성·롤백 이벤트를 JSONL 로컬 기록으로 남깁니다.
 
 ## 외부 경계
 
-P1 계좌 API는 명시적 `paper` 또는 `real` 환경에서 인증정보와 계좌를 선택하고, 잔고·매수가능 정보만 GET으로 조회합니다. 주문·정정·취소 API 호출은 포함하지 않습니다. REST 시세와 WebSocket 시세는 각각 지연·연결상태와 함께 구분합니다.
+P1 계좌 API는 명시적 `paper` 또는 `real` 환경에서 인증정보와 계좌를 선택하고, 잔고·매수가능 정보만 GET으로 조회합니다. REAL 주문 경로는 계좌 잔고 사전조회 후 멱등 주문 제출·상태 조회·체결 대조·취소를 Spring REAL 오케스트레이터에 전달합니다. REAL 쓰기는 모든 주문/계좌 잠금이 열린 경우에만 시도되며, 자동 재전송하지 않습니다. REST 시세와 WebSocket 시세는 각각 지연·연결상태와 함께 구분합니다.
 
 ## 프로세스 결합
 

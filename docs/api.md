@@ -15,6 +15,10 @@
 | GET | `/api/v1/orders/paper/positions` | Paper 포지션 조회 |
 | GET | `/api/v1/kis/accounts/{paper\|real}/{KR\|US}/balance` | KIS 계좌 읽기 전용 잔고조회 |
 | GET | `/api/v1/kis/accounts/realized-pnl/real/{KR\|US}?from=YYYY-MM-DD&to=YYYY-MM-DD` | KIS REAL 기간손익 원문 조회(최대 31일, REAL 계좌읽기 스위치 필요) |
+| POST | `/api/v1/kis/orders/real` | REAL 주문 의도 제출 (`Idempotency-Key` 필수, 모든 REAL 주문·계좌 읽기 스위치 필요) |
+| GET | `/api/v1/kis/orders/real/{idempotencyKey}` | 저장된 REAL 주문 의도 상태 조회 |
+| POST | `/api/v1/kis/orders/real/{idempotencyKey}/reconcile` | 저장된 REAL 주문의 KIS 상태 재조회 (REAL 주문·계좌 읽기 스위치 필요) |
+| POST | `/api/v1/kis/orders/real/{idempotencyKey}/cancel` | 잔량 대조 후 REAL 주문 취소 (REAL 주문·계좌 읽기 스위치 필요) |
 | WS | `/api/v1/market/stream` | KIS 국내·미국 실시간 체결 데이터 읽기 전용 릴레이 |
 | POST | `/api/v1/strategies/orb-vwap/backtest` | 전달된 단일 세션 봉 데이터의 ORB/VWAP 비용 반영 백테스트 |
 | POST | `/api/v1/ai/models/{model_id}/predict` | 등록 모델의 비실행 예측 확률 미리보기 |
@@ -22,6 +26,8 @@
 | POST | `/api/v1/ai/models/{model_id}/approve` | 로컬 거버넌스 토큰과 검토자·사유로 모델 승인 기록 |
 | POST | `/api/v1/ai/models/{model_id}/activate` | 승인된 advisory 모델 활성화 |
 | POST | `/api/v1/ai/models/{model_id}/rollback` | 승인된 이전 모델로 advisory 포인터 복구 |
+
+REAL 주문 API는 Spring이 `127.0.0.1:8080`에 바인딩된 로컬 운영만 대상으로 합니다. `TRADING_MODE=real`, `LIVE_TRADING_ENABLED=true`, `KIS_REAL_ORDERS_ENABLED=true`, `KIS_ACCOUNT_READ_ENABLED=true`, `KIS_REAL_ACCOUNT_READ_ENABLED=true`가 모두 설정되어야 POST 쓰기 경로가 KIS 계좌를 사전 조회합니다. PAPER 기본 설정에서는 HTTP 423으로 거부하고 계좌·주문 API를 호출하지 않습니다. 네트워크 타임아웃 등 결과가 불명확하면 같은 키로 다시 주문하지 말고 저장된 의도 조회와 재조회를 사용하세요. 실계좌 연결·실주문 검증은 아직 완료되지 않았습니다.
 
 ## Python 시세·AI API
 
