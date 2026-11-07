@@ -317,7 +317,10 @@ class LocalModelRegistry:
                 metadata = self.manifest(manifest_path.stem)
                 data_rights_verified = self._has_verified_data_provenance(metadata)
                 feature_compatible = self._supports_current_features(metadata)
-                approval_evidence_verified = self._has_valid_approval_evidence(metadata)
+                approval_evidence_verified = (
+                    self._has_valid_approval_evidence(metadata)
+                    and self._has_durable_holdout_evaluation(metadata)
+                )
                 approval_audit_verified = (self._has_durable_approval_event(metadata)
                                             if metadata.get("approved") else None)
                 approved = bool(metadata.get("approved", False) and data_rights_verified
@@ -366,6 +369,7 @@ class LocalModelRegistry:
                 or not self._supports_current_features(metadata)
                 or not self._has_verified_data_provenance(metadata)
                 or not self._has_valid_approval_evidence(metadata)
+                or not self._has_durable_holdout_evaluation(metadata)
                 or not self._has_durable_approval_event(metadata)):
             return None
         return metadata
@@ -388,10 +392,34 @@ class LocalModelRegistry:
             "dataset_sha256": metadata.get("dataset_sha256"),
             "artifact_sha256": metadata.get("artifact_sha256"),
             "threshold": metadata.get("threshold"),
+            "heldout_evaluation": metadata.get("heldout_evaluation"),
             "train_sessions": metadata.get("train_sessions"),
             "validation_sessions": metadata.get("validation_sessions"),
             "test_sessions": metadata.get("test_sessions"),
             "training_config": metadata.get("training_config", {}),
+            "quant_backtest_test_metrics": metadata.get("quant_backtest_test_metrics"),
+            "ai_quant_backtest_test_metrics": metadata.get("ai_quant_backtest_test_metrics"),
+        }
+        return any(all(event.get(key) == value for key, value in expected.items()) for event in events)
+
+    def _has_durable_holdout_evaluation(self, metadata: dict[str, Any]) -> bool:
+        """Require independent holdout metrics to match their immutable audit event."""
+        evaluation = metadata.get("heldout_evaluation")
+        if not isinstance(evaluation, dict) or not self._audit_path.is_file():
+            return False
+        try:
+            events = self._read_governance_events()
+        except (OSError, ValueError, json.JSONDecodeError):
+            return False
+        expected = {
+            "action": "evaluate_holdout",
+            "model_id": metadata.get("model_id"),
+            "dataset_sha256": evaluation.get("dataset_sha256"),
+            "data_provenance": evaluation.get("data_provenance"),
+            "artifact_sha256": metadata.get("artifact_sha256"),
+            "threshold": metadata.get("threshold"),
+            "test_sessions": evaluation.get("sessions"),
+            "evaluated_at": evaluation.get("evaluated_at"),
             "quant_backtest_test_metrics": metadata.get("quant_backtest_test_metrics"),
             "ai_quant_backtest_test_metrics": metadata.get("ai_quant_backtest_test_metrics"),
         }
@@ -579,6 +607,8 @@ class LocalModelRegistry:
                 raise ValueError("AI+quant held-out net PnL must be positive and exceed the quant-only baseline")
             if not self._has_valid_approval_evidence(metadata):
                 raise ValueError("held-out metrics or training configuration are inconsistent")
+            if not self._has_durable_holdout_evaluation(metadata):
+                raise ValueError("held-out evidence lacks a matching durable evaluation audit event")
             previous_metadata = json.loads(json.dumps(metadata))
             metadata["approved"] = True
             metadata["approval"] = {"approved_by": reviewer, "note": justification, "approved_at": datetime.now().astimezone().isoformat()}
@@ -589,6 +619,7 @@ class LocalModelRegistry:
                     "dataset_sha256": metadata.get("dataset_sha256"),
                     "artifact_sha256": metadata["artifact_sha256"],
                     "threshold": metadata["threshold"],
+                    "heldout_evaluation": metadata["heldout_evaluation"],
                     "train_sessions": metadata["train_sessions"],
                     "validation_sessions": metadata["validation_sessions"],
                     "test_sessions": metadata["test_sessions"],
@@ -903,9 +934,11 @@ class LocalModelRegistry:
                 self._record_governance_event({
                     "action": "evaluate_holdout", "model_id": model_id,
                     "dataset_sha256": dataset_sha256,
+                    "data_provenance": provenance,
                     "artifact_sha256": metadata["artifact_sha256"],
                     "threshold": metadata["threshold"],
                     "test_sessions": list(test_dates),
+                    "evaluated_at": updated["heldout_evaluation"]["evaluated_at"],
                     "quant_backtest_test_metrics": quant_metrics,
                     "ai_quant_backtest_test_metrics": ai_metrics,
                 })

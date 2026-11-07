@@ -344,7 +344,22 @@ def test_legacy_model_with_outdated_feature_schema_cannot_be_approved_or_selecte
         registry.approve(model_id, approved_by="operator", note="Reviewed for migration but requires retraining first.")
 
 
-def _write_candidate(registry: LocalModelRegistry, model_id: str) -> None:
+def _record_holdout_audit_event(registry: LocalModelRegistry, metadata: dict) -> None:
+    evaluation = metadata["heldout_evaluation"]
+    registry._record_governance_event({
+        "action": "evaluate_holdout", "model_id": metadata["model_id"],
+        "dataset_sha256": evaluation["dataset_sha256"],
+        "data_provenance": evaluation["data_provenance"],
+        "artifact_sha256": metadata["artifact_sha256"],
+        "threshold": metadata["threshold"],
+        "test_sessions": evaluation["sessions"],
+        "evaluated_at": evaluation["evaluated_at"],
+        "quant_backtest_test_metrics": metadata["quant_backtest_test_metrics"],
+        "ai_quant_backtest_test_metrics": metadata["ai_quant_backtest_test_metrics"],
+    })
+
+
+def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_holdout_event: bool = True) -> None:
     dataset_sha256 = "e" * 64
     artifact_name = f"{model_id}.joblib"
     artifact = registry.root / artifact_name
@@ -380,6 +395,8 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str) -> None:
         },
     }
     (registry.root / f"{model_id}.json").write_text(json.dumps(metadata), encoding="utf-8")
+    if record_holdout_event:
+        _record_holdout_audit_event(registry, metadata)
 
 
 def test_model_without_data_rights_provenance_cannot_be_approved_or_selected(tmp_path) -> None:
@@ -496,6 +513,33 @@ def test_model_approval_requires_sufficient_heldout_sessions_and_ai_quant_outper
         registry.approve(model_id, approved_by="operator", note="Review held-out execution comparison before promotion.")
 
 
+def test_model_approval_requires_matching_durable_holdout_evaluation(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "8" * 32
+    _write_candidate(registry, model_id, record_holdout_event=False)
+
+    with pytest.raises(ValueError, match="matching durable evaluation audit event"):
+        registry.approve(model_id, approved_by="operator", note="Require an auditable independent evaluation.")
+    assert registry.manifest(model_id)["approved"] is False
+
+
+def test_holdout_dataset_hash_cannot_be_changed_after_evaluation(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "9" * 32
+    _write_candidate(registry, model_id)
+    manifest_path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    changed_dataset_sha256 = "f" * 64
+    metadata["heldout_evaluation"]["dataset_sha256"] = changed_dataset_sha256
+    metadata["heldout_evaluation"]["data_provenance"] = _provenance(changed_dataset_sha256)
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    assert registry._has_valid_approval_evidence(metadata) is True
+    assert registry._has_durable_holdout_evaluation(metadata) is False
+    with pytest.raises(ValueError, match="matching durable evaluation audit event"):
+        registry.approve(model_id, approved_by="operator", note="Reject altered holdout dataset evidence.")
+
+
 def test_model_approval_rejects_holdout_evidence_for_a_different_artifact(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)
     model_id = "lightgbm-" + "8" * 32
@@ -527,7 +571,7 @@ def test_holdout_evaluation_rolls_back_manifest_when_audit_write_fails_and_allow
 ) -> None:
     registry = LocalModelRegistry(tmp_path)
     model_id = "lightgbm-" + "3" * 32
-    _write_candidate(registry, model_id)
+    _write_candidate(registry, model_id, record_holdout_event=False)
     manifest_path = tmp_path / f"{model_id}.json"
     original = json.loads(manifest_path.read_text(encoding="utf-8"))
     original.pop("heldout_evaluation")
@@ -636,6 +680,7 @@ def test_model_approval_enforces_five_ai_quant_trades_as_the_exact_minimum(tmp_p
 
     metadata["ai_quant_backtest_test_metrics"]["trade_count"] = 5
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+    _record_holdout_audit_event(registry, metadata)
     approved = registry.approve(model_id, approved_by="operator", note="Held-out execution evidence reviewed for approval.")
     assert approved["approved"] is True
 
@@ -696,15 +741,17 @@ def test_approved_manifest_without_durable_audit_event_cannot_be_selected_or_act
     assert registry.active_approved_model("KR")["model_id"] == model_id
 
     events = registry.governance_events()
-    assert len(events) == 2
+    assert len(events) == 3
     assert events[0]["previous_event_sha256"] == "0" * 64
     assert events[1]["previous_event_sha256"] == events[0]["event_sha256"]
-    assert registry.governance_audit_status() == {"integrity_verified": True, "event_count": 2}
+    assert events[1]["action"] == "approve"
+    assert events[2]["previous_event_sha256"] == events[1]["event_sha256"]
+    assert registry.governance_audit_status() == {"integrity_verified": True, "event_count": 3}
 
-    event = events[0]
+    event = events[1]
     event["artifact_sha256"] = "0" * 64
     registry._audit_path.write_text(
-        json.dumps(event) + "\n" + json.dumps(events[1]) + "\n", encoding="utf-8"
+        "\n".join(json.dumps(value) for value in [events[0], event, events[2]]) + "\n", encoding="utf-8"
     )
     listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
     assert listed["approved"] is False
@@ -717,8 +764,8 @@ def test_approved_manifest_without_durable_audit_event_cannot_be_selected_or_act
     assert registry.governance_audit_status() == {"integrity_verified": False, "event_count": 0}
 
     blocked_id = "xgboost-" + "e" * 32
-    _write_candidate(registry, blocked_id)
-    with pytest.raises(ValueError, match="governance audit chain failed"):
+    _write_candidate(registry, blocked_id, record_holdout_event=False)
+    with pytest.raises(ValueError, match="matching durable evaluation audit event"):
         registry.approve(blocked_id, approved_by="operator", note="Approval must stop when prior audit history is damaged.")
     assert registry.manifest(blocked_id)["approved"] is False
 
