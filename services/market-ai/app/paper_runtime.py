@@ -57,8 +57,8 @@ def parse_watchlist(value: str) -> tuple[PaperWatch, ...]:
         if watch.key not in seen:
             watches.append(watch)
             seen.add(watch.key)
-    if len(watches) > 50:
-        raise ValueError("paper monitor supports at most 50 subscriptions")
+    if len(watches) > 40:
+        raise ValueError("paper monitor supports at most 40 subscriptions")
     return tuple(watches)
 
 
@@ -68,6 +68,11 @@ class PaperSessionFeedMonitor:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._stream_tasks: list[asyncio.Task] = []
+        self._watches_by_feed: dict[str, list[PaperWatch]] = {}
+        self._subscription_update_queues: dict[
+            str, asyncio.Queue[tuple[PaperWatch, asyncio.Future[None]]]
+        ] = {}
+        self._watch_update_lock = asyncio.Lock()
         self._status: dict[str, object] = {
             "state": "DISABLED", "enabled": False, "subscriptions": 0,
             "ticks_received": 0, "bars_closed": 0, "last_tick_at": None,
@@ -143,6 +148,14 @@ class PaperSessionFeedMonitor:
                 self._set_status(state="BLOCKED", enabled=False, last_error="REAL_US_MARKET_DATA_STREAM_NOT_CONFIGURED")
                 return
             feed_groups["real"] = (us_watches, us_settings)
+        self._watches_by_feed = {
+            environment: list(group_watches)
+            for environment, (group_watches, _settings) in feed_groups.items()
+        }
+        self._subscription_update_queues = {
+            environment: asyncio.Queue()
+            for environment in feed_groups
+        }
         persistence_enabled = snapshot_store.enabled()
         if (os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true"
                 and not persistence_enabled):
@@ -210,6 +223,73 @@ class PaperSessionFeedMonitor:
             asyncio.create_task(self._run(group_watches, group_settings))
             for group_watches, group_settings in feed_groups.values()
         ]
+
+    async def add_watches(self, watches: tuple[PaperWatch, ...]) -> dict[str, object]:
+        """Add bounded read-only subscriptions to an already running market feed."""
+        if not watches:
+            return {"added": [], "subscriptions": int(self.status().get("subscriptions", 0))}
+        async with self._watch_update_lock:
+            status = self.status()
+            if not status.get("enabled"):
+                raise RuntimeError("paper market feed must be running before adding subscriptions")
+            normalized: list[PaperWatch] = []
+            seen = {watch.key for feed in self._watches_by_feed.values() for watch in feed}
+            for watch in watches:
+                # Reuse the canonical market/symbol/exchange validation.
+                parsed = parse_watchlist(
+                    f"KR:{watch.symbol}" if watch.market == "KR"
+                    else f"US:{watch.symbol}:{watch.exchange or ''}"
+                )
+                candidate = parsed[0]
+                if candidate.key not in seen:
+                    normalized.append(candidate)
+                    seen.add(candidate.key)
+            total = sum(len(feed) for feed in self._watches_by_feed.values())
+            if total + len(normalized) > 40:
+                raise ValueError("paper monitor supports at most 40 subscriptions")
+            for watch in normalized:
+                environment = "paper" if watch.market == "KR" else "real"
+                queue = self._subscription_update_queues.get(environment)
+                if queue is None or status.get("stream_connections", {}).get(environment) != "RUNNING":
+                    raise RuntimeError(f"{environment} market feed is not running")
+            for watch in normalized:
+                await self._prepare_watch(watch)
+            pending_sends: list[asyncio.Future[None]] = []
+            for watch in normalized:
+                environment = "paper" if watch.market == "KR" else "real"
+                self._watches_by_feed[environment].append(watch)
+                sent = asyncio.get_running_loop().create_future()
+                pending_sends.append(sent)
+                self._subscription_update_queues[environment].put_nowait((watch, sent))
+            if pending_sends:
+                try:
+                    await asyncio.wait_for(asyncio.gather(*pending_sends), timeout=5)
+                except TimeoutError as exc:
+                    raise RuntimeError("KIS WebSocket subscription send timed out") from exc
+                except Exception as exc:
+                    raise RuntimeError("KIS WebSocket subscription request failed") from exc
+            count = sum(len(feed) for feed in self._watches_by_feed.values())
+            self._set_status(subscriptions=count)
+            return {"added": [watch.key for watch in normalized], "subscriptions": count}
+
+    async def _prepare_watch(self, watch: PaperWatch) -> None:
+        if watch.key not in self._bars:
+            self._aggregators[watch.key] = MinuteBarAggregator()
+            self._bars[watch.key] = deque(maxlen=5_000)
+            self._decisions[watch.key] = {
+                "market": watch.market, "symbol": watch.symbol, "exchange": watch.exchange,
+                "signal": "HOLD", "reason": "WAITING_FOR_CLOSED_BARS", "bars_in_session": 0,
+                "evaluated_at": None, "executable": False,
+            }
+        if snapshot_store.enabled():
+            market_zone = ZoneInfo("Asia/Seoul" if watch.market == "KR" else "America/New_York")
+            session_date = datetime.now(market_zone).date()
+            restored = await asyncio.to_thread(
+                snapshot_store.load_session_minute_bars, watch.market, watch.symbol, session_date,
+            )
+            if restored:
+                self._bars[watch.key].extend(restored)
+                self._evaluate_closed_history(watch, restored[-1])
 
     async def stop(self) -> None:
         stream_tasks = self._stream_tasks
@@ -282,13 +362,26 @@ class PaperSessionFeedMonitor:
 
                 async with websockets.connect(settings.websocket_url, ping_interval=30, close_timeout=3) as upstream:
                     connected_at = asyncio.get_running_loop().time()
-                    for watch in watches:
+                    active_watches = self._watches_by_feed.get(environment, list(watches))
+                    sent_keys: set[str] = set()
+                    for watch in tuple(active_watches):
                         await upstream.send(self._subscription_json(key, watch))
+                        sent_keys.add(watch.key)
+                    update_task = asyncio.create_task(
+                        self._write_subscription_updates(upstream, key, environment, sent_keys)
+                    )
                     self._set_connection_state(environment, "RUNNING")
-                    async for frame in upstream:
-                        if await reply_to_pingpong(upstream, frame):
-                            continue
-                        self._consume(frame, watches)
+                    try:
+                        async for frame in upstream:
+                            if await reply_to_pingpong(upstream, frame):
+                                continue
+                            self._consume(frame, tuple(self._watches_by_feed.get(environment, watches)))
+                    finally:
+                        update_task.cancel()
+                        try:
+                            await update_task
+                        except asyncio.CancelledError:
+                            pass
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -329,6 +422,25 @@ class PaperSessionFeedMonitor:
         import json
 
         return json.dumps(subscription_message(key, watch.market, watch.symbol, watch.exchange), separators=(",", ":"))
+
+    async def _write_subscription_updates(self, upstream, key: str, environment: str, sent_keys: set[str]) -> None:
+        queue = self._subscription_update_queues.get(environment)
+        if queue is None:
+            return
+        while True:
+            watch, sent = await queue.get()
+            try:
+                if watch.key not in sent_keys:
+                    await upstream.send(self._subscription_json(key, watch))
+                    sent_keys.add(watch.key)
+                if not sent.done():
+                    sent.set_result(None)
+            except Exception as exc:
+                if not sent.done():
+                    sent.set_exception(exc)
+                raise
+            finally:
+                queue.task_done()
 
     def _consume(self, frame: str | bytes, watches: tuple[PaperWatch, ...]) -> None:
         if isinstance(frame, bytes):

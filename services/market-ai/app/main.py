@@ -23,7 +23,7 @@ from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from .paper_ops import exchange_session_window, korean_calendar_compatibility
 from .paper_automation import PaperAutomationReadiness
 from .market_calendar import exchange_continuous_session_window, latest_closed_session_date
-from .paper_runtime import paper_session_monitor
+from .paper_runtime import PaperWatch, paper_session_monitor
 from .session_quality import audit_minute_bar_session
 
 _KIS_CLIENTS: dict[str, KisReadOnlyClient] = {}
@@ -225,6 +225,15 @@ class CandidateScreenResponse(BaseModel):
     minimum_turnover: Decimal
     maximum_spread_bps: Decimal
     candidates: list[MarketCandidateResponse]
+    executable: bool = False
+
+
+class CandidateSubscriptionResponse(BaseModel):
+    market: Market
+    exchange: str | None
+    considered: int
+    added: list[str]
+    subscriptions: int
     executable: bool = False
 
 
@@ -447,6 +456,65 @@ async def screen_market_candidates(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KisSharedRateLimitUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except KisRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except KisApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/market/candidates/{market}/subscribe", response_model=CandidateSubscriptionResponse)
+async def subscribe_market_candidates(
+    market: Market,
+    exchange: Exchange | None = Query(default=None),
+    limit: int = Query(default=10, ge=1, le=20),
+    minimum_turnover: Decimal = Query(gt=0),
+    maximum_spread_bps: Decimal = Query(default=Decimal("15"), ge=0),
+) -> CandidateSubscriptionResponse:
+    """Add screened symbols to the active local PAPER market-data monitor."""
+    if os.getenv("PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED", "false").strip().lower() != "true":
+        raise HTTPException(status_code=423, detail="PAPER candidate subscriptions are disabled")
+    if (os.getenv("TRADING_MODE", "paper").strip().lower() != "paper"
+            or os.getenv("LIVE_TRADING_ENABLED", "false").strip().lower() == "true"):
+        raise HTTPException(status_code=423, detail="PAPER mode with live trading disabled is required")
+    if market == "US" and exchange is None:
+        raise HTTPException(status_code=422, detail="US candidates require exchange=NAS, NYS, or AMS")
+    if market == "KR" and exchange is not None:
+        raise HTTPException(status_code=422, detail="KR candidates do not accept an exchange parameter")
+    monitor_status = paper_session_monitor.status()
+    feed_environment = "paper" if market == "KR" else "real"
+    if (not monitor_status.get("enabled")
+            or monitor_status.get("stream_connections", {}).get(feed_environment) != "RUNNING"):
+        raise HTTPException(status_code=409, detail=f"{feed_environment} market monitor must be running")
+    evaluated_at = datetime.now(timezone.utc)
+    try:
+        window = exchange_continuous_session_window(market, evaluated_at)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Exchange session could not be verified") from exc
+    if window is None or not window[0] <= evaluated_at < window[1]:
+        raise HTTPException(status_code=409, detail="Candidate subscriptions require an open continuous trading session")
+    try:
+        client = get_kis_candidate_client(market)
+        candidates = await asyncio.to_thread(
+            client.get_ranked_candidates, market, exchange=exchange, limit=limit,
+            minimum_turnover=minimum_turnover, maximum_spread_bps=maximum_spread_bps,
+        )
+        selected = [candidate for candidate in candidates if candidate.passes_market_filter]
+        watches = tuple(
+            PaperWatch(candidate.market, candidate.symbol, candidate.exchange)
+            for candidate in selected
+        )
+        result = await paper_session_monitor.add_watches(watches)
+        return CandidateSubscriptionResponse(
+            market=market, exchange=exchange, considered=len(candidates),
+            added=list(result["added"]), subscriptions=int(result["subscriptions"]),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        status_code = 503 if "KIS WebSocket subscription" in str(exc) else 409
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     except KisSharedRateLimitUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except KisRateLimitError as exc:

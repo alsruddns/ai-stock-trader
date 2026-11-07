@@ -50,6 +50,8 @@ Set-Location .\services\market-ai
 
 미국 후보 조회는 `.env_local`의 `KIS_REAL_MARKET_DATA_ENABLED=true`와 REAL 시세 자격정보가 필요하며, REAL 계좌 조회 스위치와는 별개입니다. 이 설정은 기본 `false`입니다. `freshness_verified`는 항상 `false`이며 `passes_market_filter`는 거래대금·스프레드 1차 조건만 뜻합니다. `executable`도 항상 `false`입니다. 종목 구독·AI 신호·주문을 생성하지 않으며, 후보 발굴 API의 실제 KIS 환경 지원은 PAPER/REAL별 읽기 전용 확인이 별도로 필요합니다. KRX 종가 단일가 구간과 거래소 휴장 중에는 조회를 거부합니다.
 
+실행 중인 PAPER 시세 감시기에 필터 통과 종목을 추가하려면 별도 잠금 `PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED=true`를 `.env_local`에서 설정한 뒤 `POST /api/v1/market/candidates/KR/subscribe?minimum_turnover=1000000000` 또는 `POST /api/v1/market/candidates/US/subscribe?exchange=NAS&minimum_turnover=1000000`을 사용합니다. 모니터와 해당 시장 WebSocket이 연결된 연속매매 시간에만 동작하며 PAPER 모드와 실전 거래 비활성도 다시 검사합니다. 기존 종목은 제거하지 않고, 감시기 전체 최대 40개로 제한합니다. 응답은 로컬 WebSocket 등록 요청이 전송됐음을 뜻하며 KIS의 등록 승인이나 신호·주문 가능성을 보증하지 않습니다. 감시기 추가는 실시간 시세 취득만 수행하며 `PAPER_AUTOTRADING_ENABLED`와 주문 안전 게이트를 따릅니다. 기본 잠금은 `false`이고, 현재 운영 `.env_local`은 변경하지 않았습니다.
+
 ### 국내 PAPER 취소 사전조회 점검
 
 KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는지 확인할 때만 아래 읽기 전용 명령을 사용합니다. `KIS_ACCOUNT_READ_ENABLED=true`, `KIS_PAPER_ACCOUNT_READ_ENABLED=true`가 필요하며 PAPER/REAL 주문, REAL 계좌조회, REAL 주문대조 스위치는 `false`여야 합니다. 이 도구는 PostgreSQL 공유 호출 제한을 지키며 GET만 보냅니다.

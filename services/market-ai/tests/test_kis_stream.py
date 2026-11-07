@@ -59,6 +59,17 @@ def test_subscription_message_uses_official_domestic_and_overseas_tr_ids() -> No
     assert us["header"]["custtype"] == "P"
 
 
+def test_subscription_message_supports_official_unsubscribe_type() -> None:
+    message = subscription_message("approval", "KR", "005930", tr_type="2")
+    assert message["header"]["tr_type"] == "2"
+    assert message["body"]["input"] == {"tr_id": "H0STCNT0", "tr_key": "005930"}
+
+
+def test_subscription_message_rejects_unsupported_subscription_type() -> None:
+    with pytest.raises(ValueError, match="subscription type"):
+        subscription_message("approval", "KR", "005930", tr_type="0")
+
+
 @pytest.mark.parametrize(
     ("market", "symbol", "exchange"),
     [("KR", "A005930", None), ("US", "AAPL", None), ("US", "AAPL", "LSE"), ("US", "!", "NAS")],

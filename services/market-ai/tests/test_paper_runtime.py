@@ -2,13 +2,14 @@ import asyncio
 from collections import deque
 from datetime import datetime, timedelta
 from decimal import Decimal
+import json
 import sys
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.paper_runtime import PaperSessionFeedMonitor, parse_watchlist
+from app.paper_runtime import PaperSessionFeedMonitor, PaperWatch, parse_watchlist
 from app.paper_automation import PaperAutoTrader
 from app.paper_ops import PaperOpsLimits
 from app.quant import MinuteBar
@@ -17,6 +18,69 @@ from app.quant import MinuteBar
 def test_watchlist_normalizes_and_deduplicates_valid_symbols() -> None:
     watches = parse_watchlist("KR:005930;US:aapl:nas;KR:005930")
     assert [watch.key for watch in watches] == ["KR:005930:", "US:AAPL:NAS"]
+
+
+def test_watchlist_respects_kis_forty_subscription_limit() -> None:
+    entries = ";".join(f"KR:{index:06d}" for index in range(1, 42))
+    with pytest.raises(ValueError, match="at most 40"):
+        parse_watchlist(entries)
+
+
+def test_monitor_adds_screened_watch_to_live_feed_subscription_queue(monkeypatch) -> None:
+    class FakeUpstream:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, message):
+            self.sent.append(json.loads(message))
+
+    async def scenario():
+        runtime = PaperSessionFeedMonitor()
+        runtime._watches_by_feed = {"paper": [PaperWatch("KR", "005930")]}
+        runtime._subscription_update_queues = {"paper": asyncio.Queue()}
+        runtime._set_status(
+            state="RUNNING", enabled=True, subscriptions=1,
+            stream_connections={"paper": "RUNNING"},
+        )
+        async def prepare(_watch):
+            return None
+        monkeypatch.setattr(runtime, "_prepare_watch", prepare)
+        upstream = FakeUpstream()
+        writer = asyncio.create_task(
+            runtime._write_subscription_updates(upstream, "approval", "paper", {"KR:005930:"})
+        )
+        try:
+            result = await runtime.add_watches((PaperWatch("KR", "000660"),))
+            await asyncio.wait_for(runtime._subscription_update_queues["paper"].join(), timeout=1)
+        finally:
+            writer.cancel()
+            try:
+                await writer
+            except asyncio.CancelledError:
+                pass
+
+        assert result == {"added": ["KR:000660:"], "subscriptions": 2}
+        assert upstream.sent[0]["header"]["tr_type"] == "1"
+        assert upstream.sent[0]["body"]["input"] == {"tr_id": "H0STCNT0", "tr_key": "000660"}
+        assert runtime._watches_by_feed["paper"][-1] == PaperWatch("KR", "000660")
+
+    asyncio.run(scenario())
+
+
+def test_monitor_refuses_dynamic_watch_when_market_feed_is_not_running() -> None:
+    async def scenario():
+        runtime = PaperSessionFeedMonitor()
+        runtime._watches_by_feed = {"paper": [PaperWatch("KR", "005930")]}
+        runtime._subscription_update_queues = {"paper": asyncio.Queue()}
+        runtime._set_status(
+            state="RECONNECTING", enabled=True, subscriptions=1,
+            stream_connections={"paper": "RECONNECTING"},
+        )
+        with pytest.raises(RuntimeError, match="not running"):
+            await runtime.add_watches((PaperWatch("KR", "000660"),))
+        assert [watch.symbol for watch in runtime._watches_by_feed["paper"]] == ["005930"]
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("value", ["KR:SAMSUNG", "US:AAPL", "US:AAPL:LSE", "KR:005930:KRX"])

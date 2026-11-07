@@ -70,7 +70,11 @@ def approval_key(settings: KisSettings, client: httpx.Client | None = None) -> s
             http.close()
 
 
-def subscription_message(key: str, market: Market, symbol: str, exchange: str | None = None) -> dict:
+def subscription_message(
+    key: str, market: Market, symbol: str, exchange: str | None = None, *, tr_type: str = "1",
+) -> dict:
+    if tr_type not in {"1", "2"}:
+        raise ValueError("subscription type must be 1 (subscribe) or 2 (unsubscribe)")
     normalized = symbol.strip().upper()
     if market == "KR":
         if not _KR_SYMBOL.fullmatch(normalized) or exchange is not None:
@@ -83,7 +87,7 @@ def subscription_message(key: str, market: Market, symbol: str, exchange: str | 
     else:
         raise ValueError("market must be KR or US")
     return {
-        "header": {"approval_key": key, "custtype": "P", "tr_type": "1", "content-type": "utf-8"},
+        "header": {"approval_key": key, "custtype": "P", "tr_type": tr_type, "content-type": "utf-8"},
         "body": {"input": {"tr_id": tr_id, "tr_key": tr_key}},
     }
 

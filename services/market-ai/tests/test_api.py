@@ -444,6 +444,71 @@ def test_us_market_candidate_screen_requires_separate_real_data_gate(monkeypatch
     assert captured == [settings]
 
 
+def test_candidate_subscription_route_is_locked_by_default(monkeypatch) -> None:
+    monkeypatch.setenv("PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED", "false")
+    monkeypatch.setattr(
+        main, "get_kis_candidate_client",
+        lambda _market: (_ for _ in ()).throw(AssertionError("disabled route must not call KIS")),
+    )
+    response = client.post(
+        "/api/v1/market/candidates/KR/subscribe?minimum_turnover=1",
+    )
+    assert response.status_code == 423
+    assert response.json()["detail"] == "PAPER candidate subscriptions are disabled"
+
+
+def test_candidate_subscription_route_adds_only_filtered_symbols(monkeypatch) -> None:
+    from app.paper_runtime import PaperWatch
+
+    monkeypatch.setenv("PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED", "true")
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setattr(main.paper_session_monitor, "status", lambda: {
+        "enabled": True, "stream_connections": {"paper": "RUNNING"},
+    })
+    monkeypatch.setattr(
+        main, "exchange_continuous_session_window",
+        lambda _market, now: (now - timedelta(minutes=1), now + timedelta(minutes=1)),
+    )
+
+    class FakeKisClient:
+        def get_ranked_candidates(self, market, *, exchange, limit, minimum_turnover, maximum_spread_bps):
+            assert (market, exchange, limit) == ("KR", None, 5)
+            assert minimum_turnover == Decimal("1000000000")
+            assert maximum_spread_bps == Decimal("8")
+            return [
+                MarketCandidate(
+                    market="KR", symbol="005930", name="Samsung", exchange=None, rank=1,
+                    currency="KRW", price=Decimal("70000"), volume=1000,
+                    turnover=Decimal("200000000000"), best_ask=Decimal("70010"),
+                    best_bid=Decimal("70000"), spread_bps=Decimal("1.42"),
+                    passes_market_filter=True, filter_reason="MARKET_FILTERS_PASSED",
+                ),
+                MarketCandidate(
+                    market="KR", symbol="000660", name="SK Hynix", exchange=None, rank=2,
+                    currency="KRW", price=Decimal("200000"), volume=100,
+                    turnover=Decimal("1000000"), best_ask=None, best_bid=None, spread_bps=None,
+                    passes_market_filter=False, filter_reason="LIVE_SPREAD_UNAVAILABLE",
+                ),
+            ]
+
+    async def add_watches(watches):
+        assert watches == (PaperWatch("KR", "005930"),)
+        return {"added": ["KR:005930:"], "subscriptions": 2}
+
+    monkeypatch.setattr(main, "get_kis_candidate_client", lambda _market: FakeKisClient())
+    monkeypatch.setattr(main.paper_session_monitor, "add_watches", add_watches)
+    response = client.post(
+        "/api/v1/market/candidates/KR/subscribe?limit=5&minimum_turnover=1000000000&maximum_spread_bps=8",
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "market": "KR", "exchange": None, "considered": 2,
+        "added": ["KR:005930:"], "subscriptions": 2, "executable": False,
+    }
+
+
 def test_kis_database_rate_limit_failure_returns_service_unavailable() -> None:
     class UnavailableKisClient:
         def get_quote(self, *_args, **_kwargs):
