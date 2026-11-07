@@ -36,6 +36,8 @@ REAL 매수의 전략·모델 ID는 요청 본문 값으로 신뢰하지 않습�
 
 REAL 매수 요청의 `quantity`는 주문자가 제시한 상한으로만 사용하며, Spring은 최신 KIS 계좌 스냅샷의 주문가능금액·종목 평가액·계좌 평가액과 거래당 위험 예산·주문 한도를 적용해 요청 수량을 줄일 수 있습니다. 산정 입력이 없으면 원래 요청을 위험 게이트에 넘기며, 게이트가 누락 정보를 이유로 거부합니다. 산정된 수량은 주문 의도에 저장되고 같은 위험 게이트에서 다시 검증됩니다. 이 수량 제한은 실전 주문 활성화나 수익·체결을 보장하지 않습니다.
 
+Python `SpringRealSignalOrderClient`는 이 로컬 Spring 경로에만 요청하며 KIS를 직접 호출하지 않습니다. `REAL_SIGNAL_SUBMISSION_ENABLED=true`와 실전 모드·주문·계좌읽기 잠금이 모두 열려야 전송하고, 타임아웃·전송오류는 결과 불명으로 처리해 재전송하지 않습니다. 이 클라이언트는 전송 계층이며 현재 자동 모니터 worker에는 아직 연결되지 않았습니다. `.env.example`의 기본값은 `false`입니다.
+
 `POST /api/v1/kis/orders/real/signals` 요청 본문은 `market`, `symbol`만 받습니다. 미국 시장은 `exchange` query 값도 필요합니다. Spring은 전체 REAL 잠금을 먼저 확인하고 FastAPI의 최신 승인 모델 신호·시세를 확인한 뒤 읽기 전용 REAL 계좌 조회를 합니다. 주문 가격은 서버 시세, 수량 상한은 서버가 설정하며 기존 위험 게이트에서 재검증합니다. 중복 방지를 위해 신호 봉 단위로 고정된 `Idempotency-Key`가 필요합니다. PAPER 기본 설정에서는 AI·계좌·주문 서비스에 도달하지 않습니다.
 
 REAL 주문 API는 Spring이 `127.0.0.1:8080`에 바인딩된 로컬 운영만 대상으로 합니다. `TRADING_MODE=real`, `LIVE_TRADING_ENABLED=true`, `KIS_REAL_ORDERS_ENABLED=true`, `KIS_ACCOUNT_READ_ENABLED=true`, `KIS_REAL_ACCOUNT_READ_ENABLED=true`가 모두 설정되어야 POST 쓰기 경로가 KIS 계좌를 사전 조회합니다. PAPER 기본 설정에서는 HTTP 423으로 거부하고 계좌·주문 API를 호출하지 않습니다. 네트워크 타임아웃 등 결과가 불명확하면 같은 키로 다시 주문하지 말고 저장된 의도 조회와 재조회를 사용하세요. 실계좌 연결·실주문 검증은 아직 완료되지 않았습니다.
