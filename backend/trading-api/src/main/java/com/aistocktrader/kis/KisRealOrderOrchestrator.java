@@ -79,7 +79,20 @@ public class KisRealOrderOrchestrator {
             boolean unresolvedOrder = intents.hasUnresolvedRealOrder(request.market(), idempotencyKey);
             KisRealDailyRiskBaselineService.RiskInputs dailyRisk =
                     dailyRiskBaselines.riskInputs(request.market(), realAccount);
-            KisMarketAiEvidenceClient.Evidence aiEvidence = marketAiEvidence.inspect(request, exchange);
+            KisMarketAiEvidenceClient.Evidence aiEvidence;
+            try {
+                if (marketAiEvidence == null) {
+                    aiEvidence = new KisMarketAiEvidenceClient.Evidence(false, false, null);
+                } else if (request.side() == com.aistocktrader.order.OrderSide.BUY) {
+                    aiEvidence = marketAiEvidence.inspect(request, exchange);
+                } else {
+                    var quote = marketAiEvidence.quoteForExit(request.market(), request.symbol(), exchange);
+                    aiEvidence = new KisMarketAiEvidenceClient.Evidence(false, true, null,
+                            null, null, quote.price());
+                }
+            } catch (RuntimeException unavailableEvidence) {
+                aiEvidence = new KisMarketAiEvidenceClient.Evidence(false, false, null);
+            }
             if (request.side() == com.aistocktrader.order.OrderSide.BUY) {
                 if (aiEvidence.approvedModelCandidate() && aiEvidence.quoteFresh()
                         && aiEvidence.modelId() != null && !aiEvidence.modelId().isBlank()
