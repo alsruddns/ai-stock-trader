@@ -79,8 +79,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $postgresScripts = @(
             'scripts/lib/postgres-config.ps1',
+            'scripts/lib/local-stack-activation.ps1',
             'scripts/configure-postgres-loopback.ps1',
-            'scripts/test-postgres-loopback-config.ps1'
+            'scripts/test-postgres-loopback-config.ps1',
+            'scripts/activate-local-stack.ps1',
+            'scripts/test-local-stack-activation.ps1'
           )
           foreach ($postgresScript in $postgresScripts) {
             $postgresTokens = $null
@@ -105,4 +108,5 @@ jobs:
           }
 
           & 'scripts/test-local-stack-task-restart.ps1'
+          & 'scripts/test-local-stack-activation.ps1'
           & 'scripts/test-local-stack-env-reload.ps1'
