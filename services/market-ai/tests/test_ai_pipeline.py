@@ -528,17 +528,18 @@ def test_model_approval_enforces_five_ai_quant_trades_as_the_exact_minimum(tmp_p
         registry.approve(model_id, approved_by="operator", note="Review held-out execution comparison before promotion.")
 
 
-def test_model_governance_rolls_back_state_when_audit_write_fails(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("failure", [OSError("simulated audit storage failure"), ValueError("simulated audit chain failure")])
+def test_model_governance_rolls_back_state_when_audit_write_fails(tmp_path, monkeypatch, failure) -> None:
     registry = LocalModelRegistry(tmp_path)
     model_id = "lightgbm-" + "c" * 32
     _write_candidate(registry, model_id)
     record_event = registry._record_governance_event
 
     def fail_audit(_event):
-        raise OSError("simulated audit storage failure")
+        raise failure
 
     monkeypatch.setattr(registry, "_record_governance_event", fail_audit)
-    with pytest.raises(OSError, match="audit storage failure"):
+    with pytest.raises(type(failure), match="simulated audit"):
         registry.approve(model_id, approved_by="operator", note="Held-out test evidence reviewed for advisory use.")
     assert registry.manifest(model_id)["approved"] is False
 
@@ -550,7 +551,7 @@ def test_model_governance_rolls_back_state_when_audit_write_fails(tmp_path, monk
     registry.approve(replacement_id, approved_by="operator", note="Held-out test evidence reviewed for advisory use.")
 
     monkeypatch.setattr(registry, "_record_governance_event", fail_audit)
-    with pytest.raises(OSError, match="audit storage failure"):
+    with pytest.raises(type(failure), match="simulated audit"):
         registry.activate(replacement_id, changed_by="operator", note="Candidate change requires a durable audit event.")
     assert registry.active_approved_model("KR")["model_id"] == model_id
 
@@ -576,10 +577,29 @@ def test_approved_manifest_without_durable_audit_event_cannot_be_selected_or_act
     registry.activate(model_id, changed_by="operator", note="Durable approval evidence verified for advisory activation.")
     assert registry.active_approved_model("KR")["model_id"] == model_id
 
-    event = json.loads(registry._audit_path.read_text(encoding="utf-8").splitlines()[0])
+    events = registry.governance_events()
+    assert len(events) == 2
+    assert events[0]["previous_event_sha256"] == "0" * 64
+    assert events[1]["previous_event_sha256"] == events[0]["event_sha256"]
+    assert registry.governance_audit_status() == {"integrity_verified": True, "event_count": 2}
+
+    event = events[0]
     event["artifact_sha256"] = "0" * 64
-    registry._audit_path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+    registry._audit_path.write_text(
+        json.dumps(event) + "\n" + json.dumps(events[1]) + "\n", encoding="utf-8"
+    )
     listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
     assert listed["approved"] is False
     assert listed["approval_audit_verified"] is False
     assert registry.active_approved_model("KR") is None
+    assert registry.governance_events() == []
+    assert registry.governance_audit_status() == {"integrity_verified": False, "event_count": 0}
+
+    registry._audit_path.write_text(json.dumps(events[1]) + "\n", encoding="utf-8")
+    assert registry.governance_audit_status() == {"integrity_verified": False, "event_count": 0}
+
+    blocked_id = "xgboost-" + "e" * 32
+    _write_candidate(registry, blocked_id)
+    with pytest.raises(ValueError, match="governance audit chain failed"):
+        registry.approve(blocked_id, approved_by="operator", note="Approval must stop when prior audit history is damaged.")
+    assert registry.manifest(blocked_id)["approved"] is False

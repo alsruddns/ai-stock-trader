@@ -27,6 +27,8 @@
 | POST | `/api/v1/ai/models/{model_id}/activate` | 승인된 advisory 모델 활성화 |
 | POST | `/api/v1/ai/models/{model_id}/rollback` | 승인된 이전 모델로 advisory 포인터 복구 |
 
+`GET /api/v1/ai/models` 응답의 `governance_audit`은 `integrity_verified`와 `event_count`를 제공합니다. 승인·활성화·롤백 이벤트는 앞 이벤트 SHA-256을 포함하는 JSONL 해시 체인으로 저장됩니다. 이벤트 내용 변경, 중간 이벤트 삭제, 순서 변경 또는 JSONL 파손이 발견되면 체인 전체를 무효로 보고 모델 승인과 활성 선택을 차단하며, 운영 화면은 무결성 실패를 표시합니다. 마지막 이벤트의 삭제처럼 로그 끝을 잘라낸 경우는 별도 외부 체크포인트 없이는 감지하지 못합니다. 이 로컬 해시 체인은 로그 변경 탐지용이며 외부 서명이나 원격 불변 저장소를 대체하지 않습니다.
+
 REAL 주문 API는 Spring이 `127.0.0.1:8080`에 바인딩된 로컬 운영만 대상으로 합니다. `TRADING_MODE=real`, `LIVE_TRADING_ENABLED=true`, `KIS_REAL_ORDERS_ENABLED=true`, `KIS_ACCOUNT_READ_ENABLED=true`, `KIS_REAL_ACCOUNT_READ_ENABLED=true`가 모두 설정되어야 POST 쓰기 경로가 KIS 계좌를 사전 조회합니다. PAPER 기본 설정에서는 HTTP 423으로 거부하고 계좌·주문 API를 호출하지 않습니다. 네트워크 타임아웃 등 결과가 불명확하면 같은 키로 다시 주문하지 말고 저장된 의도 조회와 재조회를 사용하세요. 실계좌 연결·실주문 검증은 아직 완료되지 않았습니다.
 
 ## Python 시세·AI API

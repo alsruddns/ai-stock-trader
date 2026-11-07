@@ -232,7 +232,20 @@ def test_model_governance_endpoint_is_read_only_for_execution(monkeypatch, tmp_p
     monkeypatch.setenv("AI_MODEL_REGISTRY_PATH", str(tmp_path))
     response = client.get("/api/v1/ai/models")
     assert response.status_code == 200
-    assert response.json() == {"models": [], "governance_events": [], "executable": False}
+    assert response.json() == {
+        "models": [], "governance_events": [],
+        "governance_audit": {"integrity_verified": True, "event_count": 0},
+        "executable": False,
+    }
+
+
+def test_model_governance_endpoint_reports_tampered_audit_chain(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AI_MODEL_REGISTRY_PATH", str(tmp_path))
+    (tmp_path / "governance-audit.jsonl").write_text('{"action":"approve"}\n', encoding="utf-8")
+    response = client.get("/api/v1/ai/models")
+    assert response.status_code == 200
+    assert response.json()["governance_audit"] == {"integrity_verified": False, "event_count": 0}
+    assert response.json()["governance_events"] == []
 
 
 def test_model_approval_route_is_locked_without_local_governance_token(monkeypatch, tmp_path) -> None:

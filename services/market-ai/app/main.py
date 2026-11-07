@@ -632,7 +632,12 @@ def _require_model_governance_token(token: str | None = Header(default=None, ali
 @app.get("/api/v1/ai/models")
 def list_ai_models() -> dict[str, object]:
     registry = _model_registry()
-    return {"models": registry.list_models(), "governance_events": registry.governance_events(30), "executable": False}
+    return {
+        "models": registry.list_models(),
+        "governance_events": registry.governance_events(30),
+        "governance_audit": registry.governance_audit_status(),
+        "executable": False,
+    }
 
 
 @app.post("/api/v1/ai/models/{model_id}/approve")

@@ -32,6 +32,7 @@ MIN_MODEL_APPROVAL_TEST_SESSIONS = 5
 MIN_MODEL_APPROVAL_TEST_TRADES = 5
 _REGISTRY_LOCKS_GUARD = threading.Lock()
 _REGISTRY_LOCKS: dict[Path, threading.RLock] = {}
+_GOVERNANCE_GENESIS_SHA256 = "0" * 64
 
 
 _MARKETS = {"KR", "US"}
@@ -348,10 +349,8 @@ class LocalModelRegistry:
         if not isinstance(approval, dict) or not self._audit_path.is_file():
             return False
         try:
-            events = [json.loads(line) for line in self._audit_path.read_text(encoding="utf-8").splitlines()]
-            if any(not isinstance(event, dict) for event in events):
-                return False
-        except (OSError, json.JSONDecodeError):
+            events = self._read_governance_events()
+        except (OSError, ValueError, json.JSONDecodeError):
             return False
         expected = {
             "action": "approve",
@@ -369,6 +368,40 @@ class LocalModelRegistry:
             "ai_quant_backtest_test_metrics": metadata.get("ai_quant_backtest_test_metrics"),
         }
         return any(all(event.get(key) == value for key, value in expected.items()) for event in events)
+
+    @staticmethod
+    def _governance_event_sha256(event: dict[str, Any]) -> str:
+        payload = {key: value for key, value in event.items() if key != "event_sha256"}
+        canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def _read_governance_events(self) -> list[dict[str, Any]]:
+        if not self._audit_path.is_file():
+            return []
+        previous_sha256 = _GOVERNANCE_GENESIS_SHA256
+        events: list[dict[str, Any]] = []
+        for line_number, line in enumerate(self._audit_path.read_text(encoding="utf-8").splitlines(), start=1):
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"governance audit event {line_number} is invalid JSON") from exc
+            if not isinstance(event, dict):
+                raise ValueError(f"governance audit event {line_number} is not an object")
+            if (event.get("previous_event_sha256") != previous_sha256
+                    or event.get("event_sha256") != self._governance_event_sha256(event)):
+                raise ValueError(f"governance audit chain failed at event {line_number}")
+            previous_sha256 = str(event["event_sha256"])
+            events.append(event)
+        return events
+
+    def governance_audit_status(self) -> dict[str, Any]:
+        """Expose audit-chain integrity separately from the event list."""
+        with self._governance_lock:
+            try:
+                events = self._read_governance_events()
+                return {"integrity_verified": True, "event_count": len(events)}
+            except (OSError, ValueError, json.JSONDecodeError):
+                return {"integrity_verified": False, "event_count": 0}
 
     @staticmethod
     def _supports_current_features(metadata: dict[str, Any]) -> bool:
@@ -522,7 +555,7 @@ class LocalModelRegistry:
                     "quant_backtest_test_metrics": quant_backtest,
                     "ai_quant_backtest_test_metrics": ai_backtest,
                 })
-            except OSError:
+            except (OSError, ValueError):
                 self._write_json_atomic(self.root / f"{model_id}.json", previous_metadata)
                 raise
             return metadata
@@ -562,7 +595,7 @@ class LocalModelRegistry:
                      "changed_by": operator, "note": justification, "changed_at": changed_at}
             try:
                 self._record_governance_event(event)
-            except OSError:
+            except (OSError, ValueError):
                 if previous_state is None:
                     self._active_path.unlink(missing_ok=True)
                 else:
@@ -571,18 +604,22 @@ class LocalModelRegistry:
             return event
 
     def governance_events(self, limit: int = 50) -> list[dict[str, Any]]:
-        if not self._audit_path.is_file():
-            return []
         with self._governance_lock:
             try:
-                lines = self._audit_path.read_text(encoding="utf-8").splitlines()[-max(1, min(limit, 200)):]
-                return [json.loads(line) for line in lines]
-            except (OSError, json.JSONDecodeError):
+                events = self._read_governance_events()
+                return events[-max(1, min(limit, 200)):]
+            except (OSError, ValueError, json.JSONDecodeError):
                 return []
 
     def _record_governance_event(self, event: dict[str, Any]) -> None:
+        events = self._read_governance_events()
+        chained_event = dict(event)
+        chained_event["previous_event_sha256"] = (
+            str(events[-1]["event_sha256"]) if events else _GOVERNANCE_GENESIS_SHA256
+        )
+        chained_event["event_sha256"] = self._governance_event_sha256(chained_event)
         with self._audit_path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+            stream.write(json.dumps(chained_event, ensure_ascii=False, sort_keys=True) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
 
