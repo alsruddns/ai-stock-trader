@@ -30,6 +30,12 @@ def enable_real_signal_gates(monkeypatch) -> None:
         monkeypatch.setenv(key, value)
 
 
+def test_real_signal_client_defaults_to_dedicated_local_port() -> None:
+    client = SpringRealSignalOrderClient()
+    assert client.base_url == "http://127.0.0.1:18080"
+    client.close()
+
+
 def test_real_signal_submission_is_locked_by_default_and_sends_no_request(monkeypatch) -> None:
     monkeypatch.setenv("TRADING_MODE", "paper")
     requests = []

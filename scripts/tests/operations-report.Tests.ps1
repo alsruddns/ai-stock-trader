@@ -5,7 +5,7 @@ Describe 'Optional operations report endpoint diagnostics' {
     It 'marks a successful endpoint as available and retains its JSON data' {
         Mock Invoke-RestMethod { return @{ status = 'ok' } }
 
-        $result = Invoke-AiTraderOptionalJsonRequest 'http://127.0.0.1:8000/api/v1/health'
+        $result = Invoke-AiTraderOptionalJsonRequest 'http://127.0.0.1:18000/api/v1/health'
 
         $result.state | Should Be 'AVAILABLE'
         $result.data.status | Should Be 'ok'
@@ -16,7 +16,7 @@ Describe 'Optional operations report endpoint diagnostics' {
     It 'records a safe failure class without retaining exception text' {
         Mock Invoke-RestMethod { throw [System.Net.WebException]::new('secret-bearing exception detail') }
 
-        $result = Invoke-AiTraderOptionalJsonRequest 'http://127.0.0.1:8000/api/v1/health'
+        $result = Invoke-AiTraderOptionalJsonRequest 'http://127.0.0.1:18000/api/v1/health'
         $serialized = $result | ConvertTo-Json -Compress
 
         $result.state | Should Be 'UNREACHABLE'

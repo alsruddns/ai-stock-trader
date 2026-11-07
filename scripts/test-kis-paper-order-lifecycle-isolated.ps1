@@ -4,7 +4,7 @@ param(
     [Parameter(Mandatory)] [string]$Symbol,
     [Parameter(Mandatory)] [decimal]$LimitPrice,
     [string]$Exchange = 'NASD',
-    [string]$MarketAiApiBaseUrl = 'http://127.0.0.1:8000',
+    [string]$MarketAiApiBaseUrl = 'http://127.0.0.1:18000',
     [ValidateRange(1024, 65535)] [int]$TemporaryPort = 8081,
     [switch]$PreflightOnly,
     [switch]$ConfirmPaperOrderAndCancel

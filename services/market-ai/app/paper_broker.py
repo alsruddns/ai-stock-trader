@@ -24,7 +24,7 @@ class PaperBrokerOutcomeUnknown(PaperBrokerError):
 
 
 class SpringPaperBrokerClient:
-    def __init__(self, base_url: str = "http://127.0.0.1:8080", *, http_client: httpx.Client | None = None):
+    def __init__(self, base_url: str = "http://127.0.0.1:18080", *, http_client: httpx.Client | None = None):
         parsed = urlparse(base_url)
         if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
             raise ValueError("paper broker must use a local HTTP endpoint")

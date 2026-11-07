@@ -3,8 +3,8 @@ param(
     [Parameter(Mandatory)] [string]$Symbol,
     [Parameter(Mandatory)] [decimal]$LimitPrice,
     [string]$Exchange = 'NASD',
-    [string]$SpringApiBaseUrl = 'http://127.0.0.1:8080',
-    [string]$MarketAiApiBaseUrl = 'http://127.0.0.1:8000',
+    [string]$SpringApiBaseUrl = 'http://127.0.0.1:18080',
+    [string]$MarketAiApiBaseUrl = 'http://127.0.0.1:18000',
     [switch]$PreflightOnly,
     [switch]$EnablePaperOrdersForThisRun,
     [switch]$ConfirmPaperOrderAndCancel

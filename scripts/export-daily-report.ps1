@@ -1,6 +1,6 @@
 param(
-    [string]$ApiBaseUrl = "http://127.0.0.1:8080",
-    [string]$PythonApiBaseUrl = "http://127.0.0.1:8000",
+    [string]$ApiBaseUrl = "http://127.0.0.1:18080",
+    [string]$PythonApiBaseUrl = "http://127.0.0.1:18000",
     [ValidateRange(0, 3600)] [int]$WaitTimeoutSeconds = 0,
     [ValidateRange(1, 300)] [int]$RetryIntervalSeconds = 10,
     [string]$OutputPath,

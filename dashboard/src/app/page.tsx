@@ -74,8 +74,8 @@ export default function Dashboard() {
     {error && <div className="error">{error}</div>}
     <section className="section-head"><div><p className="eyebrow">SYSTEM STATUS</p><h2>서비스 및 안전 스위치</h2></div><span className="updated">갱신 {data ? time(data.generatedAt) : "확인 중"}</span></section>
     <section className="status-grid">
-      <StatusCard title="주문·리스크 API" good={connected} value={connected ? "정상 연결" : "연결 안 됨"} detail="Spring Boot · localhost:8080" />
-      <StatusCard title="시세·AI API" good={pythonConnected} value={pythonConnected ? "정상 연결" : "연결 안 됨"} detail="FastAPI · localhost:8000" />
+      <StatusCard title="주문·리스크 API" good={connected} value={connected ? "정상 연결" : "연결 안 됨"} detail="Spring Boot · localhost:18080" />
+      <StatusCard title="시세·AI API" good={pythonConnected} value={pythonConnected ? "정상 연결" : "연결 안 됨"} detail="FastAPI · localhost:18000" />
       <StatusCard title="P5 KR·US 거래 세션" good={Boolean(data?.marketSessions?.KR && data?.marketSessions?.US)} value={`KR ${marketSessionLabel(data?.marketSessions?.KR)} · US ${marketSessionLabel(data?.marketSessions?.US)}`} detail={`거래일 ${data?.marketSessions?.KR?.session_date ?? "미확인"} · XKRX 캘린더 ${calendarLabel(data?.paperSession?.kr_calendar_compatibility)} · 판정 불가 시 진입 차단`} />
       <StatusCard title="P3 저장 분봉 품질" good={qualitySessions.length > 0 && completeQualityCount === qualitySessions.length} value={qualitySummary} detail={qualityDetails || "정규장 세션 날짜에 대한 PostgreSQL 자료가 필요합니다."} />
       <StatusCard title="실거래 주문" good={false} value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} detail={`실주문 ${ops?.liveTrading.toUpperCase() ?? "DISABLED"} · KIS_REAL_ORDERS_ENABLED`} />

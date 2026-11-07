@@ -27,19 +27,19 @@ class KisMarketAiEvidenceClientTest {
     void fetchesActiveModelAndKisQuoteFromMarketServiceAndConfirmsEvidence() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:8000");
-        server.expect(requestTo("http://127.0.0.1:8000/api/v1/ai/models"))
+        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:18000");
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/ai/models"))
                 .andRespond(withSuccess("""
                         {"models":[{"model_id":"lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                         "market":"KR","active":true,"approved":true,
                         "feature_compatible":true,"data_rights_verified":true,
                         "approval_evidence_verified":true,"training_config":{"symbol":"005930"}}]}
                         """, MediaType.APPLICATION_JSON));
-        server.expect(requestTo("http://127.0.0.1:8000/api/v1/market/quotes/KR/005930"))
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930"))
                 .andRespond(withSuccess("{\"market\":\"KR\",\"symbol\":\"005930\","
                         + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":70000,\"retrieved_at\":\""
                         + Instant.now() + "\"}", MediaType.APPLICATION_JSON));
-        server.expect(requestTo("http://127.0.0.1:8000/api/v1/paper/session"))
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/paper/session"))
                 .andRespond(withSuccess("{\"decisions\":{\"KR:005930:\":{\"market\":\"KR\","
                         + "\"symbol\":\"005930\",\"signal\":\"BUY_CANDIDATE\","
                         + "\"model_id\":\"lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"strategy_id\":\"ORB_VWAP\",\"evaluated_at\":\""
@@ -62,8 +62,8 @@ class KisMarketAiEvidenceClientTest {
     void exitQuoteFetchRequiresFreshMatchingKrQuoteAndReturnsBid() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:8000");
-        server.expect(requestTo("http://127.0.0.1:8000/api/v1/market/quotes/KR/005930"))
+        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:18000");
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930"))
                 .andRespond(withSuccess("{\"market\":\"KR\",\"symbol\":\"005930\","
                         + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":102,\"best_bid\":101.5,"
                         + "\"best_ask\":102,\"retrieved_at\":\"" + Instant.now() + "\"}",
@@ -82,8 +82,8 @@ class KisMarketAiEvidenceClientTest {
     void exitQuoteUsesRequestedUsVenueAndRejectsDifferentVenue() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:8000");
-        server.expect(requestTo("http://127.0.0.1:8000/api/v1/market/quotes/US/AAPL?exchange=NAS"))
+        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:18000");
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/US/AAPL?exchange=NAS"))
                 .andRespond(withSuccess("{\"market\":\"US\",\"symbol\":\"AAPL\",\"exchange\":\"NYS\","
                         + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":102,\"retrieved_at\":\""
                         + Instant.now() + "\"}", MediaType.APPLICATION_JSON));
@@ -96,8 +96,8 @@ class KisMarketAiEvidenceClientTest {
     void exitQuoteRejectsStaleQuoteAndInvalidUsExchange() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:8000");
-        server.expect(requestTo("http://127.0.0.1:8000/api/v1/market/quotes/KR/005930"))
+        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:18000");
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930"))
                 .andRespond(withSuccess("{\"market\":\"KR\",\"symbol\":\"005930\","
                         + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":102,\"retrieved_at\":\""
                         + Instant.now().minusSeconds(10) + "\"}", MediaType.APPLICATION_JSON));
@@ -111,8 +111,8 @@ class KisMarketAiEvidenceClientTest {
     void unavailableModelApiFailsClosedWithoutQuoteRequest() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:8000");
-        server.expect(requestTo("http://127.0.0.1:8000/api/v1/ai/models"))
+        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:18000");
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/ai/models"))
                 .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withServerError());
 
         var evidence = client.inspect(new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,

@@ -8,6 +8,12 @@ import pytest
 from app.paper_broker import PaperBrokerError, PaperBrokerOutcomeUnknown, SpringPaperBrokerClient
 
 
+def test_spring_paper_broker_defaults_to_dedicated_local_port() -> None:
+    broker = SpringPaperBrokerClient()
+    assert broker.base_url == "http://127.0.0.1:18080"
+    broker.close()
+
+
 def test_paper_order_adapter_uses_idempotency_key_and_local_route() -> None:
     seen: list[httpx.Request] = []
 

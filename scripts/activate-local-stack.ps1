@@ -29,7 +29,7 @@ if ($null -eq $task) { throw "Scheduled task '$TaskName' is not registered. Run 
 $runnerPath = Join-Path $PSScriptRoot 'run-local-stack-task.ps1'
 Assert-LocalStackTaskAction -Task $task -ExpectedRunnerPath $runnerPath
 if ($task.State -ne 'Running') {
-    $occupiedPorts = @(Get-NetTCPConnection -State Listen -LocalPort @(8000, 8080) -ErrorAction SilentlyContinue |
+    $occupiedPorts = @(Get-NetTCPConnection -State Listen -LocalPort @(18000, 18080) -ErrorAction SilentlyContinue |
         Select-Object -ExpandProperty LocalPort -Unique)
     Assert-LocalStackPortsFree -OccupiedPorts $occupiedPorts
 }
@@ -46,8 +46,8 @@ $deadline = [DateTimeOffset]::UtcNow.AddSeconds($StartupTimeoutSeconds)
 while ([DateTimeOffset]::UtcNow -lt $deadline) {
     $pythonHealth = $null
     $springSummary = $null
-    try { $pythonHealth = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/v1/health' -TimeoutSec 3 } catch { }
-    try { $springSummary = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/api/v1/operations/summary' -TimeoutSec 3 } catch { }
+    try { $pythonHealth = Invoke-RestMethod -Uri 'http://127.0.0.1:18000/api/v1/health' -TimeoutSec 3 } catch { }
+    try { $springSummary = Invoke-RestMethod -Uri 'http://127.0.0.1:18080/api/v1/operations/summary' -TimeoutSec 3 } catch { }
     if ($pythonHealth -and $springSummary) {
         Assert-LocalStackReadyResponses -PythonHealth $pythonHealth -SpringSummary $springSummary
         Write-Output 'Local Spring Boot and FastAPI are healthy on loopback; PAPER mode is active and order/automation locks are confirmed.'

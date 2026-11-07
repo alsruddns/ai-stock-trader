@@ -39,7 +39,7 @@ catch { $wrongTaskRejected = $_.Exception.Message -match 'does not launch this r
 if (-not $wrongTaskRejected) { throw 'Activation must reject an unrelated scheduled task action.' }
 Assert-LocalStackPortsFree -OccupiedPorts @()
 $occupiedPortRejected = $false
-try { Assert-LocalStackPortsFree -OccupiedPorts @(8080) }
+try { Assert-LocalStackPortsFree -OccupiedPorts @(18080) }
 catch { $occupiedPortRejected = $_.Exception.Message -match 'already occupied' }
 if (-not $occupiedPortRejected) { throw 'Activation must reject an already occupied local API port.' }
 

@@ -1,5 +1,5 @@
 param(
-    [string]$ApiBaseUrl = 'http://127.0.0.1:8000',
+    [string]$ApiBaseUrl = 'http://127.0.0.1:18000',
     [ValidateRange(10, 36000)] [int]$DurationSeconds = 60,
     [ValidateRange(1, 60)] [int]$PollIntervalSeconds = 15,
     [ValidateRange(30, 3600)] [int]$MaxNoTickSeconds = 300,

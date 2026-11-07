@@ -8,9 +8,9 @@ $ErrorActionPreference = 'Stop'
 $script:restartScriptDirectory = $PSScriptRoot
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $runtimeStatePath = Join-Path $repoRoot '.local\logs\local-stack-pids.json'
-$pythonHealthUrl = 'http://127.0.0.1:8000/api/v1/health'
-$pythonPaperSessionUrl = 'http://127.0.0.1:8000/api/v1/paper/session'
-$springSummaryUrl = 'http://127.0.0.1:8080/api/v1/operations/summary'
+$pythonHealthUrl = 'http://127.0.0.1:18000/api/v1/health'
+$pythonPaperSessionUrl = 'http://127.0.0.1:18000/api/v1/paper/session'
+$springSummaryUrl = 'http://127.0.0.1:18080/api/v1/operations/summary'
 . (Join-Path $PSScriptRoot 'lib\local-postgres-binding.ps1')
 
 function Assert-PostgresLoopbackForRestart {
@@ -45,7 +45,7 @@ function Test-SessionResponsesFreshAndClosed($Sessions, [DateTimeOffset]$NowUtc)
 function Get-ConfirmedClosedSessions {
     $nowUtc = [DateTimeOffset]::UtcNow
     $sessions = foreach ($market in @('KR', 'US')) {
-        Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/market/sessions/$market" -TimeoutSec 5
+        Invoke-RestMethod -Uri "http://127.0.0.1:18000/api/v1/market/sessions/$market" -TimeoutSec 5
     }
     if (-not (Test-SessionResponsesFreshAndClosed $sessions $nowUtc)) {
         throw 'Both exchanges must be confirmed closed by fresh local calendar responses; local stack restart was not attempted.'
@@ -104,7 +104,7 @@ function Stop-TrackedProcessTree($Process) {
 }
 
 function Test-LocalPortsFree {
-    foreach ($port in @(8000, 8080)) {
+    foreach ($port in @(18000, 18080)) {
         if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) { return $false }
     }
     return $true
@@ -188,7 +188,7 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
         if (Test-PaperSessionRestored $paperSession $previousPaperSession) { break }
         Start-Sleep -Seconds 1
     } while ([DateTimeOffset]::UtcNow -lt $monitorDeadline)
-    $pythonOpenApi = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/openapi.json' -TimeoutSec 5
+    $pythonOpenApi = Invoke-RestMethod -Uri 'http://127.0.0.1:18000/openapi.json' -TimeoutSec 5
     if ($null -eq $pythonOpenApi.paths.PSObject.Properties['/api/v1/market/session-quality/{market}/{symbol}']) {
         throw 'The restarted Python API is missing the expected session-quality route.'
     }

@@ -20,7 +20,7 @@ public class KisMarketAiEvidenceClient {
     private final RestClient http;
 
     public KisMarketAiEvidenceClient(RestClient.Builder builder,
-            @Value("${market-ai.base-url:http://127.0.0.1:8000}") String baseUrl) {
+            @Value("${market-ai.base-url:http://127.0.0.1:18000}") String baseUrl) {
         this.http = builder.clone().baseUrl(baseUrl).build();
     }
 

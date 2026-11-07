@@ -20,8 +20,8 @@ class KisMarketSessionClientTest {
     void readsVerifiedSessionWindowAndDoesNotChangeSharedRestClientBuilder() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        KisMarketSessionClient client = new KisMarketSessionClient(builder, "http://127.0.0.1:8000");
-        server.expect(requestTo("http://127.0.0.1:8000/api/v1/market/sessions/KR"))
+        KisMarketSessionClient client = new KisMarketSessionClient(builder, "http://127.0.0.1:18000");
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/sessions/KR"))
                 .andRespond(withSuccess("""
                         {"market":"KR","session_date":"2026-11-09","is_session":true,
                          "is_open":true,"open_at":"2026-11-09T00:00:00Z",
@@ -42,8 +42,8 @@ class KisMarketSessionClientTest {
     void malformedSessionBoundsAreRejected() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        KisMarketSessionClient client = new KisMarketSessionClient(builder, "http://127.0.0.1:8000");
-        server.expect(requestTo("http://127.0.0.1:8000/api/v1/market/sessions/US"))
+        KisMarketSessionClient client = new KisMarketSessionClient(builder, "http://127.0.0.1:18000");
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/sessions/US"))
                 .andRespond(withSuccess("""
                         {"market":"US","session_date":"2026-11-06","is_session":true,
                          "is_open":false,"open_at":null,"close_at":null,

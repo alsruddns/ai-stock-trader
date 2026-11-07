@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const springBase = process.env.SPRING_API_BASE_URL ?? "http://127.0.0.1:8080";
-  const pythonBase = process.env.PYTHON_API_BASE_URL ?? "http://127.0.0.1:8000";
+  const springBase = process.env.SPRING_API_BASE_URL ?? "http://127.0.0.1:18080";
+  const pythonBase = process.env.PYTHON_API_BASE_URL ?? "http://127.0.0.1:18000";
   const qualityBase = process.env.MARKET_QUALITY_API_BASE_URL ?? pythonBase;
   const [spring, python, models, paperSession, krSession, usSession] = await Promise.allSettled([
     fetch(`${springBase}/api/v1/operations/summary`, { cache: "no-store", signal: AbortSignal.timeout(3000) }),

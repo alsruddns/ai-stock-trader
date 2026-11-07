@@ -53,7 +53,7 @@ function Assert-LocalStackPortsFree {
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyCollection()][int[]]$OccupiedPorts)
 
-    $occupiedPorts = @($OccupiedPorts | Where-Object { $_ -in @(8000, 8080) } | Sort-Object -Unique)
+    $occupiedPorts = @($OccupiedPorts | Where-Object { $_ -in @(18000, 18080) } | Sort-Object -Unique)
     if ($occupiedPorts.Count -gt 0) {
         throw "Local API port(s) $($occupiedPorts -join ', ') are already occupied; activation was stopped."
     }

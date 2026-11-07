@@ -55,7 +55,7 @@ PowerShell에서 아래 스크립트로 `.env_local`을 현재 창에 불러오�
 .\scripts\start-dashboard.ps1
 ```
 
-브라우저에서 `http://127.0.0.1:3000`을 엽니다. 일일 JSON 요약은 `.\scripts\export-daily-report.ps1`로 수동 저장할 수 있습니다. 이 보고서는 Spring PAPER 운영 요약에 Python 상태, PAPER 세션, AI 모델 승인 상태, 거래소 세션, 최근 마감 세션 저장 품질을 추가합니다. 연결할 수 없는 자료는 `null`로 남기고 API 키·Secret·계좌번호는 포함하지 않습니다. 테스트 출력은 `-OutputPath '.local/reports/preview.json'`로 지정할 수 있습니다. 매일 오전 7시 30분(Windows 로컬 시간)에 자동 저장하려면 `.\scripts\install-daily-report-task.ps1`을 실행하세요. 다른 시간은 `-DailyTime "08:00"`처럼 지정할 수 있습니다. 작업은 현재 Windows 사용자가 로그인해 있고 Spring Boot가 실행 중일 때 동작하며, API 시작을 최대 5분 기다립니다. 실행 결과는 `.local/reports/daily-report-task.log`에서 확인할 수 있습니다. 예약을 제거하려면 `.\scripts\remove-daily-report-task.ps1`을 실행하세요.
+브라우저에서 `http://127.0.0.1:13000`을 엽니다. 일일 JSON 요약은 `.\scripts\export-daily-report.ps1`로 수동 저장할 수 있습니다. 이 보고서는 Spring PAPER 운영 요약에 Python 상태, PAPER 세션, AI 모델 승인 상태, 거래소 세션, 최근 마감 세션 저장 품질을 추가합니다. 연결할 수 없는 자료는 `null`로 남기고 API 키·Secret·계좌번호는 포함하지 않습니다. 테스트 출력은 `-OutputPath '.local/reports/preview.json'`로 지정할 수 있습니다. 매일 오전 7시 30분(Windows 로컬 시간)에 자동 저장하려면 `.\scripts\install-daily-report-task.ps1`을 실행하세요. 다른 시간은 `-DailyTime "08:00"`처럼 지정할 수 있습니다. 작업은 현재 Windows 사용자가 로그인해 있고 Spring Boot가 실행 중일 때 동작하며, API 시작을 최대 5분 기다립니다. 실행 결과는 `.local/reports/daily-report-task.log`에서 확인할 수 있습니다. 예약을 제거하려면 `.\scripts\remove-daily-report-task.ps1`을 실행하세요.
 
 Windows 로그인 때 Spring Boot와 Python 분석 API도 함께 시작하려면 `.\scripts\install-local-stack-task.ps1`을 실행하고 한 번만 `Start-ScheduledTask -TaskName AIStockTrader-LocalStack`으로 시작을 확인하세요. PostgreSQL이 먼저 실행 중이어야 합니다. 이 작업은 두 API를 `127.0.0.1`에 바인딩하고 프로세스 종료 시 재시작을 시도합니다. 로그는 `.local/logs`에 저장됩니다. 자동 시작 작업은 `.env_local`을 읽되 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`를 강제합니다. PAPER 주문과 읽기 전용 계좌 대조 스위치는 `.env_local` 값을 따릅니다. 작업 실행 중 `.env_local`이 변경되면 두 API를 정리하고 새 설정으로 재기동합니다. 설정 재로딩 확인은 `.\scripts\test-local-stack-env-reload.ps1`로 실행할 수 있습니다. 수동 API를 이미 실행 중이면 포트 충돌을 피하도록 먼저 종료한 뒤 자동 시작 작업을 실행하세요. 자동 시작을 해제하려면 `.\scripts\remove-local-stack-task.ps1`을 실행합니다. 현재 Windows 사용자가 로그인해 있고 PC가 깨어 있어야 합니다. 작업 실행 자체가 PAPER 자동매매를 켜지는 않습니다.
 
@@ -68,7 +68,7 @@ cd services/market-ai
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev,ai,ops]"
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --env-file ../../.env_local
+uvicorn app.main:app --reload --host 127.0.0.1 --port 18000 --env-file ../../.env_local
 ```
 
 KIS 조회를 쓸 때는 `.env_local`의 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET`, `KIS_PAPER_ACCOUNT_NUMBER`에 모의계좌 값을 넣습니다. 실전 값은 별도 `KIS_REAL_*` 항목에만 저장합니다. Python REST 시세는 `KIS_MARKET_DATA_ENABLED=true`, WebSocket 시세는 `KIS_WEBSOCKET_ENABLED=true`가 필요합니다. Spring PAPER 계좌조회는 전체 잠금 `KIS_ACCOUNT_READ_ENABLED=true`와 `KIS_PAPER_ACCOUNT_READ_ENABLED=true`를 모두 요구합니다. REAL 조회는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`도 별도로 요구합니다. 계좌번호는 8자리 계좌번호와 2자리 상품코드를 붙인 총 10자리입니다. 일반 이름 `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ACCOUNT_NUMBER`는 호환 설정이 아니므로 쓰지 않습니다. 인증정보는 Git에 추가하지 마세요. 계좌 조회는 읽기 전용이며 실주문 스위치는 계속 꺼둡니다.
@@ -77,10 +77,10 @@ KIS 조회를 쓸 때는 `.env_local`의 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SEC
 
 KIS의 현재 공지 기준 PAPER는 초당 1건, REAL은 계좌당 초당 18건이며 동시 호출은 100~150ms 간격을 권고합니다. Python과 Spring은 PostgreSQL의 `kis_rest_rate_limit_slot`에서 환경과 앱키 지문별 요청 슬롯을 원자적으로 예약해 프로세스 간에도 호출 간격을 공유합니다. 앱키 원문은 저장하지 않고 SHA-256 지문만 저장합니다. 슬롯 확보에 실패하면 KIS 요청을 보내지 않습니다. `.env.example`의 Python 간격은 PAPER 1초, REAL 0.1초이며, 이보다 느리게만 조정할 수 있습니다. [KIS API 호출 유량 안내](https://apiportal.koreainvestment.com/community/10000000-0000-0011-0000-000000000001/post/d0d1a83f-6f8d-4437-9700-6d26702fd989)
 
-- Spring 상태: `http://localhost:8080/api/v1/health`
-- Python 상태: `http://localhost:8000/api/v1/health`
-- Python API 문서: `http://localhost:8000/docs`
-- 운영 대시보드: `http://127.0.0.1:3000`
+- Spring 상태: `http://localhost:18080/api/v1/health`
+- Python 상태: `http://localhost:18000/api/v1/health`
+- Python API 문서: `http://localhost:18000/docs`
+- 운영 대시보드: `http://127.0.0.1:13000`
 
 LightGBM·XGBoost 학습용 선택 의존성은 `python -m pip install -e ".[dev,ai,ops]"`로 설치합니다. 허가된 단일 종목 1분봉 CSV(`timestamp,open,high,low,close,volume,spread_bps,symbol`)로 모델 후보를 학습하고 미사용 세션에서 AI+퀀트 및 퀀트 단독 전략 백테스트를 비교하려면 저장소 루트에서 아래 명령을 사용합니다. 각 행의 시각은 시간대를 포함해야 하고 데이터 제공·저장 권한을 확인한 자료만 사용하세요. 기본 label 왕복 비용은 20 bps, 백테스트 체결당 수수료와 슬리피지는 각각 5 bps이며 계좌별 실제 요율을 확인한 후 인자를 조정하세요. 모델 manifest에는 label 기간, 비용과 전략 필터 가정이 보존됩니다.
 
@@ -115,15 +115,15 @@ PostgreSQL에 저장된 분봉은 로컬 CSV로 내보낼 수 있습니다. 예:
 KIS 모의 현재가 조회 예시 (선택 기능):
 
 ```powershell
-Invoke-RestMethod http://localhost:8000/api/v1/market/quotes/KR/005930
-Invoke-RestMethod 'http://localhost:8000/api/v1/market/quotes/US/AAPL?exchange=NAS'
+Invoke-RestMethod http://localhost:18000/api/v1/market/quotes/KR/005930
+Invoke-RestMethod 'http://localhost:18000/api/v1/market/quotes/US/AAPL?exchange=NAS'
 ```
 
 계좌 조회는 명시적으로 활성화한 후 환경과 시장을 URL에 지정합니다. 계좌번호는 KIS가 요구하는 8자리+2자리 총 10자리 형식으로 `.env_local`에 저장하세요. 조회 결과에는 계좌번호가 포함되지 않습니다.
 
 ```powershell
-Invoke-RestMethod http://localhost:8000/api/v1/accounts/paper/KR/balance
-Invoke-RestMethod 'http://localhost:8000/api/v1/accounts/real/US/balance?exchange=NASD'
+Invoke-RestMethod http://localhost:18000/api/v1/accounts/paper/KR/balance
+Invoke-RestMethod 'http://localhost:18000/api/v1/accounts/real/US/balance?exchange=NASD'
 ```
 
 실전 계좌 경로는 읽기 전용 잔고 GET만 합니다. 실주문은 계속 잠겨 있으며 이 경로는 주문을 전송하지 않습니다.
@@ -131,9 +131,9 @@ Invoke-RestMethod 'http://localhost:8000/api/v1/accounts/real/US/balance?exchang
 Spring KIS 계좌 API 예시:
 
 ```powershell
-Invoke-RestMethod http://localhost:8080/api/v1/kis/accounts/paper/KR/balance
-Invoke-RestMethod 'http://localhost:8080/api/v1/kis/accounts/paper/US/balance?exchange=NASD'
-Invoke-RestMethod 'http://localhost:8080/api/v1/kis/accounts/paper/KR/balance?symbol=005930&unitPrice=71000'
+Invoke-RestMethod http://localhost:18080/api/v1/kis/accounts/paper/KR/balance
+Invoke-RestMethod 'http://localhost:18080/api/v1/kis/accounts/paper/US/balance?exchange=NASD'
+Invoke-RestMethod 'http://localhost:18080/api/v1/kis/accounts/paper/KR/balance?symbol=005930&unitPrice=71000'
 ```
 
 P1-001 구현이 완료되면 계좌 스냅샷은 `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`일 때만 PostgreSQL에 저장합니다. Spring 계좌 잔고 스모크는 `.\scripts\test-paper-kis.ps1`, Python FastAPI의 국내·미국 현재가 및 PAPER 잔고 읽기 전용 스모크는 `.\scripts\test-paper-kis-python.ps1`로 실행합니다. Python 스크립트는 `.env_local`에서 PAPER 키와 읽기 전용 스위치를 확인한 뒤 네 개 GET 경로만 호출하며, 주문 스위치가 켜져 있으면 중단합니다. 기본 테스트에서는 외부 KIS에 연결하지 않습니다. API·DB·운영 상세는 [docs](docs/README.md)를 참고하세요.
@@ -141,7 +141,7 @@ P1-001 구현이 완료되면 계좌 스냅샷은 `KIS_SNAPSHOT_PERSISTENCE_ENAB
 Paper 주문 미리보기:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/orders/paper `
+Invoke-RestMethod -Method Post -Uri http://localhost:18080/api/v1/orders/paper `
   -Headers @{ 'Idempotency-Key' = 'd8d449d8-f154-4c5a-b1d0-6ce69f790f51' } `
   -ContentType 'application/json' `
   -Body '{"market":"KR","symbol":"005930","side":"BUY","quantity":1,"limitPrice":70000,"currency":"KRW"}'
@@ -157,16 +157,16 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/orders/paper `
 선택 사항인 `PAPER_ORDER_TIMEOUT_SECONDS`는 미체결/부분체결 주문을 만료시키는 시간입니다. 기본값 0은 자동 만료를 끕니다.
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/orders/paper/1/fills `
+Invoke-RestMethod -Method Post -Uri http://localhost:18080/api/v1/orders/paper/1/fills `
   -ContentType 'application/json' `
   -Body '{"fillKey":"d4f78a48-1600-4c60-95a8-8cc53dfec06c","quantity":1,"fillPrice":70000}'
-Invoke-RestMethod http://localhost:8080/api/v1/orders/paper/positions
-Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/orders/paper/1/amend `
+Invoke-RestMethod http://localhost:18080/api/v1/orders/paper/positions
+Invoke-RestMethod -Method Post -Uri http://localhost:18080/api/v1/orders/paper/1/amend `
   -Headers @{ 'Idempotency-Key' = 'd3952b31-e893-48ce-bb5e-a621d1c513c4' } `
   -ContentType 'application/json' `
   -Body '{"quantity":2,"limitPrice":71000}'
-Invoke-RestMethod -Method Post http://localhost:8080/api/v1/orders/paper/1/cancel
-Invoke-RestMethod http://localhost:8080/api/v1/orders/paper/1
+Invoke-RestMethod -Method Post http://localhost:18080/api/v1/orders/paper/1/cancel
+Invoke-RestMethod http://localhost:18080/api/v1/orders/paper/1
 ```
 
 ## 테스트

@@ -127,7 +127,7 @@ try {
             while ((Get-Date) -lt $backendDeadline) {
                 if ($backendProcess.HasExited) { throw "Spring Boot exited during startup (code $($backendProcess.ExitCode))." }
                 try {
-                    Invoke-RestMethod -Uri 'http://127.0.0.1:8080/api/v1/operations/summary' -TimeoutSec 2 | Out-Null
+                    Invoke-RestMethod -Uri 'http://127.0.0.1:18080/api/v1/operations/summary' -TimeoutSec 2 | Out-Null
                     $backendReady = $true
                     break
                 } catch {
@@ -146,7 +146,7 @@ try {
                 $env:PYTHONPATH = $serviceDirectory
             }
             $marketAiProcess = Start-Process -FilePath $pythonPath `
-                -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000') `
+                -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '18000') `
                 -WorkingDirectory $repoRoot -WindowStyle Hidden `
                 -RedirectStandardOutput $marketAiStdout -RedirectStandardError $marketAiStderr -PassThru
             Write-TaskLog 'Python market-ai process started.'
@@ -157,7 +157,7 @@ try {
             while ((Get-Date) -lt $marketAiDeadline) {
                 if ($marketAiProcess.HasExited) { throw "Python market-ai exited during startup (code $($marketAiProcess.ExitCode))." }
                 try {
-                    Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/v1/health' -TimeoutSec 2 | Out-Null
+                    Invoke-RestMethod -Uri 'http://127.0.0.1:18000/api/v1/health' -TimeoutSec 2 | Out-Null
                     $marketAiReady = $true
                     break
                 } catch {

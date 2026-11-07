@@ -69,7 +69,7 @@ def real_signal_submission_enabled() -> bool:
 class SpringRealSignalOrderClient:
     """Submit only a market/symbol signal reference to Spring's guarded REAL API."""
 
-    def __init__(self, base_url: str = "http://127.0.0.1:8080", *, http_client: httpx.Client | None = None):
+    def __init__(self, base_url: str = "http://127.0.0.1:18080", *, http_client: httpx.Client | None = None):
         parsed = urlparse(base_url)
         if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
             raise ValueError("REAL signal handoff must use a local Spring HTTP endpoint")
