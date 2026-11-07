@@ -9,6 +9,7 @@ KIS 공식 [고객의 소리 접수 페이지](https://securities.koreainvestmen
 - 점검 시각: 2026-11-07 10:59 KST(PAPER), 11:00 KST(REAL), 11:05 KST(PAPER 잔고 읽기 재확인)
 - 추가 PAPER OAuth 재점검: 2026-11-07 11:11 KST, HTTP 403, `EGW00002`
 - 추가 PAPER OAuth 재점검: 2026-11-07 11:16 KST, HTTP 403, `EGW00002`
+- Spring PAPER 국내 잔고 GET 재점검: 2026-11-07 11:22 KST, HTTP 502, 안전 응답 코드 `EGW00002`; 잔고 응답 본문은 표시하지 않음
 - PAPER 서버: `https://openapivts.koreainvestment.com:29443`
 - REAL 서버: `https://openapi.koreainvestment.com:9443`
 - 인증 경로: `POST /oauth2/tokenP`, `client_credentials`
