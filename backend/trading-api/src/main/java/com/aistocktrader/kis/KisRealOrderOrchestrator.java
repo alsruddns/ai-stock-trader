@@ -12,7 +12,7 @@ import java.util.HexFormat;
 import java.util.Locale;
 import java.util.UUID;
 
-/** Internal REAL order workflow. No public HTTP endpoint is wired to this service. */
+/** Internal REAL order workflow; controller and risk gate keep each write path fail-closed. */
 @Service
 public class KisRealOrderOrchestrator {
     private static final String REAL_CANCEL_PREFLIGHT_BLOCKED = "REAL_CANCEL_PREFLIGHT_BLOCKED";
@@ -23,6 +23,7 @@ public class KisRealOrderOrchestrator {
     private final KisMarketAiEvidenceClient marketAiEvidence;
     private final KisRealAccountPortfolioPositionCounter portfolioPositions;
     private final KisRealConsecutiveLossService consecutiveLosses;
+    private final KisLiveOrderSizingService orderSizing;
 
     @Autowired
     public KisRealOrderOrchestrator(KisRealOrderClient orders, KisLiveOrderRiskGate riskGate,
@@ -30,7 +31,8 @@ public class KisRealOrderOrchestrator {
                                     KisRealDailyRiskBaselineService dailyRiskBaselines,
                                     KisMarketAiEvidenceClient marketAiEvidence,
                                     KisRealAccountPortfolioPositionCounter portfolioPositions,
-                                    KisRealConsecutiveLossService consecutiveLosses) {
+                                    KisRealConsecutiveLossService consecutiveLosses,
+                                    KisLiveOrderSizingService orderSizing) {
         this.orders = orders;
         this.riskGate = riskGate;
         this.intents = intents;
@@ -38,12 +40,18 @@ public class KisRealOrderOrchestrator {
         this.marketAiEvidence = marketAiEvidence;
         this.portfolioPositions = portfolioPositions;
         this.consecutiveLosses = consecutiveLosses;
+        this.orderSizing = orderSizing;
     }
 
-    /** Test-only compatibility constructor; absent server-side history must keep REAL buys blocked. */
+    /** Compatibility constructor for focused tests without live sizing configuration. */
     public KisRealOrderOrchestrator(KisRealOrderClient orders, KisLiveOrderRiskGate riskGate,
-                                    KisOrderIntentStore intents) {
-        this(orders, riskGate, intents, null, null, null, null);
+                                    KisOrderIntentStore intents,
+                                    KisRealDailyRiskBaselineService dailyRiskBaselines,
+                                    KisMarketAiEvidenceClient marketAiEvidence,
+                                    KisRealAccountPortfolioPositionCounter portfolioPositions,
+                                    KisRealConsecutiveLossService consecutiveLosses) {
+        this(orders, riskGate, intents, dailyRiskBaselines, marketAiEvidence, portfolioPositions,
+                consecutiveLosses, null);
     }
 
     /** Test constructor; absent server-side consecutive-loss evidence must fail closed. */
@@ -52,7 +60,13 @@ public class KisRealOrderOrchestrator {
                                     KisRealDailyRiskBaselineService dailyRiskBaselines,
                                     KisMarketAiEvidenceClient marketAiEvidence,
                                     KisRealAccountPortfolioPositionCounter portfolioPositions) {
-        this(orders, riskGate, intents, dailyRiskBaselines, marketAiEvidence, portfolioPositions, null);
+        this(orders, riskGate, intents, dailyRiskBaselines, marketAiEvidence, portfolioPositions, null, null);
+    }
+
+    /** Test-only compatibility constructor; absent server-side history must keep REAL buys blocked. */
+    public KisRealOrderOrchestrator(KisRealOrderClient orders, KisLiveOrderRiskGate riskGate,
+                                    KisOrderIntentStore intents) {
+        this(orders, riskGate, intents, null, null, null, null);
     }
 
     public KisOrderIntentResponse submit(UUID idempotencyKey, OrderRequest request, String exchange,
@@ -64,6 +78,12 @@ public class KisRealOrderOrchestrator {
             KisRealDailyRiskBaselineService.RiskInputs dailyRisk =
                     dailyRiskBaselines.riskInputs(request.market(), realAccount);
             KisMarketAiEvidenceClient.Evidence aiEvidence = marketAiEvidence.inspect(request, exchange);
+            if (orderSizing != null && request.side() == com.aistocktrader.order.OrderSide.BUY) {
+                request = orderSizing.capBuyQuantity(request, realAccount, aiEvidence.stopDistancePerShare());
+            }
+            if (orderSizing != null && request.side() == com.aistocktrader.order.OrderSide.BUY) {
+                request = orderSizing.capBuyQuantity(request, realAccount, aiEvidence.stopDistancePerShare());
+            }
             Integer allMarketPositionCount = null;
             int consecutiveLossCount = -1;
             if (consecutiveLosses != null) {

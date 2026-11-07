@@ -8,6 +8,7 @@ import com.aistocktrader.order.OrderSide;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -45,7 +46,35 @@ class KisRealOrderOrchestratorTest {
         when(marketAiEvidence.inspect(any(), nullable(String.class))).thenReturn(
                 new KisMarketAiEvidenceClient.Evidence(true, true, new BigDecimal("100")));
         orchestrator = new KisRealOrderOrchestrator(orders, riskGate, intents, dailyRiskBaselines,
-                marketAiEvidence, portfolioPositions);
+                marketAiEvidence, portfolioPositions, null,
+                new KisLiveOrderSizingService(safety,
+                        new KisLiveRiskLimits(BigDecimal.ONE, new BigDecimal("0.25"), BigDecimal.TEN, 3, 3)));
+    }
+
+    @Test
+    void realBuyIntentPersistsServerCappedQuantity() {
+        UUID key = UUID.randomUUID();
+        OrderRequest proposed = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 100,
+                new BigDecimal("10000"), Currency.KRW);
+        final KisOrderIntent[] saved = new KisOrderIntent[1];
+        when(intents.prepare(eq(key), anyString(), eq(KisEnvironment.REAL), any(OrderRequest.class), isNull()))
+                .thenAnswer(call -> {
+                    OrderRequest sized = call.getArgument(3);
+                    saved[0] = new KisOrderIntent(key, call.getArgument(1), KisEnvironment.REAL, sized, null);
+                    return new KisOrderIntentStore.PreparedIntent(saved[0], true);
+                });
+        when(intents.reject(eq(key), anyString())).thenAnswer(call -> {
+            saved[0].reject(call.getArgument(1));
+            return saved[0];
+        });
+
+        KisOrderIntentResponse response = orchestrator.submit(key, proposed, null, realAccount());
+
+        ArgumentCaptor<OrderRequest> sizedRequest = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(intents).prepare(eq(key), anyString(), eq(KisEnvironment.REAL), sizedRequest.capture(), isNull());
+        assertEquals(10, sizedRequest.getValue().quantity());
+        assertEquals(KisOrderStatus.REJECTED, response.status());
+        verify(orders, never()).placeRealLimitOrder(any(), anyString(), any(), anyInt(), any(), any(), anyString(), any());
     }
 
     @Test
