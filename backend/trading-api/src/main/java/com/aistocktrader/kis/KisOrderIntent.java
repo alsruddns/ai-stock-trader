@@ -54,6 +54,10 @@ public class KisOrderIntent {
     private Integer remainingQuantity;
     @Column(name = "average_fill_price", precision = 20, scale = 6)
     private BigDecimal averageFillPrice;
+    @Column(name = "exit_stop_distance_per_share", precision = 20, scale = 6)
+    private BigDecimal exitStopDistancePerShare;
+    @Column(name = "exit_reward_risk_multiple", precision = 10, scale = 4)
+    private BigDecimal exitRewardRiskMultiple;
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
     @Column(name = "updated_at", nullable = false)
@@ -68,11 +72,26 @@ public class KisOrderIntent {
     }
 
     public KisOrderIntent(UUID key, String hash, KisEnvironment environment, OrderRequest request, String exchange) {
+        this(key, hash, environment, request, exchange, null, null);
+    }
+
+    public KisOrderIntent(UUID key, String hash, KisEnvironment environment, OrderRequest request, String exchange,
+                          BigDecimal exitStopDistancePerShare, BigDecimal exitRewardRiskMultiple) {
         idempotencyKey = key; requestHash = hash; market = request.market();
         this.environment = java.util.Objects.requireNonNull(environment, "environment");
         symbol = request.symbol().trim().toUpperCase(Locale.ROOT); side = request.side();
         quantity = request.quantity(); limitPrice = request.limitPrice(); currency = request.currency();
         exchangeCode = exchange == null ? null : exchange.trim().toUpperCase(Locale.ROOT);
+        if (exitStopDistancePerShare != null || exitRewardRiskMultiple != null) {
+            if (environment != KisEnvironment.REAL || request.side() != OrderSide.BUY
+                    || exitStopDistancePerShare == null || exitStopDistancePerShare.signum() <= 0
+                    || exitRewardRiskMultiple == null || exitRewardRiskMultiple.signum() <= 0
+                    || request.limitPrice().compareTo(exitStopDistancePerShare) <= 0) {
+                throw new IllegalArgumentException("A REAL buy exit plan requires valid stop distance and reward/risk inputs.");
+            }
+            this.exitStopDistancePerShare = exitStopDistancePerShare;
+            this.exitRewardRiskMultiple = exitRewardRiskMultiple;
+        }
         filledQuantity = 0; remainingQuantity = request.quantity();
         status = KisOrderStatus.SUBMITTING; createdAt = Instant.now(); updatedAt = createdAt;
     }
@@ -147,6 +166,16 @@ public class KisOrderIntent {
     public Integer getFilledQuantity() { return filledQuantity; }
     public Integer getRemainingQuantity() { return remainingQuantity; }
     public BigDecimal getAverageFillPrice() { return averageFillPrice; }
+    public BigDecimal getExitStopDistancePerShare() { return exitStopDistancePerShare; }
+    public BigDecimal getExitRewardRiskMultiple() { return exitRewardRiskMultiple; }
+    public BigDecimal getExitStopPrice() {
+        return averageFillPrice == null || exitStopDistancePerShare == null
+                ? null : averageFillPrice.subtract(exitStopDistancePerShare);
+    }
+    public BigDecimal getExitTargetPrice() {
+        return averageFillPrice == null || exitStopDistancePerShare == null || exitRewardRiskMultiple == null
+                ? null : averageFillPrice.add(exitStopDistancePerShare.multiply(exitRewardRiskMultiple));
+    }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getLastFillAt() { return lastFillAt; }

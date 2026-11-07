@@ -16,6 +16,7 @@ import java.util.UUID;
 @Service
 public class KisRealOrderOrchestrator {
     private static final String REAL_CANCEL_PREFLIGHT_BLOCKED = "REAL_CANCEL_PREFLIGHT_BLOCKED";
+    private static final java.math.BigDecimal EXIT_REWARD_RISK_MULTIPLE = new java.math.BigDecimal("2");
     private final KisRealOrderClient orders;
     private final KisLiveOrderRiskGate riskGate;
     private final KisOrderIntentStore intents;
@@ -73,12 +74,20 @@ public class KisRealOrderOrchestrator {
                                          KisAccountSnapshot realAccount) {
         String requestHash = hash(request, exchange);
         KisLiveRiskContext serverCheckedContext = null;
+        java.math.BigDecimal exitStopDistancePerShare = null;
         if (request != null) {
             boolean unresolvedOrder = intents.hasUnresolvedRealOrder(request.market(), idempotencyKey);
             KisRealDailyRiskBaselineService.RiskInputs dailyRisk =
                     dailyRiskBaselines.riskInputs(request.market(), realAccount);
             KisMarketAiEvidenceClient.Evidence aiEvidence = marketAiEvidence.inspect(request, exchange);
             if (request.side() == com.aistocktrader.order.OrderSide.BUY) {
+                if (aiEvidence.approvedModelCandidate() && aiEvidence.quoteFresh()
+                        && aiEvidence.modelId() != null && !aiEvidence.modelId().isBlank()
+                        && aiEvidence.strategyId() != null && !aiEvidence.strategyId().isBlank()
+                        && aiEvidence.stopDistancePerShare() != null
+                        && aiEvidence.stopDistancePerShare().signum() > 0) {
+                    exitStopDistancePerShare = aiEvidence.stopDistancePerShare();
+                }
                 String modelId = aiEvidence.approvedModelCandidate() ? aiEvidence.modelId() : null;
                 String strategyId = aiEvidence.approvedModelCandidate() ? aiEvidence.strategyId() : null;
                 request = new OrderRequest(request.market(), request.symbol(), request.side(), request.quantity(),
@@ -117,9 +126,9 @@ public class KisRealOrderOrchestrator {
         KisLiveRiskDecision decision = riskGate.assess(request, exchange, realAccount, serverCheckedContext);
         KisOrderIntentStore.PreparedIntent prepared;
         try {
-            prepared = intents.prepare(idempotencyKey, requestHash, KisEnvironment.REAL, request, exchange);
+            prepared = prepareIntent(idempotencyKey, requestHash, request, exchange, exitStopDistancePerShare);
         } catch (DataIntegrityViolationException duplicateRace) {
-            prepared = intents.prepare(idempotencyKey, requestHash, KisEnvironment.REAL, request, exchange);
+            prepared = prepareIntent(idempotencyKey, requestHash, request, exchange, exitStopDistancePerShare);
         }
         if (!prepared.createdNow()) return resolveDuplicate(idempotencyKey, prepared.intent());
 
@@ -241,5 +250,14 @@ public class KisRealOrderOrchestrator {
 
     private static String extractCode(String message) {
         return KisResponseCodes.fromErrorMessage(message, "KIS_REJECTED");
+    }
+
+    private KisOrderIntentStore.PreparedIntent prepareIntent(UUID key, String requestHash, OrderRequest request,
+                                                              String exchange, java.math.BigDecimal stopDistance) {
+        if (stopDistance == null) {
+            return intents.prepare(key, requestHash, KisEnvironment.REAL, request, exchange);
+        }
+        return intents.prepare(key, requestHash, KisEnvironment.REAL, request, exchange, stopDistance,
+                EXIT_REWARD_RISK_MULTIPLE);
     }
 }

@@ -61,10 +61,12 @@ class KisRealOrderOrchestratorTest {
                 new KisMarketAiEvidenceClient.Evidence(true, true, new BigDecimal("100"),
                         "verified-model", "ORB_VWAP", new BigDecimal("10000")));
         final KisOrderIntent[] saved = new KisOrderIntent[1];
-        when(intents.prepare(eq(key), anyString(), eq(KisEnvironment.REAL), any(OrderRequest.class), isNull()))
+        when(intents.prepare(eq(key), anyString(), eq(KisEnvironment.REAL), any(OrderRequest.class), isNull(),
+                any(BigDecimal.class), any(BigDecimal.class)))
                 .thenAnswer(call -> {
                     OrderRequest sized = call.getArgument(3);
-                    saved[0] = new KisOrderIntent(key, call.getArgument(1), KisEnvironment.REAL, sized, null);
+                    saved[0] = new KisOrderIntent(key, call.getArgument(1), KisEnvironment.REAL, sized, null,
+                            call.getArgument(5), call.getArgument(6));
                     return new KisOrderIntentStore.PreparedIntent(saved[0], true);
                 });
         when(intents.reject(eq(key), anyString())).thenAnswer(call -> {
@@ -75,10 +77,18 @@ class KisRealOrderOrchestratorTest {
         KisOrderIntentResponse response = orchestrator.submit(key, proposed, null, realAccount());
 
         ArgumentCaptor<OrderRequest> sizedRequest = ArgumentCaptor.forClass(OrderRequest.class);
-        verify(intents).prepare(eq(key), anyString(), eq(KisEnvironment.REAL), sizedRequest.capture(), isNull());
+        ArgumentCaptor<BigDecimal> stopDistance = ArgumentCaptor.forClass(BigDecimal.class);
+        ArgumentCaptor<BigDecimal> rewardRiskMultiple = ArgumentCaptor.forClass(BigDecimal.class);
+        verify(intents).prepare(eq(key), anyString(), eq(KisEnvironment.REAL), sizedRequest.capture(), isNull(),
+                stopDistance.capture(), rewardRiskMultiple.capture());
         assertEquals(10, sizedRequest.getValue().quantity());
         assertEquals("verified-model", sizedRequest.getValue().modelId());
         assertEquals("ORB_VWAP", sizedRequest.getValue().strategyId());
+        assertEquals(new BigDecimal("100"), stopDistance.getValue());
+        assertEquals(new BigDecimal("2"), rewardRiskMultiple.getValue());
+        saved[0].reconcile(10, 0, new BigDecimal("10000"), false, false);
+        assertEquals(new BigDecimal("9900"), saved[0].getExitStopPrice());
+        assertEquals(new BigDecimal("10200"), saved[0].getExitTargetPrice());
         assertEquals(KisOrderStatus.REJECTED, response.status());
         verify(orders, never()).placeRealLimitOrder(any(), anyString(), any(), anyInt(), any(), any(), anyString(), any());
     }

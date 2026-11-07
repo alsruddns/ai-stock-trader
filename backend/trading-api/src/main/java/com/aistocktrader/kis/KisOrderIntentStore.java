@@ -34,6 +34,13 @@ public class KisOrderIntentStore {
 
     @Transactional
     public PreparedIntent prepare(UUID key, String hash, KisEnvironment environment, OrderRequest request, String exchange) {
+        return prepare(key, hash, environment, request, exchange, null, null);
+    }
+
+    @Transactional
+    public PreparedIntent prepare(UUID key, String hash, KisEnvironment environment, OrderRequest request,
+                                  String exchange, java.math.BigDecimal exitStopDistancePerShare,
+                                  java.math.BigDecimal exitRewardRiskMultiple) {
         var existing = repository.findById(key);
         if (existing.isPresent()) {
             KisOrderIntent intent = existing.get();
@@ -44,7 +51,8 @@ public class KisOrderIntentStore {
             if (!intent.getRequestHash().equals(hash)) throw new com.aistocktrader.order.IdempotencyConflictException("Idempotency-Key was already used for a different KIS order.");
             return new PreparedIntent(intent, false);
         }
-        return new PreparedIntent(repository.saveAndFlush(new KisOrderIntent(key, hash, environment, request, exchange)), true);
+        return new PreparedIntent(repository.saveAndFlush(new KisOrderIntent(key, hash, environment, request,
+                exchange, exitStopDistancePerShare, exitRewardRiskMultiple)), true);
     }
 
     @Transactional

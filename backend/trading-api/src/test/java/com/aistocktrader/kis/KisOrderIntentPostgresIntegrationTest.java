@@ -68,6 +68,34 @@ class KisOrderIntentPostgresIntegrationTest {
 
     @Test
     @Transactional
+    void realBuyProtectiveExitInputsSurvivePostgresReloadAndUseObservedPartialFill() {
+        UUID key = UUID.randomUUID();
+        OrderRequest realBuy = new OrderRequest(Market.US, "AAPL", OrderSide.BUY, 4,
+                new BigDecimal("105"), Currency.USD, "ORB_VWAP", "approved-model-1");
+        try {
+            store.prepare(key, "a".repeat(64), KisEnvironment.REAL, realBuy, "NASD",
+                    new BigDecimal("4"), new BigDecimal("2"));
+            entityManager.flush();
+            entityManager.clear();
+
+            KisOrderIntent persisted = kisOrderRepository.findById(key).orElseThrow();
+            persisted.reconcile(2, 2, new BigDecimal("104.500000"), false, false);
+            entityManager.flush();
+            entityManager.clear();
+            KisOrderIntent reloaded = kisOrderRepository.findById(key).orElseThrow();
+
+            assertEquals(KisEnvironment.REAL, reloaded.getEnvironment());
+            assertEquals(new BigDecimal("4.000000"), reloaded.getExitStopDistancePerShare());
+            assertEquals(new BigDecimal("2.0000"), reloaded.getExitRewardRiskMultiple());
+            assertEquals(new BigDecimal("100.500000"), reloaded.getExitStopPrice());
+            assertEquals(0, reloaded.getExitTargetPrice().compareTo(new BigDecimal("112.500000")));
+        } finally {
+            kisOrderRepository.deleteById(key);
+        }
+    }
+
+    @Test
+    @Transactional
     void mockBrokerSubmissionPersistsAcceptedOrderAndIdempotentRetryDoesNotResubmit() {
         UUID key = UUID.randomUUID();
         OrderRequest order = request();

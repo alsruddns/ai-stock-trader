@@ -11,6 +11,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class KisOrderIntentTest {
     @Test
@@ -43,5 +45,42 @@ class KisOrderIntentTest {
         assertEquals(2, intent.getFilledQuantity());
         assertEquals(1, intent.getRemainingQuantity());
         assertEquals(new BigDecimal("69900"), intent.getAverageFillPrice());
+    }
+
+    @Test
+    void realBuyExitThresholdsAreDerivedFromPersistedPlanAndObservedAverageFill() {
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL,
+                new OrderRequest(Market.US, "AAPL", OrderSide.BUY, 3,
+                        new BigDecimal("105"), Currency.USD, "ORB_VWAP", "model-1"), "NASD",
+                new BigDecimal("4"), new BigDecimal("2"));
+
+        assertEquals(new BigDecimal("4"), intent.getExitStopDistancePerShare());
+        assertEquals(new BigDecimal("2"), intent.getExitRewardRiskMultiple());
+        assertNull(intent.getExitStopPrice());
+        assertNull(intent.getExitTargetPrice());
+
+        intent.reconcile(2, 1, new BigDecimal("104.500000"), false, false);
+
+        assertEquals(new BigDecimal("100.500000"), intent.getExitStopPrice());
+        assertEquals(new BigDecimal("112.500000"), intent.getExitTargetPrice());
+    }
+
+    @Test
+    void invalidExitPlanCannotBeStored() {
+        assertThrows(IllegalArgumentException.class, () -> new KisOrderIntent(UUID.randomUUID(), "hash",
+                KisEnvironment.REAL,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                        new BigDecimal("100"), Currency.KRW), null,
+                new BigDecimal("100"), new BigDecimal("2")));
+        assertThrows(IllegalArgumentException.class, () -> new KisOrderIntent(UUID.randomUUID(), "hash",
+                KisEnvironment.PAPER,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                        new BigDecimal("100"), Currency.KRW), null,
+                new BigDecimal("5"), new BigDecimal("2")));
+        assertThrows(IllegalArgumentException.class, () -> new KisOrderIntent(UUID.randomUUID(), "hash",
+                KisEnvironment.REAL,
+                new OrderRequest(Market.KR, "005930", OrderSide.SELL, 1,
+                        new BigDecimal("100"), Currency.KRW), null,
+                new BigDecimal("5"), new BigDecimal("2")));
     }
 }
