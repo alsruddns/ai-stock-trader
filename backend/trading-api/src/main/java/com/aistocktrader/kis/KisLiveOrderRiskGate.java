@@ -59,6 +59,9 @@ public class KisLiveOrderRiskGate {
             reasons.add("FRESH_ACCOUNT_SNAPSHOT_REQUIRED");
         }
         if (!context.quoteFresh()) reasons.add("FRESH_QUOTE_REQUIRED");
+        if (request.side() == OrderSide.BUY && !context.buyLimitPriceWithinLatestQuote()) {
+            reasons.add("BUY_LIMIT_PRICE_ABOVE_LATEST_QUOTE");
+        }
         if (!context.marketOpen()) reasons.add("MARKET_CLOSED");
         if (context.unresolvedOrderExists()) reasons.add("UNRESOLVED_ORDER_EXISTS");
         if (!realAccount || !trustedAccountSource || !matchingMarket || !matchingCurrency || !positionsValid

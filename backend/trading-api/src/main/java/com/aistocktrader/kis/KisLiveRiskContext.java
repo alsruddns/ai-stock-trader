@@ -11,4 +11,15 @@ record KisLiveRiskContext(boolean approvedModelCandidate, boolean quoteFresh,
                           boolean unresolvedOrderExists,
                           BigDecimal dailyLossPercent, int consecutiveLosingTrades,
                           BigDecimal accountEquity, BigDecimal stopDistancePerShare,
-                          Integer totalOpenPositionsAcrossMarkets) { }
+                          Integer totalOpenPositionsAcrossMarkets,
+                          boolean buyLimitPriceWithinLatestQuote) {
+    KisLiveRiskContext(boolean approvedModelCandidate, boolean quoteFresh,
+                       boolean accountSnapshotFresh, boolean marketOpen,
+                       boolean unresolvedOrderExists, BigDecimal dailyLossPercent,
+                       int consecutiveLosingTrades, BigDecimal accountEquity,
+                       BigDecimal stopDistancePerShare, Integer totalOpenPositionsAcrossMarkets) {
+        this(approvedModelCandidate, quoteFresh, accountSnapshotFresh, marketOpen, unresolvedOrderExists,
+                dailyLossPercent, consecutiveLosingTrades, accountEquity, stopDistancePerShare,
+                totalOpenPositionsAcrossMarkets, true);
+    }
+}

@@ -40,8 +40,10 @@ public class KisMarketAiEvidenceClient {
             BigDecimal stopDistance = signalStopDistance(paper, modelId, request, exchange);
             String strategyId = signalStrategyId(paper, modelId, request, exchange);
             boolean approvedCandidate = stopDistance != null && strategyId != null;
+            BigDecimal quotePrice = quote != null && quote.path("price").isNumber()
+                    ? quote.path("price").decimalValue() : null;
             return new Evidence(approvedCandidate, isFreshMatchingQuote(quote, request), stopDistance,
-                    approvedCandidate ? modelId : null, approvedCandidate ? strategyId : null);
+                    approvedCandidate ? modelId : null, approvedCandidate ? strategyId : null, quotePrice);
         } catch (RuntimeException unavailable) {
             return new Evidence(false, false, null);
         }
@@ -138,9 +140,14 @@ public class KisMarketAiEvidenceClient {
     }
 
     public record Evidence(boolean approvedModelCandidate, boolean quoteFresh, BigDecimal stopDistancePerShare,
-                           String modelId, String strategyId) {
+                           String modelId, String strategyId, BigDecimal quotePrice) {
+        public Evidence(boolean approvedModelCandidate, boolean quoteFresh, BigDecimal stopDistancePerShare,
+                        String modelId, String strategyId) {
+            this(approvedModelCandidate, quoteFresh, stopDistancePerShare, modelId, strategyId, null);
+        }
+
         public Evidence(boolean approvedModelCandidate, boolean quoteFresh, BigDecimal stopDistancePerShare) {
-            this(approvedModelCandidate, quoteFresh, stopDistancePerShare, null, null);
+            this(approvedModelCandidate, quoteFresh, stopDistancePerShare, null, null, null);
         }
     }
 }

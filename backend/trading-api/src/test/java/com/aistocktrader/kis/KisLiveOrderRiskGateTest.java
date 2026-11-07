@@ -33,6 +33,18 @@ class KisLiveOrderRiskGateTest {
     }
 
     @Test
+    void rejectsBuyLimitAboveTheLatestTrustedQuote() {
+        KisLiveRiskContext evidence = new KisLiveRiskContext(true, true, true, true, false,
+                BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"), 0, false);
+
+        KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70001"), null,
+                account(KisEnvironment.REAL, "KRW", "100000", List.of()), evidence);
+
+        assertFalse(result.approved());
+        assertTrue(result.reasons().contains("BUY_LIMIT_PRICE_ABOVE_LATEST_QUOTE"));
+    }
+
+    @Test
     void dailyLossModelQuoteAndStopRequirementsBlockBeforeLiveOrder() {
         KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", List.of()),

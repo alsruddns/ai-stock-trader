@@ -44,7 +44,8 @@ class KisRealOrderOrchestratorTest {
         when(dailyRiskBaselines.riskInputs(any(), any())).thenReturn(
                 new KisRealDailyRiskBaselineService.RiskInputs(true, BigDecimal.ZERO));
         when(marketAiEvidence.inspect(any(), nullable(String.class))).thenReturn(
-                new KisMarketAiEvidenceClient.Evidence(true, true, new BigDecimal("100")));
+                new KisMarketAiEvidenceClient.Evidence(true, true, new BigDecimal("100"),
+                        null, null, new BigDecimal("70000")));
         orchestrator = new KisRealOrderOrchestrator(orders, riskGate, intents, dailyRiskBaselines,
                 marketAiEvidence, portfolioPositions, null,
                 new KisLiveOrderSizingService(safety,
@@ -58,7 +59,7 @@ class KisRealOrderOrchestratorTest {
                 new BigDecimal("10000"), Currency.KRW, "caller_strategy", "caller-model");
         when(marketAiEvidence.inspect(eq(proposed), isNull())).thenReturn(
                 new KisMarketAiEvidenceClient.Evidence(true, true, new BigDecimal("100"),
-                        "verified-model", "ORB_VWAP"));
+                        "verified-model", "ORB_VWAP", new BigDecimal("10000")));
         final KisOrderIntent[] saved = new KisOrderIntent[1];
         when(intents.prepare(eq(key), anyString(), eq(KisEnvironment.REAL), any(OrderRequest.class), isNull()))
                 .thenAnswer(call -> {
@@ -107,7 +108,8 @@ class KisRealOrderOrchestratorTest {
         when(intents.prepare(eq(key), anyString(), eq(KisEnvironment.REAL), eq(request), isNull()))
                 .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
         when(marketAiEvidence.inspect(eq(request), isNull())).thenReturn(
-                new KisMarketAiEvidenceClient.Evidence(false, true, new BigDecimal("100")));
+                new KisMarketAiEvidenceClient.Evidence(false, true, new BigDecimal("100"),
+                        null, null, new BigDecimal("70000")));
         when(intents.reject(eq(key), anyString())).thenAnswer(call -> { intent.reject(call.getArgument(1)); return intent; });
 
         KisOrderIntentResponse response = orchestrator.submit(key, request, null, realAccount());

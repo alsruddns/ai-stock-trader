@@ -54,6 +54,7 @@ class KisMarketAiEvidenceClientTest {
         assertEquals(new BigDecimal("150"), evidence.stopDistancePerShare());
         assertEquals("lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", evidence.modelId());
         assertEquals("ORB_VWAP", evidence.strategyId());
+        assertEquals(new BigDecimal("70000"), evidence.quotePrice());
         server.verify();
     }
 
