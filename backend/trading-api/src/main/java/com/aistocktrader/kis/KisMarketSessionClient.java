@@ -20,7 +20,15 @@ public class KisMarketSessionClient {
     }
 
     public MarketSession session(Market market) {
-        JsonNode payload = http.get().uri("/api/v1/market/sessions/{market}", market.name())
+        return readSession("/api/v1/market/sessions/{market}", market);
+    }
+
+    public MarketSession latestClosedSession(Market market) {
+        return readSession("/api/v1/market/sessions/{market}/latest-closed", market);
+    }
+
+    private MarketSession readSession(String path, Market market) {
+        JsonNode payload = http.get().uri(path, market.name())
                 .retrieve().body(JsonNode.class);
         if (payload == null || !market.name().equals(payload.path("market").asText())
                 || !payload.path("session_date").isTextual()

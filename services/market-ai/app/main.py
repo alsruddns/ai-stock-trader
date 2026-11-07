@@ -330,6 +330,31 @@ def market_session_status(market: Market = Path()) -> dict[str, object]:
     }
 
 
+@app.get("/api/v1/market/sessions/{market}/latest-closed")
+def latest_closed_market_session_status(market: Market = Path()) -> dict[str, object]:
+    """Return the latest completed exchange session for cross-market read-only risk evidence."""
+    now = datetime.now(timezone.utc)
+    zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
+    try:
+        session_day = latest_closed_session_date(market, now)
+        noon = datetime.combine(session_day, time(hour=12), tzinfo=zone)
+        window = exchange_session_window(market, noon)
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Latest closed market session could not be verified")
+    if window is None:
+        raise HTTPException(status_code=503, detail="Latest closed market session could not be verified")
+    opened, closed = window
+    return {
+        "market": market,
+        "session_date": session_day.isoformat(),
+        "is_session": True,
+        "is_open": False,
+        "open_at": opened.isoformat(),
+        "close_at": closed.isoformat(),
+        "evaluated_at": now.isoformat(),
+    }
+
+
 @app.get("/api/v1/market/session-quality/{market}/{symbol}")
 async def market_session_quality(
     market: Market = Path(),

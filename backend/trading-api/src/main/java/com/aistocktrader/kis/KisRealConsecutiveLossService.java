@@ -57,7 +57,12 @@ public class KisRealConsecutiveLossService {
             List<MarketLedgerInput> ledgers = new ArrayList<>();
             Map<Market, KisAccountSnapshot> snapshots = new HashMap<>();
             for (Market market : Market.values()) {
-                var session = sessions.session(market);
+                // The request market must be open now. The other exchange is often on a
+                // different local date (for example, KRX Monday morning is still Sunday
+                // in New York), so use its latest completed session as the immutable
+                // opening-inventory anchor while still reconciling its current balance.
+                var session = market == requestMarket
+                        ? sessions.session(market) : sessions.latestClosedSession(market);
                 Instant now = Instant.now();
                 if (!KisRealDailyRiskBaselineService.freshSession(session, market, now)
                         || session.openAt() == null || session.sessionDate() == null) return Optional.empty();

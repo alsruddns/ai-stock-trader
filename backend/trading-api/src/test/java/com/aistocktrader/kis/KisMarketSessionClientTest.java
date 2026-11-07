@@ -39,6 +39,29 @@ class KisMarketSessionClientTest {
     }
 
     @Test
+    void readsLatestClosedExchangeSessionForCrossMarketRiskEvidence() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisMarketSessionClient client = new KisMarketSessionClient(builder, "http://127.0.0.1:18000");
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/sessions/US/latest-closed"))
+                .andRespond(withSuccess("""
+                        {"market":"US","session_date":"2026-11-06","is_session":true,
+                         "is_open":false,"open_at":"2026-11-06T13:30:00Z",
+                         "close_at":"2026-11-06T20:00:00Z","evaluated_at":"2026-11-09T00:10:00Z"}
+                        """, MediaType.APPLICATION_JSON));
+
+        KisMarketSessionClient.MarketSession session = client.latestClosedSession(Market.US);
+
+        assertEquals(Market.US, session.market());
+        assertEquals(LocalDate.parse("2026-11-06"), session.sessionDate());
+        assertTrue(session.session());
+        assertEquals(false, session.open());
+        assertEquals(Instant.parse("2026-11-06T13:30:00Z"), session.openAt());
+        assertEquals(Instant.parse("2026-11-06T20:00:00Z"), session.closeAt());
+        server.verify();
+    }
+
+    @Test
     void malformedSessionBoundsAreRejected() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

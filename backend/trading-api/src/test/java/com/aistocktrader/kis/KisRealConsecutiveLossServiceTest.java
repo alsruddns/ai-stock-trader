@@ -35,6 +35,32 @@ class KisRealConsecutiveLossServiceTest {
     }
 
     @Test
+    void usesLatestClosedSessionWhenOtherExchangeHasNoSessionOnItsLocalDate() {
+        var fixture = new Fixture(true);
+        Instant now = Instant.now();
+        LocalDate latestUsDate = LocalDate.now().minusDays(3);
+        Instant usOpen = now.minus(Duration.ofHours(7));
+        var currentUsDate = new KisMarketSessionClient.MarketSession(Market.US, LocalDate.now(),
+                false, false, null, null, now);
+        var latestUsSession = new KisMarketSessionClient.MarketSession(Market.US, latestUsDate,
+                true, false, usOpen, usOpen.plus(Duration.ofHours(6)).plus(Duration.ofMinutes(30)), now);
+        when(fixture.sessions.session(Market.US)).thenReturn(currentUsDate);
+        when(fixture.sessions.latestClosedSession(Market.US)).thenReturn(latestUsSession);
+        when(fixture.positionBaselines.get(Market.US, latestUsDate, FINGERPRINT)).thenReturn(Optional.of(
+                new KisRealSessionPositionBaselineStore.PositionBaseline(Market.US, latestUsDate, FINGERPRINT,
+                        "USD", usOpen.plusSeconds(30), 0, "KIS_READ_ONLY_REST", List.of())));
+        when(fixture.accounts.getBalance(eq(KisEnvironment.REAL), eq(Market.US), any(), any(), any()))
+                .thenReturn(account(Market.US, List.of()));
+
+        var result = fixture.service.evaluate(Market.KR, account(Market.KR, List.of()));
+
+        assertTrue(result.isPresent());
+        assertEquals(new KisRealConsecutiveLossService.RiskHistory(0, 0), result.get());
+        verify(fixture.sessions).latestClosedSession(Market.US);
+        verify(fixture.sessions, never()).session(Market.US);
+    }
+
+    @Test
     void accountInventoryMismatchBlocksStreakEvidence() {
         var fixture = new Fixture(true);
         when(fixture.accounts.getBalance(eq(KisEnvironment.REAL), eq(Market.US), any(), any(), any()))
@@ -131,8 +157,10 @@ class KisRealConsecutiveLossServiceTest {
             LocalDate date = LocalDate.now();
             for (Market market : Market.values()) {
                 Instant open = now.minus(Duration.ofMinutes(2));
-                when(sessions.session(market)).thenReturn(new KisMarketSessionClient.MarketSession(market, date,
-                        true, true, open, open.plus(Duration.ofHours(7)), now));
+                var session = new KisMarketSessionClient.MarketSession(market, date,
+                        true, true, open, open.plus(Duration.ofHours(7)), now);
+                when(sessions.session(market)).thenReturn(session);
+                when(sessions.latestClosedSession(market)).thenReturn(session);
                 when(positionBaselines.get(eq(market), eq(date), eq(FINGERPRINT))).thenReturn(Optional.of(
                         new KisRealSessionPositionBaselineStore.PositionBaseline(market, date, FINGERPRINT,
                                 market == Market.KR ? "KRW" : "USD", open.plusSeconds(30), 0,
