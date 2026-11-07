@@ -575,3 +575,11 @@ def test_approved_manifest_without_durable_audit_event_cannot_be_selected_or_act
     registry.approve(model_id, approved_by="operator", note="Reviewed held-out evidence before advisory activation.")
     registry.activate(model_id, changed_by="operator", note="Durable approval evidence verified for advisory activation.")
     assert registry.active_approved_model("KR")["model_id"] == model_id
+
+    event = json.loads(registry._audit_path.read_text(encoding="utf-8").splitlines()[0])
+    event["artifact_sha256"] = "0" * 64
+    registry._audit_path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+    listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
+    assert listed["approved"] is False
+    assert listed["approval_audit_verified"] is False
+    assert registry.active_approved_model("KR") is None
