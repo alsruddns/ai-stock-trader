@@ -68,7 +68,7 @@ def _configure_safe_probe(
         app_key="test-app-key", app_secret="test-app-secret", account_number="1234567801",
         base_url="https://paper.invalid", shared_rate_limit_enabled=True,
     )
-    monkeypatch.setattr(probe, "load_local_environment", lambda: Path(".env_local"))
+    monkeypatch.setattr(probe, "load_local_environment", lambda _repository: Path(".env_local"))
     monkeypatch.setattr(probe.KisSettings, "from_environment", classmethod(lambda _cls, _environment: settings))
     client = _FakeClient(settings, payload)
     client.expected_transaction_id = transaction_id
@@ -109,7 +109,7 @@ def test_probe_fails_closed_before_client_creation_when_switches_are_unsafe(
     for safe_key, safe_value in SAFE_SWITCHES.items():
         monkeypatch.setenv(safe_key, safe_value)
     monkeypatch.setenv(key, unsafe_value)
-    monkeypatch.setattr(probe, "load_local_environment", lambda: Path(".env_local"))
+    monkeypatch.setattr(probe, "load_local_environment", lambda _repository: Path(".env_local"))
     monkeypatch.setattr(probe, "KisReadOnlyClient", lambda _settings: pytest.fail("KIS client must not be created"))
 
     assert probe.main() == 2

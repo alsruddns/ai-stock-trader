@@ -10,26 +10,10 @@ from pathlib import Path
 
 repository = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repository / "services" / "market-ai"))
+sys.path.insert(0, str(repository / "scripts" / "lib"))
 
 from app.kis import KisApiError, KisReadOnlyClient, KisSettings
-
-
-def load_local_environment() -> Path:
-    for name in (".env_local", ".env"):
-        path = repository / name
-        if not path.is_file():
-            continue
-        for line in path.read_text(encoding="utf-8-sig").splitlines():
-            trimmed = line.strip()
-            if not trimmed or trimmed.startswith("#") or "=" not in trimmed:
-                continue
-            key, value = trimmed.split("=", 1)
-            key, value = key.strip(), value.strip()
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-                value = value[1:-1]
-            os.environ.setdefault(key, value)
-        return path
-    raise ValueError("ignored .env_local or .env file is missing")
+from kis_local_env import load_local_environment
 
 
 def main(transaction_id: str = "VTTC0084R") -> int:
@@ -37,7 +21,7 @@ def main(transaction_id: str = "VTTC0084R") -> int:
         print(json.dumps({"status": "blocked", "reason": "UNSUPPORTED_TRANSACTION_ID"}))
         return 2
     try:
-        source = load_local_environment()
+        source = load_local_environment(repository)
     except (OSError, ValueError):
         print(json.dumps({"status": "blocked", "reason": "LOCAL_ENV_UNAVAILABLE"}))
         return 2
