@@ -45,6 +45,8 @@ kis:
   real-account-read-enabled: ${KIS_REAL_ACCOUNT_READ_ENABLED:false}
   real-reconciliation-enabled: ${KIS_REAL_RECONCILIATION_ENABLED:false}
   real-reconciliation-delay-ms: ${KIS_REAL_RECONCILIATION_DELAY_MS:30000}
+  real-protective-exit-automation-enabled: ${KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED:false}
+  real-protective-exit-poll-ms: ${KIS_REAL_PROTECTIVE_EXIT_POLL_MS:1000}
   real-execution-notices-enabled: ${KIS_REAL_EXECUTION_NOTICES_ENABLED:false}
   real-hts-id: ${KIS_REAL_HTS_ID:}
   real-risk-baseline-poll-ms: ${KIS_REAL_RISK_BASELINE_POLL_MS:30000}

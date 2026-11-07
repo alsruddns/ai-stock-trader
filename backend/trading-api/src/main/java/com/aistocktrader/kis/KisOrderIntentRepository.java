@@ -16,6 +16,8 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
     List<KisOrderIntent> findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment environment);
     List<KisOrderIntent> findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(
             KisEnvironment environment, Collection<KisOrderStatus> statuses);
+    List<KisOrderIntent> findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(
+            KisEnvironment environment, Collection<KisRealExitStatus> statuses);
     List<KisOrderIntent> findByEnvironmentAndMarketAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
             KisEnvironment environment, com.aistocktrader.order.Market market, Instant createdAt);
     java.util.Optional<KisOrderIntent> findByEnvironmentAndMarketAndBrokerOrderNumber(
@@ -74,7 +76,7 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
                SET real_exit_status = 'MANUAL_REVIEW', updated_at = CURRENT_TIMESTAMP
              WHERE idempotency_key = :entryOrderKey
                AND environment = 'REAL' AND side = 'BUY'
-               AND real_exit_status = 'ARMED'
+               AND real_exit_status IN ('ARMED', 'EXIT_PENDING')
             """, nativeQuery = true)
     int markRealExitManualReview(@Param("entryOrderKey") UUID entryOrderKey);
 

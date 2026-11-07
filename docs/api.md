@@ -42,6 +42,8 @@ Python `SpringRealSignalOrderClient`는 이 로컬 Spring 경로에만 요청하
 
 `POST /api/v1/kis/orders/real/signals` 요청 본문은 `market`, `symbol`만 받습니다. 미국 시장은 `exchange` query 값도 필요합니다. Spring은 전체 REAL 잠금과 `REAL_PROTECTIVE_EXIT_MANAGER_ENABLED`를 먼저 확인하고 FastAPI의 최신 승인 모델 신호·시세를 확인한 뒤 읽기 전용 REAL 계좌 조회를 합니다. 일반 REAL 매수 API도 같은 보호청산 잠금을 확인합니다. 매도·취소·대조 경로는 이 진입 잠금과 분리해 보유 위험을 줄일 수 있도록 합니다. 주문 가격은 서버 시세, 수량 상한은 서버가 설정하며 기존 위험 게이트에서 재검증합니다. 중복 방지를 위해 신호 봉 단위로 고정된 `Idempotency-Key`가 필요합니다. PAPER 기본 설정에서는 AI·계좌·주문 서비스에 도달하지 않습니다.
 
+REAL 보호청산 감시 작업은 `KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED=true`라는 별도 잠금까지 열려야 작동합니다. 이 작업은 REAL 모드·실주문 잠금·보호청산 잠금·전체/REAL 계좌읽기 잠금·자격정보 구성·`KIS_REAL_RECONCILIATION_ENABLED=true` 여부를 모두 확인하고, KIS 계좌 수량과 매도 가능 수량이 영속 계획의 체결 수량과 정확히 같을 때만 최신 시세의 bid 가격으로 한 번 매도 의도를 선점합니다. 같은 종목에 계획이 겹치거나 보유 수량이 어긋나면 수동 확인 상태로 두며 자동 정정/재주문은 하지 않습니다. 재시작 시 기존 멱등 키를 사용하고, 이미 알려진 주문은 주문 대조 작업에 맡깁니다. 기본값은 false이며, 현재는 Mock 단위 테스트만 통과해 실계좌 안전성 검증 완료로 간주하지 않습니다.
+
 REAL 주문 API는 Spring이 `127.0.0.1:8080`에 바인딩된 로컬 운영만 대상으로 합니다. `TRADING_MODE=real`, `LIVE_TRADING_ENABLED=true`, `KIS_REAL_ORDERS_ENABLED=true`, `KIS_ACCOUNT_READ_ENABLED=true`, `KIS_REAL_ACCOUNT_READ_ENABLED=true`가 모두 설정되어야 POST 쓰기 경로가 KIS 계좌를 사전 조회합니다. PAPER 기본 설정에서는 HTTP 423으로 거부하고 계좌·주문 API를 호출하지 않습니다. 네트워크 타임아웃 등 결과가 불명확하면 같은 키로 다시 주문하지 말고 저장된 의도 조회와 재조회를 사용하세요. 실계좌 연결·실주문 검증은 아직 완료되지 않았습니다.
 
 ## Python 시세·AI API

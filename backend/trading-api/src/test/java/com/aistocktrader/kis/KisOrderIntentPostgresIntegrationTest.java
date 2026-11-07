@@ -109,6 +109,13 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(List.of(key), kisOrderRepository.findExitManagedRealBuyCandidates(
                             KisEnvironment.REAL, Market.US, "AAPL").stream()
                     .map(KisOrderIntent::getIdempotencyKey).toList());
+            assertEquals(List.of(key), kisOrderRepository.findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(
+                            KisEnvironment.REAL, List.of(KisRealExitStatus.ARMED, KisRealExitStatus.EXIT_PENDING)).stream()
+                    .map(KisOrderIntent::getIdempotencyKey).toList());
+            assertEquals(1, kisOrderRepository.markRealExitManualReview(key));
+            entityManager.clear();
+            assertEquals(KisRealExitStatus.MANUAL_REVIEW,
+                    kisOrderRepository.findById(key).orElseThrow().getRealExitStatus());
         } finally {
             kisOrderRepository.deleteById(key);
         }
