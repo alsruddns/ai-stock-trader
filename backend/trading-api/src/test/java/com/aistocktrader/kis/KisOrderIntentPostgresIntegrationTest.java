@@ -205,8 +205,8 @@ class KisOrderIntentPostgresIntegrationTest {
             var ready = new CountDownLatch(2);
             var start = new CountDownLatch(1);
             try (var pool = Executors.newFixedThreadPool(2)) {
-                var first = pool.submit(() -> claimAfterBarrier(key, ready, start));
-                var second = pool.submit(() -> claimAfterBarrier(key, ready, start));
+                var first = pool.submit(() -> claimAfterBarrier(key, ready, start, KisEnvironment.PAPER));
+                var second = pool.submit(() -> claimAfterBarrier(key, ready, start, KisEnvironment.PAPER));
                 if (!ready.await(5, TimeUnit.SECONDS)) throw new AssertionError("Concurrent cancellation workers did not become ready.");
                 start.countDown();
 
@@ -221,10 +221,39 @@ class KisOrderIntentPostgresIntegrationTest {
         }
     }
 
-    private boolean claimAfterBarrier(UUID key, CountDownLatch ready, CountDownLatch start) throws InterruptedException {
+    @Test
+    void onlyOneConcurrentRealCallerCanClaimCancellationForAnOrder() throws Exception {
+        UUID key = UUID.randomUUID();
+        try {
+            store.prepare(key, hash("concurrent-real-cancel"), KisEnvironment.REAL, request(), null);
+            store.accept(key, receipt("real", "IR" + UUID.randomUUID().toString().replace("-", "").substring(0, 16)));
+
+            var ready = new CountDownLatch(2);
+            var start = new CountDownLatch(1);
+            try (var pool = Executors.newFixedThreadPool(2)) {
+                var first = pool.submit(() -> claimAfterBarrier(key, ready, start, KisEnvironment.REAL));
+                var second = pool.submit(() -> claimAfterBarrier(key, ready, start, KisEnvironment.REAL));
+                if (!ready.await(5, TimeUnit.SECONDS)) throw new AssertionError("Concurrent REAL cancellation workers did not become ready.");
+                start.countDown();
+
+                int winners = (first.get(10, TimeUnit.SECONDS) ? 1 : 0) + (second.get(10, TimeUnit.SECONDS) ? 1 : 0);
+                assertEquals(1, winners);
+            }
+
+            entityManager.clear();
+            KisOrderIntent persisted = repository.findById(key).orElseThrow();
+            assertEquals(KisEnvironment.REAL, persisted.getEnvironment());
+            assertEquals(KisOrderStatus.CANCEL_PENDING, persisted.getStatus());
+        } finally {
+            repository.deleteById(key);
+        }
+    }
+
+    private boolean claimAfterBarrier(UUID key, CountDownLatch ready, CountDownLatch start,
+                                      KisEnvironment environment) throws InterruptedException {
         ready.countDown();
         if (!start.await(5, TimeUnit.SECONDS)) throw new AssertionError("Concurrent cancellation start timed out.");
-        return store.claimCancelPending(key, KisEnvironment.PAPER);
+        return store.claimCancelPending(key, environment);
     }
 
     @Test
