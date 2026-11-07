@@ -50,7 +50,7 @@ $env:RUN_LOCAL_POSTGRES_INTEGRATION_TESTS = 'true'
 $apiDirectory = Join-Path $repoRoot 'backend\trading-api'
 Push-Location $apiDirectory
 try {
-    & .\mvnw.cmd '-Dtest=KisOrderIntentPostgresIntegrationTest,KisRestRateLimiterPostgresIntegrationTest' test
+    & .\mvnw.cmd '-Dtest=KisOrderIntentPostgresIntegrationTest,KisRestRateLimiterPostgresIntegrationTest,KisRealDailyRiskBaselinePostgresIntegrationTest,KisRealFillSnapshotPostgresIntegrationTest,KisRealSessionPositionBaselinePostgresIntegrationTest' test
     if ($LASTEXITCODE -ne 0) {
         throw "PostgreSQL integration tests failed with exit code $LASTEXITCODE."
     }
