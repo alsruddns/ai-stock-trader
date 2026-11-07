@@ -78,6 +78,27 @@ class KisAccessTokenProviderTest {
         server.verify();
     }
 
+    @Test
+    void extractsOnlyTheSafeOAuthErrorCodeFromAnHttp403Body() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(PAPER_URL + "/oauth2/tokenP"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN).contentType(MediaType.APPLICATION_JSON).body("""
+                        {"error_code":"EGW00002","error_description":"private detail","appkey":"do-not-leak"}
+                        """));
+        KisAccessTokenProvider provider = new KisAccessTokenProvider(properties(), builder,
+                new KisRestRateLimiter());
+
+        KisApiException error = assertThrows(KisApiException.class,
+                () -> provider.accessToken(KisEnvironment.PAPER));
+
+        assertEquals("KIS authentication request was rejected (HTTP 403, code EGW00002).", error.getMessage());
+        assertFalse(error.getMessage().contains("private detail"));
+        assertFalse(error.getMessage().contains("do-not-leak"));
+        server.verify();
+    }
+
     private static KisProperties properties() {
         return new KisProperties(true, true, false, false,
                 new KisProperties.Account("paper-key", "paper-secret", "1234567801"),

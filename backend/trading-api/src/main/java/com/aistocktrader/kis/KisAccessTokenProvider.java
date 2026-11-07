@@ -114,7 +114,10 @@ public class KisAccessTokenProvider {
     private static String errorCode(String body) {
         try {
             JsonNode payload = ERROR_MAPPER.readTree(body);
-            return payload == null ? "unknown" : payload.path("msg_cd").asText("unknown");
+            if (payload == null) return "unknown";
+            String brokerCode = payload.path("msg_cd").asText("");
+            if (!brokerCode.isBlank()) return brokerCode;
+            return payload.path("error_code").asText("unknown");
         } catch (Exception ignored) {
             return "unknown";
         }
