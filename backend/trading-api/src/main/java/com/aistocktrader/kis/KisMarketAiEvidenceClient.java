@@ -38,7 +38,10 @@ public class KisMarketAiEvidenceClient {
                             .retrieve().body(JsonNode.class);
             JsonNode paper = http.get().uri("/api/v1/paper/session").retrieve().body(JsonNode.class);
             BigDecimal stopDistance = signalStopDistance(paper, modelId, request, exchange);
-            return new Evidence(stopDistance != null, isFreshMatchingQuote(quote, request), stopDistance);
+            String strategyId = signalStrategyId(paper, modelId, request, exchange);
+            boolean approvedCandidate = stopDistance != null && strategyId != null;
+            return new Evidence(approvedCandidate, isFreshMatchingQuote(quote, request), stopDistance,
+                    approvedCandidate ? modelId : null, approvedCandidate ? strategyId : null);
         } catch (RuntimeException unavailable) {
             return new Evidence(false, false, null);
         }
@@ -64,12 +67,33 @@ public class KisMarketAiEvidenceClient {
     }
 
     static BigDecimal signalStopDistance(JsonNode response, String modelId, OrderRequest request, String exchange) {
+        JsonNode decision = signalDecision(response, modelId, request, exchange);
+        if (decision == null || decision.isMissingNode()
+                || !decision.path("stop_distance_per_share").isTextual()) return null;
+        try {
+            BigDecimal distance = new BigDecimal(decision.path("stop_distance_per_share").asText());
+            return distance.signum() > 0 ? distance : null;
+        } catch (RuntimeException invalidEvidence) {
+            return null;
+        }
+    }
+
+    static String signalStrategyId(JsonNode response, String modelId, OrderRequest request, String exchange) {
+        JsonNode decision = signalDecision(response, modelId, request, exchange);
+        if (decision == null || decision.isMissingNode()) return null;
+        String strategyId = decision.path("strategy_id").asText(null);
+        return strategyId != null && strategyId.matches("[A-Za-z0-9._-]{1,64}") ? strategyId : null;
+    }
+
+    private static JsonNode signalDecision(JsonNode response, String modelId, OrderRequest request, String exchange) {
+        if (response == null || request == null || request.market() == null || request.symbol() == null
+                || modelId == null) return null;
         String normalizedExchange = request.market() == com.aistocktrader.order.Market.US
                 ? marketAiExchange(exchange) : "";
         String key = request.market().name() + ":" + request.symbol().toUpperCase(java.util.Locale.ROOT)
                 + ":" + normalizedExchange;
-        JsonNode decision = response == null ? null : response.path("decisions").path(key);
-        if (decision == null || decision.isMissingNode()
+        JsonNode decision = response.path("decisions").path(key);
+        if (decision.isMissingNode()
                 || !request.market().name().equals(decision.path("market").asText())
                 || !request.symbol().equalsIgnoreCase(decision.path("symbol").asText())
                 || !"BUY_CANDIDATE".equals(decision.path("signal").asText())
@@ -82,8 +106,7 @@ public class KisMarketAiEvidenceClient {
             Instant at = Instant.parse(decision.path("evaluated_at").asText());
             Instant now = Instant.now();
             if (at.isAfter(now.plusSeconds(5)) || Duration.between(at, now).compareTo(MAX_SIGNAL_AGE) > 0) return null;
-            BigDecimal distance = new BigDecimal(decision.path("stop_distance_per_share").asText());
-            return distance.signum() > 0 ? distance : null;
+            return decision;
         } catch (RuntimeException invalidEvidence) {
             return null;
         }
@@ -114,5 +137,10 @@ public class KisMarketAiEvidenceClient {
         };
     }
 
-    public record Evidence(boolean approvedModelCandidate, boolean quoteFresh, BigDecimal stopDistancePerShare) { }
+    public record Evidence(boolean approvedModelCandidate, boolean quoteFresh, BigDecimal stopDistancePerShare,
+                           String modelId, String strategyId) {
+        public Evidence(boolean approvedModelCandidate, boolean quoteFresh, BigDecimal stopDistancePerShare) {
+            this(approvedModelCandidate, quoteFresh, stopDistancePerShare, null, null);
+        }
+    }
 }

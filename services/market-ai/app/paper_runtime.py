@@ -969,6 +969,7 @@ class PaperSessionFeedMonitor:
         self._decisions[watch.key] = {
             "market": watch.market, "symbol": watch.symbol, "exchange": watch.exchange,
             "signal": signal, "reason": reason, "bars_in_session": len(history),
+            "strategy_id": "ORB_VWAP" if signal == "BUY_CANDIDATE" else None,
             "evaluated_at": bar.timestamp.isoformat(), "model_id": model_id,
             "stop_distance_per_share": str(stop_distance) if stop_distance is not None else None,
             "executable": False,

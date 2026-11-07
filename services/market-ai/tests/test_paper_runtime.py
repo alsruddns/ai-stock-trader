@@ -812,6 +812,7 @@ def test_approved_ai_candidate_publishes_atr_stop_distance_for_server_risk_check
 
     decision = runtime.decisions()[watch.key]
     assert decision["signal"] == "BUY_CANDIDATE"
+    assert decision["strategy_id"] == "ORB_VWAP"
     assert decision["model_id"] == "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     assert Decimal(decision["stop_distance_per_share"]) > 0
     assert decision["executable"] is False

@@ -42,7 +42,7 @@ class KisMarketAiEvidenceClientTest {
         server.expect(requestTo("http://127.0.0.1:8000/api/v1/paper/session"))
                 .andRespond(withSuccess("{\"decisions\":{\"KR:005930:\":{\"market\":\"KR\","
                         + "\"symbol\":\"005930\",\"signal\":\"BUY_CANDIDATE\","
-                        + "\"model_id\":\"lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"evaluated_at\":\""
+                        + "\"model_id\":\"lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"strategy_id\":\"ORB_VWAP\",\"evaluated_at\":\""
                         + Instant.now() + "\",\"stop_distance_per_share\":\"150\",\"executable\":false}}}",
                         MediaType.APPLICATION_JSON));
 
@@ -52,6 +52,8 @@ class KisMarketAiEvidenceClientTest {
         assertTrue(evidence.approvedModelCandidate());
         assertTrue(evidence.quoteFresh());
         assertEquals(new BigDecimal("150"), evidence.stopDistancePerShare());
+        assertEquals("lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", evidence.modelId());
+        assertEquals("ORB_VWAP", evidence.strategyId());
         server.verify();
     }
 
@@ -111,10 +113,14 @@ class KisMarketAiEvidenceClientTest {
         String modelId = "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         ObjectNode response = mapper.valueToTree(Map.of("decisions", Map.of("KR:005930:", Map.of(
                 "market", "KR", "symbol", "005930", "signal", "BUY_CANDIDATE",
-                "model_id", modelId, "evaluated_at", Instant.now().toString(),
+                "model_id", modelId, "strategy_id", "ORB_VWAP", "evaluated_at", Instant.now().toString(),
                 "stop_distance_per_share", "105", "executable", false))));
         assertEquals(new BigDecimal("105"), KisMarketAiEvidenceClient.signalStopDistance(response, modelId, request, null));
+        assertEquals("ORB_VWAP", KisMarketAiEvidenceClient.signalStrategyId(response, modelId, request, null));
         assertNull(KisMarketAiEvidenceClient.signalStopDistance(response, "other-model", request, null));
+        assertNull(KisMarketAiEvidenceClient.signalStrategyId(response, "other-model", request, null));
+        ((ObjectNode) response.path("decisions").path("KR:005930:")).put("strategy_id", "../untrusted");
+        assertNull(KisMarketAiEvidenceClient.signalStrategyId(response, modelId, request, null));
         ((ObjectNode) response.path("decisions").path("KR:005930:")).put("signal", "HOLD");
         assertNull(KisMarketAiEvidenceClient.signalStopDistance(response, modelId, request, null));
     }

@@ -55,7 +55,10 @@ class KisRealOrderOrchestratorTest {
     void realBuyIntentPersistsServerCappedQuantity() {
         UUID key = UUID.randomUUID();
         OrderRequest proposed = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 100,
-                new BigDecimal("10000"), Currency.KRW);
+                new BigDecimal("10000"), Currency.KRW, "caller_strategy", "caller-model");
+        when(marketAiEvidence.inspect(eq(proposed), isNull())).thenReturn(
+                new KisMarketAiEvidenceClient.Evidence(true, true, new BigDecimal("100"),
+                        "verified-model", "ORB_VWAP"));
         final KisOrderIntent[] saved = new KisOrderIntent[1];
         when(intents.prepare(eq(key), anyString(), eq(KisEnvironment.REAL), any(OrderRequest.class), isNull()))
                 .thenAnswer(call -> {
@@ -73,6 +76,8 @@ class KisRealOrderOrchestratorTest {
         ArgumentCaptor<OrderRequest> sizedRequest = ArgumentCaptor.forClass(OrderRequest.class);
         verify(intents).prepare(eq(key), anyString(), eq(KisEnvironment.REAL), sizedRequest.capture(), isNull());
         assertEquals(10, sizedRequest.getValue().quantity());
+        assertEquals("verified-model", sizedRequest.getValue().modelId());
+        assertEquals("ORB_VWAP", sizedRequest.getValue().strategyId());
         assertEquals(KisOrderStatus.REJECTED, response.status());
         verify(orders, never()).placeRealLimitOrder(any(), anyString(), any(), anyInt(), any(), any(), anyString(), any());
     }

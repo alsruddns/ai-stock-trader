@@ -78,8 +78,14 @@ public class KisRealOrderOrchestrator {
             KisRealDailyRiskBaselineService.RiskInputs dailyRisk =
                     dailyRiskBaselines.riskInputs(request.market(), realAccount);
             KisMarketAiEvidenceClient.Evidence aiEvidence = marketAiEvidence.inspect(request, exchange);
-            if (orderSizing != null && request.side() == com.aistocktrader.order.OrderSide.BUY) {
-                request = orderSizing.capBuyQuantity(request, realAccount, aiEvidence.stopDistancePerShare());
+            if (request.side() == com.aistocktrader.order.OrderSide.BUY) {
+                String modelId = aiEvidence.approvedModelCandidate() ? aiEvidence.modelId() : null;
+                String strategyId = aiEvidence.approvedModelCandidate() ? aiEvidence.strategyId() : null;
+                request = new OrderRequest(request.market(), request.symbol(), request.side(), request.quantity(),
+                        request.limitPrice(), request.currency(), strategyId, modelId);
+                if (orderSizing != null) {
+                    request = orderSizing.capBuyQuantity(request, realAccount, aiEvidence.stopDistancePerShare());
+                }
             }
             if (orderSizing != null && request.side() == com.aistocktrader.order.OrderSide.BUY) {
                 request = orderSizing.capBuyQuantity(request, realAccount, aiEvidence.stopDistancePerShare());
