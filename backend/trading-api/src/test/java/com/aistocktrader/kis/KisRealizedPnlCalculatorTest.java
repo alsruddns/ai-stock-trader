@@ -63,6 +63,18 @@ class KisRealizedPnlCalculatorTest {
         assertFalse(calculator.calculate(List.of(), List.of(), costs("1001", "0", "0")).valid());
     }
 
+    @Test
+    void duplicateOrMissingBrokerFillIdsInvalidateTheRiskCalculation() {
+        var duplicate = calculator.calculate(List.of(), List.of(
+                buy("same-fill", "AAA", 1, "10", 1),
+                buy("same-fill", "AAA", 1, "10", 2),
+                sell("sell", "AAA", 1, "12", 3)), zeroCosts);
+
+        assertFalse(duplicate.valid());
+        assertFalse(calculator.calculate(List.of(), List.of(
+                fill(null, "AAA", OrderSide.BUY, 1, "10", 1)), zeroCosts).valid());
+    }
+
     private static KisRealizedPnlCalculator.TradeFill buy(String id, String symbol, int quantity,
                                                            String price, int second) {
         return fill(id, symbol, OrderSide.BUY, quantity, price, second);

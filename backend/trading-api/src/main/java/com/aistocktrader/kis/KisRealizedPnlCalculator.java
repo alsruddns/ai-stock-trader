@@ -8,9 +8,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /** Rebuilds session realized P&L from broker opening inventory and terminal, broker-confirmed orders. */
 final class KisRealizedPnlCalculator {
@@ -30,9 +32,13 @@ final class KisRealizedPnlCalculator {
         }
 
         List<TradeFill> ordered = new ArrayList<>(fills);
-        if (ordered.stream().anyMatch(fill -> fill == null || fill.symbol() == null || fill.symbol().isBlank()
-                || fill.side() == null || fill.quantity() <= 0 || fill.averagePrice() == null
-                || fill.averagePrice().signum() <= 0 || fill.executedAt() == null)) return Result.invalid();
+        Set<String> fillIds = new HashSet<>();
+        for (TradeFill fill : ordered) {
+            if (fill == null || fill.id() == null || fill.id().isBlank() || !fillIds.add(fill.id())
+                    || fill.symbol() == null || fill.symbol().isBlank() || fill.side() == null
+                    || fill.quantity() <= 0 || fill.averagePrice() == null
+                    || fill.averagePrice().signum() <= 0 || fill.executedAt() == null) return Result.invalid();
+        }
         ordered.sort(Comparator.comparing(TradeFill::executedAt).thenComparing(fill -> fill.id().toString()));
 
         List<RealizedTrade> realized = new ArrayList<>();
