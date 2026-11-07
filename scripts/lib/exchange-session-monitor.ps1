@@ -75,6 +75,9 @@ function Assert-ExchangeSessionQuality($Quality, [string]$Market, [string]$Sessi
             throw "Stored market-data quality is missing a unique result for $Market $symbol."
         }
         $row = $matches[0]
+        if ($row.market -ne $Market -or $row.session_date -ne $SessionDate -or $row.symbol -ne $symbol) {
+            throw "Stored market-data quality row did not match $Market $symbol $SessionDate."
+        }
         if ($row.status -ne 'COMPLETE' -or -not [bool]$row.full_session_complete -or
             [int]$row.expected_bars -ne $ExpectedBars -or [int]$row.completed_minutes -ne $ExpectedBars -or
             [int]$row.observed_bars -ne $ExpectedBars -or [int]$row.observed_completed_bars -ne $ExpectedBars -or

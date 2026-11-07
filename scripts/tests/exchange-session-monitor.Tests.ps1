@@ -115,6 +115,32 @@ Describe 'Exchange session monitor calendar boundaries' {
         $verified[0].source_counts.KIS_REAL_US_WEBSOCKET | Should Be 390
     }
 
+    It 'rejects a complete row whose identity does not match the requested session' {
+        $quality = @{
+            market='US'; session_date='2026-11-06'; sessions=@(@{
+                market='US'; symbol='AAPL'; session_date='2026-11-06'; status='COMPLETE'
+                full_session_complete=$true; expected_bars=390; completed_minutes=390
+                observed_bars=390; observed_completed_bars=390; missing_bars=0
+                off_grid_bars=0; duplicate_bars=0; spread_bars=390; spread_coverage_percent=100.0
+                source_counts=[pscustomobject]@{ KIS_REAL_US_WEBSOCKET = 390 }
+            })
+        }
+        $validRow = $quality.sessions[0]
+        foreach ($identityField in @('market', 'session_date', 'symbol')) {
+            $row = $validRow.Clone()
+            $row[$identityField] = switch ($identityField) {
+                'market' { 'KR' }
+                'session_date' { '2026-11-05' }
+                'symbol' { 'MSFT' }
+            }
+            $quality.sessions = @($row)
+            $didThrow = $false
+            try { Assert-ExchangeSessionQuality $quality 'US' '2026-11-06' @('AAPL') 390 'KIS_REAL_US_WEBSOCKET' | Out-Null }
+            catch { $didThrow = $true }
+            $didThrow | Should Be $true
+        }
+    }
+
     It 'rejects a complete session stored under a different source' {
         $quality = @{ market='US'; session_date='2026-11-06'; sessions=@(@{
             market='US'; symbol='AAPL'; session_date='2026-11-06'; status='COMPLETE'
