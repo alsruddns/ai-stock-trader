@@ -155,6 +155,65 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    void concurrentReuseOfPaperAmendmentKeyWithDifferentTermsRejectsTheLoser() throws Exception {
+        UUID orderKey = UUID.randomUUID();
+        UUID amendmentKey = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                new BigDecimal("70000"), Currency.KRW);
+        var created = paperOrders.submit(request, orderKey);
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+
+        try {
+            var first = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                try {
+                    paperOrders.amendPaperOrder(created.getId(), amendmentKey,
+                            new PaperOrderAmendmentRequest(3, new BigDecimal("71000")));
+                    return true;
+                } catch (IdempotencyConflictException expected) {
+                    return false;
+                }
+            });
+            var second = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                try {
+                    paperOrders.amendPaperOrder(created.getId(), amendmentKey,
+                            new PaperOrderAmendmentRequest(4, new BigDecimal("72000")));
+                    return true;
+                } catch (IdempotencyConflictException expected) {
+                    return false;
+                }
+            });
+
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            boolean firstApplied = first.get(10, TimeUnit.SECONDS);
+            boolean secondApplied = second.get(10, TimeUnit.SECONDS);
+            assertTrue(firstApplied ^ secondApplied);
+
+            int expectedQuantity = firstApplied ? 3 : 4;
+            BigDecimal expectedPrice = firstApplied ? new BigDecimal("71000") : new BigDecimal("72000");
+            PaperOrderAmendment history = paperOrderAmendments
+                    .findByOrderIdAndIdempotencyKey(created.getId(), amendmentKey).orElseThrow();
+            var reloaded = paperOrderRepository.findById(created.getId()).orElseThrow();
+            assertEquals(expectedQuantity, history.getNewQuantity());
+            assertEquals(0, expectedPrice.compareTo(history.getNewLimitPrice()));
+            assertEquals(expectedQuantity, reloaded.getQuantity());
+            assertEquals(0, expectedPrice.compareTo(reloaded.getLimitPrice()));
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+            paperOrderAmendments.findByOrderIdAndIdempotencyKey(created.getId(), amendmentKey)
+                    .ifPresent(paperOrderAmendments::delete);
+            paperOrderRepository.deleteById(created.getId());
+        }
+    }
+
+    @Test
     @Transactional
     void realBuyProtectiveExitInputsSurvivePostgresReloadAndUseObservedPartialFill() {
         UUID key = UUID.randomUUID();
