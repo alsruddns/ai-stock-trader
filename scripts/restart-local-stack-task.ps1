@@ -166,7 +166,17 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
         Start-Sleep -Seconds 2
     }
     if (-not $pythonHealth -or -not $springSummary) { throw 'The local APIs did not become ready after restart.' }
-    $paperSession = Invoke-RestMethod -Uri $pythonPaperSessionUrl -TimeoutSec 5
+    $paperSession = $null
+    $monitorDeadline = [DateTimeOffset]::UtcNow.AddSeconds(30)
+    do {
+        try {
+            $paperSession = Invoke-RestMethod -Uri $pythonPaperSessionUrl -TimeoutSec 5
+        } catch {
+            $paperSession = $null
+        }
+        if (Test-PaperSessionRestored $paperSession $previousPaperSession) { break }
+        Start-Sleep -Seconds 1
+    } while ([DateTimeOffset]::UtcNow -lt $monitorDeadline)
     $pythonOpenApi = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/openapi.json' -TimeoutSec 5
     if ($null -eq $pythonOpenApi.paths.PSObject.Properties['/api/v1/market/session-quality/{market}/{symbol}']) {
         throw 'The restarted Python API is missing the expected session-quality route.'
