@@ -41,6 +41,33 @@ Describe 'Model retraining failure reports' {
         ($report.PSObject.Properties.Name -join ',') | Should Not Match '(^|,)output(,|$)'
     }
 
+    It 'classifies known training failures without retaining traceback or arbitrary output' {
+        $directory = Join-Path $TestDrive 'classified-training-failure'
+        New-Item -ItemType Directory -Path $directory | Out-Null
+        $path = Join-Path $directory 'run.json'
+        $rawOutput = @(
+            'Traceback (most recent call last):',
+            'ValueError: at least three distinct sessions are required for train/validation/test splits',
+            'private-path-or-secret-marker'
+        )
+        $failureCode = Get-AiTraderModelTrainingFailureCode -Output $rawOutput
+
+        Write-AiTraderModelRetrainingFailureReport -Path $path -RunId 'us-aapl-test' `
+            -FailureStage 'candidate_training' -Market 'US' -Symbol 'AAPL' `
+            -FromDate '2026-11-02' -ToDate '2026-11-06' -DatasetPath 'data/model-candidates/test.csv' `
+            -ExitCode 2 -FailureCode $failureCode
+
+        $json = Get-Content -LiteralPath $path -Raw
+        $report = $json | ConvertFrom-Json
+        $report.failure_code | Should Be 'insufficient_training_sessions'
+        $json | Should Not Match 'Traceback|private-path-or-secret-marker|at least three distinct sessions'
+    }
+
+    It 'maps unknown training errors to a generic safe code' {
+        Get-AiTraderModelTrainingFailureCode -Output @('secret-bearing database host detail') |
+            Should Be 'unclassified_training_failure'
+    }
+
     It 'atomically replaces an existing report and removes temporary files' {
         $directory = Join-Path $TestDrive 'atomic-failure'
         New-Item -ItemType Directory -Path $directory | Out-Null
@@ -99,16 +126,18 @@ Describe 'Model retraining operations summary' {
         New-Item -ItemType Directory -Path $directory | Out-Null
         $path = Join-Path $directory 'latest.json'
         Write-AiTraderModelRetrainingFailureReport -Path $path -RunId 'kr-005930-20261106-cccccccccccc' `
-            -FailureStage 'data_export' -Market 'KR' -Symbol '005930' `
+            -FailureStage 'candidate_training' -Market 'KR' -Symbol '005930' `
             -FromDate '2026-11-02' -ToDate '2026-11-06' -DatasetPath 'data/model-candidates/test.csv' `
-            -Exception ([System.InvalidOperationException]::new('secret-bearing database detail'))
+            -Exception ([System.InvalidOperationException]::new('secret-bearing database detail')) `
+            -FailureCode 'insufficient_training_sessions'
 
         $summary = Get-AiTraderModelRetrainingSummary -Directory $directory
         $serialized = $summary | ConvertTo-Json -Depth 6 -Compress
 
         $summary.state | Should Be 'AVAILABLE'
-        $summary.latestRun.status | Should Be 'export_failed'
-        $summary.latestRun.failureStage | Should Be 'data_export'
+        $summary.latestRun.status | Should Be 'training_failed'
+        $summary.latestRun.failureStage | Should Be 'candidate_training'
+        $summary.latestRun.failureCode | Should Be 'insufficient_training_sessions'
         $summary.latestRun.errorType | Should Be 'InvalidOperationException'
         $serialized | Should Not Match 'secret-bearing database detail'
     }

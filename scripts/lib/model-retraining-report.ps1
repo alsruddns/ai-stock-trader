@@ -1,5 +1,25 @@
 . (Join-Path $PSScriptRoot 'operations-report.ps1')
 
+function Get-AiTraderModelTrainingFailureCode {
+    param([string[]]$Output)
+
+    # Map only known, non-sensitive contract failures. Never persist arbitrary stderr/tracebacks.
+    $text = ($Output -join "`n")
+    if ($text -match 'at least three distinct sessions are required') {
+        return 'insufficient_training_sessions'
+    }
+    if ($text -match 'insufficient samples per chronological partition') {
+        return 'insufficient_partition_samples'
+    }
+    if ($text -match 'training partition must contain both outcome classes') {
+        return 'single_class_training_partition'
+    }
+    if ($text -match 'Install the optional ai dependencies to train LightGBM and XGBoost models') {
+        return 'training_dependencies_missing'
+    }
+    return 'unclassified_training_failure'
+}
+
 function Write-AiTraderModelRetrainingFailureReport {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -13,6 +33,7 @@ function Write-AiTraderModelRetrainingFailureReport {
         [string]$DatasetSha256,
         [Nullable[int]]$ExitCode,
         [System.Exception]$Exception,
+        [string]$FailureCode,
         [string[]]$CandidateModelIds = @(),
         [string[]]$OrphanCandidateArtifacts = @()
     )
@@ -23,6 +44,12 @@ function Write-AiTraderModelRetrainingFailureReport {
         'candidate_verification' { 'candidate_verification_failed' }
     }
     $errorType = if ($null -ne $Exception) { $Exception.GetType().Name } else { $null }
+    $safeFailureCodes = @(
+        'insufficient_training_sessions', 'insufficient_partition_samples',
+        'single_class_training_partition', 'training_dependencies_missing',
+        'unclassified_training_failure'
+    )
+    $safeFailureCode = if ($FailureCode -in $safeFailureCodes) { $FailureCode } else { $null }
     $report = [ordered]@{
         run_id = $RunId
         status = $status
@@ -36,6 +63,7 @@ function Write-AiTraderModelRetrainingFailureReport {
         dataset_sha256 = $DatasetSha256
         exit_code = $ExitCode
         error_type = $errorType
+        failure_code = $safeFailureCode
         candidate_models_created = ($CandidateModelIds.Count -gt 0)
         candidate_model_ids = @($CandidateModelIds)
         orphan_candidate_artifacts = @($OrphanCandidateArtifacts)
@@ -101,6 +129,11 @@ function Get-AiTraderModelRetrainingSummary {
             failureStage = if ($document.failure_stage -in @('data_export', 'candidate_training', 'candidate_verification')) {
                 [string]$document.failure_stage
             } else { $null }
+            failureCode = if ($document.failure_code -in @(
+                'insufficient_training_sessions', 'insufficient_partition_samples',
+                'single_class_training_partition', 'training_dependencies_missing',
+                'unclassified_training_failure'
+            )) { [string]$document.failure_code } else { $null }
             market = [string]$document.market
             symbol = [string]$document.symbol
             fromDate = [string]$document.from_date
