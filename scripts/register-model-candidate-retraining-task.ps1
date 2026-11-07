@@ -41,12 +41,24 @@ if ($localSettings.TRADING_MODE -ne 'paper' -or $localSettings.LIVE_TRADING_ENAB
 
 $pythonPath = Join-Path $repoRoot 'services\market-ai\.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) { throw 'The project Python environment with exchange calendar support is required.' }
-$calendarCode = 'import sys; from datetime import date, datetime, timedelta; from zoneinfo import ZoneInfo; from app.market_calendar import exchange_session_window; market=sys.argv[1]; zone=ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York"); current=date.fromisoformat(sys.argv[2]); final=date.fromisoformat(sys.argv[3]); sessions=[]; 
+$calendarCode = @'
+import sys
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+from app.market_calendar import exchange_session_window
+
+market = sys.argv[1]
+zone = ZoneInfo('Asia/Seoul' if market == 'KR' else 'America/New_York')
+current = date.fromisoformat(sys.argv[2])
+final = date.fromisoformat(sys.argv[3])
+sessions = []
 while current <= final:
- at=datetime.combine(current, datetime.min.time(), tzinfo=zone)+timedelta(hours=12)
- if exchange_session_window(market, at): sessions.append(current.isoformat())
- current += timedelta(days=1)
-print("|".join(sessions))'
+    at = datetime.combine(current, datetime.min.time(), tzinfo=zone) + timedelta(hours=12)
+    if exchange_session_window(market, at):
+        sessions.append(current.isoformat())
+    current += timedelta(days=1)
+print(chr(124).join(sessions))
+'@
 Push-Location (Join-Path $repoRoot 'services\market-ai')
 try {
     $sessionDates = & $pythonPath -c $calendarCode $Market $FromDate $ToDate
@@ -55,7 +67,7 @@ try {
     Pop-Location
 }
 $sessionList = @(([string]$sessionDates).Split('|', [StringSplitOptions]::RemoveEmptyEntries))
-if ($sessionList.Count -lt 3) { throw 'At least three official exchange sessions are required before candidate retraining can be scheduled.' }
+if ($sessionList.Count -lt 13) { throw 'At least thirteen official exchange sessions are required so validation spans three or more sessions.' }
 
 $runDate = $to.Date.AddDays(1)
 $runAt = $runDate.Add([TimeSpan]::ParseExact($RunTime, 'hh\:mm', [Globalization.CultureInfo]::InvariantCulture))

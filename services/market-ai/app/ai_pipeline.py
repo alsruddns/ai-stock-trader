@@ -30,6 +30,7 @@ BACKTEST_VERSION = 2
 BACKTEST_SPREAD_MODEL = "observed_half_spread_entry_exit_v1"
 MIN_MODEL_APPROVAL_TEST_SESSIONS = 5
 MIN_MODEL_APPROVAL_TEST_TRADES = 5
+MIN_MODEL_HOLDOUT_SELECTION_VALIDATION_SESSIONS = 3
 _REGISTRY_LOCKS_GUARD = threading.Lock()
 _REGISTRY_LOCKS: dict[Path, threading.RLock] = {}
 _GOVERNANCE_GENESIS_SHA256 = "0" * 64
@@ -352,6 +353,68 @@ class LocalModelRegistry:
                 items.append({"model_id": manifest_path.stem, "integrity_error": True, "approved": False, "active": False})
         return items
 
+    def select_candidate_for_holdout(self, market: str, symbol: str,
+                                     holdout_sessions: dict[date, list[MinuteBar]]) -> dict[str, Any]:
+        """Select exactly one candidate by validation Brier before consuming later holdout data."""
+        normalized_market = market.strip().upper()
+        normalized_symbol = symbol.strip().upper()
+        if normalized_market not in _MARKETS or not normalized_symbol or not holdout_sessions:
+            raise ValueError("market, symbol, and independent holdout sessions are required")
+        holdout_start = min(holdout_sessions)
+        eligible: list[tuple[float, str, int]] = []
+        with self._governance_lock:
+            for item in self.list_models():
+                if (item.get("integrity_error") or item.get("approved")
+                        or item.get("market") != normalized_market
+                        or item.get("data_rights_verified") is not True
+                        or item.get("feature_compatible") is not True):
+                    continue
+                model_id = item.get("model_id")
+                if not isinstance(model_id, str):
+                    continue
+                try:
+                    metadata = self.manifest(model_id)
+                    if (metadata.get("approved") is True or metadata.get("heldout_evaluation") is not None
+                            or metadata.get("training_config", {}).get("symbol") != normalized_symbol):
+                        continue
+                    partitions = [metadata.get(name) for name in
+                                  ("train_sessions", "validation_sessions", "test_sessions")]
+                    if any(not isinstance(values, list) or not values
+                           or any(not isinstance(value, str) for value in values) for values in partitions):
+                        continue
+                    parsed = [[date.fromisoformat(value) for value in values] for values in partitions]
+                    if any(len(values) != len(set(values)) for values in parsed):
+                        continue
+                    train_sessions, validation_sessions, prior_test_sessions = map(set, parsed)
+                    if (train_sessions & validation_sessions or train_sessions & prior_test_sessions
+                            or validation_sessions & prior_test_sessions
+                            or max(train_sessions) >= min(validation_sessions)
+                            or max(validation_sessions) >= min(prior_test_sessions)
+                            or max(prior_test_sessions) >= holdout_start):
+                        continue
+                    if len(validation_sessions) < MIN_MODEL_HOLDOUT_SELECTION_VALIDATION_SESSIONS:
+                        continue
+                    metrics = metadata.get("validation_metrics")
+                    brier = metrics.get("brier") if isinstance(metrics, dict) else None
+                    if (isinstance(brier, bool) or not isinstance(brier, (int, float))
+                            or not math.isfinite(float(brier)) or not 0 <= float(brier) <= 1):
+                        continue
+                    eligible.append((float(brier), model_id, len(validation_sessions)))
+                except (FileNotFoundError, OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+                    continue
+        if not eligible:
+            raise ValueError(
+                "no unapproved candidate has three distinct prior validation sessions and a valid Brier score"
+            )
+        brier, model_id, validation_session_count = min(eligible, key=lambda value: (value[0], value[1]))
+        return {
+            "model_id": model_id,
+            "selection_method": "lowest_validation_brier",
+            "validation_brier": brier,
+            "validation_session_count": validation_session_count,
+            "eligible_candidate_count": len(eligible),
+        }
+
     def active_approved_model(self, market: str, symbol: str) -> dict[str, Any] | None:
         """Return the integrity-checked model only when approved for this market and trained symbol."""
         requested_market = market.strip().upper()
@@ -461,6 +524,9 @@ class LocalModelRegistry:
         expected = {
             "action": "evaluate_holdout",
             "model_id": metadata.get("model_id"),
+            "market": evaluation.get("market"),
+            "symbol": evaluation.get("symbol"),
+            "candidate_selection": evaluation.get("candidate_selection"),
             "dataset_sha256": evaluation.get("dataset_sha256"),
             "data_provenance": evaluation.get("data_provenance"),
             "artifact_sha256": metadata.get("artifact_sha256"),
@@ -525,6 +591,21 @@ class LocalModelRegistry:
         try:
             evaluation = metadata.get("heldout_evaluation")
             if not isinstance(evaluation, dict):
+                return False
+            if (evaluation.get("market") != metadata.get("market")
+                    or evaluation.get("symbol") != metadata.get("training_config", {}).get("symbol")):
+                return False
+            selection = evaluation.get("candidate_selection")
+            if (not isinstance(selection, dict)
+                    or selection.get("model_id") != metadata.get("model_id")
+                    or selection.get("selection_method") != "lowest_validation_brier"
+                    or isinstance(selection.get("validation_brier"), bool)
+                    or not isinstance(selection.get("validation_brier"), (int, float))
+                    or not math.isfinite(float(selection["validation_brier"]))
+                    or not 0 <= float(selection["validation_brier"]) <= 1
+                    or selection.get("validation_session_count", 0)
+                    < MIN_MODEL_HOLDOUT_SELECTION_VALIDATION_SESSIONS
+                    or selection.get("eligible_candidate_count", 0) < 1):
                 return False
             if evaluation.get("model_artifact_sha256") != metadata.get("artifact_sha256"):
                 return False
@@ -930,6 +1011,33 @@ class LocalModelRegistry:
                 raise ValueError("independent holdout sessions must be later than all training data")
             if len(sessions) < MIN_MODEL_APPROVAL_TEST_SESSIONS:
                 raise ValueError("at least five independent holdout sessions are required")
+            requested_holdout_dates = {value.isoformat() for value in sessions}
+            for event in self._read_governance_events():
+                if event.get("action") != "evaluate_holdout":
+                    continue
+                event_market = event.get("market")
+                event_symbol = event.get("symbol")
+                if not isinstance(event_market, str) or not isinstance(event_symbol, str):
+                    prior_id = event.get("model_id")
+                    if not isinstance(prior_id, str):
+                        raise ValueError("prior holdout audit cannot be scoped; refusing to reuse holdout data")
+                    prior_metadata = self.manifest(prior_id)
+                    event_market = prior_metadata.get("market")
+                    event_symbol = prior_metadata.get("training_config", {}).get("symbol")
+                prior_dates = event.get("test_sessions")
+                if event_market == market and event_symbol == symbol:
+                    if (not isinstance(prior_dates, list)
+                            or any(not isinstance(value, str) for value in prior_dates)):
+                        raise ValueError("prior holdout audit has invalid session dates; refusing to reuse data")
+                    try:
+                        prior_dates = {date.fromisoformat(value).isoformat() for value in prior_dates}
+                    except ValueError as exc:
+                        raise ValueError("prior holdout audit has invalid session dates; refusing to reuse data") from exc
+                    if requested_holdout_dates.intersection(prior_dates):
+                        raise ValueError("holdout sessions have already been used for this market and symbol")
+            selection = self.select_candidate_for_holdout(market, symbol, sessions)
+            if model_id != selection["model_id"]:
+                raise ValueError("only the validation-selected candidate may consume holdout sessions")
             config_data = metadata["training_config"]
             quant_config = QuantConfig(
                 commission_bps=Decimal(str(config_data["backtest_commission_bps"])),
@@ -973,6 +1081,9 @@ class LocalModelRegistry:
             updated["ai_quant_backtest_test_metrics"] = ai_metrics
             updated["test_sessions"] = test_dates
             updated["heldout_evaluation"] = {
+                "market": market,
+                "symbol": symbol,
+                "candidate_selection": selection,
                 "dataset_sha256": dataset_sha256,
                 "data_provenance": provenance,
                 "sessions": list(test_dates),
@@ -988,6 +1099,8 @@ class LocalModelRegistry:
             try:
                 self._record_governance_event({
                     "action": "evaluate_holdout", "model_id": model_id,
+                    "market": market, "symbol": symbol,
+                    "candidate_selection": selection,
                     "dataset_sha256": dataset_sha256,
                     "data_provenance": provenance,
                     "artifact_sha256": metadata["artifact_sha256"],

@@ -354,6 +354,8 @@ def _record_holdout_audit_event(registry: LocalModelRegistry, metadata: dict) ->
     evaluation = metadata["heldout_evaluation"]
     registry._record_governance_event({
         "action": "evaluate_holdout", "model_id": metadata["model_id"],
+        "market": evaluation["market"], "symbol": evaluation["symbol"],
+        "candidate_selection": evaluation["candidate_selection"],
         "dataset_sha256": evaluation["dataset_sha256"],
         "data_provenance": evaluation["data_provenance"],
         "artifact_sha256": metadata["artifact_sha256"],
@@ -375,7 +377,7 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_hold
         "model_id": model_id, "market": market, "model_type": model_id.split("-")[0], "artifact": artifact_name,
         "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(), "approved": False,
         "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION, "threshold": 0.5,
-        "validation_metrics": {"accuracy": 0.6}, "test_metrics": {"accuracy": 0.55},
+        "validation_metrics": {"accuracy": 0.6, "brier": 0.25}, "test_metrics": {"accuracy": 0.55},
         "quant_backtest_test_metrics": {"session_count": 5.0, "trade_count": 5.0, "net_pnl": 5.0},
         "ai_quant_backtest_test_metrics": {"session_count": 5.0, "trade_count": 6.0, "net_pnl": 12.0},
         "training_config": {
@@ -393,6 +395,12 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_hold
         "dataset_sha256": dataset_sha256,
         "data_provenance": _provenance(dataset_sha256),
         "heldout_evaluation": {
+            "market": market, "symbol": symbol,
+            "candidate_selection": {
+                "model_id": model_id, "selection_method": "lowest_validation_brier",
+                "validation_brier": 0.25, "validation_session_count": 5,
+                "eligible_candidate_count": 1,
+            },
             "dataset_sha256": dataset_sha256,
             "data_provenance": _provenance(dataset_sha256),
             "sessions": ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"],
@@ -609,6 +617,86 @@ def test_candidate_cannot_be_re_evaluated_on_multiple_holdout_sets(tmp_path) -> 
         registry.evaluate_candidate(
             model_id, {}, market="KR", symbol="005930", dataset_sha256="f" * 64,
             dataset_provenance=_provenance("f" * 64),
+        )
+
+
+def test_holdout_selection_uses_validation_brier_and_one_prior_champion(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    candidates = (
+        ("lightgbm-" + "a" * 32, 0.31),
+        ("xgboost-" + "b" * 32, 0.24),
+    )
+    for model_id, brier in candidates:
+        _write_candidate(registry, model_id, record_holdout_event=False)
+        path = tmp_path / f"{model_id}.json"
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        metadata.pop("heldout_evaluation")
+        metadata["validation_metrics"]["brier"] = brier
+        path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    holdout_dates = [date(2026, 10, day) for day in (16, 19, 20, 21, 22)]
+    selection = registry.select_candidate_for_holdout(
+        "KR", "005930", {session: [] for session in holdout_dates},
+    )
+
+    assert selection == {
+        "model_id": candidates[1][0], "selection_method": "lowest_validation_brier",
+        "validation_brier": 0.24, "validation_session_count": 5,
+        "eligible_candidate_count": 2,
+    }
+    with pytest.raises(ValueError, match="only the validation-selected candidate"):
+        registry.evaluate_candidate(
+            candidates[0][0], {session: [] for session in holdout_dates},
+            market="KR", symbol="005930", dataset_sha256="f" * 64,
+            dataset_provenance=_provenance("f" * 64),
+        )
+
+
+def test_holdout_selection_rejects_short_validation_history(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "d" * 32
+    _write_candidate(registry, model_id, record_holdout_event=False)
+    path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(path.read_text(encoding="utf-8"))
+    metadata.pop("heldout_evaluation")
+    metadata["validation_sessions"] = ["2026-10-06", "2026-10-07"]
+    metadata["validation_metrics"]["brier"] = 0.2
+    path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    holdout_dates = [date(2026, 10, day) for day in (16, 19, 20, 21, 22)]
+    with pytest.raises(ValueError, match="three distinct prior validation sessions"):
+        registry.select_candidate_for_holdout(
+            "KR", "005930", {session: [] for session in holdout_dates},
+        )
+
+
+def test_holdout_sessions_cannot_be_reused_for_another_candidate(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    prior_id = "lightgbm-" + "e" * 32
+    next_id = "xgboost-" + "f" * 32
+    prior_holdout = [date(2026, 10, day) for day in (16, 19, 20, 21, 22)]
+    _write_candidate(registry, prior_id, record_holdout_event=False)
+    prior_path = tmp_path / f"{prior_id}.json"
+    prior = json.loads(prior_path.read_text(encoding="utf-8"))
+    prior["heldout_evaluation"].update({
+        "market": "KR", "symbol": "005930", "sessions": [day.isoformat() for day in prior_holdout],
+        "dataset_sha256": "f" * 64,
+        "data_provenance": _provenance("f" * 64),
+    })
+    prior_path.write_text(json.dumps(prior), encoding="utf-8")
+    _record_holdout_audit_event(registry, prior)
+
+    _write_candidate(registry, next_id, record_holdout_event=False)
+    next_path = tmp_path / f"{next_id}.json"
+    next_metadata = json.loads(next_path.read_text(encoding="utf-8"))
+    next_metadata.pop("heldout_evaluation")
+    next_path.write_text(json.dumps(next_metadata), encoding="utf-8")
+    overlapping = [date(2026, 10, day) for day in (20, 21, 22, 23, 26)]
+
+    with pytest.raises(ValueError, match="already been used for this market and symbol"):
+        registry.evaluate_candidate(
+            next_id, {session: [] for session in overlapping}, market="KR", symbol="005930",
+            dataset_sha256="a" * 64, dataset_provenance=_provenance("a" * 64),
         )
 
 
