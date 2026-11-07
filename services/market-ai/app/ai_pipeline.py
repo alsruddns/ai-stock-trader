@@ -290,14 +290,18 @@ class LocalModelRegistry:
                 data_rights_verified = self._has_verified_data_provenance(metadata)
                 feature_compatible = self._supports_current_features(metadata)
                 approval_evidence_verified = self._has_valid_approval_evidence(metadata)
+                approval_audit_verified = (self._has_durable_approval_event(metadata)
+                                            if metadata.get("approved") else None)
                 approved = bool(metadata.get("approved", False) and data_rights_verified
-                                and feature_compatible and approval_evidence_verified)
+                                and feature_compatible and approval_evidence_verified
+                                and approval_audit_verified)
                 items.append({
                     "model_id": metadata["model_id"], "market": metadata.get("market"), "model_type": metadata["model_type"],
                     "feature_version": metadata.get("feature_version"),
                     "feature_compatible": feature_compatible,
                     "data_rights_verified": data_rights_verified,
                     "approval_evidence_verified": approval_evidence_verified,
+                    "approval_audit_verified": approval_audit_verified,
                     "approved": approved,
                     "active": metadata["model_id"] == active_model and approved and feature_compatible,
                     "artifact_sha256": metadata["artifact_sha256"],
@@ -333,9 +337,38 @@ class LocalModelRegistry:
         if (metadata.get("market") != requested_market or not metadata.get("approved")
                 or not self._supports_current_features(metadata)
                 or not self._has_verified_data_provenance(metadata)
-                or not self._has_valid_approval_evidence(metadata)):
+                or not self._has_valid_approval_evidence(metadata)
+                or not self._has_durable_approval_event(metadata)):
             return None
         return metadata
+
+    def _has_durable_approval_event(self, metadata: dict[str, Any]) -> bool:
+        """Require the approval state to match a complete, durable governance event."""
+        approval = metadata.get("approval")
+        if not isinstance(approval, dict) or not self._audit_path.is_file():
+            return False
+        try:
+            events = [json.loads(line) for line in self._audit_path.read_text(encoding="utf-8").splitlines()]
+            if any(not isinstance(event, dict) for event in events):
+                return False
+        except (OSError, json.JSONDecodeError):
+            return False
+        expected = {
+            "action": "approve",
+            "model_id": metadata.get("model_id"),
+            "approved_by": approval.get("approved_by"),
+            "note": approval.get("note"),
+            "approved_at": approval.get("approved_at"),
+            "dataset_sha256": metadata.get("dataset_sha256"),
+            "artifact_sha256": metadata.get("artifact_sha256"),
+            "train_sessions": metadata.get("train_sessions"),
+            "validation_sessions": metadata.get("validation_sessions"),
+            "test_sessions": metadata.get("test_sessions"),
+            "training_config": metadata.get("training_config", {}),
+            "quant_backtest_test_metrics": metadata.get("quant_backtest_test_metrics"),
+            "ai_quant_backtest_test_metrics": metadata.get("ai_quant_backtest_test_metrics"),
+        }
+        return any(all(event.get(key) == value for key, value in expected.items()) for event in events)
 
     @staticmethod
     def _supports_current_features(metadata: dict[str, Any]) -> bool:
@@ -509,6 +542,8 @@ class LocalModelRegistry:
                 raise ValueError("only an approved model can become the advisory active model")
             if not self._has_valid_approval_evidence(metadata):
                 raise ValueError("model lacks valid held-out comparative strategy evidence")
+            if not self._has_durable_approval_event(metadata):
+                raise ValueError("model approval lacks a durable matching governance audit event")
             previous_state = None
             if self._active_path.is_file():
                 try:

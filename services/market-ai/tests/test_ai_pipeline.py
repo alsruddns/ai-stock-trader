@@ -532,6 +532,7 @@ def test_model_governance_rolls_back_state_when_audit_write_fails(tmp_path, monk
     registry = LocalModelRegistry(tmp_path)
     model_id = "lightgbm-" + "c" * 32
     _write_candidate(registry, model_id)
+    record_event = registry._record_governance_event
 
     def fail_audit(_event):
         raise OSError("simulated audit storage failure")
@@ -541,7 +542,7 @@ def test_model_governance_rolls_back_state_when_audit_write_fails(tmp_path, monk
         registry.approve(model_id, approved_by="operator", note="Held-out test evidence reviewed for advisory use.")
     assert registry.manifest(model_id)["approved"] is False
 
-    monkeypatch.setattr(registry, "_record_governance_event", lambda _event: None)
+    monkeypatch.setattr(registry, "_record_governance_event", record_event)
     registry.approve(model_id, approved_by="operator", note="Held-out test evidence reviewed for advisory use.")
     registry.activate(model_id, changed_by="operator", note="Approved candidate selected for advisory use only.")
     replacement_id = "xgboost-" + "d" * 32
@@ -551,4 +552,26 @@ def test_model_governance_rolls_back_state_when_audit_write_fails(tmp_path, monk
     monkeypatch.setattr(registry, "_record_governance_event", fail_audit)
     with pytest.raises(OSError, match="audit storage failure"):
         registry.activate(replacement_id, changed_by="operator", note="Candidate change requires a durable audit event.")
+    assert registry.active_approved_model("KR")["model_id"] == model_id
+
+
+def test_approved_manifest_without_durable_audit_event_cannot_be_selected_or_activated(tmp_path, monkeypatch) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "7" * 32
+    _write_candidate(registry, model_id)
+    record_event = registry._record_governance_event
+    monkeypatch.setattr(registry, "_record_governance_event", lambda _event: None)
+
+    registry.approve(model_id, approved_by="operator", note="Reviewed held-out evidence before advisory activation.")
+
+    listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
+    assert listed["approved"] is False
+    assert listed["approval_audit_verified"] is False
+    assert registry.active_approved_model("KR") is None
+    with pytest.raises(ValueError, match="durable matching governance audit event"):
+        registry.activate(model_id, changed_by="operator", note="Refuse activation without a durable approval event.")
+
+    monkeypatch.setattr(registry, "_record_governance_event", record_event)
+    registry.approve(model_id, approved_by="operator", note="Reviewed held-out evidence before advisory activation.")
+    registry.activate(model_id, changed_by="operator", note="Durable approval evidence verified for advisory activation.")
     assert registry.active_approved_model("KR")["model_id"] == model_id
