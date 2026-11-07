@@ -188,6 +188,43 @@ class KisRealOrderOrchestratorTest {
     }
 
     @Test
+    void uncertainRealCancelIsNeverResentAndCanResolveByReadOnlyReconciliation() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, buyRequest(), null);
+        intent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "9010", "ORG01", "0", Instant.now()));
+        KisBrokerOrderSnapshot open = new KisBrokerOrderSnapshot(0, 1, null, false, false);
+        KisBrokerOrderSnapshot cancelled = new KisBrokerOrderSnapshot(0, 0, null, true, false);
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.reconcileRealOrder(intent)).thenReturn(Optional.of(open), Optional.of(cancelled));
+        when(intents.reconcile(key, open)).thenAnswer(call -> {
+            intent.reconcile(open.filledQuantity(), open.remainingQuantity(), open.averageFillPrice(),
+                    open.cancelled(), open.rejected());
+            return intent;
+        });
+        when(intents.reconcile(key, cancelled)).thenAnswer(call -> {
+            intent.reconcile(cancelled.filledQuantity(), cancelled.remainingQuantity(), cancelled.averageFillPrice(),
+                    cancelled.cancelled(), cancelled.rejected());
+            return intent;
+        });
+        when(intents.claimCancelPending(key, KisEnvironment.REAL)).thenAnswer(call -> {
+            intent.markCancelPending();
+            return true;
+        });
+        doThrow(new KisOrderOutcomeUnknownException("cancel outcome unknown", new java.net.SocketTimeoutException()))
+                .when(orders).cancelRealOrder(Market.KR, "005930", "9010", "ORG01", 1, null);
+
+        KisOrderIntentResponse first = orchestrator.cancel(key);
+        KisOrderIntentResponse duplicate = orchestrator.cancel(key);
+        KisOrderIntentResponse reconciled = orchestrator.reconcile(key);
+
+        assertEquals(KisOrderStatus.CANCEL_PENDING, first.status());
+        assertEquals(KisOrderStatus.CANCEL_PENDING, duplicate.status());
+        assertEquals(KisOrderStatus.CANCELLED, reconciled.status());
+        verify(orders, times(1)).cancelRealOrder(Market.KR, "005930", "9010", "ORG01", 1, null);
+        verify(orders, times(2)).reconcileRealOrder(intent);
+    }
+
+    @Test
     void definitiveRealCancelRejectionUsesReadOnlyReconciliationAndRestoresOpenOrder() {
         UUID key = UUID.randomUUID();
         KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, buyRequest(), null);
