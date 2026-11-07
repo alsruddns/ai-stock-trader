@@ -7,15 +7,20 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -45,29 +50,71 @@ class KisAccessTokenProviderTest {
     void concurrentAdaptersShareOneTokenIssuanceRequest() throws Exception {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        CountDownLatch requestEntered = new CountDownLatch(1);
+        CountDownLatch releaseResponse = new CountDownLatch(1);
+        CountDownLatch workersReady = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicReference<Thread> firstThread = new AtomicReference<>();
+        AtomicReference<Thread> secondThread = new AtomicReference<>();
+        AtomicReference<Thread> requestThread = new AtomicReference<>();
         server.expect(requestTo(PAPER_URL + "/oauth2/tokenP"))
                 .andExpect(method(HttpMethod.POST))
-                .andRespond(withSuccess("""
-                        {"access_token":"paper-token","access_token_token_expired":"2099-11-06 23:00:00"}
-                        """, MediaType.APPLICATION_JSON));
+                .andRespond(request -> {
+                    requestThread.set(Thread.currentThread());
+                    requestEntered.countDown();
+                    try {
+                        if (!releaseResponse.await(5, TimeUnit.SECONDS)) {
+                            throw new IOException("Timed out waiting to release the mocked KIS token response.");
+                        }
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException("Interrupted while holding the mocked KIS token response.", exception);
+                    }
+                    return withSuccess("""
+                            {"access_token":"paper-token","access_token_token_expired":"2099-11-06 23:00:00"}
+                            """, MediaType.APPLICATION_JSON).createResponse(request);
+                });
         KisAccessTokenProvider provider = new KisAccessTokenProvider(properties(), builder,
                 new KisRestRateLimiter());
-        CountDownLatch start = new CountDownLatch(1);
         try (ExecutorService workers = Executors.newFixedThreadPool(2)) {
             Future<String> first = workers.submit(() -> {
+                firstThread.set(Thread.currentThread());
+                workersReady.countDown();
                 start.await();
                 return provider.accessToken(KisEnvironment.PAPER);
             });
             Future<String> second = workers.submit(() -> {
+                secondThread.set(Thread.currentThread());
+                workersReady.countDown();
                 start.await();
                 return provider.accessToken(KisEnvironment.PAPER);
             });
 
+            assertTrue(workersReady.await(5, TimeUnit.SECONDS));
             start.countDown();
+            assertTrue(requestEntered.await(5, TimeUnit.SECONDS));
+            Thread responseWorker = requestThread.get();
+            assertNotNull(responseWorker);
+            // The request callback runs on one worker. Hold it there until the other worker
+            // is waiting on the provider's per-token monitor, proving true overlap.
+            Thread tokenWorker = responseWorker == firstThread.get() ? secondThread.get() : firstThread.get();
+            assertTrue(awaitBlocked(tokenWorker, Duration.ofSeconds(5)));
+            releaseResponse.countDown();
             assertEquals("paper-token", first.get());
             assertEquals("paper-token", second.get());
+        } finally {
+            releaseResponse.countDown();
         }
         server.verify();
+    }
+
+    private static boolean awaitBlocked(Thread thread, Duration timeout) throws InterruptedException {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            if (thread.getState() == Thread.State.BLOCKED) return true;
+            Thread.sleep(1);
+        }
+        return thread.getState() == Thread.State.BLOCKED;
     }
 
     @Test
