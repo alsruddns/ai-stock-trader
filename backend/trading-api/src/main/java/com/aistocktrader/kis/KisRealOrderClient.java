@@ -21,11 +21,13 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -299,6 +301,7 @@ public class KisRealOrderClient {
         String nextSearch = "";
         String nextKey = "";
         var executions = new LinkedHashMap<String, KisBrokerSessionExecution>();
+        Set<List<String>> seenCursors = new HashSet<>();
         for (int pageNumber = 0; pageNumber < 20; pageNumber++) {
             MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
             params.add("CANO", account.substring(0, 8));
@@ -346,6 +349,10 @@ public class KisRealOrderClient {
             nextKey = response.path(nkField.toLowerCase(Locale.ROOT)).asText("");
             if (nextSearch.isBlank() || nextKey.isBlank()) {
                 throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution pagination is incomplete.");
+            }
+            if (!seenCursors.add(List.of(nextSearch, nextKey))) {
+                throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                        "KIS session execution pagination repeated a page cursor.");
             }
             continuation = "N";
         }

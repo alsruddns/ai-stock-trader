@@ -6,12 +6,15 @@ import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderSide;
 import com.aistocktrader.order.OrderRequest;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.mock.http.client.MockClientHttpResponse;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -364,6 +367,36 @@ class KisRealOrderClientTest {
 
         assertThrows(KisApiException.class, () -> new KisRealOrderClient(properties(true, true), realSafety(), builder)
                 .getRealSessionExecutions(Market.US, java.time.LocalDate.of(2026, 11, 6)));
+        server.verify();
+    }
+
+    @Test
+    void repeatedSessionExecutionCursorFailsWithoutAnotherBrokerRequest() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        var repeatedPage = (org.springframework.test.web.client.ResponseCreator) request -> {
+            var response = new MockClientHttpResponse("""
+                    {"rt_cd":"0","ctx_area_fk100":"cursor-a","ctx_area_nk100":"key-a","output1":[]}
+                    """.getBytes(StandardCharsets.UTF_8), HttpStatus.OK);
+            response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+            response.getHeaders().set("tr_cont", "M");
+            return response;
+        };
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_cont", ""))
+                .andRespond(repeatedPage);
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_cont", "N"))
+                .andExpect(queryParam("CTX_AREA_FK100", "cursor-a"))
+                .andExpect(queryParam("CTX_AREA_NK100", "key-a"))
+                .andRespond(repeatedPage);
+
+        assertThrows(KisApiException.class, () -> new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                .getRealSessionExecutions(Market.KR, java.time.LocalDate.of(2026, 11, 6)));
         server.verify();
     }
 
