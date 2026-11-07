@@ -24,6 +24,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import com.aistocktrader.config.TradingSafetyProperties;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -35,9 +36,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -65,6 +69,9 @@ class KisOrderIntentPostgresIntegrationTest {
     @Autowired KisOrderIntentRepository kisOrderRepository;
     @MockitoBean KisOrderClient kisOrderClient;
     @MockitoBean KisAccountClient kisAccountClient;
+    @MockitoBean KisMarketSessionClient kisMarketSessionClient;
+    @MockitoBean KisMarketAiEvidenceClient kisMarketAiEvidenceClient;
+    @MockitoBean KisRealOrderOrchestrator kisRealOrderOrchestrator;
 
     @Test
     @Transactional
@@ -118,6 +125,60 @@ class KisOrderIntentPostgresIntegrationTest {
                     kisOrderRepository.findById(key).orElseThrow().getRealExitStatus());
         } finally {
             kisOrderRepository.deleteById(key);
+        }
+    }
+
+    @Test
+    @Transactional
+    void realProtectiveExitMonitorClaimsFreshSellOnceAndPersistsPlanInPostgres() {
+        UUID entryKey = UUID.randomUUID();
+        OrderRequest buy = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                new BigDecimal("100"), Currency.KRW, "ORB_VWAP", "approved-model");
+        try {
+            store.prepare(entryKey, "b".repeat(64), KisEnvironment.REAL, buy, null,
+                    new BigDecimal("5"), new BigDecimal("2"));
+            entityManager.flush();
+            KisOrderIntent entry = kisOrderRepository.findById(entryKey).orElseThrow();
+            entry.reconcile(2, 0, new BigDecimal("100"), false, false);
+            entityManager.flush();
+            entityManager.clear();
+
+            Instant now = Instant.now();
+            when(kisMarketSessionClient.session(Market.KR)).thenReturn(new KisMarketSessionClient.MarketSession(
+                    Market.KR, java.time.LocalDate.now(), true, true,
+                    now.minusSeconds(3600), now.plusSeconds(3600), now));
+            when(kisMarketAiEvidenceClient.quoteForExit(Market.KR, "005930", null)).thenReturn(
+                    new KisMarketAiEvidenceClient.ExitQuote(Market.KR, "005930", null,
+                            new BigDecimal("94"), new BigDecimal("93.99"), new BigDecimal("94.01"), now));
+            var position = new KisAccountSnapshot.Position("005930", "Samsung", new BigDecimal("2"),
+                    new BigDecimal("2"), new BigDecimal("100"), new BigDecimal("94"),
+                    new BigDecimal("188"), new BigDecimal("-12"), new BigDecimal("-6"));
+            when(kisAccountClient.getBalance(KisEnvironment.REAL, Market.KR, null, null, null)).thenReturn(
+                    new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW", new BigDecimal("1000"),
+                            new BigDecimal("1000"), new BigDecimal("1188"), List.of(position), Instant.now(),
+                            "KIS_READ_ONLY_REST"));
+            var trading = new TradingSafetyProperties("real", true, true, true,
+                    new BigDecimal("1000000"), new BigDecimal("100"));
+            var kis = new KisProperties(true, false, true, false,
+                    new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
+                    new KisProperties.Account("real-key", "real-secret", "1234567801"),
+                    java.time.Duration.ofSeconds(3), java.time.Duration.ofSeconds(8), java.time.Duration.ofSeconds(1));
+            var monitor = new KisRealProtectiveExitMonitor(true, true, trading, kis, kisOrderRepository,
+                    kisAccountClient, kisMarketSessionClient, kisMarketAiEvidenceClient, kisRealOrderOrchestrator);
+
+            monitor.monitorRealPositions();
+            entityManager.clear();
+
+            KisOrderIntent claimed = kisOrderRepository.findById(entryKey).orElseThrow();
+            assertEquals(KisRealExitStatus.EXIT_PENDING, claimed.getRealExitStatus());
+            assertEquals("STOP_LOSS", claimed.getRealExitReason());
+            assertEquals(2, claimed.getRealExitQuantity());
+            assertEquals(new BigDecimal("93.990000"), claimed.getRealExitLimitPrice());
+            assertNotNull(claimed.getRealExitOrderKey());
+            verify(kisRealOrderOrchestrator).submit(eq(claimed.getRealExitOrderKey()), any(OrderRequest.class),
+                    isNull(), any(KisAccountSnapshot.class));
+        } finally {
+            kisOrderRepository.deleteById(entryKey);
         }
     }
 
