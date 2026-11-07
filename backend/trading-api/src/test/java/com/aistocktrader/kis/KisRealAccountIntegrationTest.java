@@ -18,6 +18,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class KisRealAccountIntegrationTest {
     @Autowired private KisAccountClient client;
+    @Autowired private KisRealOrderClient realOrders;
+    @Autowired private KisMarketSessionClient sessions;
 
     @BeforeAll
     static void assertReadOnlyGates() {
@@ -66,6 +68,40 @@ class KisRealAccountIntegrationTest {
         assertEquals(Market.US, statement.market());
         assertEquals("KIS_READ_ONLY_REALIZED_PNL_REST", statement.source());
         printFieldNamesOnly(statement);
+    }
+
+    @Test
+    void readsDomesticSessionExecutionsWithoutPrintingTradeDetails() {
+        var session = sessions.latestClosedSession(Market.KR);
+        assertTrue(session.session());
+
+        var executions = realOrders.getRealSessionExecutions(Market.KR, session.sessionDate());
+
+        assertNotNull(executions);
+        executions.forEach(execution -> {
+            assertFalse(execution.orderNumber().isBlank());
+            assertFalse(execution.symbol().isBlank());
+            assertNotNull(execution.side());
+        });
+        System.out.printf("KIS REAL execution history market=KR session=%s rows=%d (details suppressed)%n",
+                session.sessionDate(), executions.size());
+    }
+
+    @Test
+    void readsUsSessionExecutionsWithoutPrintingTradeDetails() {
+        var session = sessions.latestClosedSession(Market.US);
+        assertTrue(session.session());
+
+        var executions = realOrders.getRealSessionExecutions(Market.US, session.sessionDate());
+
+        assertNotNull(executions);
+        executions.forEach(execution -> {
+            assertFalse(execution.orderNumber().isBlank());
+            assertFalse(execution.symbol().isBlank());
+            assertNotNull(execution.side());
+        });
+        System.out.printf("KIS REAL execution history market=US session=%s rows=%d (details suppressed)%n",
+                session.sessionDate(), executions.size());
     }
 
     private static void printFieldNamesOnly(KisRealizedPnlStatement statement) {
