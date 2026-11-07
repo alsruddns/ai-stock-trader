@@ -76,7 +76,9 @@ def main(transaction_id: str = "VTTC0084R") -> int:
     params = {
         "CANO": account[:8],
         "ACNT_PRDT_CD": account[8:],
-        "INQR_DVSN_1": "1" if transaction_id.endswith("8036R") else "0",
+        # The current official sample describes 0=order sequence, 1=item sequence
+        # and demonstrates item sequence for this cancelable-order lookup.
+        "INQR_DVSN_1": "1",
         "INQR_DVSN_2": "0",
         "CTX_AREA_FK100": "",
         "CTX_AREA_NK100": "",
@@ -112,9 +114,19 @@ def main(transaction_id: str = "VTTC0084R") -> int:
         )
         print(json.dumps(result, ensure_ascii=False))
         return 0 if successful else 3
-    except Exception:
+    except Exception as exception:
         result["status"] = "request_failed"
         result["reason"] = "AUTH_OR_READ_ONLY_REQUEST_FAILED"
+        # The exception class is useful for distinguishing transport, HTTP, and
+        # shared-rate-limit failures without emitting the exception text or secrets.
+        result["failure_type"] = type(exception).__name__
+        safe_http_error = re.fullmatch(
+            r"KIS [A-Za-z -]+ request failed \(HTTP (\d{3}), code ([A-Za-z0-9_-]{1,32})\)\.",
+            str(exception),
+        )
+        if safe_http_error:
+            result["http_status"] = int(safe_http_error.group(1))
+            result["broker_code"] = safe_http_error.group(2)
         print(json.dumps(result, ensure_ascii=False))
         return 3
     finally:

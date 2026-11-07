@@ -154,7 +154,7 @@ public class KisRealOrderClient {
             MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
             params.add("CANO", account.substring(0, 8));
             params.add("ACNT_PRDT_CD", account.substring(8));
-            params.add("INQR_DVSN_1", "0");
+            params.add("INQR_DVSN_1", "1");
             params.add("INQR_DVSN_2", "0");
             params.add("CTX_AREA_FK100", nextSearch);
             params.add("CTX_AREA_NK100", nextKey);
