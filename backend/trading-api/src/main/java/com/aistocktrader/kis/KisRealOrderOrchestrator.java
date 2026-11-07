@@ -21,17 +21,20 @@ public class KisRealOrderOrchestrator {
     private final KisOrderIntentStore intents;
     private final KisRealDailyRiskBaselineService dailyRiskBaselines;
     private final KisMarketAiEvidenceClient marketAiEvidence;
+    private final KisRealAccountPortfolioPositionCounter portfolioPositions;
 
     @Autowired
     public KisRealOrderOrchestrator(KisRealOrderClient orders, KisLiveOrderRiskGate riskGate,
                                     KisOrderIntentStore intents,
                                     KisRealDailyRiskBaselineService dailyRiskBaselines,
-                                    KisMarketAiEvidenceClient marketAiEvidence) {
+                                    KisMarketAiEvidenceClient marketAiEvidence,
+                                    KisRealAccountPortfolioPositionCounter portfolioPositions) {
         this.orders = orders;
         this.riskGate = riskGate;
         this.intents = intents;
         this.dailyRiskBaselines = dailyRiskBaselines;
         this.marketAiEvidence = marketAiEvidence;
+        this.portfolioPositions = portfolioPositions;
     }
 
     public KisOrderIntentResponse submit(UUID idempotencyKey, OrderRequest request, String exchange,
@@ -43,10 +46,16 @@ public class KisRealOrderOrchestrator {
             KisRealDailyRiskBaselineService.RiskInputs dailyRisk =
                     dailyRiskBaselines.riskInputs(request.market(), realAccount);
             KisMarketAiEvidenceClient.Evidence aiEvidence = marketAiEvidence.inspect(request, exchange);
+            Integer allMarketPositionCount = null;
+            if (request.side() == com.aistocktrader.order.OrderSide.BUY) {
+                var count = portfolioPositions.countOpenPositionsAcrossMarkets(realAccount);
+                if (count.isPresent()) allMarketPositionCount = count.getAsInt();
+            }
             serverCheckedContext = new KisLiveRiskContext(aiEvidence.approvedModelCandidate(),
                     aiEvidence.quoteFresh(), true, dailyRisk.marketOpen(), unresolvedOrder,
                     dailyRisk.dailyLossPercent(), -1,
-                    realAccount == null ? null : realAccount.accountEquity(), aiEvidence.stopDistancePerShare());
+                    realAccount == null ? null : realAccount.accountEquity(), aiEvidence.stopDistancePerShare(),
+                    allMarketPositionCount);
         }
         KisLiveRiskDecision decision = riskGate.assess(request, exchange, realAccount, serverCheckedContext);
         KisOrderIntentStore.PreparedIntent prepared;

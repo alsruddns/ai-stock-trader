@@ -50,8 +50,6 @@ public class KisLiveOrderRiskGate {
                         || position.quantity() == null || position.quantity().signum() < 0
                         || (position.quantity().signum() > 0 && (position.evaluationAmount() == null
                         || position.evaluationAmount().signum() < 0)));
-        int totalOpenPositions = positionsValid ? (int) account.positions().stream()
-                .filter(position -> position.quantity().signum() > 0).count() : 0;
         if (!realAccount) reasons.add("REAL_ACCOUNT_REQUIRED");
         if (!trustedAccountSource) reasons.add("KIS_ACCOUNT_SOURCE_REQUIRED");
         if (!matchingMarket) reasons.add("ACCOUNT_MARKET_MISMATCH");
@@ -81,13 +79,12 @@ public class KisLiveOrderRiskGate {
             return decision(reasons.isEmpty(), reasons, request, exchange);
         }
 
-        assessBuy(request, account, context, totalOpenPositions, notional, reasons);
+        assessBuy(request, account, context, notional, reasons);
         return decision(reasons.isEmpty(), reasons, request, exchange);
     }
 
     private void assessBuy(OrderRequest request, KisAccountSnapshot account,
-                           KisLiveRiskContext context, int totalOpenPositions,
-                           BigDecimal notional, List<String> reasons) {
+                           KisLiveRiskContext context, BigDecimal notional, List<String> reasons) {
         if (!context.approvedModelCandidate()) reasons.add("APPROVED_MODEL_CANDIDATE_REQUIRED");
         if (context.dailyLossPercent() == null) reasons.add("DAILY_LOSS_BASELINE_REQUIRED");
         else if (context.dailyLossPercent().signum() < 0) reasons.add("DAILY_LOSS_PERCENT_INVALID");
@@ -111,7 +108,12 @@ public class KisLiveOrderRiskGate {
         boolean alreadyHeld = account.positions().stream().anyMatch(position ->
                 request.symbol().equalsIgnoreCase(position.symbol())
                         && position.quantity() != null && position.quantity().signum() > 0);
-        if (!alreadyHeld && totalOpenPositions >= limits.maxOpenPositions()) reasons.add("OPEN_POSITION_LIMIT");
+        Integer totalOpenPositions = context.totalOpenPositionsAcrossMarkets();
+        if (totalOpenPositions == null || totalOpenPositions < 0) {
+            reasons.add("ALL_MARKET_POSITION_COUNT_REQUIRED");
+        } else if (!alreadyHeld && totalOpenPositions >= limits.maxOpenPositions()) {
+            reasons.add("OPEN_POSITION_LIMIT");
+        }
 
         if (context.stopDistancePerShare() == null || context.stopDistancePerShare().signum() <= 0) {
             reasons.add("VALID_STOP_DISTANCE_REQUIRED");

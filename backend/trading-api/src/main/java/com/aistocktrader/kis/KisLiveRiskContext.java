@@ -10,4 +10,5 @@ record KisLiveRiskContext(boolean approvedModelCandidate, boolean quoteFresh,
                           boolean accountSnapshotFresh, boolean marketOpen,
                           boolean unresolvedOrderExists,
                           BigDecimal dailyLossPercent, int consecutiveLosingTrades,
-                          BigDecimal accountEquity, BigDecimal stopDistancePerShare) { }
+                          BigDecimal accountEquity, BigDecimal stopDistancePerShare,
+                          Integer totalOpenPositionsAcrossMarkets) { }

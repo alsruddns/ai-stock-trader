@@ -358,7 +358,7 @@ class KisRealOrderClientTest {
                 new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW", new BigDecimal("1000000"),
                         new BigDecimal("100000"), new BigDecimal("1000000"), List.of(), java.time.Instant.now(), "KIS_READ_ONLY_REST"),
                 new KisLiveRiskContext(true, true, true, true, false, new BigDecimal("0.5"), 0,
-                        new BigDecimal("1000000"), new BigDecimal("100")));
+                        new BigDecimal("1000000"), new BigDecimal("100"), 0));
     }
 
     private static KisLiveRiskDecision rejectedKrBuy() {
@@ -369,7 +369,7 @@ class KisRealOrderClientTest {
                 new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW", new BigDecimal("1000000"),
                         new BigDecimal("100000"), new BigDecimal("1000000"), List.of(), java.time.Instant.now(), "KIS_READ_ONLY_REST"),
                 new KisLiveRiskContext(false, true, true, true, false, BigDecimal.ONE, 3,
-                        new BigDecimal("1000000"), new BigDecimal("100")));
+                        new BigDecimal("1000000"), new BigDecimal("100"), 0));
     }
 
     private static KisLiveRiskDecision approvedLargeKrBuy() {
@@ -382,7 +382,7 @@ class KisRealOrderClientTest {
                 new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW", new BigDecimal("20000000"),
                         new BigDecimal("2000000"), new BigDecimal("20000000"), List.of(), java.time.Instant.now(), "KIS_READ_ONLY_REST"),
                 new KisLiveRiskContext(true, true, true, true, false, BigDecimal.ZERO, 0,
-                        new BigDecimal("20000000"), new BigDecimal("100")));
+                        new BigDecimal("20000000"), new BigDecimal("100"), 0));
     }
 
     private static KisLiveRiskDecision approvedUsSell() {
@@ -395,7 +395,7 @@ class KisRealOrderClientTest {
                         BigDecimal.TEN, Currency.USD), "NASD",
                 new KisAccountSnapshot(KisEnvironment.REAL, Market.US, "USD", new BigDecimal("10000"),
                         new BigDecimal("1000"), List.of(held), java.time.Instant.now(), "KIS_READ_ONLY_REST"),
-                new KisLiveRiskContext(false, true, true, true, false, null, 3, null, null));
+                new KisLiveRiskContext(false, true, true, true, false, null, 3, null, null, null));
     }
 
     private static String token() {

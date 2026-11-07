@@ -1,6 +1,6 @@
 # KIS API compatibility check
 
-Last checked: 2026-11-06 against the current examples in the official KIS repository.
+Last checked: 2026-11-07 against the current examples in the official KIS repository.
 
 ## Read-only account balance
 
@@ -9,7 +9,7 @@ Last checked: 2026-11-06 against the current examples in the official KIS reposi
 | Korea | `/uapi/domestic-stock/v1/trading/inquire-balance` | `VTTC8434R` | `TTTC8434R` | Matches the official endpoint, transaction IDs, request fields, and `output1`/`output2` response mapping. Pagination follows `tr_cont` and the `CTX_AREA_FK100`/`CTX_AREA_NK100` cursors. |
 | United States | `/uapi/overseas-stock/v1/trading/inquire-balance` | `VTTS3012R` | `TTTS3012R` | Matches the official endpoint, transaction IDs, `CANO`/`ACNT_PRDT_CD`/exchange/currency fields, `output1`/`output2` mapping, and `CTX_AREA_FK200`/`CTX_AREA_NK200` pagination. |
 
-The official sample lists `NASD`, `NYSE`, and `AMEX` for PAPER balance lookups; REAL also lists `NAS` as a Nasdaq-only code. The application accepts the shared `NASD`, `NYSE`, and `AMEX` set for both environments. The sample also notes that overseas service enrollment is required. Validate account eligibility and live response fields with the user's own read-only account before treating the integration as operationally verified.
+The official sample lists `NASD`, `NYSE`, and `AMEX` for PAPER balance lookups; REAL also lists `NAS` as a Nasdaq-only code. For REAL position counting across the US market, the sample identifies `NASD` as the all-US-exchange lookup code. A new order-risk check combines current-market and other-market snapshots and refuses buys if either is stale, malformed, or ambiguous. The application accepts the shared `NASD`, `NYSE`, and `AMEX` set for direct environment-specific lookups. The sample also notes that overseas service enrollment is required. Validate account eligibility and live response fields with the user's own read-only account before treating the integration as operationally verified.
 
 ## Read-only quote snapshots
 
@@ -29,6 +29,7 @@ The domestic cancel adapter calls `/uapi/domestic-stock/v1/trading/inquire-psbl-
 - Account reads require both `KIS_ACCOUNT_READ_ENABLED=true` and the environment-specific switch. Both remain false by default.
 - REAL and PAPER credentials are separate. Secrets and account numbers must remain in the ignored local `.env_local` file.
 - The user re-registered the PAPER account and replaced its PAPER credentials in `.env_local`. The 2026-11-06 Spring PAPER account smoke then passed both domestic and US balance GET tests (2 passed, 0 failed). The preceding `OPSQ2000` was resolved by the updated PAPER registration/configuration. A separate opt-in REAL account-read smoke initially hit `EGW00201`, then passed domestic and US balance GET tests after the documented rate-limit interval was respected. These were read-only requests; no order request was sent. REAL account reads remain disabled by default and are currently locked in `.env_local`.
+- The REAL cross-market position counter is validated with mocked snapshots only. It needs both environment-specific account-read switches at runtime and calls KIS for the other market; the user's current REAL read switch is off, so this counter has not been live-smoked.
 - Spring now includes only the upstream HTTP status number in sanitized account-request errors; response bodies and credential-bearing details remain suppressed.
 - This project has not enabled live orders. The read-only account path must not be used as evidence that order submission, market data entitlement, or fill reconciliation is verified.
 

@@ -12,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,6 +25,7 @@ class KisRealOrderOrchestratorTest {
     private KisOrderIntentStore intents;
     private KisRealDailyRiskBaselineService dailyRiskBaselines;
     private KisMarketAiEvidenceClient marketAiEvidence;
+    private KisRealAccountPortfolioPositionCounter portfolioPositions;
     private KisRealOrderOrchestrator orchestrator;
     private final TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true,
             new BigDecimal("1000000"), new BigDecimal("100"));
@@ -36,11 +38,14 @@ class KisRealOrderOrchestratorTest {
         intents = mock(KisOrderIntentStore.class);
         dailyRiskBaselines = mock(KisRealDailyRiskBaselineService.class);
         marketAiEvidence = mock(KisMarketAiEvidenceClient.class);
+        portfolioPositions = mock(KisRealAccountPortfolioPositionCounter.class);
+        when(portfolioPositions.countOpenPositionsAcrossMarkets(any())).thenReturn(OptionalInt.of(0));
         when(dailyRiskBaselines.riskInputs(any(), any())).thenReturn(
                 new KisRealDailyRiskBaselineService.RiskInputs(true, BigDecimal.ZERO));
         when(marketAiEvidence.inspect(any(), nullable(String.class))).thenReturn(
                 new KisMarketAiEvidenceClient.Evidence(true, true, new BigDecimal("100")));
-        orchestrator = new KisRealOrderOrchestrator(orders, riskGate, intents, dailyRiskBaselines, marketAiEvidence);
+        orchestrator = new KisRealOrderOrchestrator(orders, riskGate, intents, dailyRiskBaselines,
+                marketAiEvidence, portfolioPositions);
     }
 
     @Test

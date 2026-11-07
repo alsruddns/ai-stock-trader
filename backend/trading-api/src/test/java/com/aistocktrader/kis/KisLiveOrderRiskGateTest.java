@@ -26,7 +26,7 @@ class KisLiveOrderRiskGateTest {
         KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", List.of()),
                 new KisLiveRiskContext(true, true, true, true, false,
-                        new BigDecimal("0.50"), 0, new BigDecimal("1000000"), new BigDecimal("100")));
+                        new BigDecimal("0.50"), 0, new BigDecimal("1000000"), new BigDecimal("100"), 0));
 
         assertTrue(result.approved());
         assertTrue(result.reasons().isEmpty());
@@ -37,7 +37,7 @@ class KisLiveOrderRiskGateTest {
         KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", List.of()),
                 new KisLiveRiskContext(false, false, true, true, false,
-                        BigDecimal.ONE, 3, new BigDecimal("1000000"), null));
+                        BigDecimal.ONE, 3, new BigDecimal("1000000"), null, 0));
 
         assertFalse(result.approved());
         assertTrue(result.reasons().containsAll(List.of("APPROVED_MODEL_CANDIDATE_REQUIRED", "FRESH_QUOTE_REQUIRED",
@@ -49,7 +49,7 @@ class KisLiveOrderRiskGateTest {
         KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", List.of()),
                 new KisLiveRiskContext(true, true, true, true, false,
-                        new BigDecimal("-1.25"), 0, new BigDecimal("1000000"), new BigDecimal("100")));
+                        new BigDecimal("-1.25"), 0, new BigDecimal("1000000"), new BigDecimal("100"), 0));
 
         assertFalse(result.approved());
         assertTrue(result.reasons().contains("DAILY_LOSS_PERCENT_INVALID"));
@@ -62,7 +62,7 @@ class KisLiveOrderRiskGateTest {
 
         KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null, accountWithoutEquity,
                 new KisLiveRiskContext(true, true, true, true, false,
-                        BigDecimal.ZERO, 0, new BigDecimal("1000000000"), new BigDecimal("100")));
+                        BigDecimal.ZERO, 0, new BigDecimal("1000000000"), new BigDecimal("100"), 0));
 
         assertFalse(result.approved());
         assertTrue(result.reasons().contains("ACCOUNT_EQUITY_REQUIRED"));
@@ -76,11 +76,11 @@ class KisLiveOrderRiskGateTest {
         KisLiveRiskDecision exposure = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", List.of(position)),
                 new KisLiveRiskContext(true, true, true, true, false,
-                        BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100")));
+                        BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"), 1));
         KisLiveRiskDecision risk = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", List.of()),
                 new KisLiveRiskContext(true, true, true, true, false,
-                        BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("3000")));
+                        BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("3000"), 0));
 
         assertFalse(exposure.approved());
         assertTrue(exposure.reasons().contains("POSITION_EXPOSURE_LIMIT"));
@@ -95,10 +95,31 @@ class KisLiveOrderRiskGateTest {
         KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", heldPositions),
                 new KisLiveRiskContext(true, true, true, true, true,
-                        BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100")));
+                        BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"), 3));
 
         assertFalse(result.approved());
         assertTrue(result.reasons().containsAll(List.of("UNRESOLVED_ORDER_EXISTS", "OPEN_POSITION_LIMIT")));
+    }
+
+    @Test
+    void crossMarketPositionLimitRequiresAnAuthoritativeCombinedPositionCount() {
+        KisAccountSnapshot usAccount = new KisAccountSnapshot(KisEnvironment.REAL, Market.US, "USD",
+                new BigDecimal("100"), new BigDecimal("100"), new BigDecimal("1000"), List.of(),
+                Instant.now(), "KIS_READ_ONLY_REST");
+        OrderRequest usBuy = new OrderRequest(Market.US, "AAPL", OrderSide.BUY, 1,
+                new BigDecimal("10"), Currency.USD);
+        KisLiveRiskContext completeThreePositions = new KisLiveRiskContext(true, true, true, true, false,
+                BigDecimal.ZERO, 0, new BigDecimal("1000"), BigDecimal.ONE, 3);
+        KisLiveRiskContext unknownCombinedCount = new KisLiveRiskContext(true, true, true, true, false,
+                BigDecimal.ZERO, 0, new BigDecimal("1000"), BigDecimal.ONE, null);
+
+        KisLiveRiskDecision atLimit = gate.assess(usBuy, "NASD", usAccount, completeThreePositions);
+        KisLiveRiskDecision unknown = gate.assess(usBuy, "NASD", usAccount, unknownCombinedCount);
+
+        assertFalse(atLimit.approved());
+        assertTrue(atLimit.reasons().contains("OPEN_POSITION_LIMIT"));
+        assertFalse(unknown.approved());
+        assertTrue(unknown.reasons().contains("ALL_MARKET_POSITION_COUNT_REQUIRED"));
     }
 
     @Test
@@ -122,7 +143,7 @@ class KisLiveOrderRiskGateTest {
             KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null,
                     account(KisEnvironment.REAL, "KRW", "100000", List.of(invalidPosition)),
                     new KisLiveRiskContext(true, true, true, true, false,
-                            BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100")));
+                            BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"), 1));
 
             assertFalse(result.approved());
             assertTrue(result.reasons().contains("ACCOUNT_POSITIONS_INVALID"));
@@ -137,11 +158,11 @@ class KisLiveOrderRiskGateTest {
         KisLiveRiskDecision allowed = gate.assess(sell(2), null,
                 account(KisEnvironment.REAL, "KRW", "0", List.of(held)),
                 new KisLiveRiskContext(false, true, true, true, false,
-                        null, 3, null, null));
+                        null, 3, null, null, null));
         KisLiveRiskDecision blocked = gate.assess(sell(3), null,
                 account(KisEnvironment.REAL, "KRW", "0", List.of(held)),
                 new KisLiveRiskContext(false, true, true, true, false,
-                        null, 3, null, null));
+                        null, 3, null, null, null));
 
         assertTrue(allowed.approved());
         assertFalse(blocked.approved());
@@ -151,13 +172,13 @@ class KisLiveOrderRiskGateTest {
     @Test
     void paperAccountSnapshotAndStaleAccountBlockLiveAssessment() {
         KisLiveRiskContext healthy = new KisLiveRiskContext(true, true, true, true, false,
-                BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"));
+                BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"), 0);
         KisLiveRiskDecision paperAccount = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.PAPER, "KRW", "100000", List.of()), healthy);
         KisLiveRiskDecision staleAccount = gate.assess(buy("005930", 1, "70000"), null,
                 account(KisEnvironment.REAL, "KRW", "100000", List.of()),
                 new KisLiveRiskContext(true, true, false, true, false,
-                        BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100")));
+                        BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"), 0));
 
         assertFalse(paperAccount.approved());
         assertTrue(paperAccount.reasons().contains("REAL_ACCOUNT_REQUIRED"));
@@ -172,7 +193,7 @@ class KisLiveOrderRiskGateTest {
                 List.of(), Instant.now(), "PAPER_LEDGER");
         KisLiveRiskDecision result = gate.assess(buy("005930", 1, "70000"), null, nonKisSource,
                 new KisLiveRiskContext(true, true, true, true, false,
-                        BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100")));
+                        BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"), 0));
 
         assertFalse(result.approved());
         assertTrue(result.reasons().contains("KIS_ACCOUNT_SOURCE_REQUIRED"));
@@ -181,7 +202,7 @@ class KisLiveOrderRiskGateTest {
     @Test
     void callerCannotMarkAnOldOrFutureDatedAccountSnapshotAsFresh() {
         KisLiveRiskContext healthy = new KisLiveRiskContext(true, true, true, true, false,
-                BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"));
+                BigDecimal.ZERO, 0, new BigDecimal("1000000"), new BigDecimal("100"), 0);
         KisAccountSnapshot current = account(KisEnvironment.REAL, "KRW", "100000", List.of());
         KisAccountSnapshot stale = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
                 new BigDecimal("100000"), new BigDecimal("100000"), new BigDecimal("1000000"), List.of(),
