@@ -8,6 +8,10 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -34,6 +38,35 @@ class KisAccessTokenProviderTest {
 
         assertEquals("paper-token", provider.accessToken(KisEnvironment.PAPER));
         assertEquals("paper-token", provider.accessToken(KisEnvironment.PAPER));
+        server.verify();
+    }
+
+    @Test
+    void concurrentAdaptersShareOneTokenIssuanceRequest() throws Exception {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(PAPER_URL + "/oauth2/tokenP"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("""
+                        {"access_token":"paper-token","access_token_token_expired":"2099-11-06 23:00:00"}
+                        """, MediaType.APPLICATION_JSON));
+        KisAccessTokenProvider provider = new KisAccessTokenProvider(properties(), builder,
+                new KisRestRateLimiter());
+        CountDownLatch start = new CountDownLatch(1);
+        try (ExecutorService workers = Executors.newFixedThreadPool(2)) {
+            Future<String> first = workers.submit(() -> {
+                start.await();
+                return provider.accessToken(KisEnvironment.PAPER);
+            });
+            Future<String> second = workers.submit(() -> {
+                start.await();
+                return provider.accessToken(KisEnvironment.PAPER);
+            });
+
+            start.countDown();
+            assertEquals("paper-token", first.get());
+            assertEquals("paper-token", second.get());
+        }
         server.verify();
     }
 
