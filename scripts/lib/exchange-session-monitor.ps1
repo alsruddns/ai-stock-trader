@@ -115,3 +115,42 @@ function Get-ExchangeSessionBarsDelta([int]$CurrentBars, [int]$InitialBars, $Ses
     }
     return [pscustomobject]@{ baseline = $baseline; delta = $CurrentBars - $baseline }
 }
+
+function Wait-ForExchangeSessionFinalization {
+    param(
+    [int]$TimeoutSeconds,
+    [int]$PollIntervalSeconds,
+    [scriptblock]$Probe,
+    [scriptblock]$Sleep = $null
+    )
+    if ($TimeoutSeconds -lt 0 -or $PollIntervalSeconds -lt 1 -or -not $Probe) {
+        throw 'Finalization wait requires a nonnegative timeout, positive polling interval, and a probe.'
+    }
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    $probeResult = $null
+    do {
+        $probeResult = & $Probe
+        if ($probeResult -and [bool]$probeResult.ready) { break }
+        $remaining = $TimeoutSeconds - $watch.Elapsed.TotalSeconds
+        if ($remaining -le 0) { break }
+        $sleepSeconds = [int][Math]::Min($PollIntervalSeconds, [Math]::Ceiling($remaining))
+        if ($Sleep) { & $Sleep $sleepSeconds } else { Start-Sleep -Seconds $sleepSeconds }
+    } while ($watch.Elapsed.TotalSeconds -lt $TimeoutSeconds)
+    $watch.Stop()
+    return [pscustomobject]@{
+        ready = [bool]($probeResult -and $probeResult.ready)
+        elapsed_seconds = [Math]::Round($watch.Elapsed.TotalSeconds, 1)
+        result = $probeResult
+    }
+}
+
+function Test-ExchangeSessionCompletion {
+    param(
+        [int]$ObservedCounterBars,
+        [int]$MinimumCounterBars,
+        [bool]$RequiresCompleteSession,
+        [bool]$StoredSessionQualityVerified
+    )
+    if ($RequiresCompleteSession) { return $StoredSessionQualityVerified }
+    return $ObservedCounterBars -ge $MinimumCounterBars
+}

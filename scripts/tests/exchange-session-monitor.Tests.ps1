@@ -67,6 +67,37 @@ Describe 'Exchange session monitor calendar boundaries' {
         (Get-ExchangeSessionBarsDelta 547 157 $afterOpen.baseline).delta | Should Be 390
     }
 
+    It 'waits for stored session quality when the live counter remains one bar behind' {
+        $probeState = [pscustomobject]@{ calls = 0 }
+        $probe = {
+            $probeState.calls++
+            [pscustomobject]@{ ready = ($probeState.calls -ge 3); bars_delta = 389 }
+        }.GetNewClosure()
+        $noSleep = { param([int]$Seconds) }
+
+        $result = Wait-ForExchangeSessionFinalization 10 1 $probe $noSleep
+
+        $result.ready | Should Be $true
+        $result.result.bars_delta | Should Be 389
+        $probeState.calls | Should Be 3
+    }
+
+    It 'keeps a 389-bar session incomplete instead of accepting it at close' {
+        $probe = { [pscustomobject]@{ ready = $false; bars_delta = 389 } }
+
+        $result = Wait-ForExchangeSessionFinalization 0 1 $probe
+
+        $result.ready | Should Be $false
+        $result.result.bars_delta | Should Be 389
+    }
+
+    It 'requires stored quality for full sessions and counter minimums for shorter samples' {
+        (Test-ExchangeSessionCompletion 389 390 $true $true) | Should Be $true
+        (Test-ExchangeSessionCompletion 389 390 $true $false) | Should Be $false
+        (Test-ExchangeSessionCompletion 389 390 $false $true) | Should Be $false
+        (Test-ExchangeSessionCompletion 390 390 $false $false) | Should Be $true
+    }
+
     It 'accepts only a complete stored session with spread on every minute' {
         $quality = @{
             market='US'; session_date='2026-11-06'; sessions=@(@{

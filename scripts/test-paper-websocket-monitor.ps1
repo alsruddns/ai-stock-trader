@@ -4,6 +4,7 @@ param(
     [ValidateRange(1, 60)] [int]$PollIntervalSeconds = 15,
     [ValidateRange(30, 3600)] [int]$MaxNoTickSeconds = 300,
     [ValidateRange(0, 36000)] [int]$MinimumBarsDelta = 0,
+    [ValidateRange(0, 600)] [int]$PostCloseGraceSeconds = 180,
     [ValidateSet('paper', 'real')] [string]$Feed,
     [string]$EvidencePath,
     [switch]$RequireBothFeeds,
@@ -34,6 +35,26 @@ function Get-SessionStatus {
     } catch {
         throw 'Could not read the local paper-session status endpoint.'
     }
+}
+
+function Get-SessionQualityEvidence($Status, $Session, [string]$BaseUrl, [string]$SelectedFeed, [int]$ExpectedBars) {
+    $market = [string]$Session.market
+    $sessionDate = [string]$Session.session_date
+    $symbols = @($Status.decisions.PSObject.Properties |
+        ForEach-Object { $_.Value } |
+        Where-Object { $_.market -eq $market -and $_.symbol } |
+        ForEach-Object { ([string]$_.symbol).Trim().ToUpperInvariant() } |
+        Select-Object -Unique)
+    if ($symbols.Count -lt 1 -or $symbols.Count -gt 50) {
+        throw 'The local session monitor has no bounded watchlist for final stored-data verification.'
+    }
+    $query = @('session_date=' + [Uri]::EscapeDataString($sessionDate)) + @($symbols | ForEach-Object {
+        'symbols=' + [Uri]::EscapeDataString($_)
+    })
+    $qualityUrl = "${BaseUrl}/api/v1/market/session-quality/${market}?" + ($query -join '&')
+    $expectedSource = if ($SelectedFeed -eq 'paper') { 'KIS_PAPER_WEBSOCKET' } else { 'KIS_REAL_US_WEBSOCKET' }
+    $quality = Invoke-RestMethod -Uri $qualityUrl -TimeoutSec 10
+    return @(Assert-ExchangeSessionQuality $quality $market $sessionDate $symbols $ExpectedBars $expectedSource)
 }
 
 function Get-SelectedExchangeSessionWindow {
@@ -94,6 +115,8 @@ $maxObservedNoTickSeconds = 0.0
 $preOpenSilenceSeconds = 0.0
 $closingAuctionSilenceSeconds = 0.0
 $sessionCloseReached = $false
+$sessionQualityEvidence = @()
+$postCloseWaitSeconds = 0.0
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($DurationSeconds)
 $latest = $initial
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -218,6 +241,52 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
     }
 }
 
+if ($RequireSessionClose -and -not $sessionCloseReached) {
+    throw 'The monitored exchange session did not reach its calendar-confirmed close.'
+}
+if ($RequireSessionClose) {
+    $sessionQualityProbe = {
+        $status = Get-SessionStatus
+        Assert-SafeRunningStatus $status $Feed ([bool]$RequireBothFeeds)
+        $qualityEvidence = @()
+        try {
+            $qualityEvidence = @(Get-SessionQualityEvidence $status $exchangeSession $ApiBaseUrl $Feed $MinimumBarsDelta)
+        } catch {
+            # The final minute and storage-quality view can settle just after the exchange close.
+        }
+        $currentBars = if ($Feed) { [int]$status.bars_closed_by_feed.$Feed } else { [int]$status.bars_closed }
+        $barCount = Get-ExchangeSessionBarsDelta $currentBars $initialBars $sessionOpenBarsBaseline
+        Write-ProgressRecord ([ordered]@{
+            recorded_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+            requested_seconds = $DurationSeconds
+            elapsed_seconds = [int]$stopwatch.Elapsed.TotalSeconds
+            selected_feed = if ($Feed) { $Feed } else { 'any' }
+            session_phase = 'CLOSED'
+            market_session = $exchangeSession.market
+            market_session_date = $exchangeSession.session_date
+            bars_delta = $barCount.delta
+            session_quality_ready = ($qualityEvidence.Count -gt 0)
+            feeds = $status.stream_connections
+            orders_enabled = [bool]$status.orders_enabled
+            automation_state = $status.automation_state
+            result = if ($qualityEvidence.Count -gt 0) { 'post_close_ready' } else { 'finalizing' }
+        })
+        return [pscustomobject]@{
+            ready = ($qualityEvidence.Count -gt 0)
+            status = $status
+            quality = $qualityEvidence
+        }
+    }.GetNewClosure()
+    $finalization = Wait-ForExchangeSessionFinalization `
+        $PostCloseGraceSeconds $PollIntervalSeconds $sessionQualityProbe
+    $postCloseWaitSeconds = $finalization.elapsed_seconds
+    $latest = $finalization.result.status
+    $sessionQualityEvidence = @($finalization.result.quality)
+    if (-not $finalization.ready) {
+        throw 'The final stored session did not reach complete bars, spread, and source verification within the post-close grace period.'
+    }
+}
+
 $stopwatch.Stop()
 $latestTicks = if ($Feed) { [int]$latest.ticks_received_by_feed.$Feed } else { [int]$latest.ticks_received }
 $tickDelta = $latestTicks - $initialTicks
@@ -230,41 +299,22 @@ if (-not $hasReceiveTimestamp) {
 $latestBars = if ($Feed) { [int]$latest.bars_closed_by_feed.$Feed } else { [int]$latest.bars_closed }
 $sessionBarCount = Get-ExchangeSessionBarsDelta $latestBars $initialBars $sessionOpenBarsBaseline
 $barDelta = $sessionBarCount.delta
-if ($RequireSessionClose -and -not $sessionCloseReached) {
-    throw 'The monitored exchange session did not reach its calendar-confirmed close.'
+$verifiedSessionBars = 0
+if ($sessionQualityEvidence.Count -gt 0) {
+    $verifiedSessionBars = [int](($sessionQualityEvidence | Measure-Object -Property observed_bars -Sum).Sum)
 }
-if ($barDelta -lt $MinimumBarsDelta) {
+if (-not (Test-ExchangeSessionCompletion $barDelta $MinimumBarsDelta ([bool]$RequireSessionClose) ($verifiedSessionBars -gt 0))) {
+    if ($RequireSessionClose) {
+        throw 'Stored-session quality did not verify a complete session with full spread and source coverage.'
+    }
     throw "Closed bar count increased by $barDelta, below the required minimum $MinimumBarsDelta."
-}
-$sessionQualityEvidence = @()
-if ($RequireSessionClose) {
-    $market = [string]$exchangeSession.market
-    $sessionDate = [string]$exchangeSession.session_date
-    $symbols = @($latest.decisions.PSObject.Properties |
-        ForEach-Object { $_.Value } |
-        Where-Object { $_.market -eq $market -and $_.symbol } |
-        ForEach-Object { ([string]$_.symbol).Trim().ToUpperInvariant() } |
-        Select-Object -Unique)
-    if ($symbols.Count -lt 1 -or $symbols.Count -gt 50) {
-        throw 'The local session monitor has no bounded watchlist for final stored-data verification.'
-    }
-    $query = @('session_date=' + [Uri]::EscapeDataString($sessionDate)) + @($symbols | ForEach-Object {
-        'symbols=' + [Uri]::EscapeDataString($_)
-    })
-    $qualityUrl = "${ApiBaseUrl}/api/v1/market/session-quality/${market}?" + ($query -join '&')
-    $expectedSource = if ($Feed -eq 'paper') { 'KIS_PAPER_WEBSOCKET' } else { 'KIS_REAL_US_WEBSOCKET' }
-    try {
-        $quality = Invoke-RestMethod -Uri $qualityUrl -TimeoutSec 10
-        $sessionQualityEvidence = @(Assert-ExchangeSessionQuality $quality $market $sessionDate $symbols $MinimumBarsDelta $expectedSource)
-    } catch {
-        throw 'The monitored session passed its live-feed checks, but stored-session completeness, spread, or provenance verification failed.'
-    }
 }
 $evidence = [ordered]@{
     started_at_utc = $startedAtUtc.ToString('o')
     completed_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
     requested_seconds = $DurationSeconds
     observed_seconds = [int]$stopwatch.Elapsed.TotalSeconds
+    post_close_wait_seconds = $postCloseWaitSeconds
     poll_interval_seconds = $PollIntervalSeconds
     max_no_tick_seconds = $MaxNoTickSeconds
     max_observed_no_tick_seconds = [Math]::Round($maxObservedNoTickSeconds, 1)
@@ -280,6 +330,8 @@ $evidence = [ordered]@{
     ticks_delta = $tickDelta
     bars_delta = $barDelta
     minimum_bars_delta = $MinimumBarsDelta
+    counter_bars_delta_matches_requirement = ($barDelta -ge $MinimumBarsDelta)
+    stored_session_bars_verified = $verifiedSessionBars
     session_quality = $sessionQualityEvidence
     feeds = $latest.stream_connections
     orders_enabled = $false
