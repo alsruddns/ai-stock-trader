@@ -28,6 +28,8 @@ DOMESTIC_QUOTE_PATH = "/uapi/domestic-stock/v1/quotations/inquire-price"
 OVERSEAS_QUOTE_PATH = "/uapi/overseas-price/v1/quotations/price"
 DOMESTIC_MINUTE_CHART_PATH = "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice"
 OVERSEAS_MINUTE_CHART_PATH = "/uapi/overseas-price/v1/quotations/inquire-time-itemchartprice"
+DOMESTIC_VOLUME_RANK_PATH = "/uapi/domestic-stock/v1/quotations/volume-rank"
+OVERSEAS_TRADE_VALUE_RANK_PATH = "/uapi/overseas-stock/v1/ranking/trade-pbmn"
 
 
 class KisApiError(RuntimeError):
@@ -170,6 +172,33 @@ class Quote:
     volume: int | None
     retrieved_at: datetime
     source: str = "KIS_REST_SNAPSHOT"
+    best_ask: Decimal | None = None
+    best_bid: Decimal | None = None
+    spread_bps: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class MarketCandidate:
+    """Read-only rank result enriched with quote/liquidity checks; never an order signal."""
+
+    market: Market
+    symbol: str
+    name: str
+    exchange: str | None
+    rank: int
+    currency: str
+    price: Decimal
+    volume: int
+    turnover: Decimal
+    best_ask: Decimal | None
+    best_bid: Decimal | None
+    spread_bps: Decimal | None
+    passes_market_filter: bool
+    filter_reason: str
+    freshness_verified: bool = False
+    executable: bool = False
+    source: str = "KIS_REST_RANKING"
+    retrieved_at: datetime = datetime.min.replace(tzinfo=timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -353,14 +382,19 @@ class KisReadOnlyClient:
             change = _decimal(output.get("prdy_vrss"), "change")
             change_percent = _decimal(output.get("prdy_ctrt"), "change percent")
             volume = _volume(output.get("acml_vol"))
+            best_ask = _decimal(output.get("askp1"), "best ask")
+            best_bid = _decimal(output.get("bidp1"), "best bid")
         else:
             price = _decimal(output.get("last"), "price")
             currency = "USD"
             change = _decimal(output.get("diff"), "change")
             change_percent = _decimal(output.get("rate"), "change percent")
             volume = _volume(output.get("tvol"))
+            best_ask = _decimal(output.get("pask", output.get("askp")), "best ask")
+            best_bid = _decimal(output.get("pbid", output.get("bidp")), "best bid")
         if price is None or price <= 0:
             raise KisApiError("KIS quote response did not contain a valid price")
+        spread_bps = self._spread_bps(best_ask, best_bid)
         return Quote(
             market=market,
             symbol=normalized_symbol,
@@ -371,7 +405,149 @@ class KisReadOnlyClient:
             change_percent=change_percent,
             volume=volume,
             retrieved_at=datetime.now(timezone.utc),
+            best_ask=best_ask,
+            best_bid=best_bid,
+            spread_bps=spread_bps,
         )
+
+    @staticmethod
+    def _spread_bps(best_ask: Decimal | None, best_bid: Decimal | None) -> Decimal | None:
+        if best_ask is None or best_bid is None or best_ask <= 0 or best_bid <= 0:
+            return None
+        if best_ask < best_bid:
+            raise KisApiError("KIS quote returned a crossed bid/ask")
+        midpoint = (best_ask + best_bid) / Decimal(2)
+        if midpoint <= 0:
+            return None
+        return (best_ask - best_bid) / midpoint * Decimal(10_000)
+
+    def get_ranked_candidates(
+        self,
+        market: Market,
+        *,
+        exchange: Exchange | None = None,
+        limit: int = 10,
+        minimum_turnover: Decimal = Decimal(0),
+        maximum_spread_bps: Decimal = Decimal(15),
+    ) -> list[MarketCandidate]:
+        """Read a bounded KIS liquidity ranking and fail closed on missing spread data.
+
+        This ranking is discovery data only. It never subscribes symbols, creates a
+        strategy signal, writes an order, or claims that a candidate is executable.
+        """
+        if not 1 <= limit <= 20:
+            raise ValueError("candidate limit must be between 1 and 20")
+        if minimum_turnover < 0 or maximum_spread_bps < 0:
+            raise ValueError("candidate screening thresholds must be non-negative")
+        if market == "KR":
+            if exchange is not None:
+                raise ValueError("exchange is only used for US candidates")
+            path = DOMESTIC_VOLUME_RANK_PATH
+            tr_id = "FHPST01710000"
+            params = {
+                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_COND_SCR_DIV_CODE": "20171",
+                "FID_INPUT_ISCD": "0000",
+                "FID_DIV_CLS_CODE": "1",
+                "FID_BLNG_CLS_CODE": "3",
+                "FID_TRGT_CLS_CODE": "111111111",
+                "FID_TRGT_EXLS_CLS_CODE": "0000000000",
+                "FID_INPUT_PRICE_1": "0",
+                "FID_INPUT_PRICE_2": "0",
+                "FID_VOL_CNT": "0",
+                "FID_INPUT_DATE_1": "",
+            }
+        elif market == "US":
+            if exchange is None:
+                raise ValueError("US candidates require exchange NAS, NYS, or AMS")
+            path = OVERSEAS_TRADE_VALUE_RANK_PATH
+            tr_id = "HHDFS76320010"
+            params = {"EXCD": exchange, "NDAY": "0", "VOL_RANG": "0", "AUTH": "",
+                      "KEYB": "", "PRC1": "", "PRC2": ""}
+        else:
+            raise ValueError("market must be KR or US")
+
+        try:
+            response = self._get(
+                f"{self.settings.base_url}{path}",
+                headers={
+                    "authorization": f"Bearer {self._access_token()}",
+                    "appkey": self.settings.app_key,
+                    "appsecret": self.settings.app_secret,
+                    "tr_id": tr_id,
+                    "custtype": "P",
+                },
+                params=params,
+            )
+            _ensure_kis_http_success(response, "candidate ranking")
+            payload = response.json()
+        except KisApiError:
+            raise
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise KisApiError("KIS candidate ranking request failed") from exc
+        if payload.get("rt_cd") != "0":
+            code = str(payload.get("msg_cd", "unknown"))[:32]
+            raise KisApiError(f"KIS rejected the candidate ranking request (code {code})")
+
+        rows = payload.get("output") if market == "KR" else payload.get("output2")
+        if not isinstance(rows, list):
+            raise KisApiError("KIS candidate ranking response did not contain a result array")
+
+        candidates: list[MarketCandidate] = []
+        for row in rows[:limit]:
+            if not isinstance(row, dict):
+                raise KisApiError("KIS candidate ranking response contained an invalid row")
+            if market == "KR":
+                symbol = str(row.get("mksc_shrn_iscd", "")).strip()
+                if not (symbol.isdigit() and len(symbol) == 6):
+                    continue
+                # The ranking endpoint has no quote spread fields; obtain a separate
+                # current snapshot before a symbol can pass the market filter.
+                quote = self.get_quote("KR", symbol)
+                name = str(row.get("hts_kor_isnm", "")).strip()
+                rank = _volume(row.get("data_rank")) or (len(candidates) + 1)
+                turnover = _decimal(row.get("acml_tr_pbmn"), "turnover") or Decimal(0)
+                volume = _volume(row.get("acml_vol")) or 0
+                price = quote.price
+                best_ask, best_bid, spread_bps = quote.best_ask, quote.best_bid, quote.spread_bps
+                currency = "KRW"
+            else:
+                symbol = str(row.get("symb", "")).strip().upper()
+                if not symbol or len(symbol) > 16:
+                    continue
+                name = str(row.get("name", "")).strip()
+                rank = _volume(row.get("rank")) or (len(candidates) + 1)
+                price = _decimal(row.get("last"), "price") or Decimal(0)
+                volume = _volume(row.get("tvol")) or 0
+                turnover = _decimal(row.get("tamt"), "turnover") or Decimal(0)
+                best_ask = _decimal(row.get("pask"), "best ask")
+                best_bid = _decimal(row.get("pbid"), "best bid")
+                spread_bps = self._spread_bps(best_ask, best_bid)
+                currency = "USD"
+
+            if price <= 0 or volume <= 0 or turnover < 0:
+                raise KisApiError("KIS candidate ranking response contained invalid market values")
+            if spread_bps is None:
+                passes = False
+                reason = "LIVE_SPREAD_UNAVAILABLE"
+            elif turnover < minimum_turnover:
+                passes = False
+                reason = "TURNOVER_BELOW_MINIMUM"
+            elif spread_bps > maximum_spread_bps:
+                passes = False
+                reason = "SPREAD_ABOVE_MAXIMUM"
+            else:
+                passes = True
+                reason = "MARKET_FILTERS_PASSED"
+            candidates.append(MarketCandidate(
+                market=market, symbol=symbol, name=name,
+                exchange=exchange if market == "US" else None, rank=rank, currency=currency,
+                price=price, volume=volume, turnover=turnover,
+                best_ask=best_ask, best_bid=best_bid, spread_bps=spread_bps,
+                passes_market_filter=passes, filter_reason=reason,
+                retrieved_at=datetime.now(timezone.utc),
+            ))
+        return candidates
 
     def get_domestic_minute_bars(self, symbol: str, session_date: date, end_time: str = "153000") -> list["MinuteBar"]:
         """Fetch one bounded page of KRX minute bars; KIS does not provide historical spread here."""

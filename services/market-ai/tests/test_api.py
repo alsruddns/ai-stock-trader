@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
+from fastapi import HTTPException
+import pytest
 from app import main
 from app.main import app, get_kis_client
-from app.kis import KisRateLimitError, KisSharedRateLimitUnavailable, Quote
+from app.kis import KisRateLimitError, KisSharedRateLimitUnavailable, MarketCandidate, Quote
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -349,6 +351,94 @@ def test_quote_route_returns_normalized_snapshot() -> None:
         assert response.json()["source"] == "KIS_REST_SNAPSHOT"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_market_candidate_route_is_read_only_and_never_returns_executable_signal(monkeypatch) -> None:
+    class FakeKisClient:
+        def get_ranked_candidates(self, market, *, exchange, limit, minimum_turnover, maximum_spread_bps):
+            assert market == "KR"
+            assert exchange is None
+            assert limit == 5
+            assert minimum_turnover == Decimal("1000000000")
+            assert maximum_spread_bps == Decimal("15")
+            return [MarketCandidate(
+                market="KR", symbol="005930", name="Samsung", exchange=None, rank=1,
+                currency="KRW", price=Decimal("70000"), volume=1000000,
+                turnover=Decimal("200000000000"), best_ask=Decimal("70010"),
+                best_bid=Decimal("70000"), spread_bps=Decimal("1.42"),
+                passes_market_filter=True, filter_reason="MARKET_FILTERS_PASSED",
+                executable=False, retrieved_at=datetime.now(timezone.utc),
+            )]
+
+    monkeypatch.setattr(main, "get_kis_candidate_client", lambda _market: FakeKisClient())
+    monkeypatch.setattr(
+        main, "exchange_session_window",
+        lambda _market, now: (now - timedelta(minutes=1), now + timedelta(minutes=1)),
+    )
+    response = client.get(
+        "/api/v1/market/candidates/KR?limit=5&minimum_turnover=1000000000",
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["candidates"][0]["symbol"] == "005930"
+    assert body["candidates"][0]["passes_market_filter"] is True
+    assert body["candidates"][0]["freshness_verified"] is False
+    assert body["candidates"][0]["executable"] is False
+    assert body["executable"] is False
+
+
+def test_market_candidate_route_requires_turnover_threshold_and_us_exchange(monkeypatch) -> None:
+    class FakeKisClient:
+        def get_ranked_candidates(self, *_args, **_kwargs):
+            raise AssertionError("invalid candidate request must not call KIS")
+
+    monkeypatch.setattr(main, "get_kis_candidate_client", lambda _market: FakeKisClient())
+    monkeypatch.setattr(
+        main, "exchange_session_window",
+        lambda _market, now: (now - timedelta(minutes=1), now + timedelta(minutes=1)),
+    )
+    missing_threshold = client.get("/api/v1/market/candidates/KR")
+    missing_exchange = client.get(
+        "/api/v1/market/candidates/US?minimum_turnover=1000000",
+    )
+    assert missing_threshold.status_code == 422
+    assert missing_exchange.status_code == 422
+
+
+def test_market_candidate_route_rejects_closed_session_before_kis_call(monkeypatch) -> None:
+    class FakeKisClient:
+        def get_ranked_candidates(self, *_args, **_kwargs):
+            raise AssertionError("closed exchange must not call KIS")
+
+    monkeypatch.setattr(main, "get_kis_candidate_client", lambda _market: FakeKisClient())
+    monkeypatch.setattr(main, "exchange_session_window", lambda _market, _now: None)
+    response = client.get(
+        "/api/v1/market/candidates/KR?minimum_turnover=1",
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Candidate screening requires an open exchange session"
+
+
+def test_us_market_candidate_screen_requires_separate_real_data_gate(monkeypatch) -> None:
+    from app.main import get_kis_candidate_client
+
+    monkeypatch.setenv("KIS_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setenv("KIS_REAL_MARKET_DATA_ENABLED", "false")
+    monkeypatch.setenv("KIS_REAL_APP_KEY", "real-key")
+    monkeypatch.setenv("KIS_REAL_APP_SECRET", "real-secret")
+    monkeypatch.setenv("KIS_REAL_ACCOUNT_READ_ENABLED", "false")
+    with pytest.raises(HTTPException) as disabled:
+        get_kis_candidate_client("US")
+    assert disabled.value.status_code == 503
+
+    captured = []
+    monkeypatch.setenv("KIS_REAL_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setattr(main, "_get_or_create_kis_client", lambda settings: captured.append(settings) or settings)
+    settings = get_kis_candidate_client("US")
+    assert settings.environment == "real"
+    assert settings.app_key == "real-key"
+    assert settings.app_secret == "real-secret"
+    assert captured == [settings]
 
 
 def test_kis_database_rate_limit_failure_returns_service_unavailable() -> None:

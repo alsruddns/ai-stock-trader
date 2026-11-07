@@ -4,6 +4,7 @@ import re
 import threading
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
+from typing import Literal
 import asyncio
 import json
 import hmac
@@ -49,7 +50,11 @@ app = FastAPI(
 
 
 def get_kis_client() -> KisReadOnlyClient:
-    settings = KisSettings.from_environment()
+    return get_kis_market_data_client()
+
+
+def get_kis_market_data_client(environment: Literal["paper", "real"] | None = None) -> KisReadOnlyClient:
+    settings = KisSettings.from_environment(environment)
     if not settings.enabled:
         raise HTTPException(status_code=503, detail="KIS market data is disabled")
     if not settings.app_key or not settings.app_secret:
@@ -57,9 +62,17 @@ def get_kis_client() -> KisReadOnlyClient:
     return _get_or_create_kis_client(settings)
 
 
-def get_kis_account_client(environment: str) -> KisReadOnlyClient:
+def get_kis_candidate_client(market: Market) -> KisReadOnlyClient:
+    if market == "US":
+        if os.getenv("KIS_REAL_MARKET_DATA_ENABLED", "false").strip().lower() != "true":
+            raise HTTPException(status_code=503, detail="KIS REAL market-data screening is disabled")
+        return get_kis_market_data_client("real")
+    return get_kis_market_data_client()
+
+
+def get_kis_account_client(environment: Literal["paper", "real"]) -> KisReadOnlyClient:
     """Reuse one token-caching HTTP client per account environment."""
-    settings = KisSettings.from_environment(environment)  # type: ignore[arg-type]
+    settings = KisSettings.from_environment(environment)
     if (not settings.app_key or not settings.app_secret
             or not re.fullmatch(r"\d{10}", settings.account_number)):
         raise HTTPException(status_code=503, detail="KIS account credentials are not configured")
@@ -179,6 +192,40 @@ class QuoteResponse(BaseModel):
     volume: int | None
     retrieved_at: datetime
     source: str
+    best_ask: Decimal | None = None
+    best_bid: Decimal | None = None
+    spread_bps: Decimal | None = None
+
+
+class MarketCandidateResponse(BaseModel):
+    market: Market
+    symbol: str
+    name: str
+    exchange: str | None
+    rank: int
+    currency: str
+    price: Decimal
+    volume: int
+    turnover: Decimal
+    best_ask: Decimal | None
+    best_bid: Decimal | None
+    spread_bps: Decimal | None
+    passes_market_filter: bool
+    filter_reason: str
+    freshness_verified: bool
+    executable: bool
+    source: str
+    retrieved_at: datetime
+
+
+class CandidateScreenResponse(BaseModel):
+    market: Market
+    exchange: str | None
+    currency: str
+    minimum_turnover: Decimal
+    maximum_spread_bps: Decimal
+    candidates: list[MarketCandidateResponse]
+    executable: bool = False
 
 
 class AccountBalanceResponse(BaseModel):
@@ -357,6 +404,47 @@ def get_quote(
         quote = client.get_quote(market, symbol, exchange)
         _persist_snapshot(lambda: snapshot_store.store_quote(quote))
         return quote
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KisSharedRateLimitUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except KisRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except KisApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/market/candidates/{market}", response_model=CandidateScreenResponse)
+async def screen_market_candidates(
+    market: Market,
+    exchange: Exchange | None = Query(default=None),
+    limit: int = Query(default=10, ge=1, le=20),
+    minimum_turnover: Decimal = Query(gt=0),
+    maximum_spread_bps: Decimal = Query(default=Decimal("15"), ge=0),
+) -> CandidateScreenResponse:
+    """Read-only, top-of-market discovery; output is never an executable signal."""
+    if market == "US" and exchange is None:
+        raise HTTPException(status_code=422, detail="US candidates require exchange=NAS, NYS, or AMS")
+    if market == "KR" and exchange is not None:
+        raise HTTPException(status_code=422, detail="KR candidates do not accept an exchange parameter")
+    evaluated_at = datetime.now(timezone.utc)
+    try:
+        window = exchange_session_window(market, evaluated_at)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Exchange session could not be verified") from exc
+    if window is None or not window[0] <= evaluated_at < window[1]:
+        raise HTTPException(status_code=409, detail="Candidate screening requires an open exchange session")
+    try:
+        client = get_kis_candidate_client(market)
+        candidates = await asyncio.to_thread(
+            client.get_ranked_candidates, market, exchange=exchange, limit=limit,
+            minimum_turnover=minimum_turnover, maximum_spread_bps=maximum_spread_bps,
+        )
+        return CandidateScreenResponse(
+            market=market, exchange=exchange, currency="KRW" if market == "KR" else "USD",
+            minimum_turnover=minimum_turnover, maximum_spread_bps=maximum_spread_bps,
+            candidates=[MarketCandidateResponse(**candidate.__dict__) for candidate in candidates],
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KisSharedRateLimitUnavailable as exc:

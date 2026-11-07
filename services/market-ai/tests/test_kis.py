@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -212,6 +213,84 @@ def test_us_quote_uses_official_exchange_code_and_fields() -> None:
     assert str(quote.price) == "231.59"
     assert quote.currency == "USD"
     assert str(quote.change_percent) == "1.57"
+    client.close()
+
+
+def test_domestic_candidates_use_official_turnover_rank_and_require_fresh_quote_spread() -> None:
+    requests_seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests_seen.append(request)
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        if request.url.path.endswith("/volume-rank"):
+            return httpx.Response(200, json={"rt_cd": "0", "output": [{
+                "data_rank": "1", "mksc_shrn_iscd": "005930", "hts_kor_isnm": "Samsung",
+                "acml_vol": "1000000", "acml_tr_pbmn": "200000000000",
+            }]})
+        return httpx.Response(200, json={"rt_cd": "0", "output": {
+            "stck_prpr": "70000", "askp1": "70010", "bidp1": "70000",
+            "prdy_vrss": "0", "prdy_ctrt": "0", "acml_vol": "1000000",
+        }})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    candidates = client.get_ranked_candidates("KR", minimum_turnover=Decimal("1000000000"))
+
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate.symbol == "005930"
+    assert candidate.turnover == Decimal("200000000000")
+    assert candidate.spread_bps == pytest.approx(Decimal("1.428469"), abs=Decimal("0.000001"))
+    assert candidate.passes_market_filter is True
+    assert candidate.executable is False
+    ranking_request = next(request for request in requests_seen if request.url.path.endswith("/volume-rank"))
+    assert ranking_request.headers["tr_id"] == "FHPST01710000"
+    assert ranking_request.url.params["FID_BLNG_CLS_CODE"] == "3"
+    assert sum(request.url.path.endswith("/inquire-price") for request in requests_seen) == 1
+    client.close()
+
+
+def test_overseas_candidates_use_official_trade_value_ranking_and_fail_closed_without_spread() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        return httpx.Response(200, json={"rt_cd": "0", "output2": [{
+            "rank": "1", "symb": "AAPL", "name": "Apple", "last": "230.00",
+            "tvol": "1000000", "tamt": "230000000", "pask": "", "pbid": "",
+        }]})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "real", "real-key", "real-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    candidates = client.get_ranked_candidates("US", exchange="NAS")
+
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate.symbol == "AAPL"
+    assert candidate.turnover == Decimal("230000000")
+    assert candidate.spread_bps is None
+    assert candidate.passes_market_filter is False
+    assert candidate.filter_reason == "LIVE_SPREAD_UNAVAILABLE"
+    assert candidate.executable is False
+    client.close()
+
+
+def test_market_candidate_rejects_crossed_spread_and_invalid_limits() -> None:
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={}))),
+    )
+
+    with pytest.raises(KisApiError, match="crossed bid/ask"):
+        client._spread_bps(Decimal("99"), Decimal("100"))
+    with pytest.raises(ValueError, match="limit must be between 1 and 20"):
+        client.get_ranked_candidates("KR", limit=21)
     client.close()
 
 
