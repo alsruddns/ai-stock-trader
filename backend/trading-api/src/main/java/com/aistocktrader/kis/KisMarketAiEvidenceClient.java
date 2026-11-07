@@ -1,6 +1,8 @@
 package com.aistocktrader.kis;
 
 import com.aistocktrader.order.OrderRequest;
+import com.aistocktrader.order.Currency;
+import com.aistocktrader.order.OrderSide;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -47,6 +49,46 @@ public class KisMarketAiEvidenceClient {
         } catch (RuntimeException unavailable) {
             return new Evidence(false, false, null);
         }
+    }
+
+    /** Fetches a fresh KIS quote snapshot for a server-side protective-exit decision. */
+    public ExitQuote quoteForExit(com.aistocktrader.order.Market market, String symbol, String exchange) {
+        if (market == null || symbol == null || symbol.isBlank()) {
+            throw new IllegalArgumentException("Exit quote market and symbol are required.");
+        }
+        String normalizedSymbol = symbol.trim().toUpperCase(java.util.Locale.ROOT);
+        String normalizedExchange = market == com.aistocktrader.order.Market.US
+                ? marketAiExchange(exchange) : null;
+        if (market == com.aistocktrader.order.Market.KR
+                ? !normalizedSymbol.matches("\\d{6}") || exchange != null
+                : normalizedExchange == null || normalizedExchange.isBlank()) {
+            throw new IllegalArgumentException("Exit quote market or exchange is invalid.");
+        }
+        JsonNode quote = market == com.aistocktrader.order.Market.US
+                ? http.get().uri(uri -> uri.path("/api/v1/market/quotes/US/{symbol}")
+                        .queryParam("exchange", normalizedExchange).build(normalizedSymbol))
+                        .retrieve().body(JsonNode.class)
+                : http.get().uri("/api/v1/market/quotes/KR/{symbol}", normalizedSymbol)
+                        .retrieve().body(JsonNode.class);
+        OrderRequest sellProbe = new OrderRequest(market, normalizedSymbol, OrderSide.SELL, 1,
+                BigDecimal.ONE, market == com.aistocktrader.order.Market.KR ? Currency.KRW : Currency.USD);
+        if (!isFreshMatchingQuote(quote, sellProbe)) {
+            throw new IllegalStateException("Protective exit requires a fresh matching KIS quote.");
+        }
+        if (market == com.aistocktrader.order.Market.US
+                && !normalizedExchange.equalsIgnoreCase(quote.path("exchange").asText())) {
+            throw new IllegalStateException("Protective exit quote exchange does not match the position.");
+        }
+        return new ExitQuote(market, normalizedSymbol,
+                market == com.aistocktrader.order.Market.US ? normalizedExchange : null,
+                quote.path("price").decimalValue(), decimalOrNull(quote.path("best_bid")),
+                decimalOrNull(quote.path("best_ask")), Instant.parse(quote.path("retrieved_at").asText()));
+    }
+
+    private static BigDecimal decimalOrNull(JsonNode value) {
+        if (value == null || value.isNull() || value.isMissingNode() || !value.isNumber()) return null;
+        BigDecimal decimal = value.decimalValue();
+        return decimal.signum() > 0 ? decimal : null;
     }
 
     static boolean hasActiveApprovedModel(JsonNode response, String market, String symbol) {
@@ -150,4 +192,7 @@ public class KisMarketAiEvidenceClient {
             this(approvedModelCandidate, quoteFresh, stopDistancePerShare, null, null, null);
         }
     }
+
+    public record ExitQuote(com.aistocktrader.order.Market market, String symbol, String exchange,
+                            BigDecimal price, BigDecimal bestBid, BigDecimal bestAsk, Instant retrievedAt) { }
 }
