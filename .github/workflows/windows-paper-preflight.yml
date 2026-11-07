@@ -73,7 +73,7 @@ jobs:
           }
 
           $modelReportResult = Invoke-Pester -Path 'scripts/tests/model-retraining-report.Tests.ps1' -PassThru
-          if ($modelReportResult.FailedCount -gt 0 -or $modelReportResult.PassedCount -ne 9) {
+          if ($modelReportResult.FailedCount -gt 0 -or $modelReportResult.PassedCount -ne 10) {
             throw "Model retraining report tests failed: passed=$($modelReportResult.PassedCount), failed=$($modelReportResult.FailedCount)."
           }
 

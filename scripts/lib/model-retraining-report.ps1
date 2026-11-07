@@ -120,6 +120,21 @@ function Get-AiTraderModelRetrainingSummary {
         }
         $orphanArtifactCount = $orphanArtifacts.Count
     }
+    $knownFailureCodes = @(
+        'insufficient_training_sessions', 'insufficient_partition_samples',
+        'single_class_training_partition', 'training_dependencies_missing',
+        'unclassified_training_failure'
+    )
+    $failureCode = if ($document.failure_code -in $knownFailureCodes) {
+        [string]$document.failure_code
+    } else { $null }
+    if (
+        ($null -eq $failureCode) -and
+        ($document.status -eq 'training_failed') -and
+        ($document.output -is [string])
+    ) {
+        $failureCode = Get-AiTraderModelTrainingFailureCode -Output @([string]$document.output)
+    }
 
     return [pscustomobject]@{
         state = 'AVAILABLE'
@@ -129,11 +144,7 @@ function Get-AiTraderModelRetrainingSummary {
             failureStage = if ($document.failure_stage -in @('data_export', 'candidate_training', 'candidate_verification')) {
                 [string]$document.failure_stage
             } else { $null }
-            failureCode = if ($document.failure_code -in @(
-                'insufficient_training_sessions', 'insufficient_partition_samples',
-                'single_class_training_partition', 'training_dependencies_missing',
-                'unclassified_training_failure'
-            )) { [string]$document.failure_code } else { $null }
+            failureCode = $failureCode
             market = [string]$document.market
             symbol = [string]$document.symbol
             fromDate = [string]$document.from_date

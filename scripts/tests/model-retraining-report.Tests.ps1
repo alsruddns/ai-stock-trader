@@ -142,6 +142,30 @@ Describe 'Model retraining operations summary' {
         $serialized | Should Not Match 'secret-bearing database detail'
     }
 
+    It 'classifies a legacy traceback without returning its raw contents' {
+        $directory = Join-Path $TestDrive 'legacy-failure-summary'
+        New-Item -ItemType Directory -Path $directory | Out-Null
+        $path = Join-Path $directory 'legacy.json'
+        $legacy = [ordered]@{
+            run_id = 'us-aapl-20261108-aaaaaaaaaaaa'
+            status = 'training_failed'
+            market = 'US'
+            symbol = 'AAPL'
+            from_date = '2026-11-02'
+            to_date = '2026-11-06'
+            candidate_model_ids = @()
+            orphan_candidate_artifacts = @()
+            output = "Traceback (most recent call last):`nValueError: at least three distinct sessions are required`nsecret-marker"
+        }
+        Set-AiTraderAtomicJsonFile -Path $path -Value $legacy
+
+        $summary = Get-AiTraderModelRetrainingSummary -Directory $directory
+        $serialized = $summary | ConvertTo-Json -Depth 6 -Compress
+
+        $summary.latestRun.failureCode | Should Be 'insufficient_training_sessions'
+        $serialized | Should Not Match 'Traceback|secret-marker|at least three distinct sessions'
+    }
+
     It 'does not hide a corrupt newest report behind an older valid one' {
         $directory = Join-Path $TestDrive 'corrupt-latest'
         New-Item -ItemType Directory -Path $directory | Out-Null
