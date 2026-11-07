@@ -1,6 +1,6 @@
 server:
   port: 8080
-  address: ${SERVER_ADDRESS:127.0.0.1}
+  address: 127.0.0.1
 market-ai:
   base-url: ${MARKET_AI_BASE_URL:http://127.0.0.1:8000}
 spring:
