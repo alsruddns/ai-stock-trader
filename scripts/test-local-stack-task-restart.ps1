@@ -8,6 +8,27 @@ $tokens = $null
 $parseErrors = $null
 [System.Management.Automation.Language.Parser]::ParseFile($startLocalPath, [ref]$tokens, [ref]$parseErrors) | Out-Null
 if ($parseErrors.Count -gt 0) { throw 'The local Spring launcher has PowerShell syntax errors.' }
+$runnerPath = Join-Path $PSScriptRoot 'run-local-stack-task.ps1'
+$runnerTokens = $null
+$runnerParseErrors = $null
+$runnerAst = [System.Management.Automation.Language.Parser]::ParseFile($runnerPath, [ref]$runnerTokens, [ref]$runnerParseErrors)
+if ($runnerParseErrors.Count -gt 0) { throw 'The local stack runner has PowerShell syntax errors.' }
+$permanentFailureAst = $runnerAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Test-PermanentStackStartupFailure'
+}, $true)
+if ($null -eq $permanentFailureAst) { throw 'The permanent startup failure classifier was not found.' }
+. ([ScriptBlock]::Create($permanentFailureAst.Extent.Text))
+if (-not (Test-PermanentStackStartupFailure -StartupErrorMessage 'Spring Boot exited during startup (code 1).' -BackendErrorOutput 'PostgreSQL port 5432 listens on non-loopback address(es): 0.0.0.0.')) {
+    throw 'A permanent PostgreSQL binding error should stop automatic startup retries.'
+}
+if (Test-PermanentStackStartupFailure -StartupErrorMessage 'Spring Boot exited during startup (code 1).' -BackendErrorOutput 'Connection refused') {
+    throw 'A transient database connection error should remain retryable.'
+}
+if (Test-PermanentStackStartupFailure -StartupErrorMessage 'Spring Boot stopped unexpectedly (code 1).' -BackendErrorOutput 'PostgreSQL port 5432 listens on non-loopback address(es): 0.0.0.0.') {
+    throw 'A runtime service exit should not be misclassified as the guarded startup error.'
+}
 $postgresBindingPath = Join-Path $PSScriptRoot 'lib\local-postgres-binding.ps1'
 if (-not (Select-String -Path $startLocalPath -Pattern 'lib\\local-postgres-binding\.ps1' -Quiet)) {
     throw 'The local Spring launcher must enforce PostgreSQL loopback binding.'

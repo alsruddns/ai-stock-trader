@@ -43,6 +43,13 @@ function Write-ProcessState {
     Move-Item -LiteralPath $temporaryState -Destination $runtimeState -Force
 }
 
+function Test-PermanentStackStartupFailure {
+    param([string]$StartupErrorMessage, [string]$BackendErrorOutput)
+
+    return $StartupErrorMessage -match '^Spring Boot exited during startup' -and
+        $BackendErrorOutput -match 'PostgreSQL port \d+ listens on non-loopback address'
+}
+
 function Stop-ServiceProcess {
     param($Process)
     if ($null -ne $Process -and -not $Process.HasExited) {
@@ -102,6 +109,7 @@ try {
     Write-ProcessState
 
     while ($true) {
+        $permanentStartupFailure = $false
         try {
             $environmentHash = Import-LocalEnvironment
             $powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -170,7 +178,14 @@ try {
                 if ($marketAiProcess.HasExited) { throw "Python market-ai stopped unexpectedly (code $($marketAiProcess.ExitCode))." }
             }
         } catch {
-            Write-TaskLog ("FAILURE " + $_.Exception.Message)
+            $startupErrorMessage = $_.Exception.Message
+            $backendErrorOutput = Get-Content -LiteralPath $backendStderr -Raw -ErrorAction SilentlyContinue
+            if (Test-PermanentStackStartupFailure -StartupErrorMessage $startupErrorMessage -BackendErrorOutput $backendErrorOutput) {
+                $permanentStartupFailure = $true
+                Write-TaskLog 'BLOCKED PostgreSQL is listening outside loopback; administrator configuration is required before restarting this task.'
+            } else {
+                Write-TaskLog ("FAILURE " + $startupErrorMessage)
+            }
         } finally {
             Stop-ServiceProcess -Process $marketAiProcess
             Stop-ServiceProcess -Process $backendProcess
@@ -178,6 +193,10 @@ try {
             $backendProcess = $null
             Restore-RunnerPythonPath
             Write-ProcessState
+        }
+        if ($permanentStartupFailure) {
+            Write-TaskLog 'Stopped automatic retries after a permanent local PostgreSQL binding error.'
+            exit 1
         }
         Write-TaskLog 'Retrying both APIs after 15 seconds.'
         Start-Sleep -Seconds 15
