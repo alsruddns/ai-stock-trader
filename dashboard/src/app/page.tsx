@@ -25,7 +25,7 @@ type Ops = {
 type Model = { model_id: string; market?: string; model_type?: string; approved?: boolean; active?: boolean; integrity_error?: boolean; feature_compatible?: boolean; data_rights_verified?: boolean; approval_evidence_verified?: boolean; artifact_sha256?: string; dataset_sha256?: string; test_metrics?: Record<string, number>; quant_baseline_test_metrics?: Record<string, number>; quant_backtest_test_metrics?: Record<string, string | number>; ai_quant_backtest_test_metrics?: Record<string, string | number>; training_config?: Record<string, string | number> };
 type Decision = { market: string; symbol: string; exchange: string | null; signal: string; reason: string; bars_in_session: number; evaluated_at: string | null; model_id?: string | null; executable: false };
 type MarketSession = { market: "KR" | "US"; session_date: string; is_session: boolean; is_open: boolean; open_at: string | null; close_at: string | null; evaluated_at: string };
-type SessionQuality = { market: string; symbol: string; session_date: string; status: string; expected_bars: number; observed_bars: number; missing_bars: number; spread_bars: number; spread_coverage_percent: number | null; full_session_complete: boolean };
+type SessionQuality = { market: string; symbol: string; session_date: string; status: string; expected_bars: number; observed_bars: number; missing_bars: number; spread_bars: number; spread_coverage_percent: number | null; missing_bar_timestamps?: string[]; bars_without_spread_timestamps?: string[]; full_session_complete: boolean };
 type SessionQualityBatch = { market: string; session_date: string; sessions: SessionQuality[] };
 type CandidateRefresh = { state: string; reason?: string; session_open?: string; selected?: number; added?: string[]; removed?: string[]; preserved?: number };
 type Payload = { generatedAt: string; springConnected: boolean; pythonConnected: boolean; operations: Ops | null; marketAi: Record<string, unknown> | null; paperSession: { state: string; enabled: boolean; subscriptions: number; ticks_received: number; bars_closed: number; orders_enabled: false; mode?: string; real_signal_state?: string; real_signal_error?: string | null; last_real_signal?: { market: string; symbol: string; order_status?: string; idempotency_key?: string; submitted_at?: string; executable: false } | null; paper_reconciliation_required?: boolean; paper_unknown_idempotency_key?: string | null; kr_calendar_compatibility?: string; stream_connections?: Record<string, string>; subscription_acknowledgements_by_feed?: Record<string, { accepted_count: number; required_count: number; complete: boolean }>; last_subscription_error_code?: string | null; automation_state?: string; automation_error?: string | null; daily_baseline?: { state?: string; currency?: string; equity?: string; reason?: string } | null; candidate_refresh_by_market?: Record<string, CandidateRefresh>; decisions?: Record<string, Decision> } | null; marketSessions?: { KR: MarketSession | null; US: MarketSession | null }; marketDataQuality?: { KR: SessionQualityBatch | null; US: SessionQualityBatch | null }; aiModels: { models: Model[]; governance_events: Record<string, string>[]; governance_audit?: { integrity_verified: boolean; event_count: number }; executable: false } | null };
@@ -35,6 +35,7 @@ const percent = (value?: number) => value == null ? "—" : `${(value * 100).toF
 const basisPoints = (value?: number) => value == null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(2)} bps`;
 const trainingConfig = (value?: Record<string, string | number>) => value?.symbol ? `레이블 ${value.label_horizon_bars ?? "?"}봉 · 비용 ${value.label_round_trip_cost_bps ?? "?"} bps · 1주/세션 · 수수료 ${value.backtest_commission_bps ?? "?"} / 슬리피지 ${value.backtest_slippage_bps ?? "?"} bps` : "이전 모델 · 미기록";
 const time = (value: string) => new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "medium" }).format(new Date(value));
+const marketMinute = (value: string, market: string) => new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", timeZone: market === "KR" ? "Asia/Seoul" : "America/New_York" }).format(new Date(value));
 
 export default function Dashboard() {
   const [data, setData] = useState<Payload | null>(null);
@@ -66,9 +67,13 @@ export default function Dashboard() {
   const qualitySummary = qualitySessions.length
     ? `${completeQualityCount}/${qualitySessions.length}개 종목이 정규장 봉·스프레드 100%`
     : "저장 품질을 확인할 수 없음";
-  const qualityDetails = qualitySessions.slice(0, 3).map((item) =>
-    `${item.market} ${item.session_date} ${item.symbol} ${item.status} · ${item.observed_bars}/${item.expected_bars}봉 · spread ${item.spread_coverage_percent ?? "—"}%`,
-  ).join(" / ");
+  const qualityDetails = qualitySessions.slice(0, 3).map((item) => {
+    const missingBars = item.missing_bar_timestamps ?? [];
+    const missingSpread = item.bars_without_spread_timestamps ?? [];
+    const gapDetail = missingBars.length ? ` · 분봉누락 ${missingBars.slice(0, 3).map(value => marketMinute(value, item.market)).join(",")}${missingBars.length > 3 ? ` 외 ${missingBars.length - 3}개` : ""}` : "";
+    const spreadDetail = missingSpread.length ? ` · 호가누락 ${missingSpread.slice(0, 3).map(value => marketMinute(value, item.market)).join(",")}${missingSpread.length > 3 ? ` 외 ${missingSpread.length - 3}개` : ""}` : "";
+    return `${item.market} ${item.session_date} ${item.symbol} ${item.status} · ${item.observed_bars}/${item.expected_bars}봉 · spread ${item.spread_coverage_percent ?? "—"}%${gapDetail}${spreadDetail}`;
+  }).join(" / ");
 
   return <main className="shell">
     <header className="topbar"><div className="brand-mark">AT</div><div><p className="eyebrow">LOCAL TRADING SYSTEM</p><h1>운영 대시보드</h1></div><div className="top-actions"><span className="mode"><i /> {ops?.tradingMode.toUpperCase() ?? "PAPER"} MODE</span><button onClick={() => void load()} aria-label="새로고침">새로고침</button></div></header>

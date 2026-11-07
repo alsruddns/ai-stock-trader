@@ -171,6 +171,32 @@ def test_session_quality_endpoint_audits_persisted_bars_read_only(monkeypatch) -
     assert body["source_counts"] == {"KIS_REAL_US_WEBSOCKET": 390}
 
 
+def test_session_quality_endpoint_exposes_missing_bar_and_spread_timestamps(monkeypatch) -> None:
+    zone = ZoneInfo("America/New_York")
+    opened = datetime(2026, 11, 6, 9, 30, tzinfo=zone)
+    bars = []
+    for index in range(390):
+        if index == 1:
+            continue
+        bars.append(MinuteBar(
+            timestamp=opened + timedelta(minutes=index), open=Decimal("100"), high=Decimal("101"),
+            low=Decimal("99"), close=Decimal("100"), volume=1000,
+            spread_bps=None if index == 2 else Decimal("5"),
+        ))
+    monkeypatch.setattr(main.snapshot_store, "enabled", lambda: True)
+    monkeypatch.setattr(main.snapshot_store, "load_session_minute_bars",
+                        lambda market, symbol, session_date: bars)
+    monkeypatch.setattr(main.snapshot_store, "load_session_minute_bar_source_counts",
+                        lambda market, symbols, session_date: {"AAPL": {"KIS_REAL_US_WEBSOCKET": 389}})
+
+    response = client.get("/api/v1/market/session-quality/US/AAPL?session_date=2026-11-06")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["missing_bar_timestamps"] == ["2026-11-06T14:31:00+00:00"]
+    assert body["bars_without_spread_timestamps"] == ["2026-11-06T14:32:00+00:00"]
+
+
 def test_session_quality_endpoint_fails_closed_when_persistence_disabled(monkeypatch) -> None:
     monkeypatch.setattr(main.snapshot_store, "enabled", lambda: False)
     response = client.get(

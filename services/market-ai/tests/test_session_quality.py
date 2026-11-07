@@ -45,8 +45,33 @@ def test_closed_session_with_missing_opening_bar_is_not_complete() -> None:
 
     assert report["status"] == "INCOMPLETE"
     assert report["missing_bars"] == 1
+    assert report["missing_bar_timestamps"] == [
+        datetime(2026, 11, 6, 14, 30, tzinfo=timezone.utc).isoformat(),
+    ]
     assert report["first_bar_at"] == bars[0].timestamp.isoformat()
     assert report["full_session_complete"] is False
+
+
+def test_quality_report_identifies_each_missing_bar_and_observed_bar_without_spread() -> None:
+    session_date = date(2026, 11, 6)
+    bars = _bars("US", session_date, count=390)
+    bars = [bar for index, bar in enumerate(bars) if index != 1]
+    bars[1] = MinuteBar(
+        timestamp=bars[1].timestamp, open=bars[1].open, high=bars[1].high,
+        low=bars[1].low, close=bars[1].close, volume=bars[1].volume, spread_bps=None,
+    )
+    report = audit_minute_bar_session(
+        "US", "AAPL", session_date, bars,
+        evaluated_at=datetime(2026, 11, 7, 6, 1, tzinfo=ZoneInfo("Asia/Seoul")),
+    )
+
+    assert report["missing_bars"] == 1
+    assert report["missing_bar_timestamps"] == [
+        datetime(2026, 11, 6, 14, 31, tzinfo=timezone.utc).isoformat(),
+    ]
+    assert report["bars_without_spread_timestamps"] == [
+        datetime(2026, 11, 6, 14, 32, tzinfo=timezone.utc).isoformat(),
+    ]
 
 
 def test_off_grid_bar_does_not_hide_missing_expected_minute() -> None:
@@ -95,6 +120,9 @@ def test_kr_continuous_session_has_380_bars_and_does_not_count_closing_auction()
     assert report["spread_bars"] == 0
     assert report["spread_coverage_percent"] == 0
     assert report["full_session_complete"] is True
+    assert report["bars_without_spread_timestamps"] == [
+        bar.timestamp.isoformat() for bar in bars
+    ]
 
 
 def test_non_session_returns_non_session_without_fabricating_bars() -> None:
