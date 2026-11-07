@@ -1,6 +1,6 @@
 # KIS 인증 오류 문의 초안
 
-KIS Developers 고객의 소리에 아래 내용을 전달할 수 있습니다. App Key, App Secret, 계좌번호, 액세스 토큰, 전체 응답 본문은 문의에 포함하지 마세요. 인증에 사용한 값이 필요하다고 안내받으면 공식 보안 채널에서만 제출합니다.
+KIS 공식 [고객의 소리 접수 페이지](https://securities.koreainvestment.com/main/customer/support/Support_1.jsp?cmd=PreInput)에서 아래 내용을 전달할 수 있습니다. 접수 페이지는 계좌번호·비밀번호 등 금융거래정보를 포함한 조회나 처리를 하지 않는다고 안내합니다. App Key, App Secret, 계좌번호, 액세스 토큰, 전체 응답 본문은 문의에 포함하지 마세요. 인증에 사용한 값이 필요하다고 안내받으면 공식 보안 채널에서만 제출합니다.
 
 ## 전달 문안
 
