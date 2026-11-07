@@ -57,11 +57,63 @@ Describe 'Daily operations report endpoint health summary' {
             -ModelRetrainingReportDirectory $retrainingDirectory | Out-Null
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 4
+        $report.reportSchemaVersion | Should Be 5
         $report.pythonConnected | Should Be $true
         $report.optionalDataStatus | Should Be 'INCOMPLETE'
+        $report.marketDataQualitySummary.sessionCompleteness | Should Be 'UNVERIFIED'
+        $report.marketDataQualitySummary.spreadCoverage | Should Be 'UNVERIFIED'
         $report.endpointStatus.'python.market_data_quality_KR'.state | Should Be 'SKIPPED_NO_SYMBOLS'
         $report.endpointStatus.'local.model_retraining'.state | Should Be 'NO_RUNS'
+    }
+
+    It 'separates available endpoints from incomplete market bars and spread coverage' {
+        Mock Invoke-RestMethod {
+            if ($Uri -like '*api/v1/operations/summary') { return [pscustomobject]@{ tradingMode = 'paper' } }
+            if ($Uri -like '*api/v1/health') { return @{ status = 'ok' } }
+            if ($Uri -like '*api/v1/paper/session') {
+                return @{ decisions = @{ kr = @{ market = 'KR'; symbol = '005930' }; us = @{ market = 'US'; symbol = 'AAPL' } } }
+            }
+            if ($Uri -like '*api/v1/ai/models') { return @{ models = @() } }
+            if ($Uri -like '*api/v1/market/sessions/*') { return @{ market = $Uri } }
+            if ($Uri -like '*session-quality/KR*') {
+                return @{ market = 'KR'; sessions = @(@{ full_session_complete = $false; observed_completed_bars = 302; spread_bars = 302 }) }
+            }
+            if ($Uri -like '*session-quality/US*') {
+                return @{ market = 'US'; sessions = @(@{ full_session_complete = $true; observed_completed_bars = 390; spread_bars = 300 }) }
+            }
+            throw 'Unexpected report endpoint.'
+        }
+
+        $outputPath = Join-Path $TestDrive 'market-quality-operations-report.json'
+        $retrainingDirectory = Join-Path $TestDrive 'no-retraining-runs'
+        & (Join-Path $PSScriptRoot '..\export-daily-report.ps1') `
+            -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath `
+            -ModelRetrainingReportDirectory $retrainingDirectory | Out-Null
+        $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
+
+        $report.optionalDataStatus | Should Be 'INCOMPLETE'
+        $report.endpointStatus.'python.market_data_quality_KR'.state | Should Be 'AVAILABLE'
+        $report.marketDataQualitySummary.sessionCompleteness | Should Be 'INCOMPLETE'
+        $report.marketDataQualitySummary.spreadCoverage | Should Be 'INCOMPLETE'
+        $report.marketDataQualitySummary.sessionsReported | Should Be 2
+        $report.marketDataQualitySummary.incompleteSessions | Should Be 1
+        $report.marketDataQualitySummary.sessionsMissingSpreads | Should Be 1
+    }
+
+    It 'fails closed when the session completeness field is not a JSON boolean' {
+        $endpointStatus = @{
+            'python.market_data_quality_KR' = @{ state = 'AVAILABLE' }
+            'python.market_data_quality_US' = @{ state = 'AVAILABLE' }
+        }
+        $quality = @{
+            KR = @{ sessions = @(@{ full_session_complete = 'false'; observed_completed_bars = 10; spread_bars = 10 }) }
+            US = @{ sessions = @(@{ full_session_complete = $true; observed_completed_bars = 10; spread_bars = 10 }) }
+        }
+
+        $summary = Get-AiTraderMarketDataQualitySummary -EndpointStatus $endpointStatus -MarketDataQuality $quality
+
+        $summary.sessionCompleteness | Should Be 'INCOMPLETE'
+        $summary.spreadCoverage | Should Be 'COMPLETE'
     }
 
     It 'marks an optional Python endpoint failure as partial and omits its error message' {

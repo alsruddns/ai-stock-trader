@@ -89,7 +89,7 @@ foreach ($market in @('KR', 'US')) {
     $marketDataQuality[$market] = $qualityResult.data
 }
 
-$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 4 -Force
+$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 5 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
 $endpointStates = @($endpointStatus.Values | ForEach-Object { $_.state })
@@ -108,6 +108,7 @@ $report | Add-Member -MemberType NoteProperty -Name aiModels -Value $aiModels -F
 $report | Add-Member -MemberType NoteProperty -Name modelRetraining -Value $modelRetraining -Force
 $report | Add-Member -MemberType NoteProperty -Name marketSessions -Value $marketSessions -Force
 $report | Add-Member -MemberType NoteProperty -Name marketDataQuality -Value $marketDataQuality -Force
+$report | Add-Member -MemberType NoteProperty -Name marketDataQualitySummary -Value (Get-AiTraderMarketDataQualitySummary -EndpointStatus $endpointStatus -MarketDataQuality $marketDataQuality) -Force
 
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $reportName = "operations-{0}.json" -f (Get-Date -Format "yyyy-MM-dd")
