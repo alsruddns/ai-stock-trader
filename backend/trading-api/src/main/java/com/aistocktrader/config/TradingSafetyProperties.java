@@ -7,10 +7,16 @@ import java.math.BigDecimal;
 
 @ConfigurationProperties(prefix = "trading")
 public record TradingSafetyProperties(String mode, boolean liveTradingEnabled, boolean realOrdersEnabled,
+                                      boolean realProtectiveExitManagerEnabled,
                                       BigDecimal maxOrderNotionalKrw, BigDecimal maxOrderNotionalUsd) {
     public TradingSafetyProperties(String mode, boolean liveTradingEnabled,
                                    BigDecimal maxOrderNotionalKrw, BigDecimal maxOrderNotionalUsd) {
-        this(mode, liveTradingEnabled, false, maxOrderNotionalKrw, maxOrderNotionalUsd);
+        this(mode, liveTradingEnabled, false, false, maxOrderNotionalKrw, maxOrderNotionalUsd);
+    }
+
+    public TradingSafetyProperties(String mode, boolean liveTradingEnabled, boolean realOrdersEnabled,
+                                   BigDecimal maxOrderNotionalKrw, BigDecimal maxOrderNotionalUsd) {
+        this(mode, liveTradingEnabled, realOrdersEnabled, false, maxOrderNotionalKrw, maxOrderNotionalUsd);
     }
 
     @ConstructorBinding

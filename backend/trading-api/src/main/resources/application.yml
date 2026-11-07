@@ -18,6 +18,7 @@ trading:
   mode: ${TRADING_MODE:paper}
   live-trading-enabled: ${LIVE_TRADING_ENABLED:false}
   real-orders-enabled: ${KIS_REAL_ORDERS_ENABLED:false}
+  real-protective-exit-manager-enabled: ${REAL_PROTECTIVE_EXIT_MANAGER_ENABLED:false}
   max-order-notional-krw: ${MAX_ORDER_NOTIONAL_KRW:1000000}
   max-order-notional-usd: ${MAX_ORDER_NOTIONAL_USD:100}
   live-risk:

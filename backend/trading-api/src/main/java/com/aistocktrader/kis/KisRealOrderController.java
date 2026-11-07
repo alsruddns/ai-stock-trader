@@ -54,7 +54,7 @@ public class KisRealOrderController {
             @RequestHeader("Idempotency-Key") UUID idempotencyKey,
             @RequestParam(required = false) String exchange,
             @Valid @RequestBody OrderRequest request) {
-        requireRealOrderPathEnabled();
+        requireRealOrderPathEnabled(request.side() == com.aistocktrader.order.OrderSide.BUY);
         String normalizedExchange = exchange == null ? null : exchange.trim().toUpperCase(Locale.ROOT);
         KisAccountSnapshot account = accounts.getBalance(KisEnvironment.REAL, request.market(), request.symbol(),
                 request.limitPrice(), normalizedExchange);
@@ -69,7 +69,7 @@ public class KisRealOrderController {
             @RequestHeader("Idempotency-Key") UUID idempotencyKey,
             @RequestParam(required = false) String exchange,
             @Valid @RequestBody KisRealSignalRequest signal) {
-        requireRealOrderPathEnabled();
+        requireRealOrderPathEnabled(true);
         String normalizedExchange = exchange == null ? null : exchange.trim().toUpperCase(Locale.ROOT);
         if (signal.market() == com.aistocktrader.order.Market.US && !validUsExchange(normalizedExchange)) {
             throw new KisApiException(HttpStatus.UNPROCESSABLE_ENTITY, "A supported US exchange is required.");
@@ -106,14 +106,14 @@ public class KisRealOrderController {
 
     @PostMapping("/{idempotencyKey}/reconcile")
     public ResponseEntity<KisOrderIntentResponse> reconcile(@PathVariable UUID idempotencyKey) {
-        requireRealOrderPathEnabled();
+        requireRealOrderPathEnabled(false);
         realIntent(idempotencyKey);
         return ResponseEntity.ok(orders.reconcile(idempotencyKey));
     }
 
     @PostMapping("/{idempotencyKey}/cancel")
     public ResponseEntity<KisOrderIntentResponse> cancel(@PathVariable UUID idempotencyKey) {
-        requireRealOrderPathEnabled();
+        requireRealOrderPathEnabled(false);
         realIntent(idempotencyKey);
         return ResponseEntity.accepted().body(orders.cancel(idempotencyKey));
     }
@@ -126,11 +126,15 @@ public class KisRealOrderController {
         return intent;
     }
 
-    private void requireRealOrderPathEnabled() {
+    private void requireRealOrderPathEnabled(boolean requiresProtectiveExitManager) {
         if (!"real".equals(safety.mode()) || !safety.liveTradingEnabled() || !safety.realOrdersEnabled()
                 || !kisProperties.accountReadEnabled() || !kisProperties.realAccountReadEnabled()) {
             throw new KisApiException(HttpStatus.LOCKED,
                     "REAL order path is locked; live trading and both REAL account-read switches must be enabled.");
+        }
+        if (requiresProtectiveExitManager && !safety.realProtectiveExitManagerEnabled()) {
+            throw new KisApiException(HttpStatus.LOCKED,
+                    "REAL entries require the verified protective exit manager to be enabled.");
         }
     }
 

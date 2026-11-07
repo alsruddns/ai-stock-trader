@@ -97,7 +97,7 @@ class KisRealOrderControllerTest {
 
     @Test
     void enabledRealPathReadsCurrentAccountBeforeDelegatingTheOrder() {
-        TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true,
+        TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true, true,
                 BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100));
         KisProperties kis = properties(true, true);
         KisRealOrderController controller = controller(safety, kis);
@@ -123,7 +123,7 @@ class KisRealOrderControllerTest {
 
     @Test
     void realSignalUsesServerQuoteAndVerifiedMetadataInsteadOfCallerSuppliedSizing() {
-        TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true,
+        TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true, true,
                 BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100));
         KisRealOrderController controller = controller(safety, properties(true, true));
         UUID key = UUID.randomUUID();
@@ -155,7 +155,7 @@ class KisRealOrderControllerTest {
     @Test
     void signalWithoutFreshApprovedEvidenceIsRejectedBeforeReadingRealAccount() {
         KisRealOrderController controller = controller(
-                new TradingSafetyProperties("real", true, true, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
+                new TradingSafetyProperties("real", true, true, true, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
                 properties(true, true));
         when(marketAiEvidence.inspect(any(OrderRequest.class), isNull())).thenReturn(
                 new KisMarketAiEvidenceClient.Evidence(false, false, null));
@@ -165,6 +165,43 @@ class KisRealOrderControllerTest {
 
         assertEquals(HttpStatus.LOCKED, exception.status());
         verifyNoInteractions(accounts, orders);
+    }
+
+    @Test
+    void realBuyEntryStaysLockedWithoutVerifiedProtectiveExitManager() {
+        KisRealOrderController controller = controller(
+                new TradingSafetyProperties("real", true, true, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
+                properties(true, true));
+
+        KisApiException exception = assertThrows(KisApiException.class,
+                () -> controller.submit(UUID.randomUUID(), null, buyRequest()));
+
+        assertEquals(HttpStatus.LOCKED, exception.status());
+        verifyNoInteractions(accounts, orders, marketAiEvidence);
+    }
+
+    @Test
+    void realSellRemainsAvailableWhenNewEntryGateIsClosed() {
+        KisRealOrderController controller = controller(
+                new TradingSafetyProperties("real", true, true, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
+                properties(true, true));
+        UUID key = UUID.randomUUID();
+        OrderRequest sell = new OrderRequest(Market.KR, "005930", OrderSide.SELL, 1,
+                BigDecimal.valueOf(1000), Currency.KRW);
+        KisAccountSnapshot account = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
+                BigDecimal.valueOf(100_000), BigDecimal.valueOf(100_000), BigDecimal.valueOf(100_000),
+                List.of(), Instant.now(), "test");
+        KisOrderIntentResponse expected = new KisOrderIntentResponse(key, "real", "KR", "005930", "SELL", 1,
+                "1000", "KRW", KisOrderStatus.ACCEPTED, "broker-order", "broker-org", "0",
+                0, 1, null, Instant.now(), Instant.now());
+        when(accounts.getBalance(KisEnvironment.REAL, Market.KR, "005930", BigDecimal.valueOf(1000), null))
+                .thenReturn(account);
+        when(orders.submit(key, sell, null, account)).thenReturn(expected);
+
+        var response = controller.submit(key, null, sell);
+
+        assertEquals(HttpStatus.ACCEPTED, response.getStatusCode());
+        verify(orders).submit(key, sell, null, account);
     }
 
     private KisRealOrderController controller(TradingSafetyProperties safety, KisProperties kis) {
