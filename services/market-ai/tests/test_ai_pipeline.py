@@ -365,20 +365,21 @@ def _record_holdout_audit_event(registry: LocalModelRegistry, metadata: dict) ->
     })
 
 
-def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_holdout_event: bool = True) -> None:
+def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_holdout_event: bool = True,
+                     market: str = "KR", symbol: str = "005930") -> None:
     dataset_sha256 = "e" * 64
     artifact_name = f"{model_id}.joblib"
     artifact = registry.root / artifact_name
     artifact.write_bytes(model_id.encode())
     metadata = {
-        "model_id": model_id, "market": "KR", "model_type": model_id.split("-")[0], "artifact": artifact_name,
+        "model_id": model_id, "market": market, "model_type": model_id.split("-")[0], "artifact": artifact_name,
         "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(), "approved": False,
         "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION, "threshold": 0.5,
         "validation_metrics": {"accuracy": 0.6}, "test_metrics": {"accuracy": 0.55},
         "quant_backtest_test_metrics": {"session_count": 5.0, "trade_count": 5.0, "net_pnl": 5.0},
         "ai_quant_backtest_test_metrics": {"session_count": 5.0, "trade_count": 6.0, "net_pnl": 12.0},
         "training_config": {
-            "symbol": "005930", "label_horizon_bars": 5, "label_round_trip_cost_bps": "20",
+            "symbol": symbol, "label_horizon_bars": 5, "label_round_trip_cost_bps": "20",
             "backtest_quantity_per_session": 1, "backtest_commission_bps": "5",
             "backtest_slippage_bps": "5", "backtest_version": BACKTEST_VERSION,
             "backtest_spread_model": BACKTEST_SPREAD_MODEL,
@@ -476,6 +477,39 @@ def test_model_governance_requires_review_and_records_rollback(tmp_path) -> None
     assert registry.active_approved_model("KR", "005930")["model_id"] == first
     assert registry.active_approved_model("KR", "000660") is None
     assert registry.active_approved_model("US", "AAPL") is None
+
+
+def test_active_model_registry_keeps_market_and_symbol_selections_independent(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    domestic_samsung = "lightgbm-" + "1" * 32
+    domestic_sk = "xgboost-" + "2" * 32
+    us_apple = "lightgbm-" + "3" * 32
+    _write_candidate(registry, domestic_samsung)
+    _write_candidate(registry, domestic_sk, symbol="000660")
+    _write_candidate(registry, us_apple, market="US", symbol="AAPL")
+    for model_id in (domestic_samsung, domestic_sk, us_apple):
+        registry.approve(model_id, approved_by="operator", note="Independent holdout evidence reviewed for scoped activation.")
+
+    # Migrate an existing single-pointer KR selection while adding independent scopes.
+    registry._active_path.write_text(json.dumps({"model_id": domestic_samsung,
+                                                 "changed_at": "2026-10-20T12:00:00+09:00"}), encoding="utf-8")
+    registry.activate(domestic_sk, changed_by="operator", note="Select the independently evaluated SK model.")
+    registry.activate(us_apple, changed_by="operator", note="Select the independently evaluated AAPL model.")
+
+    assert registry.active_approved_model("KR", "005930")["model_id"] == domestic_samsung
+    assert registry.active_approved_model("KR", "000660")["model_id"] == domestic_sk
+    assert registry.active_approved_model("US", "AAPL")["model_id"] == us_apple
+    assert registry.active_approved_model("US", "MSFT") is None
+    active_ids = {item["model_id"] for item in registry.list_models() if item.get("active")}
+    assert active_ids == {domestic_samsung, domestic_sk, us_apple}
+    assert set(json.loads(registry._active_models_path.read_text(encoding="utf-8"))["models"]) == {
+        "KR:005930", "KR:000660", "US:AAPL",
+    }
+
+    registry._active_models_path.write_text(json.dumps({"schema_version": 1, "models": {
+        "KR:005930": {"model_id": "malformed"},
+    }}), encoding="utf-8")
+    assert registry.active_approved_model("KR", "005930") is None
 
 
 def test_model_approval_requires_sufficient_heldout_sessions_and_ai_quant_outperformance(tmp_path) -> None:

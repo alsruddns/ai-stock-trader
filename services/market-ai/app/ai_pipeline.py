@@ -299,19 +299,21 @@ class LocalModelRegistry:
         return self.root / "active-model.json"
 
     @property
+    def _active_models_path(self) -> Path:
+        return self.root / "active-models.json"
+
+    @property
     def _audit_path(self) -> Path:
         return self.root / "governance-audit.jsonl"
 
     def list_models(self) -> list[dict[str, Any]]:
-        active_model = None
-        if self._active_path.is_file():
-            try:
-                active_model = json.loads(self._active_path.read_text(encoding="utf-8")).get("model_id")
-            except (OSError, json.JSONDecodeError):
-                active_model = None
+        try:
+            active_model_ids = {item["model_id"] for item in self._read_active_models().values()}
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            active_model_ids = set()
         items: list[dict[str, Any]] = []
         for manifest_path in sorted(self.root.glob("*.json"), key=lambda path: path.name):
-            if manifest_path == self._active_path:
+            if manifest_path in {self._active_path, self._active_models_path}:
                 continue
             try:
                 metadata = self.manifest(manifest_path.stem)
@@ -334,7 +336,7 @@ class LocalModelRegistry:
                     "approval_evidence_verified": approval_evidence_verified,
                     "approval_audit_verified": approval_audit_verified,
                     "approved": approved,
-                    "active": metadata["model_id"] == active_model and approved and feature_compatible,
+                    "active": metadata["model_id"] in active_model_ids and approved and feature_compatible,
                     "artifact_sha256": metadata["artifact_sha256"],
                     "dataset_sha256": metadata.get("dataset_sha256"),
                     "validation_metrics": metadata.get("validation_metrics", {}),
@@ -354,14 +356,14 @@ class LocalModelRegistry:
         """Return the integrity-checked model only when approved for this market and trained symbol."""
         requested_market = market.strip().upper()
         requested_symbol = symbol.strip().upper()
-        if (requested_market not in {"KR", "US"} or not requested_symbol
-                or not self._active_path.is_file()):
+        if requested_market not in {"KR", "US"} or not requested_symbol:
             return None
         try:
-            active_payload = json.loads(self._active_path.read_text(encoding="utf-8"))
-            if not isinstance(active_payload, dict):
+            active_payload = self._read_active_models()
+            entry = active_payload.get(self._model_scope(requested_market, requested_symbol))
+            if not isinstance(entry, dict):
                 return None
-            active_id = active_payload.get("model_id")
+            active_id = entry.get("model_id")
             if not isinstance(active_id, str):
                 return None
             metadata = self.manifest(active_id)
@@ -377,6 +379,36 @@ class LocalModelRegistry:
                 or not self._has_durable_approval_event(metadata)):
             return None
         return metadata
+
+    def _read_active_models(self) -> dict[str, dict[str, Any]]:
+        """Read the scoped activation registry, migrating the legacy single pointer in memory."""
+        if self._active_models_path.is_file():
+            payload = json.loads(self._active_models_path.read_text(encoding="utf-8"))
+            if (not isinstance(payload, dict) or payload.get("schema_version") != 1
+                    or not isinstance(payload.get("models"), dict)):
+                raise ValueError("active model registry has an unsupported or corrupt format")
+            active = payload["models"]
+            for scope, entry in active.items():
+                if (not isinstance(scope, str) or not isinstance(entry, dict)
+                        or not isinstance(entry.get("model_id"), str)
+                        or not re.fullmatch(r"(?:lightgbm|xgboost)-[a-f0-9]{32}", entry["model_id"])):
+                    raise ValueError("active model registry contains an invalid scope entry")
+            return active
+        if not self._active_path.is_file():
+            return {}
+        legacy = json.loads(self._active_path.read_text(encoding="utf-8"))
+        if not isinstance(legacy, dict) or not isinstance(legacy.get("model_id"), str):
+            raise ValueError("legacy active model pointer is invalid")
+        metadata = self.manifest(legacy["model_id"])
+        market = str(metadata.get("market", "")).strip().upper()
+        symbol = str(metadata.get("training_config", {}).get("symbol", "")).strip().upper()
+        if market not in {"KR", "US"} or not symbol:
+            raise ValueError("legacy active model lacks a valid market and symbol scope")
+        return {self._model_scope(market, symbol): legacy}
+
+    @staticmethod
+    def _model_scope(market: str, symbol: str) -> str:
+        return f"{market.strip().upper()}:{symbol.strip().upper()}"
 
     def _has_durable_approval_event(self, metadata: dict[str, Any]) -> bool:
         """Require the approval state to match a complete, durable governance event."""
@@ -653,29 +685,37 @@ class LocalModelRegistry:
                 raise ValueError("model lacks valid held-out comparative strategy evidence")
             if not self._has_durable_approval_event(metadata):
                 raise ValueError("model approval lacks a durable matching governance audit event")
-            previous_state = None
-            if self._active_path.is_file():
-                try:
-                    previous_state = json.loads(self._active_path.read_text(encoding="utf-8"))
-                    previous = previous_state.get("model_id")
+            market = str(metadata.get("market", "")).strip().upper()
+            symbol = str(metadata.get("training_config", {}).get("symbol", "")).strip().upper()
+            if market not in {"KR", "US"} or not symbol:
+                raise ValueError("model market and symbol scope must be present before activation")
+            scope = self._model_scope(market, symbol)
+            prior_file_exists = self._active_models_path.is_file()
+            prior_file_content = self._active_models_path.read_bytes() if prior_file_exists else None
+            try:
+                active_models = self._read_active_models()
+                previous_entry = active_models.get(scope)
+                previous = previous_entry.get("model_id") if isinstance(previous_entry, dict) else None
+                if previous is not None:
                     if not isinstance(previous, str):
                         raise ValueError("active model ID is missing")
                     self.manifest(previous)
-                except (OSError, json.JSONDecodeError, AttributeError, ValueError, FileNotFoundError) as exc:
-                    raise ValueError("active model pointer is invalid and must be repaired before changing it") from exc
-            else:
-                previous = None
+            except (OSError, json.JSONDecodeError, AttributeError, ValueError, FileNotFoundError) as exc:
+                raise ValueError("active model registry is invalid and must be repaired before changing it") from exc
             changed_at = datetime.now().astimezone().isoformat()
-            self._write_json_atomic(self._active_path, {"model_id": model_id, "changed_at": changed_at})
-            event = {"action": action, "model_id": model_id, "previous_model_id": previous,
+            active_models[scope] = {"model_id": model_id, "changed_at": changed_at}
+            self._write_json_atomic(self._active_models_path,
+                                    {"schema_version": 1, "models": active_models})
+            event = {"action": action, "model_id": model_id, "scope": scope, "previous_model_id": previous,
                      "changed_by": operator, "note": justification, "changed_at": changed_at}
             try:
                 self._record_governance_event(event)
             except (OSError, ValueError):
-                if previous_state is None:
-                    self._active_path.unlink(missing_ok=True)
+                if not prior_file_exists:
+                    self._active_models_path.unlink(missing_ok=True)
                 else:
-                    self._write_json_atomic(self._active_path, previous_state)
+                    self._write_json_atomic(self._active_models_path,
+                                            json.loads((prior_file_content or b"{}").decode("utf-8")))
                 raise
             return event
 
