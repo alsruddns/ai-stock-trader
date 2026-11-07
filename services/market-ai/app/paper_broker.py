@@ -55,6 +55,10 @@ class SpringPaperBrokerClient:
             raise PaperBrokerOutcomeUnknown("paper order outcome is unknown; reconcile by idempotency key") from exc
         except httpx.HTTPError as exc:
             raise PaperBrokerError("paper order request failed") from exc
+        if response.status_code >= 500:
+            raise PaperBrokerOutcomeUnknown(
+                "paper order outcome is unknown; reconcile by idempotency key before acting"
+            )
         if response.status_code not in {200, 201}:
             raise PaperBrokerError(f"Spring paper order rejected (HTTP {response.status_code})")
         try:
@@ -82,6 +86,10 @@ class SpringPaperBrokerClient:
             raise PaperBrokerOutcomeUnknown("paper fill outcome is unknown; reconcile before retry") from exc
         except httpx.HTTPError as exc:
             raise PaperBrokerError("paper fill request failed") from exc
+        if response.status_code >= 500:
+            raise PaperBrokerOutcomeUnknown(
+                "paper fill outcome is unknown; reconcile the order before acting"
+            )
         if response.status_code not in {200, 201}:
             raise PaperBrokerError(f"Spring paper fill rejected (HTTP {response.status_code})")
         try:

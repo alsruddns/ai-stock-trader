@@ -50,6 +50,42 @@ def test_ambiguous_timeout_is_not_retried_and_requires_reconciliation() -> None:
     http.close()
 
 
+@pytest.mark.parametrize("status_code", [500, 502, 503])
+def test_server_errors_after_order_post_require_idempotency_reconciliation(status_code: int) -> None:
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(status_code, json={"detail": "sensitive server response"})
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    broker = SpringPaperBrokerClient(http_client=http)
+    with pytest.raises(PaperBrokerOutcomeUnknown, match="idempotency key"):
+        broker.submit_order(
+            idempotency_key=UUID(int=101), market="KR", symbol="005930", side="BUY", quantity=1,
+            limit_price=Decimal("70000"), currency="KRW",
+        )
+    assert calls == 1
+    http.close()
+
+
+def test_server_error_after_fill_post_requires_order_reconciliation() -> None:
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(500, json={"detail": "sensitive server response"})
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    broker = SpringPaperBrokerClient(http_client=http)
+    with pytest.raises(PaperBrokerOutcomeUnknown, match="reconcile the order"):
+        broker.record_fill(42, fill_key=UUID(int=102), quantity=1, fill_price=Decimal("70000"))
+    assert calls == 1
+    http.close()
+
+
 def test_broker_adapter_refuses_nonlocal_hosts() -> None:
     with pytest.raises(ValueError, match="local"):
         SpringPaperBrokerClient("http://example.com")
