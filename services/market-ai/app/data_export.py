@@ -17,7 +17,9 @@ from zoneinfo import ZoneInfo
 from .market_calendar import exchange_continuous_session_window
 
 
-def summarize_session_coverage(rows: Sequence[tuple], *, market: str) -> list[dict[str, object]]:
+def summarize_session_coverage(
+    rows: Sequence[tuple], *, market: str, require_continuous_session: bool = True,
+) -> list[dict[str, object]]:
     """Report complete-minute and spread coverage by exchange session without changing data."""
     normalized_market = market.strip().upper()
     if normalized_market not in {"KR", "US"}:
@@ -39,7 +41,8 @@ def summarize_session_coverage(rows: Sequence[tuple], *, market: str) -> list[di
         if window is None:
             raise ValueError("session coverage contains a non-session date")
         opened, closed = window
-        if any(not opened <= row[0].astimezone(timezone.utc) < closed for row in session_rows):
+        if require_continuous_session and any(
+                not opened <= row[0].astimezone(timezone.utc) < closed for row in session_rows):
             raise ValueError("session coverage rows must fall inside a verified continuous session")
         expected_count = int((closed - opened).total_seconds() // 60)
         expected_timestamps = [opened + timedelta(minutes=index) for index in range(expected_count)]
@@ -124,6 +127,22 @@ def build_minute_bar_export(
         writer.writerow((normalized_symbol, timestamp.isoformat(), str(open_price), str(high_price),
                          str(low_price), str(close_price), int(volume),
                          "" if spread_bps is None else str(spread_bps)))
+    session_coverage = summarize_session_coverage(
+        rows, market=normalized_market, require_continuous_session=False,
+    )
+    observed_sessions = [item["session_date"] for item in session_coverage]
+    coverage = {
+        "requested_from_date": from_date.isoformat(),
+        "requested_to_date": to_date.isoformat(),
+        "observed_session_count": len(session_coverage),
+        "observed_first_session": observed_sessions[0] if observed_sessions else None,
+        "observed_last_session": observed_sessions[-1] if observed_sessions else None,
+        "observed_bar_count": len(rows),
+        "expected_bar_count": sum(int(item["expected_bars"]) for item in session_coverage),
+        "complete_session_count": sum(bool(item["complete"]) for item in session_coverage),
+        "spread_complete_session_count": sum(bool(item["spread_complete"]) for item in session_coverage),
+        "sessions": session_coverage,
+    }
     csv_bytes = buffer.getvalue().encode("utf-8")
     retrieved = retrieved_at or datetime.now(timezone.utc).astimezone()
     if retrieved.tzinfo is None or retrieved.utcoffset() is None:
@@ -159,6 +178,7 @@ def build_minute_bar_export(
         "verified_at": verified_at,
         "rights_reviewed": confirmed_kis_rights,
         "permissions": permissions,
+        "coverage": coverage,
         "dataset_sha256": digest,
     }
     return csv_bytes, sidecar

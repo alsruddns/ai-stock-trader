@@ -84,13 +84,48 @@ def test_kis_export_applies_confirmed_personal_rights_to_hash_bound_sidecar(tmp_
     assert load_data_provenance(csv_path, purpose="model_training")["dataset_sha256"] == sidecar["dataset_sha256"]
 
 
+def test_export_manifest_reports_observed_sessions_separately_from_requested_date_range(tmp_path) -> None:
+    csv_path = tmp_path / "bars.csv"
+    opened = datetime(2026, 11, 6, 14, 30, tzinfo=timezone.utc)
+    rows = [_row(opened + timedelta(minutes=index), "KIS_REAL_US_WEBSOCKET") for index in range(390)]
+
+    sidecar = write_minute_bar_export(
+        csv_path, rows, market="US", symbol="AAPL", from_date=date(2026, 11, 2),
+        to_date=date(2026, 11, 6), sources=["KIS_REAL_US_WEBSOCKET"],
+    )
+
+    assert sidecar["coverage"] == {
+        "requested_from_date": "2026-11-02",
+        "requested_to_date": "2026-11-06",
+        "observed_session_count": 1,
+        "observed_first_session": "2026-11-06",
+        "observed_last_session": "2026-11-06",
+        "observed_bar_count": 390,
+        "expected_bar_count": 390,
+        "complete_session_count": 1,
+        "spread_complete_session_count": 1,
+        "sessions": [{
+            "session_date": "2026-11-06",
+            "bars": 390,
+            "expected_bars": 390,
+            "complete": True,
+            "bars_with_spread": 390,
+            "spread_complete": True,
+            "sources": ["KIS_REAL_US_WEBSOCKET"],
+        }],
+    }
+
+
 def test_non_kis_export_remains_unreviewed_until_operator_review(tmp_path) -> None:
     csv_path = tmp_path / "bars.csv"
     rows = [_row(datetime(2026, 11, 5, 9, 0, tzinfo=timezone.utc), "OTHER_VENDOR")]
-    write_minute_bar_export(
+    sidecar = write_minute_bar_export(
         csv_path, rows, market="KR", symbol="005930", from_date=date(2026, 11, 5),
         to_date=date(2026, 11, 5), sources=["OTHER_VENDOR"],
     )
+    assert sidecar["coverage"]["observed_session_count"] == 1
+    assert sidecar["coverage"]["complete_session_count"] == 0
+    assert sidecar["coverage"]["spread_complete_session_count"] == 0
     sidecar_path = csv_path.with_name(csv_path.name + ".provenance.json")
     sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
     assert sidecar["rights_reviewed"] is False
