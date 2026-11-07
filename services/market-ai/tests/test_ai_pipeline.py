@@ -511,6 +511,11 @@ def test_active_model_registry_keeps_market_and_symbol_selections_independent(tm
     }}), encoding="utf-8")
     assert registry.active_approved_model("KR", "005930") is None
 
+    registry._active_models_path.write_text(json.dumps({"schema_version": 1, "models": {
+        "KR:005930": {"model_id": us_apple},
+    }}), encoding="utf-8")
+    assert registry.active_approved_model("KR", "005930") is None
+
 
 def test_model_approval_requires_sufficient_heldout_sessions_and_ai_quant_outperformance(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)

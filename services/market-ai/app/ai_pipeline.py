@@ -393,6 +393,17 @@ class LocalModelRegistry:
                         or not isinstance(entry.get("model_id"), str)
                         or not re.fullmatch(r"(?:lightgbm|xgboost)-[a-f0-9]{32}", entry["model_id"])):
                     raise ValueError("active model registry contains an invalid scope entry")
+                market, separator, symbol = scope.partition(":")
+                valid_symbol = (bool(re.fullmatch(r"\d{6}", symbol)) if market == "KR"
+                                else bool(re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,14}", symbol)) if market == "US"
+                                else False)
+                if not separator or not valid_symbol or self._model_scope(market, symbol) != scope:
+                    raise ValueError("active model registry contains an invalid market-symbol scope")
+                metadata = self.manifest(entry["model_id"])
+                trained_market = str(metadata.get("market", "")).strip().upper()
+                trained_symbol = str(metadata.get("training_config", {}).get("symbol", "")).strip().upper()
+                if self._model_scope(trained_market, trained_symbol) != scope:
+                    raise ValueError("active model registry scope does not match the model manifest")
             return active
         if not self._active_path.is_file():
             return {}
