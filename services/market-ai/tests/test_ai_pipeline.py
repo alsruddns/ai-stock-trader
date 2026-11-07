@@ -2,9 +2,11 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 import hashlib
 import json
+from types import SimpleNamespace
 
 import pytest
 
+import app.ai_pipeline as ai_pipeline
 from app.ai_pipeline import (
     BACKTEST_SPREAD_MODEL,
     BACKTEST_VERSION,
@@ -472,6 +474,76 @@ def test_candidate_cannot_be_re_evaluated_on_multiple_holdout_sets(tmp_path) -> 
             model_id, {}, market="KR", symbol="005930", dataset_sha256="f" * 64,
             dataset_provenance=_provenance("f" * 64),
         )
+
+
+def test_holdout_evaluation_rolls_back_manifest_when_audit_write_fails_and_allows_retry(
+    tmp_path, monkeypatch,
+) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "3" * 32
+    _write_candidate(registry, model_id)
+    manifest_path = tmp_path / f"{model_id}.json"
+    original = json.loads(manifest_path.read_text(encoding="utf-8"))
+    original.pop("heldout_evaluation")
+    manifest_path.write_text(json.dumps(original), encoding="utf-8")
+
+    heldout_dates = [date(2026, 10, day) for day in (16, 19, 20, 21, 22)]
+    sessions = {session: [] for session in heldout_dates}
+    monkeypatch.setattr(ai_pipeline, "build_training_samples", lambda *_args, **_kwargs: [
+        SimpleNamespace(session=session) for session in heldout_dates
+    ])
+    monkeypatch.setattr(ai_pipeline, "_metrics", lambda *_args, **_kwargs: {"accuracy": 0.6})
+    monkeypatch.setattr(ai_pipeline, "_quant_baseline_metrics", lambda *_args, **_kwargs: {"accuracy": 0.5})
+    monkeypatch.setattr(ai_pipeline, "_backtest_metrics", lambda _results: {
+        "session_count": 5.0, "signal_count": 0.0, "trade_count": 0.0,
+        "winning_trades": 0.0, "win_rate": 0.0, "gross_pnl": "0",
+        "estimated_costs": "0", "net_pnl": "0", "average_trade_net_pnl": "0",
+    })
+    monkeypatch.setattr(ai_pipeline, "backtest_orb_vwap", lambda *_args, **_kwargs: object())
+    import joblib
+    monkeypatch.setattr(joblib, "load", lambda _path: object())
+
+    record_event = registry._record_governance_event
+    monkeypatch.setattr(registry, "_record_governance_event", lambda _event: (_ for _ in ()).throw(
+        OSError("simulated audit storage failure")
+    ))
+    with pytest.raises(OSError, match="simulated audit storage failure"):
+        registry.evaluate_candidate(
+            model_id, sessions, market="KR", symbol="005930", dataset_sha256="f" * 64,
+            dataset_provenance=_provenance("f" * 64),
+        )
+
+    assert registry.manifest(model_id) == original
+    assert registry.governance_audit_status() == {"integrity_verified": True, "event_count": 0}
+
+    monkeypatch.setattr(registry, "_record_governance_event", record_event)
+    result = registry.evaluate_candidate(
+        model_id, sessions, market="KR", symbol="005930", dataset_sha256="f" * 64,
+        dataset_provenance=_provenance("f" * 64),
+    )
+    assert result["test_sessions"] == [session.isoformat() for session in heldout_dates]
+    assert registry.manifest(model_id)["heldout_evaluation"]["sessions"] == result["test_sessions"]
+    assert registry.governance_audit_status() == {"integrity_verified": True, "event_count": 1}
+
+
+def test_governance_audit_replace_failure_preserves_previous_log(tmp_path, monkeypatch) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    registry._record_governance_event({"action": "baseline", "model_id": "lightgbm-" + "4" * 32})
+    prior_bytes = registry._audit_path.read_bytes()
+    original_replace = ai_pipeline.os.replace
+
+    def fail_audit_replace(source, destination):
+        if destination == registry._audit_path:
+            raise OSError("simulated atomic audit replacement failure")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(ai_pipeline.os, "replace", fail_audit_replace)
+    with pytest.raises(OSError, match="atomic audit replacement failure"):
+        registry._record_governance_event({"action": "next", "model_id": "lightgbm-" + "5" * 32})
+
+    assert registry._audit_path.read_bytes() == prior_bytes
+    assert registry.governance_audit_status() == {"integrity_verified": True, "event_count": 1}
+    assert list(tmp_path.glob(".governance-audit-*.tmp")) == []
 
 
 def test_model_approval_rejects_label_cost_below_backtest_round_trip_cost(tmp_path) -> None:

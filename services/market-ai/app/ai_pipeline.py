@@ -618,10 +618,19 @@ class LocalModelRegistry:
             str(events[-1]["event_sha256"]) if events else _GOVERNANCE_GENESIS_SHA256
         )
         chained_event["event_sha256"] = self._governance_event_sha256(chained_event)
-        with self._audit_path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(chained_event, ensure_ascii=False, sort_keys=True) + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
+        existing = self._audit_path.read_bytes() if self._audit_path.is_file() else b""
+        line = (json.dumps(chained_event, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+        fd, temporary = tempfile.mkstemp(prefix=".governance-audit-", suffix=".tmp", dir=self.root)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(existing)
+                stream.write(line)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self._audit_path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
 
     @staticmethod
     def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -848,14 +857,18 @@ class LocalModelRegistry:
                 expected_sha256=dataset_sha256, purpose="backtesting",
             )
             self._write_json_atomic(self.root / f"{model_id}.json", updated)
-            self._record_governance_event({
-                "action": "evaluate_holdout", "model_id": model_id,
-                "dataset_sha256": dataset_sha256,
-                "artifact_sha256": metadata["artifact_sha256"],
-                "test_sessions": list(test_dates),
-                "quant_backtest_test_metrics": quant_metrics,
-                "ai_quant_backtest_test_metrics": ai_metrics,
-            })
+            try:
+                self._record_governance_event({
+                    "action": "evaluate_holdout", "model_id": model_id,
+                    "dataset_sha256": dataset_sha256,
+                    "artifact_sha256": metadata["artifact_sha256"],
+                    "test_sessions": list(test_dates),
+                    "quant_backtest_test_metrics": quant_metrics,
+                    "ai_quant_backtest_test_metrics": ai_metrics,
+                })
+            except Exception:
+                self._write_json_atomic(self.root / f"{model_id}.json", metadata)
+                raise
             return {
                 "model_id": model_id, "approved": False,
                 "test_sessions": list(test_dates), "test_metrics": test_metrics,
