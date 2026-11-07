@@ -836,7 +836,7 @@ def predict_with_model(
             close=item.close, volume=item.volume, spread_bps=item.spread_bps,
         ) for item in request.bars]
         registry = LocalModelRegistry(os.getenv("AI_MODEL_REGISTRY_PATH", ".local/models"))
-        result = registry.predict_preview(model_id, bars, market=request.market.value)
+        result = registry.predict_preview(model_id, bars, market=request.market.value, symbol=request.symbol)
         result["symbol"] = request.symbol.strip().upper()
         return result
     except FileNotFoundError as exc:

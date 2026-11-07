@@ -350,10 +350,12 @@ class LocalModelRegistry:
                 items.append({"model_id": manifest_path.stem, "integrity_error": True, "approved": False, "active": False})
         return items
 
-    def active_approved_model(self, market: str) -> dict[str, Any] | None:
-        """Return the integrity-checked active model only when approved for this market."""
+    def active_approved_model(self, market: str, symbol: str) -> dict[str, Any] | None:
+        """Return the integrity-checked model only when approved for this market and trained symbol."""
         requested_market = market.strip().upper()
-        if requested_market not in {"KR", "US"} or not self._active_path.is_file():
+        requested_symbol = symbol.strip().upper()
+        if (requested_market not in {"KR", "US"} or not requested_symbol
+                or not self._active_path.is_file()):
             return None
         try:
             active_payload = json.loads(self._active_path.read_text(encoding="utf-8"))
@@ -365,7 +367,9 @@ class LocalModelRegistry:
             metadata = self.manifest(active_id)
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
             return None
-        if (metadata.get("market") != requested_market or not metadata.get("approved")
+        if (metadata.get("market") != requested_market
+                or str(metadata.get("training_config", {}).get("symbol", "")).strip().upper() != requested_symbol
+                or not metadata.get("approved")
                 or not self._supports_current_features(metadata)
                 or not self._has_verified_data_provenance(metadata)
                 or not self._has_valid_approval_evidence(metadata)
@@ -972,7 +976,7 @@ class LocalModelRegistry:
             raise ValueError("model artifact integrity check failed")
         return payload
 
-    def predict_preview(self, model_id: str, bars: list[MinuteBar], *, market: str) -> dict[str, Any]:
+    def predict_preview(self, model_id: str, bars: list[MinuteBar], *, market: str, symbol: str) -> dict[str, Any]:
         try:
             import joblib
             import numpy as np
@@ -981,6 +985,10 @@ class LocalModelRegistry:
         metadata = self.manifest(model_id)
         if market.upper() != metadata.get("market"):
             raise ValueError("model market scope does not match the requested market")
+        requested_symbol = symbol.strip().upper()
+        trained_symbol = str(metadata.get("training_config", {}).get("symbol", "")).strip().upper()
+        if not requested_symbol or trained_symbol != requested_symbol:
+            raise ValueError("model symbol scope does not match the requested symbol")
         if not self._supports_current_features(metadata):
             raise ValueError("model feature schema is outdated and must be retrained")
         artifact = self.root / metadata["artifact"]

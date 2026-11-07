@@ -1160,11 +1160,12 @@ class PaperSessionFeedMonitor:
             if quant_candidate:
                 try:
                     registry = LocalModelRegistry(os.getenv("AI_MODEL_REGISTRY_PATH", ".local/models"))
-                    metadata = registry.active_approved_model(watch.market)
+                    metadata = registry.active_approved_model(watch.market, watch.symbol)
                     if metadata is None:
-                        reason = "AI_MODEL_NOT_APPROVED_FOR_MARKET"
+                        reason = "AI_MODEL_NOT_APPROVED_FOR_SYMBOL"
                     else:
-                        prediction = registry.predict_preview(metadata["model_id"], list(history), market=watch.market)
+                        prediction = registry.predict_preview(metadata["model_id"], list(history),
+                                                              market=watch.market, symbol=watch.symbol)
                         model_id = metadata["model_id"]
                         if prediction["probability_positive"] >= prediction["threshold"]:
                             signal, reason = "BUY_CANDIDATE", "QUANT_AND_APPROVED_AI_CANDIDATE"

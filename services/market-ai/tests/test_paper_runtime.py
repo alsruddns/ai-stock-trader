@@ -1156,18 +1156,19 @@ def test_quant_candidate_is_held_without_an_active_approved_market_model(tmp_pat
 
     decision = runtime.decisions()[watch.key]
     assert decision["signal"] == "HOLD"
-    assert decision["reason"] == "AI_MODEL_NOT_APPROVED_FOR_MARKET"
+    assert decision["reason"] == "AI_MODEL_NOT_APPROVED_FOR_SYMBOL"
     assert decision["model_id"] is None
     assert decision["executable"] is False
 
 
 def test_approved_ai_candidate_publishes_atr_stop_distance_for_server_risk_check(monkeypatch) -> None:
     class Registry:
-        def active_approved_model(self, _market):
+        def active_approved_model(self, _market, _symbol):
             return {"model_id": "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 
-        def predict_preview(self, _model_id, _bars, *, market):
+        def predict_preview(self, _model_id, _bars, *, market, symbol):
             assert market == "KR"
+            assert symbol == "005930"
             return {"probability_positive": 0.9, "threshold": 0.5}
 
     monkeypatch.setattr("app.paper_runtime.LocalModelRegistry", lambda *_args, **_kwargs: Registry())

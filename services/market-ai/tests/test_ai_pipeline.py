@@ -280,13 +280,19 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path)
         assert "candidate_mean_forward_net_bps" in result.quant_baseline_test_metrics
         assert result.train_sessions[-1] < result.validation_sessions[0]
         assert result.validation_sessions[-1] < result.test_sessions[0]
-        prediction = LocalModelRegistry(tmp_path).predict_preview(result.model_id, _sample_sessions()[date(2026, 10, 8)][:21], market="KR")
+        prediction = LocalModelRegistry(tmp_path).predict_preview(result.model_id,
+            _sample_sessions()[date(2026, 10, 8)][:21], market="KR", symbol="005930")
         assert 0 <= prediction["probability_positive"] <= 1
         assert prediction["market"] == "KR"
         assert prediction["approved"] is False
         assert prediction["executable"] is False
         with pytest.raises(ValueError, match="market scope"):
-            LocalModelRegistry(tmp_path).predict_preview(result.model_id, _sample_sessions()[date(2026, 10, 8)][:21], market="US")
+            LocalModelRegistry(tmp_path).predict_preview(result.model_id,
+                _sample_sessions()[date(2026, 10, 8)][:21], market="US", symbol="005930")
+
+        with pytest.raises(ValueError, match="symbol scope"):
+            LocalModelRegistry(tmp_path).predict_preview(result.model_id,
+                _sample_sessions()[date(2026, 10, 8)][:21], market="KR", symbol="000660")
 
 
 def test_training_rejects_malformed_dataset_digest_before_training(tmp_path) -> None:
@@ -315,7 +321,7 @@ def test_model_registry_rejects_path_traversal(tmp_path) -> None:
 def test_active_model_selection_fails_closed_for_corrupt_selection_file(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)
     registry._active_path.write_text("[]", encoding="utf-8")
-    assert registry.active_approved_model("KR") is None
+    assert registry.active_approved_model("KR", "005930") is None
 
 
 def test_registry_instances_for_same_model_directory_share_governance_lock(tmp_path) -> None:
@@ -337,7 +343,7 @@ def test_legacy_model_with_outdated_feature_schema_cannot_be_approved_or_selecte
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
     registry._active_path.write_text(json.dumps({"model_id": model_id}), encoding="utf-8")
 
-    assert registry.active_approved_model("KR") is None
+    assert registry.active_approved_model("KR", "005930") is None
     listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
     assert listed["feature_compatible"] is False
     with pytest.raises(ValueError, match="feature schema is outdated"):
@@ -416,7 +422,7 @@ def test_model_without_data_rights_provenance_cannot_be_approved_or_selected(tmp
     assert listed["active"] is False
     with pytest.raises(ValueError, match="data-rights provenance"):
         registry.approve(model_id, approved_by="operator", note="Data source and permissions have not been documented.")
-    assert registry.active_approved_model("KR") is None
+    assert registry.active_approved_model("KR", "005930") is None
 
 
 def test_model_with_previous_backtest_version_cannot_be_approved_or_selected(tmp_path) -> None:
@@ -430,7 +436,7 @@ def test_model_with_previous_backtest_version_cannot_be_approved_or_selected(tmp
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
     registry._active_path.write_text(json.dumps({"model_id": model_id}), encoding="utf-8")
 
-    assert registry.active_approved_model("KR") is None
+    assert registry.active_approved_model("KR", "005930") is None
     listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
     assert listed["approved"] is False
     assert listed["approval_evidence_verified"] is False
@@ -467,8 +473,9 @@ def test_model_governance_requires_review_and_records_rollback(tmp_path) -> None
     assert approval_event["ai_quant_backtest_test_metrics"]["net_pnl"] == 12.0
     assert approval_event["training_config"]["backtest_commission_bps"] == "5"
     assert registry.governance_events()[-1]["action"] == "rollback"
-    assert registry.active_approved_model("KR")["model_id"] == first
-    assert registry.active_approved_model("US") is None
+    assert registry.active_approved_model("KR", "005930")["model_id"] == first
+    assert registry.active_approved_model("KR", "000660") is None
+    assert registry.active_approved_model("US", "AAPL") is None
 
 
 def test_model_approval_requires_sufficient_heldout_sessions_and_ai_quant_outperformance(tmp_path) -> None:
@@ -486,7 +493,7 @@ def test_model_approval_requires_sufficient_heldout_sessions_and_ai_quant_outper
     metadata["approved"] = True
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
     registry._active_path.write_text(json.dumps({"model_id": model_id}), encoding="utf-8")
-    assert registry.active_approved_model("KR") is None
+    assert registry.active_approved_model("KR", "005930") is None
     listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
     assert listed["approved"] is False
     assert listed["approval_evidence_verified"] is False
@@ -551,7 +558,7 @@ def test_model_approval_rejects_holdout_evidence_for_a_different_artifact(tmp_pa
     assert registry._has_valid_approval_evidence(metadata) is False
     metadata["approved"] = True
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
-    assert registry.active_approved_model("KR") is None
+    assert registry.active_approved_model("KR", "005930") is None
 
 
 def test_candidate_cannot_be_re_evaluated_on_multiple_holdout_sets(tmp_path) -> None:
@@ -716,7 +723,7 @@ def test_model_governance_rolls_back_state_when_audit_write_fails(tmp_path, monk
     monkeypatch.setattr(registry, "_record_governance_event", fail_audit)
     with pytest.raises(type(failure), match="simulated audit"):
         registry.activate(replacement_id, changed_by="operator", note="Candidate change requires a durable audit event.")
-    assert registry.active_approved_model("KR")["model_id"] == model_id
+    assert registry.active_approved_model("KR", "005930")["model_id"] == model_id
 
 
 def test_approved_manifest_without_durable_audit_event_cannot_be_selected_or_activated(tmp_path, monkeypatch) -> None:
@@ -731,14 +738,14 @@ def test_approved_manifest_without_durable_audit_event_cannot_be_selected_or_act
     listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
     assert listed["approved"] is False
     assert listed["approval_audit_verified"] is False
-    assert registry.active_approved_model("KR") is None
+    assert registry.active_approved_model("KR", "005930") is None
     with pytest.raises(ValueError, match="durable matching governance audit event"):
         registry.activate(model_id, changed_by="operator", note="Refuse activation without a durable approval event.")
 
     monkeypatch.setattr(registry, "_record_governance_event", record_event)
     registry.approve(model_id, approved_by="operator", note="Reviewed held-out evidence before advisory activation.")
     registry.activate(model_id, changed_by="operator", note="Durable approval evidence verified for advisory activation.")
-    assert registry.active_approved_model("KR")["model_id"] == model_id
+    assert registry.active_approved_model("KR", "005930")["model_id"] == model_id
 
     events = registry.governance_events()
     assert len(events) == 3
@@ -756,7 +763,7 @@ def test_approved_manifest_without_durable_audit_event_cannot_be_selected_or_act
     listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
     assert listed["approved"] is False
     assert listed["approval_audit_verified"] is False
-    assert registry.active_approved_model("KR") is None
+    assert registry.active_approved_model("KR", "005930") is None
     assert registry.governance_events() == []
     assert registry.governance_audit_status() == {"integrity_verified": False, "event_count": 0}
 
@@ -776,7 +783,7 @@ def test_approved_model_threshold_is_bound_to_holdout_and_audit_evidence(tmp_pat
     _write_candidate(registry, model_id)
     registry.approve(model_id, approved_by="operator", note="Held-out evidence reviewed for advisory use.")
     registry.activate(model_id, changed_by="operator", note="Approved model selected for advisory use.")
-    assert registry.active_approved_model("KR")["model_id"] == model_id
+    assert registry.active_approved_model("KR", "005930")["model_id"] == model_id
 
     manifest_path = tmp_path / f"{model_id}.json"
     metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -786,7 +793,7 @@ def test_approved_model_threshold_is_bound_to_holdout_and_audit_evidence(tmp_pat
     listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
     assert listed["approved"] is False
     assert listed["approval_audit_verified"] is False
-    assert registry.active_approved_model("KR") is None
+    assert registry.active_approved_model("KR", "005930") is None
 
 
 @pytest.mark.parametrize("threshold", [True, -0.01, 1.01, float("nan"), "0.5"])
