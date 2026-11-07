@@ -228,3 +228,5 @@ P1의 구현과 2026-11-07 일회성 실계좌·모의계좌 읽기 전용 검�
 - **P7 재시작 사전 차단:** `restart-local-stack-task.ps1`은 이제 기존 API 프로세스를 중지하기 전에 PostgreSQL listener를 검사합니다. `0.0.0.0`/`::`, 비루프백 주소 또는 listener 부재면 변경 전에 종료하므로 재기동 실패로 이미 실행 중인 API를 내려버리지 않습니다. Windows 회귀에서 루프백 주소는 허용하고 비루프백·미수신은 차단하는지 확인했습니다. 실제 현재 설정은 변경하지 않았습니다.
 
 - **P7 재시작 안전장치 CI 재검증:** 2026-11-07 GitHub Actions Windows PowerShell 회귀(run 42365773894)와 최신 전체 파이프라인(run 42365773890)의 market/AI, Spring·PostgreSQL 통합, dashboard 작업이 모두 성공했습니다. 이는 코드 및 CI 검증이며 현재 로컬 상태를 바꾸지 않습니다. 재확인 시 PostgreSQL listener는 `0.0.0.0`/`::`이고 `AIStockTrader-LocalStack`은 Disabled, API 포트 8000/8080은 정지 상태입니다. 관리자 loopback 스크립트 실행 뒤 실제 API 재기동·PAPER 반복 연결 확인이 남아 있습니다. 이번 확인에서 KIS API·계좌·주문은 호출하지 않았습니다.
+
+- **P6 REAL 서버 위험정보 조립 확인:** `KisRealOrderOrchestrator`가 요청 본문에서 신뢰할 수 있는 값을 받지 않고 계좌 조회 결과와 서버의 KIS AI 근거, 당일 위험 기준선, 미해결 주문, 실현 손실 이력·전체 시장 보유 수를 읽어 패키지 내부 `KisLiveRiskContext`를 구성함을 확인했습니다. 집중 Maven 회귀 16건(실패 0, 오류 0)이 통과했습니다. 이 결과는 서버 측 위험 게이트 조립만 확인하며 Python 실시간 신호의 REAL 주문 전달, 실제 계좌 운용 및 주문 승인은 검증하지 않습니다. KIS API·계좌·주문 요청은 없었고 실주문 잠금은 유지됩니다.
