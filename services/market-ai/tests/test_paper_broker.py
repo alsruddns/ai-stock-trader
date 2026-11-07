@@ -70,6 +70,25 @@ def test_server_errors_after_order_post_require_idempotency_reconciliation(statu
     http.close()
 
 
+def test_protocol_failure_after_order_post_requires_idempotency_reconciliation() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.RemoteProtocolError("upstream details", request=request)
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    broker = SpringPaperBrokerClient(http_client=http)
+    with pytest.raises(PaperBrokerOutcomeUnknown, match="idempotency key"):
+        broker.submit_order(
+            idempotency_key=UUID(int=103), market="KR", symbol="005930", side="BUY", quantity=1,
+            limit_price=Decimal("70000"), currency="KRW",
+        )
+    assert calls == 1
+    http.close()
+
+
 def test_server_error_after_fill_post_requires_order_reconciliation() -> None:
     calls = 0
 
