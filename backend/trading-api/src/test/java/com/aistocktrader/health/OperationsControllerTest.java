@@ -7,6 +7,7 @@ import com.aistocktrader.kis.KisOrderIntentRepository;
 import com.aistocktrader.kis.KisOrderStatus;
 import com.aistocktrader.kis.KisOrderReceipt;
 import com.aistocktrader.kis.KisProperties;
+import com.aistocktrader.kis.KisRealExitStatus;
 import com.aistocktrader.order.Currency;
 import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderRequest;
@@ -24,7 +25,9 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -122,8 +125,11 @@ class OperationsControllerTest {
         PaperFillRepository fills = mock(PaperFillRepository.class);
         KisOrderIntentRepository kisIntents = emptyKisIntents();
         KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL,
-                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1, new BigDecimal("70000"), Currency.KRW), null);
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1, new BigDecimal("70000"), Currency.KRW), null,
+                new BigDecimal("2000"), new BigDecimal("2"));
         intent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "9001", "ORG01", "0", Instant.now()));
+        when(kisIntents.findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(any(), anyList()))
+                .thenReturn(List.of(intent));
         when(kisIntents.countStatusesByEnvironment(KisEnvironment.REAL))
                 .thenReturn(List.<Object[]>of(new Object[]{KisOrderStatus.ACCEPTED, 1L}));
         when(kisIntents.findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.REAL)).thenReturn(List.of(intent));
@@ -142,6 +148,10 @@ class OperationsControllerTest {
         assertEquals(1L, summary.realOrderCounts().get(KisOrderStatus.ACCEPTED));
         assertEquals("005930", summary.recentRealOrders().getFirst().symbol());
         assertEquals(KisOrderStatus.ACCEPTED, summary.recentRealOrders().getFirst().status());
+        assertEquals(1, summary.realExitPlans().size());
+        assertEquals(KisRealExitStatus.WAITING_FOR_ENTRY, summary.realExitPlans().getFirst().status());
+        assertEquals(0, summary.realExitPlans().getFirst().entryFilledQuantity());
+        assertNull(summary.realExitPlans().getFirst().exitQuantity());
     }
 
     @Test
@@ -207,6 +217,7 @@ class OperationsControllerTest {
         when(repository.countStatusesByEnvironment(KisEnvironment.PAPER)).thenReturn(List.of());
         when(repository.findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.REAL)).thenReturn(List.of());
         when(repository.findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.PAPER)).thenReturn(List.of());
+        when(repository.findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(any(), anyList())).thenReturn(List.of());
         return repository;
     }
 

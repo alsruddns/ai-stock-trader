@@ -6,6 +6,7 @@ import com.aistocktrader.kis.KisOrderIntent;
 import com.aistocktrader.kis.KisOrderIntentRepository;
 import com.aistocktrader.kis.KisOrderStatus;
 import com.aistocktrader.kis.KisProperties;
+import com.aistocktrader.kis.KisRealExitStatus;
 import com.aistocktrader.order.OrderRecord;
 import com.aistocktrader.order.OrderRepository;
 import com.aistocktrader.order.OrderStatus;
@@ -131,13 +132,18 @@ public class OperationsController {
         List<BrokerOrderView> recentPaperKisOrders = kisIntents
                 .findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.PAPER).stream()
                 .map(BrokerOrderView::from).toList();
+        List<RealExitPlanView> realExitPlans = kisIntents
+                .findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(KisEnvironment.REAL,
+                        List.of(KisRealExitStatus.WAITING_FOR_ENTRY, KisRealExitStatus.ARMED,
+                                KisRealExitStatus.EXIT_PENDING, KisRealExitStatus.MANUAL_REVIEW))
+                .stream().map(RealExitPlanView::from).toList();
 
         return new OperationsSummary(now, safety.mode(), safety.liveTradingEnabled() ? "enabled" : "disabled",
                 false, kisAccountReadsEnabled, kisPaperAccountReadsEnabled, kisPaperOrdersEnabled, false, safety.realOrdersEnabled(),
                 kisRealAccountReadsEnabled, kisRealReconciliationEnabled, safety.realProtectiveExitManagerEnabled(),
                 kisRealProtectiveExitAutomationEnabled, realOrderCounts, paperKisOrderCounts,
                 paperCostModelEnabled, transactionCostsToday,
-                realizedNetPnlToday, recentRealOrders, recentPaperKisOrders, counts, consecutiveLosingTrades,
+                realizedNetPnlToday, recentRealOrders, recentPaperKisOrders, realExitPlans, counts, consecutiveLosingTrades,
                 counts.getOrDefault(OrderStatus.PENDING, 0L)
                 + counts.getOrDefault(OrderStatus.PARTIALLY_FILLED, 0L)
                 + counts.getOrDefault(OrderStatus.CANCEL_PENDING, 0L)
@@ -269,6 +275,7 @@ public class OperationsController {
                                     boolean paperCostModelEnabled, Map<String, BigDecimal> paperTransactionCostsTodayByCurrency,
                                     Map<String, BigDecimal> realizedPnlTodayNetByCurrency,
                                     List<BrokerOrderView> recentRealOrders, List<BrokerOrderView> recentPaperKisOrders,
+                                    List<RealExitPlanView> realExitPlans,
                                     Map<OrderStatus, Long> orderCounts,
                                     int consecutiveLosingTrades, long openOrders, long fillsToday, long totalOrders,
                                     List<CashView> cashBalances, List<PositionView> positions,
@@ -285,6 +292,14 @@ public class OperationsController {
             return new BrokerOrderView(item.getMarket().name(), item.getSymbol(), item.getSide().name(),
                     item.getQuantity(), item.getFilledQuantity(), item.getRemainingQuantity(),
                     item.getCurrency().name(), item.getStatus(), item.getBrokerResponseCode(), item.getCreatedAt(), item.getUpdatedAt());
+        }
+    }
+
+    public record RealExitPlanView(String market, String symbol, KisRealExitStatus status, String reason,
+                                   Integer entryFilledQuantity, Integer exitQuantity, Instant updatedAt) {
+        static RealExitPlanView from(KisOrderIntent item) {
+            return new RealExitPlanView(item.getMarket().name(), item.getSymbol(), item.getRealExitStatus(),
+                    item.getRealExitReason(), item.getFilledQuantity(), item.getRealExitQuantity(), item.getUpdatedAt());
         }
     }
 

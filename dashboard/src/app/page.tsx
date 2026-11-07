@@ -11,6 +11,7 @@ type Ops = {
   paperCostModelEnabled: boolean; paperTransactionCostsTodayByCurrency: Record<string, string>; realizedPnlTodayNetByCurrency: Record<string, string>;
   recentPaperKisOrders?: { market: string; symbol: string; side: string; quantity: number; filledQuantity: number; remainingQuantity: number; currency: string; status: string; responseCode: string | null; createdAt: string; updatedAt: string }[];
   recentRealOrders?: { market: string; symbol: string; side: string; quantity: number; filledQuantity: number; remainingQuantity: number; currency: string; status: string; responseCode?: string | null; createdAt: string; updatedAt: string }[];
+  realExitPlans?: { market: string; symbol: string; status: string; reason: string | null; entryFilledQuantity: number | null; exitQuantity: number | null; updatedAt: string }[];
   orderCounts: Record<string, number>;
   consecutiveLosingTrades: number;
   openOrders: number; fillsToday: number; totalOrders: number;
@@ -122,6 +123,9 @@ export default function Dashboard() {
     </section>
     <section className="panel"><div className="panel-title"><div><p className="eyebrow">REAL ORDER INTENTS</p><h2>실계좌 주문 의도</h2></div><span className="tag">주문별 상태 · 조회 전용</span></div>
       {ops?.recentRealOrders?.length ? <div className="table-wrap"><table><thead><tr><th>시장·종목</th><th>구분</th><th>체결 / 주문</th><th>잔량</th><th>상태</th><th>갱신</th></tr></thead><tbody>{ops.recentRealOrders.map((o, index) => <tr key={`${o.market}-${o.symbol}-${o.createdAt}-${index}`}><td><small>{o.market}</small><br /><span className="symbol">{o.symbol}</span></td><td className={o.side === "BUY" ? "buy" : "sell"}>{o.side === "BUY" ? "매수" : "매도"}</td><td>{o.filledQuantity ?? 0}/{o.quantity}</td><td>{o.remainingQuantity ?? "—"}</td><td><span className={`order-state ${o.status.toLowerCase()}`}>{statusLabel(o.status)}</span></td><td>{time(o.updatedAt)}</td></tr>)}</tbody></table></div> : <Empty text="저장된 실계좌 주문 의도가 없습니다. 이 상태 표시는 계좌 잔고와 별도입니다." />}
+      <div className="panel-title"><div><p className="eyebrow">PROTECTIVE EXIT PLANS</p><h2>보호청산 계획</h2></div><span className="tag">감시 상태 · 조회 전용</span></div>
+      {ops?.realExitPlans?.length ? <div className="table-wrap"><table><thead><tr><th>시장·종목</th><th>상태</th><th>사유</th><th>진입 체결</th><th>청산 수량</th><th>갱신</th></tr></thead><tbody>{ops.realExitPlans.map((plan, index) => <tr key={`${plan.market}-${plan.symbol}-${plan.updatedAt}-${index}`}><td><small>{plan.market}</small><br /><span className="symbol">{plan.symbol}</span></td><td><span className={`order-state ${plan.status === "MANUAL_REVIEW" ? "unknown" : plan.status.toLowerCase()}`}>{realExitStatusLabel(plan.status)}</span></td><td>{realExitReasonLabel(plan.reason)}</td><td>{plan.entryFilledQuantity ?? 0}</td><td>{plan.exitQuantity ?? "—"}</td><td>{time(plan.updatedAt)}</td></tr>)}</tbody></table></div> : <Empty text="진행 중인 REAL 보호청산 계획이 없습니다." />}
+      <p className="audit-note">수동 확인 상태는 운영자가 증권사 주문·잔고를 확인해야 합니다. 이 목록은 저장된 계획 상태이며 실계좌 보유 잔고를 대신하지 않습니다.</p>
     </section>
     <section className="panel models-panel"><div className="panel-title"><div><p className="eyebrow">MODEL GOVERNANCE</p><h2>AI 모델 승인 및 롤백</h2></div><span className="tag">주문 실행과 분리</span></div>
       <p className="model-note">모델 승인과 활성화는 시장별 paper 진입 후보 평가에 사용됩니다. AI 신호만으로 주문하지 않고, Spring paper 위험 게이트를 통과해야 로컬 모의 장부에 반영됩니다. 실거래 실행 여부는 위 안전 스위치에서 확인하며, 이 화면은 주문 권한이 없습니다.</p>
@@ -138,6 +142,8 @@ function Metric({ title, value, caption }: { title: string; value: string | numb
 function RiskRow({ label, value }: { label: string; value: string }) { return <div className="risk-row"><span>{label}</span><strong>{value}</strong></div>; }
 function Empty({ text }: { text: string }) { return <div className="empty">{text}</div>; }
 function statusLabel(value: string) { return ({ PENDING: "대기", PARTIALLY_FILLED: "부분체결", FILLED: "체결", REJECTED: "거부", CANCEL_PENDING: "취소 확인", CANCELLED: "취소", EXPIRED: "만료", UNKNOWN: "확인 필요" } as Record<string, string>)[value] ?? value; }
+function realExitStatusLabel(value: string) { return ({ WAITING_FOR_ENTRY: "진입 체결 대기", ARMED: "감시 중", EXIT_PENDING: "청산 주문 처리 중", MANUAL_REVIEW: "수동 확인 필요" } as Record<string, string>)[value] ?? value; }
+function realExitReasonLabel(value: string | null) { return ({ STOP_LOSS: "손절", TAKE_PROFIT: "익절", SESSION_END: "장 마감" } as Record<string, string>)[value ?? ""] ?? "—"; }
 function sessionLabel(value?: string) { return ({ RUNNING: "시세 수집 중", PARTIAL: "일부 feed만 연결", CONNECTING: "연결 중", RECONNECTING: "재연결 대기", BLOCKED: "설정 확인 필요", STOPPED: "중지", DISABLED: "비활성" } as Record<string, string>)[value ?? ""] ?? "확인 중"; }
 function calendarLabel(value?: string) { return ({ COMPATIBLE: "호환", PANDAS_UNSUPPORTED: "pandas 버전 확인 필요", EXCHANGE_CALENDAR_UNSUPPORTED: "캘린더 패키지 확인 필요", DEPENDENCIES_MISSING: "의존성 미설치", VERSION_UNKNOWN: "버전 확인 불가" } as Record<string, string>)[value ?? ""] ?? "상태 미수신"; }
 function marketSessionLabel(value?: MarketSession | null) { return !value ? "판정 불가" : !value.is_session ? "휴장" : value.is_open ? "장중" : "장외"; }
