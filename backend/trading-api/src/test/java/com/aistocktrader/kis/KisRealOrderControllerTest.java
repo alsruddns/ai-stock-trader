@@ -63,6 +63,24 @@ class KisRealOrderControllerTest {
     }
 
     @Test
+    void everyRealPathRequiresGlobalAccountReadSwitchEvenInRealMode() {
+        KisRealOrderController controller = controller(
+                new TradingSafetyProperties("real", true, true, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
+                properties(false, true));
+
+        assertAllRealPathsLocked(controller);
+    }
+
+    @Test
+    void everyRealPathRequiresRealAccountReadSwitchEvenInRealMode() {
+        KisRealOrderController controller = controller(
+                new TradingSafetyProperties("real", true, true, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
+                properties(true, false));
+
+        assertAllRealPathsLocked(controller);
+    }
+
+    @Test
     void enabledRealPathReadsCurrentAccountBeforeDelegatingTheOrder() {
         TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true,
                 BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100));
@@ -90,6 +108,17 @@ class KisRealOrderControllerTest {
 
     private KisRealOrderController controller(TradingSafetyProperties safety, KisProperties kis) {
         return new KisRealOrderController(orders, intents, accounts, kis, safety);
+    }
+
+    private void assertAllRealPathsLocked(KisRealOrderController controller) {
+        UUID key = UUID.randomUUID();
+        assertEquals(HttpStatus.LOCKED, assertThrows(KisApiException.class,
+                () -> controller.submit(key, null, buyRequest())).status());
+        assertEquals(HttpStatus.LOCKED, assertThrows(KisApiException.class,
+                () -> controller.reconcile(key)).status());
+        assertEquals(HttpStatus.LOCKED, assertThrows(KisApiException.class,
+                () -> controller.cancel(key)).status());
+        verifyNoInteractions(intents, accounts, orders);
     }
 
     private static KisProperties properties(boolean allReads, boolean realRead) {
