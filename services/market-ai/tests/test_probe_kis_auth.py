@@ -90,7 +90,7 @@ def test_auth_only_probe_reports_safe_oauth_error_metadata(tmp_path: Path, monke
                 "KIS authentication request failed (HTTP 403, code unknown).",
                 http_status=403, broker_code="unknown", response_content_type="application/json",
                 response_bytes=84, response_fields=("error_code", "error_description"),
-                response_error_code="EGW00002",
+                response_error_category="broker_server_error", response_error_code="EGW00002",
             )
 
         def close(self):
@@ -102,4 +102,5 @@ def test_auth_only_probe_reports_safe_oauth_error_metadata(tmp_path: Path, monke
     output = json.loads(capsys.readouterr().out)
     assert output["http_status"] == 403
     assert output["response_error_code"] == "EGW00002"
+    assert output["response_error_category"] == "broker_server_error"
     assert output["account_endpoint_called"] is False

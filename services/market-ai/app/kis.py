@@ -83,7 +83,12 @@ def _ensure_kis_http_success(response: httpx.Response, operation: str) -> None:
         "access_denied", "forbidden", "invalid_client", "invalid_grant", "invalid_request",
         "server_error", "temporarily_unavailable", "unauthorized_client", "unsupported_grant_type",
     }
-    response_error_category = normalized_error if normalized_error in allowed_errors else None
+    broker_error_categories = {
+        "EGW00001": "broker_temporary_error",
+        "EGW00002": "broker_server_error",
+    }
+    response_error_category = (normalized_error if normalized_error in allowed_errors
+                               else broker_error_categories.get(response_error_code))
     if response.status_code == 429 or code == "EGW00201":
         raise KisRateLimitError(
             "KIS rate limit reached; wait before requesting again.",

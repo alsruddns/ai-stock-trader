@@ -136,6 +136,27 @@ def test_authentication_error_category_is_allowlisted_and_description_is_never_e
     client.close()
 
 
+def test_kis_egw00002_auth_error_is_classified_as_broker_server_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, headers={"content-type": "application/json"}, json={
+            "error_code": "EGW00002", "error_description": "private detail",
+        })
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", "1234567801",
+                    shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(KisApiError) as captured:
+        client._access_token()
+
+    assert captured.value.response_error_code == "EGW00002"
+    assert captured.value.response_error_category == "broker_server_error"
+    assert "private detail" not in str(captured.value)
+    client.close()
+
+
 def test_domestic_quote_uses_read_only_endpoint_and_reuses_token() -> None:
     requests_seen: list[httpx.Request] = []
 
