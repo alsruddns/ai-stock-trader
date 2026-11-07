@@ -12,6 +12,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -22,6 +23,7 @@ class KisRealOrderControllerTest {
     private final KisRealOrderOrchestrator orders = mock(KisRealOrderOrchestrator.class);
     private final KisOrderIntentStore intents = mock(KisOrderIntentStore.class);
     private final KisAccountClient accounts = mock(KisAccountClient.class);
+    private final KisMarketAiEvidenceClient marketAiEvidence = mock(KisMarketAiEvidenceClient.class);
 
     @Test
     void paperModeRejectsRealSubmitBeforeReadingAccountOrCallingBroker() {
@@ -33,7 +35,20 @@ class KisRealOrderControllerTest {
                 () -> controller.submit(UUID.randomUUID(), null, buyRequest()));
 
         assertEquals(HttpStatus.LOCKED, exception.status());
-        verifyNoInteractions(accounts, orders);
+        verifyNoInteractions(accounts, orders, marketAiEvidence);
+    }
+
+    @Test
+    void paperModeRejectsRealSignalBeforeReadingEvidenceAccountOrCallingBroker() {
+        KisRealOrderController controller = controller(
+                new TradingSafetyProperties("paper", false, false, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
+                properties(false, false));
+
+        KisApiException exception = assertThrows(KisApiException.class,
+                () -> controller.submitSignal(UUID.randomUUID(), null, new KisRealSignalRequest(Market.KR, "005930")));
+
+        assertEquals(HttpStatus.LOCKED, exception.status());
+        verifyNoInteractions(accounts, orders, marketAiEvidence);
     }
 
     @Test
@@ -106,8 +121,54 @@ class KisRealOrderControllerTest {
         verify(orders).submit(key, request, null, account);
     }
 
+    @Test
+    void realSignalUsesServerQuoteAndVerifiedMetadataInsteadOfCallerSuppliedSizing() {
+        TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true,
+                BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100));
+        KisRealOrderController controller = controller(safety, properties(true, true));
+        UUID key = UUID.randomUUID();
+        KisRealSignalRequest signal = new KisRealSignalRequest(Market.KR, "005930");
+        KisAccountSnapshot account = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
+                BigDecimal.valueOf(100_000), BigDecimal.valueOf(100_000), BigDecimal.valueOf(100_000),
+                List.of(), Instant.now(), "KIS_READ_ONLY_REST");
+        KisOrderIntentResponse expected = new KisOrderIntentResponse(key, "real", "KR", "005930", "BUY", 10,
+                "70000", "KRW", KisOrderStatus.ACCEPTED, "broker-order", "broker-org", "0",
+                0, 10, null, Instant.now(), Instant.now());
+        when(marketAiEvidence.inspect(any(OrderRequest.class), isNull())).thenReturn(
+                new KisMarketAiEvidenceClient.Evidence(true, true, BigDecimal.valueOf(100),
+                        "verified-model", "ORB_VWAP", BigDecimal.valueOf(70_000)));
+        when(accounts.getBalance(KisEnvironment.REAL, Market.KR, "005930", BigDecimal.valueOf(70_000), null))
+                .thenReturn(account);
+        when(orders.submit(eq(key), any(OrderRequest.class), isNull(), eq(account))).thenReturn(expected);
+
+        var response = controller.submitSignal(key, null, signal);
+
+        assertEquals(HttpStatus.ACCEPTED, response.getStatusCode());
+        ArgumentCaptor<OrderRequest> submitted = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(orders).submit(eq(key), submitted.capture(), isNull(), eq(account));
+        assertEquals(Integer.MAX_VALUE, submitted.getValue().quantity());
+        assertEquals(BigDecimal.valueOf(70_000), submitted.getValue().limitPrice());
+        assertEquals("verified-model", submitted.getValue().modelId());
+        assertEquals("ORB_VWAP", submitted.getValue().strategyId());
+    }
+
+    @Test
+    void signalWithoutFreshApprovedEvidenceIsRejectedBeforeReadingRealAccount() {
+        KisRealOrderController controller = controller(
+                new TradingSafetyProperties("real", true, true, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
+                properties(true, true));
+        when(marketAiEvidence.inspect(any(OrderRequest.class), isNull())).thenReturn(
+                new KisMarketAiEvidenceClient.Evidence(false, false, null));
+
+        KisApiException exception = assertThrows(KisApiException.class,
+                () -> controller.submitSignal(UUID.randomUUID(), null, new KisRealSignalRequest(Market.KR, "005930")));
+
+        assertEquals(HttpStatus.LOCKED, exception.status());
+        verifyNoInteractions(accounts, orders);
+    }
+
     private KisRealOrderController controller(TradingSafetyProperties safety, KisProperties kis) {
-        return new KisRealOrderController(orders, intents, accounts, kis, safety);
+        return new KisRealOrderController(orders, intents, accounts, kis, safety, marketAiEvidence);
     }
 
     private void assertAllRealPathsLocked(KisRealOrderController controller) {
@@ -115,10 +176,12 @@ class KisRealOrderControllerTest {
         assertEquals(HttpStatus.LOCKED, assertThrows(KisApiException.class,
                 () -> controller.submit(key, null, buyRequest())).status());
         assertEquals(HttpStatus.LOCKED, assertThrows(KisApiException.class,
+                () -> controller.submitSignal(key, null, new KisRealSignalRequest(Market.KR, "005930"))).status());
+        assertEquals(HttpStatus.LOCKED, assertThrows(KisApiException.class,
                 () -> controller.reconcile(key)).status());
         assertEquals(HttpStatus.LOCKED, assertThrows(KisApiException.class,
                 () -> controller.cancel(key)).status());
-        verifyNoInteractions(intents, accounts, orders);
+        verifyNoInteractions(intents, accounts, orders, marketAiEvidence);
     }
 
     private static KisProperties properties(boolean allReads, boolean realRead) {

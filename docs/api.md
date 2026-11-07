@@ -16,6 +16,7 @@
 | GET | `/api/v1/kis/accounts/{paper\|real}/{KR\|US}/balance` | KIS 계좌 읽기 전용 잔고조회 |
 | GET | `/api/v1/kis/accounts/realized-pnl/real/{KR\|US}?from=YYYY-MM-DD&to=YYYY-MM-DD` | KIS REAL 기간손익 원문 조회(최대 31일, REAL 계좌읽기 스위치 필요) |
 | POST | `/api/v1/kis/orders/real` | REAL 주문 의도 제출 (`Idempotency-Key` 필수, 모든 REAL 주문·계좌 읽기 스위치 필요) |
+| POST | `/api/v1/kis/orders/real/signals` | 모델 승인·시세·계좌 확인 후 서버 수량으로 REAL 매수 신호 제출 (가격·수량은 요청 불가) |
 | GET | `/api/v1/kis/orders/real/{idempotencyKey}` | 저장된 REAL 주문 의도 상태 조회 |
 | POST | `/api/v1/kis/orders/real/{idempotencyKey}/reconcile` | 저장된 REAL 주문의 KIS 상태 재조회 (REAL 주문·계좌 읽기 스위치 필요) |
 | POST | `/api/v1/kis/orders/real/{idempotencyKey}/cancel` | 잔량 대조 후 REAL 주문 취소 (REAL 주문·계좌 읽기 스위치 필요) |
@@ -34,6 +35,8 @@ REAL 매수의 지정가는 서버가 읽은 최신 시세를 넘을 수 없습�
 REAL 매수의 전략·모델 ID는 요청 본문 값으로 신뢰하지 않습니다. Spring은 FastAPI의 현재 완료 신호가 `BUY_CANDIDATE`이고, 신호의 모델 ID가 활성 승인·권리 검증 모델과 일치하며, 유효한 전략 ID·손절 거리·신선도가 확인될 때만 해당 서버 근거를 주문 이력에 기록합니다. 이 증거가 없으면 AI 매수 게이트를 통과하지 못합니다.
 
 REAL 매수 요청의 `quantity`는 주문자가 제시한 상한으로만 사용하며, Spring은 최신 KIS 계좌 스냅샷의 주문가능금액·종목 평가액·계좌 평가액과 거래당 위험 예산·주문 한도를 적용해 요청 수량을 줄일 수 있습니다. 산정 입력이 없으면 원래 요청을 위험 게이트에 넘기며, 게이트가 누락 정보를 이유로 거부합니다. 산정된 수량은 주문 의도에 저장되고 같은 위험 게이트에서 다시 검증됩니다. 이 수량 제한은 실전 주문 활성화나 수익·체결을 보장하지 않습니다.
+
+`POST /api/v1/kis/orders/real/signals` 요청 본문은 `market`, `symbol`만 받습니다. 미국 시장은 `exchange` query 값도 필요합니다. Spring은 전체 REAL 잠금을 먼저 확인하고 FastAPI의 최신 승인 모델 신호·시세를 확인한 뒤 읽기 전용 REAL 계좌 조회를 합니다. 주문 가격은 서버 시세, 수량 상한은 서버가 설정하며 기존 위험 게이트에서 재검증합니다. 중복 방지를 위해 신호 봉 단위로 고정된 `Idempotency-Key`가 필요합니다. PAPER 기본 설정에서는 AI·계좌·주문 서비스에 도달하지 않습니다.
 
 REAL 주문 API는 Spring이 `127.0.0.1:8080`에 바인딩된 로컬 운영만 대상으로 합니다. `TRADING_MODE=real`, `LIVE_TRADING_ENABLED=true`, `KIS_REAL_ORDERS_ENABLED=true`, `KIS_ACCOUNT_READ_ENABLED=true`, `KIS_REAL_ACCOUNT_READ_ENABLED=true`가 모두 설정되어야 POST 쓰기 경로가 KIS 계좌를 사전 조회합니다. PAPER 기본 설정에서는 HTTP 423으로 거부하고 계좌·주문 API를 호출하지 않습니다. 네트워크 타임아웃 등 결과가 불명확하면 같은 키로 다시 주문하지 말고 저장된 의도 조회와 재조회를 사용하세요. 실계좌 연결·실주문 검증은 아직 완료되지 않았습니다.
 
