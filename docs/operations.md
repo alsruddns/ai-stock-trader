@@ -2,7 +2,7 @@
 
 ## 로컬 실행
 
-1. PostgreSQL 서비스가 `localhost:5432`에서 실행 중인지 확인합니다. `postgresql.conf`의 `listen_addresses`는 `localhost`여야 합니다. `start-local.ps1`은 지정된 포트의 listener가 loopback 전용이 아니면 Spring을 실행하지 않습니다. 설정을 바꾸려면 관리자 권한 PowerShell에서 저장소 루트로 이동해 `powershell.exe -ExecutionPolicy Bypass -File scripts/configure-postgres-loopback.ps1`을 실행합니다. 스크립트는 현재 설정을 `C:\ProgramData\AIStockTrader\backups`에 백업하고 localhost로 바꾼 뒤 서비스를 재시작해 listener를 검증합니다. 검증에 실패하면 원본 파일을 복구하고 서비스를 재시작합니다. 실행 전 확인 메시지가 표시되며 PostgreSQL을 사용하는 로컬 앱의 연결이 잠시 끊깁니다.
+1. PostgreSQL 서비스가 `localhost:5432`에서 실행 중인지 확인합니다. `postgresql.conf`의 `listen_addresses`는 `localhost`여야 합니다. `start-local.ps1`은 지정된 포트의 listener가 loopback 전용이 아니면 Spring을 실행하지 않습니다. 설정을 바꾸려면 관리자 권한 PowerShell에서 저장소 루트로 이동해 `powershell.exe -ExecutionPolicy Bypass -File scripts/configure-postgres-loopback.ps1`을 실행합니다. 스크립트는 현재 설정을 `C:\ProgramData\AIStockTrader\backups`에 백업하고 localhost로 바꾼 뒤 서비스를 재시작해 모든 listener가 loopback인지와 `pg_isready`가 연결을 받아들이는지 확인합니다. 검증에 실패하면 원본 설정 파일을 해시로 대조 복구하고, 서비스와 로컬 DB 연결이 복구됐는지 확인합니다. 실행 전 확인 메시지가 표시되며 PostgreSQL을 사용하는 로컬 앱의 연결이 잠시 끊깁니다.
 2. 저장소 루트의 Git 제외 `.env_local`에 DB 비밀번호와 필요한 KIS 환경별 설정을 입력합니다.
 3. Spring Boot를 실행합니다: `.\scripts\start-local.ps1`
 4. Python API는 `services/market-ai` 가상환경에서 실행합니다. API는 `127.0.0.1`에만 바인딩합니다.

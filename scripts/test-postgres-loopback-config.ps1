@@ -10,12 +10,20 @@ foreach ($path in @((Join-Path $PSScriptRoot 'configure-postgres-loopback.ps1'),
 $servicePath = '"C:\Program Files\PostgreSQL\16\bin\pg_ctl.exe" runservice -N "postgresql-x64-16" -D "C:\Program Files\PostgreSQL\16\data" -w'
 $discoveredDataPath = Get-PostgresDataDirectoryFromServicePath -ServicePathName $servicePath
 if ($discoveredDataPath -ne 'C:\Program Files\PostgreSQL\16\data') { throw 'Quoted PostgreSQL service data paths must be discovered exactly.' }
+$binaryPath = Get-PostgresBinaryDirectoryFromServicePath -ServicePathName $servicePath
+if ($binaryPath -ne 'C:\Program Files\PostgreSQL\16\bin') { throw 'Quoted PostgreSQL binary paths must be discovered exactly.' }
 $plainPath = Get-PostgresDataDirectoryFromServicePath -ServicePathName 'pg_ctl.exe runservice -D C:\PostgreSQL\data -w'
 if ($plainPath -ne 'C:\PostgreSQL\data') { throw 'Unquoted PostgreSQL service data paths must be discovered exactly.' }
+$plainBinaryPath = Get-PostgresBinaryDirectoryFromServicePath -ServicePathName 'C:\PostgreSQL\bin\pg_ctl.exe runservice -D C:\PostgreSQL\data -w'
+if ($plainBinaryPath -ne 'C:\PostgreSQL\bin') { throw 'Unquoted PostgreSQL binary paths must be discovered exactly.' }
 $missingDataPathRejected = $false
 try { Get-PostgresDataDirectoryFromServicePath -ServicePathName 'pg_ctl.exe runservice -N postgres' | Out-Null }
 catch { $missingDataPathRejected = $_.Exception.Message -like 'Could not locate the PostgreSQL data directory*' }
 if (-not $missingDataPathRejected) { throw 'A service definition without a data directory must be rejected.' }
+$missingBinaryPathRejected = $false
+try { Get-PostgresBinaryDirectoryFromServicePath -ServicePathName 'postgres.exe runservice' | Out-Null }
+catch { $missingBinaryPathRejected = $_.Exception.Message -like 'Could not locate pg_ctl.exe*' }
+if (-not $missingBinaryPathRejected) { throw 'A service definition without pg_ctl.exe must be rejected.' }
 
 $root = Join-Path ([System.IO.Path]::GetTempPath()) ('ai-stock-trader-postgres-config-' + [guid]::NewGuid().ToString('N'))
 $config = Join-Path $root 'postgresql.conf'

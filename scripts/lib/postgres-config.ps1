@@ -10,6 +10,18 @@ function Get-PostgresDataDirectoryFromServicePath {
     return $match.Groups['plain'].Value
 }
 
+function Get-PostgresBinaryDirectoryFromServicePath {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ServicePathName)
+
+    $match = [regex]::Match($ServicePathName, '^\s*(?:"(?<quoted>[^"]*pg_ctl\.exe)"|(?<plain>\S*pg_ctl\.exe))(?:\s|$)', 'IgnoreCase')
+    if (-not $match.Success) {
+        throw 'Could not locate pg_ctl.exe from the Windows service definition.'
+    }
+    $executablePath = if ($match.Groups['quoted'].Success) { $match.Groups['quoted'].Value } else { $match.Groups['plain'].Value }
+    return Split-Path -Parent $executablePath
+}
+
 function Set-PostgresListenAddressesLoopback {
     [CmdletBinding()]
     param(
