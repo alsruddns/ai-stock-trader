@@ -18,7 +18,7 @@ class KisBrokerOrderSnapshotValidatorTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void brokerIdentityMustMatchSymbolSideAndWhenPresentOrganization() throws Exception {
+    void domesticBrokerIdentityRequiresMatchingOrganizationWhenKnown() throws Exception {
         KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
                 new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
                         new BigDecimal("70000"), Currency.KRW), null);
@@ -28,11 +28,12 @@ class KisBrokerOrderSnapshotValidatorTest {
         assertFalse(matches(intent, "{\"pdno\":\"000660\",\"sll_buy_dvsn_cd\":\"02\",\"ord_gno_brno\":\"ORG01\"}"));
         assertFalse(matches(intent, "{\"pdno\":\"005930\",\"sll_buy_dvsn_cd\":\"01\",\"ord_gno_brno\":\"ORG01\"}"));
         assertFalse(matches(intent, "{\"pdno\":\"005930\",\"sll_buy_dvsn_cd\":\"02\",\"ord_gno_brno\":\"ORG02\"}"));
+        assertFalse(matches(intent, "{\"pdno\":\"005930\",\"sll_buy_dvsn_cd\":\"02\"}"));
         assertFalse(matches(intent, "{\"pdno\":\"005930\",\"ord_gno_brno\":\"ORG01\"}"));
     }
 
     @Test
-    void matchingIdentityAllowsUnavailableOptionalBrokerOrganization() throws Exception {
+    void overseasIdentityAllowsUnavailableBrokerOrganizationField() throws Exception {
         KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
                 new OrderRequest(Market.US, "AAPL", OrderSide.SELL, 1,
                         new BigDecimal("100"), Currency.USD), "NASD");

@@ -270,7 +270,7 @@ class KisOrderClientTest {
                 .andExpect(queryParam("ODNO", "1234"))
                 .andRespond(withSuccess("""
                         {"rt_cd":"0","ctx_area_fk100":"","ctx_area_nk100":"","output1":[
-                          {"odno":"1234","pdno":"005930","sll_buy_dvsn_cd":"02","tot_ccld_qty":"1","rmn_qty":"1","avg_prvs":"70000","cncl_yn":"N","rjct_qty":"0"}
+                          {"odno":"1234","ord_gno_brno":"ORG01","pdno":"005930","sll_buy_dvsn_cd":"02","tot_ccld_qty":"1","rmn_qty":"1","avg_prvs":"70000","cncl_yn":"N","rjct_qty":"0"}
                         ]}
                         """, org.springframework.http.MediaType.APPLICATION_JSON));
 

@@ -1,5 +1,6 @@
 package com.aistocktrader.kis;
 
+import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderSide;
 import com.fasterxml.jackson.databind.JsonNode;
 
@@ -32,8 +33,9 @@ final class KisBrokerOrderSnapshotValidator {
         String expectedOrganization = intent.getBrokerOrganizationNumber();
         String brokerOrganization = firstText(row, "ord_gno_brno", "ORD_GNO_BRNO",
                 "krx_fwdg_ord_orgno", "KRX_FWDG_ORD_ORGNO");
-        return expectedOrganization == null || expectedOrganization.isBlank() || brokerOrganization.isBlank()
-                || expectedOrganization.trim().equalsIgnoreCase(brokerOrganization.trim());
+        if (expectedOrganization == null || expectedOrganization.isBlank()) return true;
+        if (brokerOrganization.isBlank()) return intent.getMarket() != Market.KR;
+        return expectedOrganization.trim().equalsIgnoreCase(brokerOrganization.trim());
     }
 
     private static String firstText(JsonNode row, String... fields) {
