@@ -49,7 +49,7 @@ Set-Location .\services\market-ai
 
 ### PAPER WebSocket 연결 사전점검
 
-다음 명령은 PAPER WebSocket 승인 키와 국내 종목 구독을 확인합니다. `.env_local`에 `KIS_WEBSOCKET_ENABLED=true`를 설정해야 하며, PAPER 모드·실주문·PAPER 주문·자동매매·REAL 시세·REAL 조회·REAL 대조 스위치는 꺼져 있어야 합니다. probe 프로세스는 로컬 파일에 있는 REAL 앱 자격정보를 비운 뒤 실행합니다. PostgreSQL 공유 호출 제한이 켜져 있어야 합니다. 국내 장중 tick 확인은 아래처럼 `--wait-for-tick-seconds`를 지정합니다. 이 PAPER probe는 국내 구독만 지원합니다. 미국 시세 스트림은 PAPER 환경이 아닌 별도의 읽기 전용 REAL 시세 경로를 사용합니다.
+다음 명령은 PAPER WebSocket 승인 키와 국내 종목 구독을 확인합니다. `.env_local`에 `KIS_WEBSOCKET_ENABLED=true`를 설정해야 하며, `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, PAPER/REAL 주문 잠금, PAPER 자동매매 잠금 및 PostgreSQL 공유 호출 제한을 확인합니다. probe 프로세스는 실행 전에 자신의 프로세스 환경에서 모든 `KIS_REAL_*`, `REAL_SIGNAL_*`, `REAL_PROTECTIVE_*` 값과 자격정보를 제거합니다. 따라서 별도의 읽기 전용 REAL 시세 설정을 가진 `.env_local`을 수정하지 않습니다. 국내 장중 tick 확인은 아래처럼 `--wait-for-tick-seconds`를 지정합니다. 이 PAPER probe는 국내 구독만 지원합니다. 미국 시세 스트림은 PAPER 환경이 아닌 별도의 읽기 전용 REAL 시세 경로를 사용합니다.
 
 ```powershell
 .\services\market-ai\.venv\Scripts\python.exe .\scripts\probe-kis-paper-websocket.py --market KR --symbol 005930 --wait-for-tick-seconds 120

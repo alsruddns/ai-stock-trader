@@ -65,8 +65,8 @@ class FakeConnection:
 
 @pytest.mark.parametrize("unsafe", [
     ("KIS_REAL_ORDERS_ENABLED", "true"),
-    ("KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED", "true"),
-    ("REAL_SIGNAL_SUBMISSION_ENABLED", "true"),
+    ("LIVE_TRADING_ENABLED", "true"),
+    ("KIS_PAPER_ORDERS_ENABLED", "true"),
 ])
 def test_probe_requires_paper_only_switches_before_requesting_approval(monkeypatch, capsys, unsafe) -> None:
     for key, value in SAFE_SWITCHES.items():
@@ -143,6 +143,8 @@ def test_main_emits_sanitized_result_after_safe_paper_preflight(monkeypatch, cap
         monkeypatch.setenv(key, value)
     monkeypatch.setenv("KIS_REAL_APP_KEY", "must-not-reach-probe")
     monkeypatch.setenv("KIS_REAL_APP_SECRET", "must-not-reach-probe")
+    monkeypatch.setenv("KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setenv("REAL_SIGNAL_SUBMISSION_ENABLED", "true")
     monkeypatch.setattr(probe, "load_local_environment", lambda _repository: Path(".env_local"))
     monkeypatch.setattr(probe.KisSettings, "from_environment", classmethod(
         lambda _cls, _environment: SimpleNamespace(app_key="private-key", app_secret="private-secret", shared_rate_limit_enabled=True),
@@ -152,8 +154,10 @@ def test_main_emits_sanitized_result_after_safe_paper_preflight(monkeypatch, cap
     ))
 
     async def fake_probe(*_args: object) -> dict[str, Any]:
-        assert probe.os.getenv("KIS_REAL_APP_KEY") == ""
-        assert probe.os.getenv("KIS_REAL_APP_SECRET") == ""
+        assert "KIS_REAL_APP_KEY" not in probe.os.environ
+        assert "KIS_REAL_APP_SECRET" not in probe.os.environ
+        assert "KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED" not in probe.os.environ
+        assert "REAL_SIGNAL_SUBMISSION_ENABLED" not in probe.os.environ
         return {
             "status": "acknowledged_no_tick", "environment": "paper", "market": "KR", "symbol": "005930",
             "exchange": None, "acknowledged": True, "tick_received": False,

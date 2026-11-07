@@ -33,17 +33,17 @@ _REQUIRED_SWITCHES = {
     "KIS_WEBSOCKET_ENABLED": "true",
     "KIS_PAPER_ORDERS_ENABLED": "false",
     "KIS_REAL_ORDERS_ENABLED": "false",
-    "KIS_REAL_RECONCILIATION_ENABLED": "false",
-    "KIS_REAL_ACCOUNT_READ_ENABLED": "false",
-    "KIS_REAL_EXECUTION_NOTICES_ENABLED": "false",
-    "KIS_REAL_MARKET_DATA_ENABLED": "false",
-    "KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED": "false",
-    "REAL_SIGNAL_MONITOR_ENABLED": "false",
-    "REAL_SIGNAL_SUBMISSION_ENABLED": "false",
-    "REAL_PROTECTIVE_EXIT_MANAGER_ENABLED": "false",
     "PAPER_AUTOTRADING_ENABLED": "false",
-    "KIS_SHARED_RATE_LIMIT_ENABLED": "true",
 }
+
+
+def clear_real_environment() -> None:
+    """Remove REAL credentials and feature gates from this PAPER probe process."""
+    for name in tuple(os.environ):
+        if name.startswith("KIS_REAL_") or name.startswith((
+            "REAL_SIGNAL_", "REAL_PROTECTIVE_",
+        )):
+            os.environ.pop(name, None)
 
 
 async def run_probe(
@@ -147,9 +147,6 @@ def main(
     except (OSError, ValueError):
         print(json.dumps({"status": "blocked", "reason": "LOCAL_ENV_UNAVAILABLE"}))
         return 2
-    for name in ("KIS_REAL_APP_KEY", "KIS_REAL_APP_SECRET", "KIS_REAL_ACCOUNT_NUMBER"):
-        os.environ[name] = ""
-
     if any(os.getenv(name, "").strip().lower() != expected for name, expected in _REQUIRED_SWITCHES.items()):
         print(json.dumps({"status": "blocked", "reason": "SAFETY_SWITCHES_NOT_PAPER_READ_ONLY"}))
         return 2
@@ -160,6 +157,7 @@ def main(
         print(json.dumps({"status": "blocked", "reason": "INVALID_PROBE_ARGUMENT"}))
         return 2
 
+    clear_real_environment()
     settings = KisSettings.from_environment("paper")
     stream = StreamSettings.from_environment("paper")
     if not stream.enabled or not settings.app_key or not settings.app_secret or not settings.shared_rate_limit_enabled:
