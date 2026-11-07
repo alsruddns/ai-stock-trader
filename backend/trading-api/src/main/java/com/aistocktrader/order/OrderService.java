@@ -182,7 +182,6 @@ public class OrderService {
         PaperOrderAmendment amendment = new PaperOrderAmendment(orderId, idempotencyKey,
                 oldQuantity, request.quantity(), oldLimitPrice, request.limitPrice());
         amendments.save(amendment);
-        order.amendPaperOrder(request.quantity(), request.limitPrice());
         return orders.save(order);
     }
 

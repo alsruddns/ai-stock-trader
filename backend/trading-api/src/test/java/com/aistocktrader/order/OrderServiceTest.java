@@ -348,7 +348,7 @@ class OrderServiceTest {
     @Test
     void amendsOpenPaperOrderAndPersistsThePriorAndNewTerms() {
         UUID amendmentKey = UUID.randomUUID();
-        OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey);
+        OrderRecord order = spy(new OrderRecord(request(new BigDecimal("70000"), 2), idempotencyKey));
         ReflectionTestUtils.setField(order, "id", 11L);
         when(orders.findByIdForUpdate(11L)).thenReturn(Optional.of(order));
         when(amendments.findByOrderIdAndIdempotencyKey(11L, amendmentKey)).thenReturn(Optional.empty());
@@ -370,6 +370,7 @@ class OrderServiceTest {
                 && record.getOldLimitPrice().compareTo(new BigDecimal("70000")) == 0
                 && record.getNewLimitPrice().compareTo(new BigDecimal("71000")) == 0));
         verify(orders).save(order);
+        verify(order, times(1)).amendPaperOrder(3, new BigDecimal("71000"));
     }
 
     @Test
