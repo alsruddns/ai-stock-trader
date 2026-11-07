@@ -7,6 +7,10 @@
 3. Spring Boot를 실행합니다: `.\scripts\start-local.ps1`
 4. Python API는 `services/market-ai` 가상환경에서 실행합니다. API는 `127.0.0.1`에만 바인딩합니다.
 
+### Windows 로그인 시 Dashboard 자동 시작
+
+`AIStockTrader-Dashboard` 작업은 현재 Windows 사용자의 대화형 로그인 때 Dashboard를 시작합니다. 먼저 로컬 스택과 Dashboard production build가 준비되어 있어야 합니다. 설치·시작은 `.\scripts\install-dashboard-task.ps1`, 제거는 `.\scripts\remove-dashboard-task.ps1`입니다. 별도 포트 13000이 이미 점유되었으면 어떤 프로세스도 종료하거나 교체하지 않습니다. Spring/FastAPI의 상태와 PAPER·주문 잠금을 확인할 수 없거나 예상한 값이 아니면 Dashboard를 시작하지 않습니다. 실제 주문과 PAPER 자동매매를 활성화하는 기능은 없습니다. 작업은 관리자 권한 없이 현재 사용자 권한으로 실행되며, 로그는 `.local\logs\dashboard-task.log`에 남습니다.
+
 Java 빌드는 Gradle이 아닌 프로젝트 포함 Maven Wrapper를 사용합니다: `.\backend\trading-api\mvnw.cmd test`.
 
 ## GitHub Actions 검증
