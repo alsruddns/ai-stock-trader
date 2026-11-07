@@ -20,6 +20,7 @@ def enable_real_signal_gates(monkeypatch) -> None:
         "KIS_REAL_ORDERS_ENABLED": "true",
         "KIS_ACCOUNT_READ_ENABLED": "true",
         "KIS_REAL_ACCOUNT_READ_ENABLED": "true",
+        "REAL_PROTECTIVE_EXIT_MANAGER_ENABLED": "true",
         "REAL_SIGNAL_SUBMISSION_ENABLED": "true",
     }.items():
         monkeypatch.setenv(key, value)
@@ -98,4 +99,10 @@ def test_all_real_gates_must_be_enabled(monkeypatch) -> None:
     enable_real_signal_gates(monkeypatch)
     assert real_signal_submission_enabled()
     monkeypatch.setenv("KIS_REAL_ORDERS_ENABLED", "false")
+    assert not real_signal_submission_enabled()
+
+
+def test_real_entries_stay_locked_until_protective_exit_manager_is_enabled(monkeypatch) -> None:
+    enable_real_signal_gates(monkeypatch)
+    monkeypatch.setenv("REAL_PROTECTIVE_EXIT_MANAGER_ENABLED", "false")
     assert not real_signal_submission_enabled()
