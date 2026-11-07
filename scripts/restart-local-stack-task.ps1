@@ -11,6 +11,13 @@ $runtimeStatePath = Join-Path $repoRoot '.local\logs\local-stack-pids.json'
 $pythonHealthUrl = 'http://127.0.0.1:8000/api/v1/health'
 $pythonPaperSessionUrl = 'http://127.0.0.1:8000/api/v1/paper/session'
 $springSummaryUrl = 'http://127.0.0.1:8080/api/v1/operations/summary'
+. (Join-Path $PSScriptRoot 'lib\local-postgres-binding.ps1')
+
+function Assert-PostgresLoopbackForRestart {
+    param([string[]]$ListenerAddresses)
+
+    Assert-LocalPostgresBinding -Port 5432 -ListenerAddresses $ListenerAddresses
+}
 
 function Test-SessionResponsesFreshAndClosed($Sessions, [DateTimeOffset]$NowUtc) {
     if (@($Sessions).Count -ne 2) { return $false }
@@ -112,6 +119,10 @@ $taskActionMatches = @($task.Actions | Where-Object {
 }).Count -gt 0
 if (-not $taskActionMatches) { throw 'The scheduled task does not launch this repository runner; restart was stopped.' }
 if (-not (Test-Path -LiteralPath $runtimeStatePath)) { throw 'Local stack process state is missing; restart was not attempted.' }
+
+$postgresListenerAddresses = @(Get-NetTCPConnection -State Listen -LocalPort 5432 -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty LocalAddress -Unique)
+Assert-PostgresLoopbackForRestart -ListenerAddresses $postgresListenerAddresses
 
 Get-ConfirmedClosedSessions
 $previousPaperSession = Invoke-RestMethod -Uri $pythonPaperSessionUrl -TimeoutSec 5

@@ -74,6 +74,23 @@ $tokens = $null
 $parseErrors = $null
 $restartAst = [System.Management.Automation.Language.Parser]::ParseFile($restartPath, [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count -gt 0) { throw 'The local stack restart script has PowerShell syntax errors.' }
+$restartPostgresGateAst = $restartAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Assert-PostgresLoopbackForRestart'
+}, $true)
+if ($null -eq $restartPostgresGateAst) { throw 'The PostgreSQL restart preflight was not found.' }
+. (Join-Path $PSScriptRoot 'lib\local-postgres-binding.ps1')
+. ([ScriptBlock]::Create($restartPostgresGateAst.Extent.Text))
+Assert-PostgresLoopbackForRestart -ListenerAddresses @('127.0.0.1', '::1')
+$wildcardPostgresBlocked = $false
+try { Assert-PostgresLoopbackForRestart -ListenerAddresses @('0.0.0.0', '::') }
+catch { $wildcardPostgresBlocked = $_.Exception.Message -match 'non-loopback address' }
+if (-not $wildcardPostgresBlocked) { throw 'A non-loopback PostgreSQL listener must block restart before stopping the local APIs.' }
+$missingPostgresBlocked = $false
+try { Assert-PostgresLoopbackForRestart -ListenerAddresses @() }
+catch { $missingPostgresBlocked = $_.Exception.Message -match 'No PostgreSQL listener' }
+if (-not $missingPostgresBlocked) { throw 'A missing PostgreSQL listener must block restart before stopping the local APIs.' }
 $gateAst = $restartAst.Find({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
