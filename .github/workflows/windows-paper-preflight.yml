@@ -33,6 +33,7 @@ jobs:
             'scripts/lib/local-postgres-binding.ps1',
             'scripts/run-model-retraining.ps1',
             'scripts/run-model-holdout-evaluation.ps1',
+            'scripts/lib/model-retraining-report.ps1',
             'scripts/lib/operations-report.ps1',
             'scripts/export-daily-report.ps1'
           )
@@ -60,6 +61,11 @@ jobs:
           $modelSafetyResult = Invoke-Pester -Path 'scripts/tests/paper-safety.Tests.ps1' -PassThru
           if ($modelSafetyResult.FailedCount -gt 0 -or $modelSafetyResult.PassedCount -ne 4) {
             throw "Scheduled model safety tests failed: passed=$($modelSafetyResult.PassedCount), failed=$($modelSafetyResult.FailedCount)."
+          }
+
+          $modelReportResult = Invoke-Pester -Path 'scripts/tests/model-retraining-report.Tests.ps1' -PassThru
+          if ($modelReportResult.FailedCount -gt 0 -or $modelReportResult.PassedCount -ne 3) {
+            throw "Model retraining report tests failed: passed=$($modelReportResult.PassedCount), failed=$($modelReportResult.FailedCount)."
           }
 
           $reportResult = Invoke-Pester -Path 'scripts/tests/operations-report.Tests.ps1' -PassThru

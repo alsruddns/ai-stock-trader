@@ -20,6 +20,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'lib\paper-safety.ps1')
+. (Join-Path $PSScriptRoot 'lib\model-retraining-report.ps1')
 $localSettings = Read-AiTraderLocalSafetySettings -RepositoryRoot $repoRoot
 Assert-AiTraderPaperSafetyLocks -Settings $localSettings
 
@@ -45,6 +46,14 @@ New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null
 $csvPath = Join-Path $dataDirectory "$runId.csv"
 $reportPath = Join-Path $reportDirectory "$runId.json"
 $exportRelativePath = "data/model-candidates/$runId.csv"
+$modelDirectory = Join-Path $repoRoot '.local\models'
+$existingManifestNames = @()
+$existingArtifactNames = @()
+$stage = 'data_export'
+$stageExitCode = $null
+$datasetSha256 = $null
+$candidateModelIds = @()
+$orphanCandidateArtifacts = @()
 $exportArgs = @(
     (Join-Path $repoRoot 'scripts\export-market-data.py'),
     '--market', $Market,
@@ -58,8 +67,9 @@ $exportArgs = @(
 Push-Location $repoRoot
 try {
     $exportOutput = & $PythonPath @exportArgs 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "Market data export failed (exit $LASTEXITCODE): $($exportOutput -join [Environment]::NewLine)"
+    $stageExitCode = $LASTEXITCODE
+    if ($stageExitCode -ne 0) {
+        throw 'Market data export failed.'
     }
     $export = ($exportOutput -join [Environment]::NewLine) | ConvertFrom-Json
     $sidecarPath = "$csvPath.provenance.json"
@@ -69,8 +79,8 @@ try {
         throw 'Export did not produce a rights-reviewed, source-quality-verified CSV and provenance sidecar.'
     }
     $sidecar = Get-Content -LiteralPath $sidecarPath -Raw | ConvertFrom-Json
-    $csvSha256 = (Get-FileHash -LiteralPath $csvPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($sidecar.rights_reviewed -ne $true -or $sidecar.dataset_sha256 -ne $csvSha256 -or
+    $datasetSha256 = (Get-FileHash -LiteralPath $csvPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($sidecar.rights_reviewed -ne $true -or $sidecar.dataset_sha256 -ne $datasetSha256 -or
         $sidecar.permissions.local_storage -ne $true -or $sidecar.permissions.backtesting -ne $true -or
         $sidecar.permissions.model_training -ne $true) {
         throw 'Export provenance did not verify the CSV hash and required personal-use permissions.'
@@ -84,7 +94,6 @@ try {
         '--commission-bps', $CommissionBps.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--slippage-bps', $SlippageBps.ToString([Globalization.CultureInfo]::InvariantCulture)
     )
-    $modelDirectory = Join-Path $repoRoot '.local\models'
     $existingManifestNames = @(
         Get-ChildItem -LiteralPath $modelDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue |
             Where-Object { $_.BaseName -match '^(lightgbm|xgboost)-[a-f0-9]{32}$' } |
@@ -95,9 +104,11 @@ try {
             Where-Object { $_.BaseName -match '^(lightgbm|xgboost)-[a-f0-9]{32}$' } |
             ForEach-Object { $_.Name }
     )
+    $stage = 'candidate_training'
     $trainingOutput = & $PythonPath @trainingArgs 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        $addedManifests = @(
+    $stageExitCode = $LASTEXITCODE
+    if ($stageExitCode -ne 0) {
+        $candidateModelIds = @(
             Get-ChildItem -LiteralPath $modelDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue |
                 Where-Object {
                     $_.BaseName -match '^(lightgbm|xgboost)-[a-f0-9]{32}$' -and
@@ -105,7 +116,7 @@ try {
                 } |
                 ForEach-Object { $_.BaseName }
         )
-        $addedArtifacts = @(
+        $newCandidateArtifacts = @(
             Get-ChildItem -LiteralPath $modelDirectory -Filter '*.joblib' -File -ErrorAction SilentlyContinue |
                 Where-Object {
                     $_.BaseName -match '^(lightgbm|xgboost)-[a-f0-9]{32}$' -and
@@ -113,25 +124,18 @@ try {
                 } |
                 ForEach-Object { $_.Name }
         )
-        $failure = [ordered]@{
-            run_id = $runId
-            status = 'training_failed'
-            market = $Market
-            symbol = $symbolValue
-            from_date = $FromDate.ToString('yyyy-MM-dd')
-            to_date = $ToDate.ToString('yyyy-MM-dd')
-            dataset_path = $exportRelativePath
-            dataset_sha256 = $csvSha256
-            candidate_models_created = ($addedManifests.Count -gt 0)
-            candidate_model_ids = $addedManifests
-            orphan_candidate_artifacts = $addedArtifacts
-            candidates_may_exist_after_partial_failure = ($addedArtifacts.Count -gt 0)
-            output = ($trainingOutput -join [Environment]::NewLine)
-        }
-        $failure | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $reportPath -Encoding utf8
-        throw "Candidate training failed (exit $LASTEXITCODE). Evidence saved to $reportPath."
+        $orphanCandidateArtifacts = @($newCandidateArtifacts | Where-Object {
+            $candidateModelIds -notcontains [IO.Path]::GetFileNameWithoutExtension($_)
+        })
+        Write-AiTraderModelRetrainingFailureReport -Path $reportPath -RunId $runId `
+            -FailureStage 'candidate_training' -Market $Market -Symbol $symbolValue `
+            -FromDate $FromDate.ToString('yyyy-MM-dd') -ToDate $ToDate.ToString('yyyy-MM-dd') `
+            -DatasetPath $exportRelativePath -DatasetSha256 $datasetSha256 -ExitCode $stageExitCode `
+            -CandidateModelIds $candidateModelIds -OrphanCandidateArtifacts $orphanCandidateArtifacts
+        throw 'Candidate training failed; only sanitized failure metadata was recorded.'
     }
 
+    $stage = 'candidate_verification'
     $training = ($trainingOutput -join [Environment]::NewLine) | ConvertFrom-Json
     if ($training.data_rights_verified -ne $true -or -not $training.models -or
         @($training.models | Where-Object { $_.model_id -notmatch '^(lightgbm|xgboost)-[a-f0-9]{32}$' }).Count -gt 0) {
@@ -144,7 +148,7 @@ try {
         }
         $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
         if ($manifest.approved -ne $false -or $manifest.artifact_sha256 -ne $candidate.artifact_sha256 -or
-            $manifest.dataset_sha256 -ne $csvSha256) {
+            $manifest.dataset_sha256 -ne $datasetSha256) {
             throw "Candidate manifest failed its approval or hash check: $($candidate.model_id)"
         }
     }
@@ -171,9 +175,42 @@ try {
             }
         })
     }
-    $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $reportPath -Encoding utf8
+    $stage = 'complete'
+    Set-AiTraderAtomicJsonFile -Path $reportPath -Value $report -Depth 12
     Write-Output "Candidate report: $reportPath"
     Get-Content -LiteralPath $reportPath -Raw
+} catch {
+    if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
+        $safeFailureStage = if ($stage -eq 'complete') { 'candidate_verification' } else { $stage }
+        if ($safeFailureStage -eq 'candidate_verification') {
+            $candidateModelIds = @(
+                Get-ChildItem -LiteralPath $modelDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue |
+                    Where-Object {
+                        $_.BaseName -match '^(lightgbm|xgboost)-[a-f0-9]{32}$' -and
+                        $existingManifestNames -notcontains $_.Name
+                    } |
+                    ForEach-Object { $_.BaseName }
+            )
+            $newCandidateArtifacts = @(
+                Get-ChildItem -LiteralPath $modelDirectory -Filter '*.joblib' -File -ErrorAction SilentlyContinue |
+                    Where-Object {
+                        $_.BaseName -match '^(lightgbm|xgboost)-[a-f0-9]{32}$' -and
+                        $existingArtifactNames -notcontains $_.Name
+                    } |
+                    ForEach-Object { $_.Name }
+            )
+            $orphanCandidateArtifacts = @($newCandidateArtifacts | Where-Object {
+                $candidateModelIds -notcontains [IO.Path]::GetFileNameWithoutExtension($_)
+            })
+        }
+        Write-AiTraderModelRetrainingFailureReport -Path $reportPath -RunId $runId `
+            -FailureStage $safeFailureStage -Market $Market -Symbol $symbolValue `
+            -FromDate $FromDate.ToString('yyyy-MM-dd') -ToDate $ToDate.ToString('yyyy-MM-dd') `
+            -DatasetPath $exportRelativePath -DatasetSha256 $datasetSha256 -ExitCode $stageExitCode `
+            -Exception $_.Exception -CandidateModelIds $candidateModelIds `
+            -OrphanCandidateArtifacts $orphanCandidateArtifacts
+    }
+    throw "Model retraining stopped during '$stage'; a sanitized report is available at $reportPath."
 }
 finally {
     Pop-Location
