@@ -29,6 +29,21 @@ from .paper_ops import PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate,
 from .paper_risk import baseline_capture_open, daily_loss_percent, paper_equity_snapshot
 
 
+def next_market_session_open(market: Literal["KR", "US"], now: datetime) -> datetime:
+    """Return the next strictly future exchange open, including today's open if upcoming."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("current time must be timezone-aware")
+    zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
+    local_now = now.astimezone(zone)
+    for offset in range(14):
+        session_date = local_now.date() + timedelta(days=offset)
+        local_noon = datetime.combine(session_date, datetime.min.time(), tzinfo=zone) + timedelta(hours=12)
+        window = exchange_session_window(market, local_noon)
+        if window is not None and window[0] > now.astimezone(timezone.utc):
+            return window[0]
+    raise RuntimeError("No upcoming exchange session found within the calendar lookahead")
+
+
 @dataclass(frozen=True)
 class PaperWatch:
     market: Literal["KR", "US"]
@@ -68,6 +83,7 @@ class PaperSessionFeedMonitor:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._stream_tasks: list[asyncio.Task] = []
+        self._candidate_tasks: list[asyncio.Task] = []
         self._watches_by_feed: dict[str, list[PaperWatch]] = {}
         self._subscription_update_queues: dict[
             str, asyncio.Queue[tuple[PaperWatch, str, asyncio.Future[None]]]
@@ -85,6 +101,7 @@ class PaperSessionFeedMonitor:
             "last_error": None, "orders_enabled": False,
             "automation_state": "DISABLED", "automation_error": None,
             "bar_storage_state": "DISABLED", "bar_storage_error": None,
+            "candidate_refresh_by_market": {},
         }
         self._aggregators: dict[str, MinuteBarAggregator] = {}
         self._bars: dict[str, deque[MinuteBar]] = {}
@@ -104,6 +121,9 @@ class PaperSessionFeedMonitor:
             result["ticks_received_by_feed"] = dict(self._status["ticks_received_by_feed"])
             result["last_tick_received_at_by_feed"] = dict(self._status["last_tick_received_at_by_feed"])
             result["bars_closed_by_feed"] = dict(self._status["bars_closed_by_feed"])
+            result["candidate_refresh_by_market"] = {
+                key: dict(value) for key, value in self._status["candidate_refresh_by_market"].items()
+            }
             return result
 
     def bars(self, watch: PaperWatch) -> tuple[MinuteBar, ...]:
@@ -225,6 +245,12 @@ class PaperSessionFeedMonitor:
             asyncio.create_task(self._run(group_watches, group_settings))
             for group_watches, group_settings in feed_groups.values()
         ]
+        if os.getenv("PAPER_CANDIDATE_AUTO_REFRESH_ENABLED", "false").strip().lower() == "true":
+            self._candidate_tasks = [
+                asyncio.create_task(self._candidate_refresh_loop(market))
+                for market in ("KR", "US")
+                if any(watch.market == market for group_watches, _ in feed_groups.values() for watch in group_watches)
+            ]
 
     async def add_watches(
         self, watches: tuple[PaperWatch, ...], *, discovered: bool = False,
@@ -376,12 +402,21 @@ class PaperSessionFeedMonitor:
                 self._evaluate_closed_history(watch, restored[-1])
 
     async def stop(self) -> None:
+        candidate_tasks = self._candidate_tasks
+        self._candidate_tasks = []
         stream_tasks = self._stream_tasks
         self._stream_tasks = []
         automation_task = self._automation_task
         self._automation_task = None
         storage_task = self._bar_storage_task
         self._bar_storage_task = None
+        for task in candidate_tasks:
+            task.cancel()
+        for task in candidate_tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         for task in stream_tasks:
             task.cancel()
         for task in stream_tasks:
@@ -410,6 +445,98 @@ class PaperSessionFeedMonitor:
             self._bar_storage_queue = None
         if self.status().get("enabled"):
             self._set_status(state="STOPPED", enabled=False)
+
+    async def _candidate_refresh_loop(self, market: Literal["KR", "US"]) -> None:
+        """Refresh candidate-only subscriptions once before each exchange session."""
+        if (os.getenv("PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED", "false").strip().lower() != "true"
+                or os.getenv("TRADING_MODE", "paper").strip().lower() != "paper"
+                or os.getenv("LIVE_TRADING_ENABLED", "false").strip().lower() == "true"
+                or os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true"):
+            self._set_candidate_status(market, state="BLOCKED", reason="CANDIDATE_REFRESH_SAFETY_LOCK")
+            return
+        while True:
+            now = datetime.now(timezone.utc)
+            try:
+                session_open = next_market_session_open(market, now)
+            except Exception:
+                self._set_candidate_status(market, state="BLOCKED", reason="EXCHANGE_CALENDAR_UNAVAILABLE")
+                return
+            refresh_at = session_open - timedelta(minutes=5)
+            if now >= session_open:
+                # A late process start cannot build the ORB opening history for this session.
+                self._set_candidate_status(market, state="SKIPPED_LATE_START", session_open=session_open.isoformat())
+                await asyncio.sleep(1)
+                continue
+            if now < refresh_at:
+                self._set_candidate_status(market, state="WAITING", session_open=session_open.isoformat())
+                await asyncio.sleep((refresh_at - now).total_seconds())
+            if datetime.now(timezone.utc) >= session_open:
+                continue
+            feed_environment = "paper" if market == "KR" else "real"
+            while datetime.now(timezone.utc) < session_open:
+                feed_status = self.status()
+                if (feed_status.get("enabled")
+                        and feed_status.get("stream_connections", {}).get(feed_environment) == "RUNNING"):
+                    break
+                self._set_candidate_status(market, state="WAITING_FOR_FEED", session_open=session_open.isoformat())
+                await asyncio.sleep(min(1.0, max(0.05, (session_open - datetime.now(timezone.utc)).total_seconds())))
+            else:
+                self._set_candidate_status(market, state="SKIPPED_FEED_NOT_READY", session_open=session_open.isoformat())
+                continue
+            try:
+                result = await self._refresh_candidates_once(market, before=session_open)
+                self._set_candidate_status(market, state="COMPLETED", session_open=session_open.isoformat(), **result)
+            except Exception:
+                # Do not expose upstream error details, which may contain request metadata.
+                self._set_candidate_status(market, state="FAILED", reason="CANDIDATE_REFRESH_FAILED",
+                                           session_open=session_open.isoformat())
+            await asyncio.sleep(max(1.0, (session_open - datetime.now(timezone.utc)).total_seconds()))
+
+    async def _refresh_candidates_once(
+        self, market: Literal["KR", "US"], *, before: datetime | None = None,
+    ) -> dict[str, object]:
+        if os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true":
+            raise RuntimeError("candidate refresh is blocked during PAPER automation")
+        threshold_key = "PAPER_CANDIDATE_MIN_TURNOVER_KRW" if market == "KR" else "PAPER_CANDIDATE_MIN_TURNOVER_USD"
+        threshold_text = os.getenv(threshold_key, "").strip()
+        if not threshold_text:
+            raise ValueError("candidate turnover threshold is required")
+        threshold = Decimal(threshold_text)
+        if not threshold.is_finite() or threshold <= 0:
+            raise ValueError("candidate turnover threshold must be positive")
+        limit = int(os.getenv("PAPER_CANDIDATE_LIMIT", "10"))
+        if not 1 <= limit <= 20:
+            raise ValueError("candidate limit must be between 1 and 20")
+        exchange = None
+        if market == "US":
+            exchange = os.getenv("PAPER_CANDIDATE_US_EXCHANGE", "").strip().upper()
+            if exchange not in {"NAS", "NYS", "AMS"}:
+                raise ValueError("US candidate exchange must be explicitly configured")
+        from .main import get_kis_candidate_client
+
+        client = get_kis_candidate_client(market)
+        try:
+            candidates = await asyncio.to_thread(
+                client.get_ranked_candidates, market, exchange=exchange, limit=limit,
+                minimum_turnover=threshold, maximum_spread_bps=Decimal("15"),
+            )
+        finally:
+            client.close()
+        if before is not None and datetime.now(timezone.utc) >= before:
+            raise RuntimeError("candidate ranking completed after the exchange opened")
+        desired = tuple(
+            PaperWatch(candidate.market, candidate.symbol, candidate.exchange)
+            for candidate in candidates
+            if candidate.price > 0 and candidate.volume > 0 and candidate.turnover >= threshold
+        )
+        result = await self.refresh_discovered_watches(market, desired)
+        return {"considered": len(candidates), "selected": len(desired), **result}
+
+    def _set_candidate_status(self, market: str, **values: object) -> None:
+        with self._lock:
+            statuses = dict(self._status["candidate_refresh_by_market"])
+            statuses[market] = {**statuses.get(market, {}), **values}
+            self._status["candidate_refresh_by_market"] = statuses
 
     async def _bar_storage_loop(self) -> None:
         queue = self._bar_storage_queue

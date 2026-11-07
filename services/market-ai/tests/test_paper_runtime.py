@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.paper_runtime import PaperSessionFeedMonitor, PaperWatch, parse_watchlist
+from app.paper_runtime import PaperSessionFeedMonitor, PaperWatch, next_market_session_open, parse_watchlist
 from app.paper_automation import PaperAutoTrader
 from app.paper_ops import PaperOpsLimits
 from app.market_stream import MinuteBarAggregator
@@ -25,6 +25,63 @@ def test_watchlist_respects_kis_forty_subscription_limit() -> None:
     entries = ";".join(f"KR:{index:06d}" for index in range(1, 42))
     with pytest.raises(ValueError, match="at most 40"):
         parse_watchlist(entries)
+
+
+@pytest.mark.parametrize(
+    ("market", "expected_open"),
+    [("KR", "2026-11-09T00:00:00+00:00"), ("US", "2026-11-09T14:30:00+00:00")],
+)
+def test_next_market_session_open_skips_weekend(market: str, expected_open: str) -> None:
+    now = datetime(2026, 11, 7, 12, tzinfo=ZoneInfo("Asia/Seoul"))
+    assert next_market_session_open(market, now).isoformat() == expected_open
+
+
+def test_candidate_auto_refresh_selects_turnover_without_requiring_premarket_spread(monkeypatch) -> None:
+    from app import main
+
+    selected: list[tuple[PaperWatch, ...]] = []
+    class Client:
+        closed = False
+
+        def get_ranked_candidates(self, market, *, exchange, limit, minimum_turnover, maximum_spread_bps):
+            assert (market, exchange, limit, minimum_turnover) == ("KR", None, 10, Decimal("1000"))
+            assert maximum_spread_bps == Decimal("15")
+            return [
+                SimpleNamespace(market="KR", symbol="000660", exchange=None, price=Decimal("100"),
+                                volume=10, turnover=Decimal("1000"), passes_market_filter=False),
+                SimpleNamespace(market="KR", symbol="000001", exchange=None, price=Decimal("100"),
+                                volume=10, turnover=Decimal("999"), passes_market_filter=True),
+            ]
+
+        def close(self):
+            self.closed = True
+
+    client = Client()
+    monkeypatch.setattr(main, "get_kis_candidate_client", lambda _market: client)
+    monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "false")
+    monkeypatch.setenv("PAPER_CANDIDATE_MIN_TURNOVER_KRW", "1000")
+    monkeypatch.delenv("PAPER_CANDIDATE_US_EXCHANGE", raising=False)
+    runtime = PaperSessionFeedMonitor()
+
+    async def refresh(market, desired):
+        assert market == "KR"
+        selected.append(desired)
+        return {"added": [watch.key for watch in desired], "removed": [], "preserved": 0,
+                "open_orders": 0, "subscriptions": 1}
+
+    monkeypatch.setattr(runtime, "refresh_discovered_watches", refresh)
+    result = asyncio.run(runtime._refresh_candidates_once("KR"))
+    assert [watch.symbol for watch in selected[0]] == ["000660"]
+    assert client.closed is True
+    assert result["selected"] == 1
+
+
+def test_candidate_auto_refresh_fails_closed_when_threshold_missing(monkeypatch) -> None:
+    monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "false")
+    monkeypatch.delenv("PAPER_CANDIDATE_MIN_TURNOVER_KRW", raising=False)
+    runtime = PaperSessionFeedMonitor()
+    with pytest.raises(ValueError, match="threshold is required"):
+        asyncio.run(runtime._refresh_candidates_once("KR"))
 
 
 def test_monitor_adds_screened_watch_to_live_feed_subscription_queue(monkeypatch) -> None:
