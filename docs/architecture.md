@@ -6,7 +6,7 @@
 - **Python FastAPI:** 시세 수집, WebSocket, 퀀트 지표, LightGBM/XGBoost 신호 생성
 - **PostgreSQL:** 계좌·시세 스냅샷, 주문·체결·포지션, 신호·모델·감사 데이터
 - **Next.js:** 로컬 운영 대시보드
-- **LEAN:** 공식 오픈소스 엔진을 Windows 로컬에서 빌드하고 C# ORB/VWAP/EMA/ATR 전략과 로컬 KIS CSV를 재생합니다. `scripts/run-lean-backtest.ps1`은 Python 기준 엔진과 결과를 대조합니다. 이 네이티브 경로에는 Docker나 QuantConnect 유료 조직 계정이 필요하지 않으며, 별도 LEAN CLI 경로는 Docker와 조직 계정이 필요합니다. 현재는 KR·US 각각 한 세션의 재현만 확인했으며 다중 세션 성능 및 AI 통합 검증은 남아 있습니다.
+- **LEAN:** 공식 오픈소스 엔진을 Windows 로컬에서 빌드하고 C# ORB/VWAP/EMA/ATR 전략과 로컬 KIS CSV를 재생합니다. `scripts/run-lean-backtest.ps1`은 Python 기준 엔진과 결과를 대조하며, 선택한 로컬 후보 모델의 AI 확률 필터도 적용할 수 있습니다. 이 네이티브 경로에는 Docker나 QuantConnect 유료 조직 계정이 필요하지 않으며, 별도 LEAN CLI 경로는 Docker와 조직 계정이 필요합니다. KR·US 각각 한 세션의 퀀트 재현은 확인됐고, AI 후보가 없어 AI 재생 결과와 다중 세션 성능은 아직 검증되지 않았습니다.
 - **KIS Open API:** 국내·미국 주식의 기본 증권사 연결
 
 AI는 주문을 직접 제출하지 않습니다. Python의 모델 예측은 시장별로 버전이 구분되는 advisory 신호이며 `executable=false`를 유지합니다. Spring Boot에는 PAPER와 REAL 주문 어댑터 및 오케스트레이터가 있습니다. REAL 주문 HTTP 경로는 `/api/v1/kis/orders/real`이며 REAL 거래 모드, live 주문 스위치, 전체·REAL 계좌 읽기 스위치를 모두 통과해야 합니다. 기본값은 PAPER 모드와 모든 REAL 주문 잠금 비활성입니다. 실제 KIS 계좌 주문은 이 개발 상태에서 전송하지 않았습니다.

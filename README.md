@@ -95,9 +95,11 @@ LightGBM·XGBoost 학습용 선택 의존성은 `python -m pip install -e ".[dev
 ```powershell
 .\scripts\run-lean-backtest.ps1 -CsvFile .\data\licensed\AAPL-2026-11-06.csv -Market US -Symbol AAPL -Session 2026-11-06
 .\scripts\run-lean-backtest.ps1 -CsvFile .\data\backtests\kis-kr-005930-2026-10-30.csv -Market KR -Symbol 005930 -Session 2026-10-30
+# 선택: 검증용 후보 모델의 AI 확률 필터 포함 재생
+.\scripts\run-lean-backtest.ps1 -CsvFile .\data\licensed\AAPL-session.csv -Market US -Symbol AAPL -Session 2026-11-06 -ModelId xgboost-<32자리hex>
 ```
 
-실행 도구는 Python 기준 백테스트와 LEAN의 봉 수·신호·거래 수·순손익을 비교하고 차이가 1센트를 넘으면 실패합니다. 검증된 현재 표본은 미국 AAPL 2026-11-06 390봉/9신호/9거래와 국내 005930 2026-10-30 380봉/0신호/0거래입니다. 미국 한 세션의 순손익 추정은 두 엔진에서 -$7.7139928212093으로 일치했습니다. 국내 자료는 과거 스프레드가 없어 거래가 생성되지 않았습니다. 이 소수 표본은 전략 성과를 입증하지 않으며 다중 세션·AI 모델의 LEAN 통합은 계속 남아 있습니다.
+실행 도구는 Python 기준 백테스트와 LEAN의 봉 수·양자/AI 신호·거래 수·순손익을 비교하고 차이가 1센트를 넘으면 실패합니다. `-ModelId`를 주면 로컬 registry에서 현재 feature schema와 권리 provenance를 확인하고, 시점별 확률 파일의 해시와 세션 timestamp를 대조합니다. 검증된 현재 표본은 미국 AAPL 2026-11-06 390봉/9신호/9거래와 국내 005930 2026-10-30 380봉/0신호/0거래입니다. 미국 한 세션의 순손익 추정은 두 엔진에서 -$7.7139928212093으로 일치했습니다. 국내 자료는 과거 스프레드가 없어 거래가 생성되지 않았습니다. 이 소수 표본은 전략 성과를 입증하지 않으며, AI 모델을 포함한 LEAN 재생은 후보·완전한 세션 자료가 준비된 뒤 결과 검증이 필요합니다.
 
 ```powershell
 python .\scripts\train-ai-models.py .\data\licensed\005930.csv --market KR --symbol 005930 --commission-bps 5 --slippage-bps 5

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using QuantConnect.Data;
 using QuantConnect.Data.Market;
 using QuantConnect.Interfaces;
@@ -139,6 +141,7 @@ namespace QuantConnect.Algorithm.CSharp
         private const decimal RewardRiskMultiple = 2m;
 
         private readonly List<KisCsvMinuteBar> _bars = new();
+        private Dictionary<DateTime, decimal> _aiScores;
         private Symbol _symbol;
         private decimal _openingHigh;
         private decimal _cumulativeTypicalVolume;
@@ -147,11 +150,15 @@ namespace QuantConnect.Algorithm.CSharp
         private decimal? _stopPrice;
         private decimal? _targetPrice;
         private int _signals;
+        private int _quantSignals;
         private int _trades;
         private int _expectedBars;
+        private int _expectedAiScoreCount;
         private string _market;
         private string _sourceSymbol;
         private string _currency;
+        private string _aiModelId;
+        private decimal? _aiThreshold;
         private bool _entryPending;
 
         public override void Initialize()
@@ -166,6 +173,30 @@ namespace QuantConnect.Algorithm.CSharp
             _expectedBars = int.TryParse(GetParameter("expected-bars"), out var expected)
                 ? expected
                 : (_market == "US" ? 390 : 380);
+            _aiModelId = (GetParameter("ai-model-id") ?? "").Trim();
+            if (!string.IsNullOrEmpty(_aiModelId))
+            {
+                if (!Regex.IsMatch(_aiModelId, @"^(lightgbm|xgboost)-[a-f0-9]{32}$"))
+                    throw new ArgumentException("AI model identifier is invalid");
+                if (!decimal.TryParse(GetParameter("ai-threshold"), NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out var threshold) || threshold < 0m || threshold > 1m)
+                    throw new ArgumentException("AI model threshold must be between zero and one");
+                _aiThreshold = threshold;
+                _expectedAiScoreCount = int.TryParse(GetParameter("ai-score-count"), out var scoreCount)
+                    ? scoreCount
+                    : -1;
+                if (_expectedAiScoreCount != _expectedBars - 20)
+                    throw new ArgumentException("AI score count does not cover the complete session warmup range");
+                var scorePath = Path.Combine(Globals.DataFolder, "kis-ai-scores.csv");
+                var scoreBytes = File.ReadAllBytes(scorePath);
+                var actualHash = Convert.ToHexString(SHA256.HashData(scoreBytes)).ToLowerInvariant();
+                var expectedHash = (GetParameter("ai-score-sha256") ?? "").Trim().ToLowerInvariant();
+                if (!Regex.IsMatch(expectedHash, @"^[a-f0-9]{64}$") || actualHash != expectedHash)
+                    throw new ArgumentException("AI score file hash does not match the prepared manifest");
+                _aiScores = LoadAiScores(scorePath);
+                if (_aiScores.Count != _expectedAiScoreCount)
+                    throw new ArgumentException("AI score file has an invalid or duplicate timestamp count");
+            }
 
             SetTimeZone(TimeZones.Utc);
             SetStartDate(session.Year, session.Month, session.Day);
@@ -181,6 +212,8 @@ namespace QuantConnect.Algorithm.CSharp
         {
             if (!slice.TryGetValue(_symbol, out var value) || value is not KisCsvMinuteBar bar) return;
             _bars.Add(bar);
+            if (_aiScores != null && _bars.Count >= 21 && !_aiScores.ContainsKey(bar.Time))
+                throw new InvalidOperationException("AI score is missing for a complete-session timestamp");
             if (_bars.Count <= OpeningRangeBars) _openingHigh = Math.Max(_openingHigh, bar.High);
             _cumulativeTypicalVolume += ((bar.High + bar.Low + bar.Close) / 3m) * bar.Volume;
             _cumulativeVolume += bar.Volume;
@@ -203,7 +236,7 @@ namespace QuantConnect.Algorithm.CSharp
 
             if (_entryPrice.HasValue)
             {
-                var exit = ResolveExit(bar, _bars, _stopPrice.Value, _targetPrice.Value);
+                var exit = ResolveExit(bar, _bars, _stopPrice.Value, _targetPrice.Value, _expectedBars);
                 if (exit.HasValue)
                 {
                     MarketOrder(_symbol, -1m, false, $"EXIT:{exit.Value.Price.ToString(CultureInfo.InvariantCulture)}:{exit.Value.Reason}");
@@ -215,10 +248,22 @@ namespace QuantConnect.Algorithm.CSharp
                 }
             }
 
-            if (!_entryPrice.HasValue && !_entryPending && IsEntryCandidate(_bars, _openingHigh, _cumulativeTypicalVolume, _cumulativeVolume))
+            if (!_entryPrice.HasValue && !_entryPending
+                && IsEntryCandidate(_bars, _openingHigh, _cumulativeTypicalVolume, _cumulativeVolume))
             {
-                _signals++;
-                if (_bars.Count < _expectedBars) _entryPending = true;
+                _quantSignals++;
+                var passesAi = true;
+                if (_aiScores != null)
+                {
+                    if (!_aiScores.TryGetValue(bar.Time, out var probability))
+                        throw new InvalidOperationException("AI score is missing for a quant candidate bar");
+                    passesAi = probability >= _aiThreshold.Value;
+                }
+                if (passesAi)
+                {
+                    _signals++;
+                    if (_bars.Count < _expectedBars) _entryPending = true;
+                }
             }
         }
 
@@ -226,9 +271,27 @@ namespace QuantConnect.Algorithm.CSharp
         {
             var orderCount = Transactions.GetOrders().Count();
             var netPnl = Portfolio.TotalPortfolioValue - 100_000m;
-            Debug($"KIS_LEAN_ORB_VWAP market={_market} symbol={_sourceSymbol} bars={_bars.Count} signals={_signals} trades={_trades} orders={orderCount} net_liquidation={Portfolio.TotalPortfolioValue.ToString(CultureInfo.InvariantCulture)} net_pnl={netPnl.ToString(CultureInfo.InvariantCulture)}");
+            Debug($"KIS_LEAN_ORB_VWAP market={_market} symbol={_sourceSymbol} bars={_bars.Count} signals={_signals} quant_signals={_quantSignals} trades={_trades} orders={orderCount} ai_model_id={(_aiModelId ?? "")} ai_threshold={(_aiThreshold?.ToString(CultureInfo.InvariantCulture) ?? "")} net_liquidation={Portfolio.TotalPortfolioValue.ToString(CultureInfo.InvariantCulture)} net_pnl={netPnl.ToString(CultureInfo.InvariantCulture)}");
             if (_bars.Count != _expectedBars) throw new InvalidOperationException($"Expected {_expectedBars} bars for a complete {_market} session, received {_bars.Count}");
+            if (_aiScores != null && _aiScores.Count != _expectedAiScoreCount)
+                throw new InvalidOperationException($"Expected {_expectedAiScoreCount} timestamp-aligned AI scores, received {_aiScores.Count}");
             if (Portfolio.Invested || _entryPending) throw new InvalidOperationException("Backtest ended with an open or pending position");
+        }
+
+        private static Dictionary<DateTime, decimal> LoadAiScores(string path)
+        {
+            var scores = new Dictionary<DateTime, decimal>();
+            foreach (var line in File.ReadLines(path).Skip(1))
+            {
+                var fields = line.Split(',');
+                if (fields.Length != 2
+                    || !DateTimeOffset.TryParse(fields[0], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var timestamp)
+                    || !decimal.TryParse(fields[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var probability)
+                    || probability < 0m || probability > 1m
+                    || !scores.TryAdd(timestamp.UtcDateTime, probability))
+                    throw new ArgumentException("AI score file contains malformed, invalid, or duplicate rows");
+            }
+            return scores;
         }
 
         private static bool IsEntryCandidate(IReadOnlyList<KisCsvMinuteBar> bars, decimal openingHigh, decimal cumulativeTypicalVolume, decimal cumulativeVolume)
@@ -266,7 +329,7 @@ namespace QuantConnect.Algorithm.CSharp
             return ranges.Skip(Math.Max(0, ranges.Count - period)).Average();
         }
 
-        private static (decimal Price, string Reason)? ResolveExit(KisCsvMinuteBar bar, IReadOnlyList<KisCsvMinuteBar> history, decimal stop, decimal target)
+        private static (decimal Price, string Reason)? ResolveExit(KisCsvMinuteBar bar, IReadOnlyList<KisCsvMinuteBar> history, decimal stop, decimal target, int expectedBars)
         {
             if (bar.Open <= stop || bar.Low <= stop) return (Math.Min(bar.Open, stop), "ATR_STOP");
             if (bar.Open >= target) return (bar.Open, "TAKE_PROFIT_GAP");
@@ -275,13 +338,15 @@ namespace QuantConnect.Algorithm.CSharp
             var totalVolume = history.Sum(item => item.Volume);
             var vwap = totalVolume == 0m ? bar.Close : totalTypicalVolume / totalVolume;
             if (bar.Close < vwap) return (bar.Close, "VWAP_LOSS");
-            if (history.Count == 390) return (bar.Close, "SESSION_END");
+            if (history.Count == expectedBars) return (bar.Close, "SESSION_END");
             return null;
         }
     }
 
     public class KisCsvCostFillModel : FillModel
     {
+        private const decimal MaximumSpreadBps = 15m;
+
         public override OrderEvent MarketFill(Security asset, MarketOrder order)
         {
             var fill = base.MarketFill(asset, order);
@@ -291,7 +356,8 @@ namespace QuantConnect.Algorithm.CSharp
             {
                 rawPrice = decimal.Parse(order.Tag.Split(':')[1], CultureInfo.InvariantCulture);
             }
-            var costsBps = 5m + bar.SpreadBps / 2m;
+            var effectiveSpreadBps = bar.HasSpread ? bar.SpreadBps : MaximumSpreadBps;
+            var costsBps = 5m + effectiveSpreadBps / 2m;
             fill.FillPrice = order.Direction == OrderDirection.Buy
                 ? rawPrice * (1m + costsBps / 10_000m)
                 : rawPrice * (1m - costsBps / 10_000m);
@@ -301,6 +367,7 @@ namespace QuantConnect.Algorithm.CSharp
 
     public class KisCsvCommissionFeeModel : FeeModel
     {
+        private const decimal MaximumSpreadBps = 15m;
         private readonly string _currency;
 
         public KisCsvCommissionFeeModel(string currency)
@@ -316,7 +383,8 @@ namespace QuantConnect.Algorithm.CSharp
             {
                 rawPrice = decimal.Parse(parameters.Order.Tag.Split(':')[1], CultureInfo.InvariantCulture);
             }
-            var costsBps = 5m + bar.SpreadBps / 2m;
+            var effectiveSpreadBps = bar.HasSpread ? bar.SpreadBps : MaximumSpreadBps;
+            var costsBps = 5m + effectiveSpreadBps / 2m;
             var fillPrice = parameters.Order.Direction == OrderDirection.Buy
                 ? rawPrice * (1m + costsBps / 10_000m)
                 : rawPrice * (1m - costsBps / 10_000m);

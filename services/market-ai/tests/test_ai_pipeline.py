@@ -19,6 +19,7 @@ from app.ai_pipeline import (
     _quant_baseline_metrics,
     build_training_samples,
     latest_features,
+    predict_probability_series,
     _session_progress,
 )
 from app.quant import MinuteBar
@@ -85,6 +86,50 @@ def test_latest_features_reject_premarket_and_incomplete_minute_history() -> Non
                 bar.close, bar.volume) for index, bar in enumerate(bars)]
     with pytest.raises(ValueError, match="without gaps"):
         latest_features(gap, market="KR")
+
+
+def test_probability_series_uses_only_current_and_prior_bars() -> None:
+    bars = _sample_sessions()[date(2026, 10, 1)][:24]
+
+    class RecordingModel:
+        def __init__(self) -> None:
+            self.features = []
+
+        def predict_proba(self, values):
+            self.features.append(tuple(float(value) for value in values[0]))
+            return [[0.25, 0.75]]
+
+    model = RecordingModel()
+    scores = predict_probability_series(model, bars, market="KR")
+
+    assert list(scores) == [bar.timestamp.isoformat() for bar in bars[20:]]
+    assert list(scores.values()) == [0.75] * 4
+    assert len(model.features) == 4
+    assert model.features[0] == pytest.approx(latest_features(bars[:21], market="KR"), abs=1e-7)
+    assert model.features[-1] == pytest.approx(latest_features(bars[:24], market="KR"), abs=1e-7)
+
+
+@pytest.mark.parametrize("probability", [float("nan"), -0.01, 1.01])
+def test_probability_series_rejects_invalid_model_outputs(probability: float) -> None:
+    bars = _sample_sessions()[date(2026, 10, 1)][:21]
+
+    class InvalidModel:
+        def predict_proba(self, _values):
+            return [[1 - probability, probability]]
+
+    with pytest.raises(ValueError, match="invalid binary-class probabilities"):
+        predict_probability_series(InvalidModel(), bars, market="KR")
+
+
+def test_probability_series_rejects_non_normalized_model_outputs() -> None:
+    bars = _sample_sessions()[date(2026, 10, 1)][:21]
+
+    class InvalidModel:
+        def predict_proba(self, _values):
+            return [[0.1, 0.5]]
+
+    with pytest.raises(ValueError, match="invalid binary-class probabilities"):
+        predict_probability_series(InvalidModel(), bars, market="KR")
 
 
 def test_training_labels_deduct_observed_entry_and_exit_spread() -> None:

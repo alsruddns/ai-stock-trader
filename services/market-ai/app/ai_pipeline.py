@@ -184,6 +184,33 @@ def latest_features(bars: list[MinuteBar], *, market: str, minimum_bars: int = 2
     return tuple(float(value) for value in features)
 
 
+def predict_probability_series(model: Any, bars: list[MinuteBar], *, market: str,
+                               minimum_bars: int = 21) -> dict[str, float]:
+    """Score each bar using only data through that bar close for offline engine parity."""
+    import numpy as np
+
+    if not isinstance(minimum_bars, int) or isinstance(minimum_bars, bool) or minimum_bars < 21:
+        raise ValueError("minimum_bars must be an integer of at least 21")
+    if not bars:
+        raise ValueError("bars are required for model scoring")
+    _validate_session(bars, market.strip().upper())
+    scores: dict[str, float] = {}
+    for index in range(minimum_bars - 1, len(bars)):
+        history = bars[:index + 1]
+        features = latest_features(history, market=market, minimum_bars=minimum_bars)
+        probabilities = np.asarray(model.predict_proba(np.asarray([features], dtype=np.float32)))
+        if probabilities.shape != (1, 2):
+            raise ValueError("model must return one binary-class probability row per bar")
+        if (not np.isfinite(probabilities).all()
+                or np.any(probabilities < 0)
+                or np.any(probabilities > 1)
+                or not np.isclose(float(probabilities[0].sum()), 1.0, rtol=1e-5, atol=1e-6)):
+            raise ValueError("model returned invalid binary-class probabilities")
+        probability = float(probabilities[0][1])
+        scores[bars[index].timestamp.isoformat()] = probability
+    return scores
+
+
 def _chronological_partitions(samples: list[TrainingSample]) -> tuple[list[TrainingSample], list[TrainingSample], list[TrainingSample]]:
     dates = sorted({sample.session for sample in samples})
     if len(dates) < 3:
