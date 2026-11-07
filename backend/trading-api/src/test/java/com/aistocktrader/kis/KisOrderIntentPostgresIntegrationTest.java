@@ -4,13 +4,13 @@ import com.aistocktrader.order.Currency;
 import com.aistocktrader.order.IdempotencyConflictException;
 import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderRequest;
+import com.aistocktrader.order.OrderRecord;
 import com.aistocktrader.order.OrderSide;
 import com.aistocktrader.order.OrderService;
 import com.aistocktrader.order.PaperCashBalance;
 import com.aistocktrader.order.PaperCashRepository;
 import com.aistocktrader.order.PaperFillRepository;
 import com.aistocktrader.order.PaperFillRequest;
-import com.aistocktrader.order.PaperOrderAmendment;
 import com.aistocktrader.order.PaperOrderAmendmentRepository;
 import com.aistocktrader.order.PaperOrderAmendmentRequest;
 import com.aistocktrader.order.PaperPositionRepository;
@@ -28,6 +28,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import com.aistocktrader.config.TradingSafetyProperties;
 
 import java.math.BigDecimal;
@@ -66,11 +67,11 @@ class KisOrderIntentPostgresIntegrationTest {
     @Autowired KisOrderIntentStore store;
     @Autowired KisOrderIntentRepository repository;
     @Autowired OrderService paperOrders;
-    @Autowired com.aistocktrader.order.OrderRepository paperOrderRepository;
+    @MockitoSpyBean com.aistocktrader.order.OrderRepository paperOrderRepository;
     @Autowired PaperCashRepository paperCashRepository;
     @Autowired PaperFillRepository paperFillRepository;
     @Autowired PaperPositionRepository paperPositionRepository;
-    @MockitoBean PaperOrderAmendmentRepository paperOrderAmendments;
+    @Autowired PaperOrderAmendmentRepository paperOrderAmendments;
     @Autowired EntityManager entityManager;
     @Autowired KisOrderOrchestrator kisOrders;
     @Autowired KisOrderIntentRepository kisOrderRepository;
@@ -87,8 +88,8 @@ class KisOrderIntentPostgresIntegrationTest {
         OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
                 new BigDecimal("70000"), Currency.KRW);
         var created = paperOrders.submit(request, orderKey);
-        doThrow(new DataIntegrityViolationException("simulated amendment audit persistence failure"))
-                .when(paperOrderAmendments).save(any(PaperOrderAmendment.class));
+        doThrow(new DataIntegrityViolationException("simulated order persistence failure after audit insert"))
+                .when(paperOrderRepository).save(any(OrderRecord.class));
 
         try {
             assertThrows(DataIntegrityViolationException.class, () -> paperOrders.amendPaperOrder(created.getId(),
@@ -97,6 +98,7 @@ class KisOrderIntentPostgresIntegrationTest {
             var reloaded = paperOrderRepository.findById(created.getId()).orElseThrow();
             assertEquals(2, reloaded.getQuantity());
             assertEquals(new BigDecimal("70000.000000"), reloaded.getLimitPrice());
+            assertTrue(paperOrderAmendments.findByOrderIdAndIdempotencyKey(created.getId(), amendmentKey).isEmpty());
         } finally {
             paperOrderRepository.deleteById(created.getId());
         }
