@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import httpx
@@ -22,6 +22,16 @@ def test_kis_settings_repr_masks_app_credentials_and_account_number() -> None:
     assert "1234567801" not in representation
     assert "********01" in representation
     assert "credentials_configured=True" in representation
+
+
+def test_kis_market_data_settings_keep_real_rest_separately_gated(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setenv("KIS_REAL_MARKET_DATA_ENABLED", "false")
+    assert KisSettings.from_environment("paper").enabled is True
+    assert KisSettings.from_environment("real").enabled is False
+
+    monkeypatch.setenv("KIS_REAL_MARKET_DATA_ENABLED", "true")
+    assert KisSettings.from_environment("real").enabled is True
 
 
 def test_kis_rest_pacing_uses_paper_floor_and_serialized_slots(monkeypatch) -> None:
@@ -406,8 +416,6 @@ def test_overseas_minute_chart_uses_official_bounded_contract_and_new_york_timez
         KisSettings(True, "real", "real-key", "real-secret"),
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
-    from datetime import date
-
     bars = client.get_overseas_minute_bars("aapl", "NAS", date(2026, 11, 5))
     request = requests_seen[-1]
     assert request.url.path.endswith("/inquire-time-itemchartprice")
@@ -423,6 +431,88 @@ def test_overseas_minute_chart_uses_official_bounded_contract_and_new_york_timez
     ]
     assert [bar.volume for bar in bars] == [1000, 1200]
     assert all(bar.spread_bps is None for bar in bars)
+    client.close()
+
+
+def test_overseas_minute_session_pages_back_to_requested_date_with_separate_cursor() -> None:
+    requests_seen: list[httpx.Request] = []
+    pages = [
+        ([
+            {"xymd": "20261106", "xhms": "093100", "open": "101", "high": "102",
+             "low": "100", "last": "101.5", "evol": "1200"},
+            {"xymd": "20261106", "xhms": "093000", "open": "100", "high": "101",
+             "low": "99", "last": "100.5", "evol": "1000"},
+        ], "M"),
+        ([
+            {"xymd": "20261105", "xhms": "155900", "open": "110", "high": "111",
+             "low": "109", "last": "110.5", "evol": "1500"},
+            {"xymd": "20261105", "xhms": "155800", "open": "109", "high": "110",
+             "low": "108", "last": "109.5", "evol": "1400"},
+        ], "M"),
+        ([
+            {"xymd": "20261105", "xhms": "093000", "open": "100", "high": "101",
+             "low": "99", "last": "100.5", "evol": "1000"},
+            {"xymd": "20261104", "xhms": "155900", "open": "99", "high": "100",
+             "low": "98", "last": "99.5", "evol": "900"},
+        ], "D"),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests_seen.append(request)
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        rows, continuation = pages[len([r for r in requests_seen if r.url.path.endswith("inquire-time-itemchartprice")]) - 1]
+        return httpx.Response(200, headers={"tr_cont": continuation}, json={"rt_cd": "0", "output2": rows})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "real", "real-key", "real-secret"),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    bars = client.get_overseas_minute_session_bars("aapl", "NAS", date(2026, 11, 5))
+
+    assert [bar.timestamp.isoformat() for bar in bars] == [
+        "2026-11-05T09:30:00-05:00", "2026-11-05T15:58:00-05:00", "2026-11-05T15:59:00-05:00",
+    ]
+    assert len([request for request in requests_seen if request.url.path.endswith("inquire-time-itemchartprice")]) == 3
+    second = requests_seen[2]
+    assert second.url.params["PINC"] == "1"
+    assert second.url.params["NEXT"] == "1"
+    assert second.url.params["KEYB"] == "20261106092900"
+    assert second.headers["tr_cont"] == "N"
+    assert all(bar.spread_bps is None for bar in bars)
+    client.close()
+
+
+def test_overseas_minute_session_fails_closed_when_pagination_repeats() -> None:
+    page = [{"xymd": "20261106", "xhms": "093000", "open": "100", "high": "101",
+             "low": "99", "last": "100.5", "evol": "1000"}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        return httpx.Response(200, headers={"tr_cont": "M"}, json={"rt_cd": "0", "output2": page})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "real", "real-key", "real-secret"),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(KisApiError, match="did not move backward"):
+        client.get_overseas_minute_session_bars("AAPL", "NAS", date(2026, 11, 6))
+    client.close()
+
+
+def test_overseas_minute_session_rejects_unknown_continuation_state() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        return httpx.Response(200, headers={"tr_cont": "UNKNOWN"}, json={"rt_cd": "0", "output2": []})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "real", "real-key", "real-secret"),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(KisApiError, match="unsupported continuation state"):
+        client.get_overseas_minute_session_bars("AAPL", "NAS", date(2026, 11, 6))
     client.close()
 
 

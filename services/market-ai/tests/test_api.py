@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 from fastapi import HTTPException
 import pytest
 from app import main
-from app.main import app, get_kis_client
+from app.main import app, get_kis_client, get_kis_real_market_data_client, get_market_data_client
 from app.kis import KisRateLimitError, KisSharedRateLimitUnavailable, MarketCandidate, Quote
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -342,7 +342,7 @@ def test_quote_route_returns_normalized_snapshot() -> None:
                 retrieved_at=datetime.now(timezone.utc),
             )
 
-    app.dependency_overrides[get_kis_client] = lambda: FakeKisClient()
+    app.dependency_overrides[get_market_data_client] = lambda: FakeKisClient()
     try:
         response = client.get("/api/v1/market/quotes/US/AAPL?exchange=NAS")
         assert response.status_code == 200
@@ -351,6 +351,55 @@ def test_quote_route_returns_normalized_snapshot() -> None:
         assert response.json()["source"] == "KIS_REST_SNAPSHOT"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_overseas_minute_session_route_uses_real_read_only_client() -> None:
+    class FakeKisClient:
+        def get_overseas_minute_session_bars(self, symbol, exchange, session_date):
+            assert symbol == "AAPL"
+            assert exchange == "NAS"
+            assert session_date == date(2026, 11, 5)
+            return [MinuteBar(
+                timestamp=datetime.fromisoformat("2026-11-05T09:30:00-05:00"), open=Decimal("100"),
+                high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
+            )]
+
+    app.dependency_overrides[get_kis_real_market_data_client] = lambda: FakeKisClient()
+    try:
+        response = client.get(
+            "/api/v1/market/sessions/US/aapl/bars?exchange=NAS&session_date=2026-11-05",
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["symbol"] == "AAPL"
+        assert body["session_date"] == "2026-11-05"
+        assert body["source"] == "KIS_REST_MINUTE_SESSION"
+        assert body["spread_bps_available"] is False
+        assert body["bars"][0]["spread_bps"] is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_us_minute_session_route_requires_explicit_real_market_data_gate(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setenv("KIS_REAL_MARKET_DATA_ENABLED", "false")
+    monkeypatch.setenv("KIS_REAL_APP_KEY", "real-key")
+    monkeypatch.setenv("KIS_REAL_APP_SECRET", "real-secret")
+    response = client.get(
+        "/api/v1/market/sessions/US/aapl/bars?exchange=NAS&session_date=2026-11-05",
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "KIS market data is disabled"
+
+
+def test_us_quote_route_requires_explicit_real_market_data_gate(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setenv("KIS_REAL_MARKET_DATA_ENABLED", "false")
+    monkeypatch.setenv("KIS_REAL_APP_KEY", "real-key")
+    monkeypatch.setenv("KIS_REAL_APP_SECRET", "real-secret")
+    response = client.get("/api/v1/market/quotes/US/AAPL?exchange=NAS")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "KIS market data is disabled"
 
 
 def test_market_candidate_route_is_read_only_and_never_returns_executable_signal(monkeypatch) -> None:
@@ -575,7 +624,7 @@ def test_kis_database_rate_limit_failure_returns_service_unavailable() -> None:
         def get_quote(self, *_args, **_kwargs):
             raise KisSharedRateLimitUnavailable("shared KIS request pacing is unavailable")
 
-    app.dependency_overrides[get_kis_client] = lambda: UnavailableKisClient()
+    app.dependency_overrides[get_market_data_client] = lambda: UnavailableKisClient()
     try:
         response = client.get("/api/v1/market/quotes/KR/005930")
         assert response.status_code == 503
@@ -589,7 +638,7 @@ def test_kis_broker_rate_limit_returns_http_429_without_raw_response() -> None:
         def get_quote(self, *_args, **_kwargs):
             raise KisRateLimitError("KIS rate limit reached; wait before requesting again.")
 
-    app.dependency_overrides[get_kis_client] = lambda: RateLimitedKisClient()
+    app.dependency_overrides[get_market_data_client] = lambda: RateLimitedKisClient()
     try:
         response = client.get("/api/v1/market/quotes/KR/005930")
         assert response.status_code == 429
@@ -657,7 +706,7 @@ def test_overseas_minute_bars_route_returns_latest_page_timezone_and_exchange() 
                 high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
             )]
 
-    app.dependency_overrides[get_kis_client] = lambda: FakeKisClient()
+    app.dependency_overrides[get_kis_real_market_data_client] = lambda: FakeKisClient()
     try:
         response = client.get(
             "/api/v1/market/bars/US/aapl?exchange=NAS&session_date=2026-11-05",

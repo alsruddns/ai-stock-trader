@@ -70,6 +70,16 @@ def get_kis_candidate_client(market: Market) -> KisReadOnlyClient:
     return get_kis_market_data_client()
 
 
+def get_kis_real_market_data_client() -> KisReadOnlyClient:
+    """Use the separately gated REAL read-only client for US market data."""
+    return get_kis_market_data_client("real")
+
+
+def get_market_data_client(market: Market = Path()) -> KisReadOnlyClient:
+    """Route domestic REST data to PAPER and US REST data to the gated REAL environment."""
+    return get_kis_real_market_data_client() if market == "US" else get_kis_client()
+
+
 def get_kis_account_client(environment: Literal["paper", "real"]) -> KisReadOnlyClient:
     """Reuse one token-caching HTTP client per account environment."""
     settings = KisSettings.from_environment(environment)
@@ -415,7 +425,7 @@ def get_quote(
     market: Market,
     symbol: str = Path(pattern=r"^[A-Za-z0-9.-]{1,16}$"),
     exchange: Exchange | None = Query(default=None),
-    client: KisReadOnlyClient = Depends(get_kis_client),
+    client: KisReadOnlyClient = Depends(get_market_data_client),
 ) -> Quote:
     if market == "US" and exchange is None:
         raise HTTPException(status_code=422, detail="US quotes require exchange=NAS, NYS, or AMS")
@@ -664,7 +674,7 @@ def get_overseas_minute_bars(
     symbol: str = Path(pattern=r"^[A-Za-z0-9.-]{1,16}$"),
     exchange: Exchange = Query(),
     session_date: date | None = Query(default=None),
-    client: KisReadOnlyClient = Depends(get_kis_client),
+    client: KisReadOnlyClient = Depends(get_kis_real_market_data_client),
 ) -> HistoricalMinuteBarsResponse:
     """Fetch one latest KIS US minute page (up to 120 bars), optionally date-filtered."""
     normalized_symbol = symbol.upper()
@@ -677,6 +687,38 @@ def get_overseas_minute_bars(
         return HistoricalMinuteBarsResponse(
             market="US", symbol=normalized_symbol, session_date=actual_session,
             source="KIS_REST_MINUTE_CHART", spread_bps_available=False,
+            bars=[QuantBarRequest(
+                timestamp=bar.timestamp, open=bar.open, high=bar.high, low=bar.low, close=bar.close,
+                volume=bar.volume, spread_bps=None,
+            ) for bar in bars],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KisSharedRateLimitUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except KisRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except KisApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/market/sessions/US/{symbol}/bars", response_model=HistoricalMinuteBarsResponse)
+def get_overseas_minute_session_bars(
+    symbol: str = Path(pattern=r"^[A-Za-z0-9.-]{1,16}$"),
+    exchange: Exchange = Query(),
+    session_date: date = Query(),
+    client: KisReadOnlyClient = Depends(get_kis_real_market_data_client),
+) -> HistoricalMinuteBarsResponse:
+    """Fetch one bounded historical US session through the separately gated REAL KIS client."""
+    normalized_symbol = symbol.upper()
+    try:
+        bars = client.get_overseas_minute_session_bars(normalized_symbol, exchange, session_date)
+        _persist_snapshot(lambda: snapshot_store.store_minute_bars(
+            "US", normalized_symbol, bars, source="KIS_REST_MINUTE_SESSION",
+        ))
+        return HistoricalMinuteBarsResponse(
+            market="US", symbol=normalized_symbol, session_date=session_date,
+            source="KIS_REST_MINUTE_SESSION", spread_bps_available=False,
             bars=[QuantBarRequest(
                 timestamp=bar.timestamp, open=bar.open, high=bar.high, low=bar.low, close=bar.close,
                 volume=bar.volume, spread_bps=None,
