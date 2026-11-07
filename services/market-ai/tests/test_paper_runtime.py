@@ -14,6 +14,7 @@ from app.paper_runtime import PaperSessionFeedMonitor, PaperWatch, next_market_s
 from app.paper_automation import PaperAutoTrader
 from app.paper_ops import PaperOpsLimits
 from app.market_stream import MinuteBarAggregator, OrderBookQuote, TradeTick
+from app.kis_stream import SubscriptionAckTracker
 from app.quant import MinuteBar
 from app.real_signal_orders import RealSignalOrderOutcomeUnknown, real_signal_idempotency_key
 
@@ -115,8 +116,12 @@ def test_monitor_adds_screened_watch_to_live_feed_subscription_queue(monkeypatch
             return None
         monkeypatch.setattr(runtime, "_prepare_watch", prepare)
         upstream = FakeUpstream()
+        tracker = SubscriptionAckTracker({"H0STCNT0": 1, "H0STASP0": 1})
+        acknowledgement_changed = asyncio.Event()
         writer = asyncio.create_task(
-            runtime._write_subscription_updates(upstream, "approval", "paper", {"KR:005930:"})
+            runtime._write_subscription_updates(
+                upstream, "approval", "paper", {"KR:005930:"}, tracker, acknowledgement_changed,
+            )
         )
         try:
             result = await runtime.add_watches((PaperWatch("KR", "000660"),))
@@ -129,8 +134,11 @@ def test_monitor_adds_screened_watch_to_live_feed_subscription_queue(monkeypatch
                 pass
 
         assert result == {"added": ["KR:000660:"], "subscriptions": 2}
-        assert upstream.sent[0]["header"]["tr_type"] == "1"
-        assert upstream.sent[0]["body"]["input"] == {"tr_id": "H0STCNT0", "tr_key": "000660"}
+        assert [(message["body"]["input"]["tr_id"], message["header"]["tr_type"])
+                for message in upstream.sent] == [("H0STCNT0", "1"), ("H0STASP0", "1")]
+        assert tracker.status == {"accepted_count": 0, "required_count": 4, "complete": False}
+        assert acknowledgement_changed.is_set()
+        assert runtime.status()["stream_connections"]["paper"] == "SUBSCRIBING"
         assert runtime._watches_by_feed["paper"][-1] == PaperWatch("KR", "000660")
 
     asyncio.run(scenario())
