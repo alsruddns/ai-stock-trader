@@ -52,13 +52,9 @@ try {
             -Path ([Uri]$quoteUri).AbsolutePath -ErrorDetail ([string]$_.ErrorDetails.Message)
         throw "$safeFailure No PAPER order was submitted."
     }
-    Assert-KisPaperQuoteFresh -Quote $quote
-    if ($quote.market -ne 'US' -or $quote.symbol -ne $smokeSymbol) {
-        throw 'Fresh quote did not match the fixed US PAPER smoke instrument; no order was submitted.'
-    }
-
-    $price = [decimal]$quote.price
     . (Join-Path $PSScriptRoot 'lib/us-paper-lifecycle-smoke.ps1')
+    $price = Get-KisUsPaperSmokeQuotePrice -Quote $quote -Symbol $smokeSymbol -Exchange $smokeQuoteExchange
+    Assert-KisPaperQuoteFresh -Quote $quote
     $limitPrice = Get-KisUsPaperSmokeLimitPrice -Price $price
 
     Write-Output 'Starting guarded one-share US KIS PAPER order/cancel lifecycle. Persistent order and automation switches remain disabled.'

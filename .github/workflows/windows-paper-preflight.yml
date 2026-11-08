@@ -69,7 +69,7 @@ jobs:
           }
 
           $usPaperSmokeResult = Invoke-Pester -Path 'scripts/tests/us-paper-lifecycle-smoke.Tests.ps1' -PassThru
-          if ($usPaperSmokeResult.FailedCount -gt 0 -or $usPaperSmokeResult.PassedCount -ne 7) {
+          if ($usPaperSmokeResult.FailedCount -gt 0 -or $usPaperSmokeResult.PassedCount -ne 12) {
             throw "US PAPER lifecycle smoke tests failed: passed=$($usPaperSmokeResult.PassedCount), failed=$($usPaperSmokeResult.FailedCount)."
           }
 

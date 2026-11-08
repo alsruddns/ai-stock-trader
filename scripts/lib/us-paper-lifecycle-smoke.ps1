@@ -1,3 +1,30 @@
+function Get-KisUsPaperSmokeQuotePrice {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [object]$Quote,
+        [Parameter(Mandatory)] [string]$Symbol,
+        [Parameter(Mandatory)] [ValidateSet('NAS', 'NYS', 'AMS')] [string]$Exchange
+    )
+
+    $normalizedSymbol = $Symbol.Trim().ToUpperInvariant()
+    if ($Quote.market -ne 'US' -or $Quote.symbol -ne $normalizedSymbol -or
+        $Quote.exchange -ne $Exchange -or $Quote.currency -ne 'USD') {
+        throw 'Fresh quote did not match the requested US PAPER smoke instrument.'
+    }
+
+    $price = [decimal]0
+    $parsed = [decimal]::TryParse(
+        [string]$Quote.price,
+        [Globalization.NumberStyles]::Number,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [ref]$price
+    )
+    if (-not $parsed -or $price -le 0) {
+        throw 'US PAPER smoke quote price is invalid.'
+    }
+    return $price
+}
+
 function Get-KisUsPaperSmokeLimitPrice {
     param([Parameter(Mandatory)] [decimal]$Price)
 
