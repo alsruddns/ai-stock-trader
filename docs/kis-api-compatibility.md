@@ -83,3 +83,10 @@ The KIS Developers portal announced that seven domestic-stock financial analysis
 - [KIS Developers portal](https://apiportal.koreainvestment.com/)
 
 Recheck these references and the API portal before changing transaction IDs, fields, pagination behavior, or account environment handling.
+
+## Retired domestic financial-analysis APIs
+
+KIS announced that the seven domestic stock financial-analysis APIs will be blocked after market close on 2026-11-11. The official sample names these calls `finance_balance_sheet`, `finance_income_statement`, `finance_financial_ratio`, `finance_profit_ratio`, `finance_other_major_ratios`, `finance_stability_ratio`, and `finance_growth_ratio`. They are not used by this application. Windows CI scans for these identifiers in Spring and FastAPI runtime source, including imports and calls, and fails if one is added; the scan does not inspect documentation or test fixtures. Do not replace these calls with another source until its license and allowed use are verified.
+
+- [KIS official notice page](https://apiportal.koreainvestment.com/intro)
+- [KIS official domestic-stock examples with financial-analysis call identifiers](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_examples.py)
