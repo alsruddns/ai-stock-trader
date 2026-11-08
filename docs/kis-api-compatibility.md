@@ -11,6 +11,10 @@ Last checked: 2026-11-08 against the current examples in the official KIS reposi
 
 The official sample lists `NASD`, `NYSE`, and `AMEX` for PAPER balance lookups; REAL also lists `NAS` as a Nasdaq-only code. For REAL position counting across the US market, the sample identifies `NASD` as the all-US-exchange lookup code. A new order-risk check combines current-market and other-market snapshots and refuses buys if either is stale, malformed, or ambiguous. The application accepts the shared `NASD`, `NYSE`, and `AMEX` set for direct environment-specific lookups. The sample also notes that overseas service enrollment is required. Validate account eligibility and live response fields with the user's own read-only account before treating the integration as operationally verified.
 
+### US cash and total-equity fields
+
+The official `inquire-balance` sample confirms the `output1` positions and `output2` summary containers, but it does not provide a stable semantic mapping for a cash-balance field. The official `inquire-present-balance` sample says PAPER accounts may return only `output3` (described broadly as foreign-currency evaluation totals), but the public sample does not define an authoritative field mapping that distinguishes withdrawable/orderable cash from total account equity for REAL risk sizing. Accordingly, `KisAccountClient` keeps US `cashBalance` and `accountEquity` null and uses only the symbol-specific `inquire-psamount` result for orderable cash. Do not substitute a guessed `tot_asst_amt`, position market value, or orderable amount for total equity. The account-equity risk check must remain fail-closed for US REAL buys until KIS publishes the field semantics or confirms them in writing. [KIS official overseas account examples](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/overseas_stock/overseas_stock_functions.py) · [KIS official legacy account sample](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_ovrseastk.py)
+
 ## REAL order request shape
 
 | Market | Operation | Endpoint | REAL transaction ID | Compatibility check |
