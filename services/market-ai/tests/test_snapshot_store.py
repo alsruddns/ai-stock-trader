@@ -148,3 +148,27 @@ def test_multi_symbol_source_counts_are_read_only_and_grouped_by_symbol(monkeypa
         "AAPL": {"KIS_REAL_US_WEBSOCKET": 390, "KIS_REST_MINUTE_CHART": 2},
         "MSFT": {"KIS_REAL_US_WEBSOCKET": 390},
     }
+
+
+def test_training_history_excludes_premarket_and_afterhours_rows_from_provenance(monkeypatch) -> None:
+    connection = _FakeConnection()
+    connection.rows = [
+        (datetime.fromisoformat("2026-11-05T09:29:00-05:00"), Decimal("99"), Decimal("100"),
+         Decimal("98"), Decimal("99.5"), 1000, Decimal("5"), "KIS_REAL_US_WEBSOCKET"),
+        (datetime.fromisoformat("2026-11-05T09:30:00-05:00"), Decimal("100"), Decimal("101"),
+         Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"), "KIS_REAL_US_WEBSOCKET"),
+        (datetime.fromisoformat("2026-11-05T16:00:00-05:00"), Decimal("101"), Decimal("102"),
+         Decimal("100"), Decimal("101.5"), 1000, Decimal("4"), "KIS_REST_MINUTE_CHART"),
+    ]
+    monkeypatch.setattr(snapshot_store, "_connect", lambda: connection)
+
+    result = snapshot_store.load_minute_bar_training_history(
+        "US", "aapl", datetime.fromisoformat("2026-11-05").date(),
+        datetime.fromisoformat("2026-11-05").date(),
+    )
+
+    assert connection.calls[0] == ("SET TRANSACTION READ ONLY", None)
+    assert len(result[datetime.fromisoformat("2026-11-05").date()]["bars"]) == 1
+    assert result[datetime.fromisoformat("2026-11-05").date()]["source_counts"] == {
+        "KIS_REAL_US_WEBSOCKET": 1,
+    }

@@ -111,7 +111,7 @@ def load_minute_bar_training_history(
     range_start = datetime.combine(from_date, datetime_time.min, tzinfo=zone)
     range_end = datetime.combine(to_date + timedelta(days=1), datetime_time.min, tzinfo=zone)
     with _connect() as connection:
-        connection.execute("SET TRANSACTION READ ONLY")
+        connection.execute("SET TRANSACTION READ ONLY", None)
         with connection.cursor() as cursor:
             cursor.execute(
                 """SELECT bar_at, open_price, high_price, low_price, close_price,
@@ -127,8 +127,15 @@ def load_minute_bar_training_history(
         raise RuntimeError("stored market-data history exceeds the bounded audit limit")
 
     sessions: dict[date, dict[str, object]] = {}
+    session_windows: dict[date, tuple[datetime, datetime] | None] = {}
     for timestamp, open_price, high_price, low_price, close_price, volume, spread_bps, source in rows:
         session_date = timestamp.astimezone(zone).date()
+        if session_date not in session_windows:
+            session_noon = datetime.combine(session_date, datetime_time(hour=12), tzinfo=zone)
+            session_windows[session_date] = exchange_continuous_session_window(market, session_noon)
+        session_window = session_windows[session_date]
+        if session_window is None or not session_window[0] <= timestamp < session_window[1]:
+            continue
         entry = sessions.setdefault(session_date, {"bars": [], "source_counts": {}})
         bars = entry["bars"]
         source_counts = entry["source_counts"]
