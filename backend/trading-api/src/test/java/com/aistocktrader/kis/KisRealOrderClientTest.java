@@ -31,6 +31,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 
 class KisRealOrderClientTest {
     private static final String REAL_URL = "https://openapi.koreainvestment.com:9443";
@@ -193,6 +194,23 @@ class KisRealOrderClientTest {
 
         assertDoesNotThrow(() -> new KisRealOrderClient(properties(true, true), realSafety(), builder)
                 .cancelRealOrder(Market.US, "MSFT", "7111", null, 2, "NYSE"));
+        server.verify();
+    }
+
+    @Test
+    void realCancelServerErrorIsUnknownAndIsNotRetried() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(REAL_URL + "/uapi/overseas-stock/v1/trading/order-rvsecncl"))
+                .andExpect(header("tr_id", "TTTT1004U"))
+                .andExpect(jsonPath("$.ORGN_ODNO").value("7111"))
+                .andRespond(withServerError());
+
+        assertThrows(KisOrderOutcomeUnknownException.class, () ->
+                new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                        .cancelRealOrder(Market.US, "MSFT", "7111", null, 2, "NYSE"));
         server.verify();
     }
 

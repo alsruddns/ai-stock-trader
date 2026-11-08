@@ -190,6 +190,21 @@ class KisOrderClientTest {
     }
 
     @Test
+    void paperCancelServerErrorIsUnknownAndIsNotRetried() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/uapi/overseas-stock/v1/trading/order-rvsecncl"))
+                .andExpect(method(HttpMethod.POST)).andExpect(header("tr_id", "VTTT1004U"))
+                .andRespond(withServerError());
+
+        assertThrows(KisOrderOutcomeUnknownException.class, () -> client(true, builder).cancelPaperOrder(
+                Market.US, "AAPL", "5678", null, 1, "NAS"));
+        server.verify();
+    }
+
+    @Test
     void paperOrderSwitchIsOffByDefaultAndNeverAttemptsNetwork() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
