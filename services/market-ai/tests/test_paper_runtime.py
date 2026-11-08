@@ -1386,12 +1386,19 @@ def test_exit_worker_uses_persisted_stop_and_submits_only_local_paper_exit() -> 
     assert trader.exit["model_id"] == "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 
-def test_exit_worker_flattens_before_krx_continuous_session_ends() -> None:
+@pytest.mark.parametrize(("watchlist", "timestamp"), [
+    ("KR:005930", "2026-11-05T15:19:00+09:00"),
+    ("US:AAPL:NAS", "2026-11-06T15:59:00-05:00"),
+])
+def test_exit_worker_flattens_before_continuous_session_ends(watchlist: str, timestamp: str) -> None:
     class Broker:
         def get_strategy_positions(self):
-            return [{"market": "KR", "symbol": "005930", "currency": "KRW", "quantity": 2,
-                     "stopPrice": "98", "targetPrice": "104", "openedAt": "2026-11-05T00:00:00Z",
-                     "strategyId": "ORB_VWAP", "modelId": "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]
+            return [{
+                "market": watch.market, "symbol": watch.symbol,
+                "currency": "KRW" if watch.market == "KR" else "USD", "quantity": 2,
+                "stopPrice": "98", "targetPrice": "104", "openedAt": "2026-11-05T00:00:00Z",
+                "strategyId": "ORB_VWAP", "modelId": "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            }]
 
     class Trader:
         exit = None
@@ -1400,8 +1407,8 @@ def test_exit_worker_flattens_before_krx_continuous_session_ends() -> None:
             self.exit = kwargs
             return {"state": "FILLED", "executable": False}
 
-    watch = parse_watchlist("KR:005930")[0]
-    at = datetime.fromisoformat("2026-11-05T15:19:00+09:00")
+    watch = parse_watchlist(watchlist)[0]
+    at = datetime.fromisoformat(timestamp)
     bar = MinuteBar(at, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100.5"), 1000, Decimal("5"))
     trader = Trader()
 
