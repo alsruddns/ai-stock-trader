@@ -315,4 +315,14 @@ Describe 'KIS PAPER exchange session preflight' {
         $missing.close_at = $null
         Test-SessionAssertionThrows -Session $missing -Market KR -Now $now | Should Be $true
     }
+
+    It 'rejects session timestamps without an explicit timezone offset' {
+        $localEvaluationTime = $openSession.Clone()
+        $localEvaluationTime.evaluated_at = '2026-11-06T08:30:00'
+        $localCloseTime = $openSession.Clone()
+        $localCloseTime.close_at = '2026-11-06T09:30:00'
+
+        Test-SessionAssertionThrows -Session $localEvaluationTime -Market KR -Now $now | Should Be $true
+        Test-SessionAssertionThrows -Session $localCloseTime -Market KR -Now $now | Should Be $true
+    }
 }

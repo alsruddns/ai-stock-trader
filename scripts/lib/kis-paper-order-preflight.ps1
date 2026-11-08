@@ -160,10 +160,16 @@ function Assert-KisPaperSessionOpen {
         throw 'Exchange calendar does not confirm an open session for the requested market.'
     }
 
-    try {
-        $evaluatedAt = [DateTimeOffset]::Parse([string]$Session.evaluated_at)
-        $closeAt = [DateTimeOffset]::Parse([string]$Session.close_at)
-    } catch {
+    $evaluatedAtText = [string]$Session.evaluated_at
+    $closeAtText = [string]$Session.close_at
+    $timestampPattern = '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$'
+    $evaluatedAt = [DateTimeOffset]::MinValue
+    $closeAt = [DateTimeOffset]::MinValue
+    if ($evaluatedAtText -notmatch $timestampPattern -or $closeAtText -notmatch $timestampPattern -or
+        -not [DateTimeOffset]::TryParse($evaluatedAtText, [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::None, [ref]$evaluatedAt) -or
+        -not [DateTimeOffset]::TryParse($closeAtText, [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::None, [ref]$closeAt)) {
         throw 'Exchange session response is missing valid timezone-aware timestamps.'
     }
     $ageSeconds = ($Now.ToUniversalTime() - $evaluatedAt.ToUniversalTime()).TotalSeconds
