@@ -159,6 +159,33 @@ def test_strategy_rejects_naive_timestamp_and_bad_ohlc() -> None:
         MinuteBar(datetime(2026, 11, 5, 9, 0, tzinfo=timezone.utc), Decimal("100"), Decimal("99"), Decimal("98"), Decimal("100"), 1)
 
 
+@pytest.mark.parametrize("field", ["open", "high", "low", "close"])
+def test_minute_bar_rejects_non_finite_ohlc(field: str) -> None:
+    values = {
+        "open": Decimal("100"), "high": Decimal("101"),
+        "low": Decimal("99"), "close": Decimal("100"),
+    }
+    values[field] = Decimal("Infinity")
+
+    with pytest.raises(ValueError, match="finite decimals"):
+        MinuteBar(datetime(2026, 11, 5, 9, 0, tzinfo=timezone.utc), **values, volume=100)
+
+
+def test_minute_bar_rejects_non_finite_spread_and_non_integer_volume() -> None:
+    timestamp = datetime(2026, 11, 5, 9, 0, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match="finite decimal"):
+        MinuteBar(timestamp, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"), 100,
+                  Decimal("Infinity"))
+    with pytest.raises(ValueError, match="non-negative integer"):
+        MinuteBar(timestamp, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"), True)
+
+
+@pytest.mark.parametrize("field", ["minimum_turnover", "commission_bps", "slippage_bps"])
+def test_quant_config_rejects_non_finite_numeric_settings(field: str) -> None:
+    with pytest.raises(ValueError, match="finite decimals"):
+        QuantConfig(**{field: Decimal("Infinity")})
+
+
 def test_missing_spread_and_low_turnover_block_entries() -> None:
     bars = _session_bars()
     breakout = bars[20]

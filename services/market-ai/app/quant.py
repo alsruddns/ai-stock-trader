@@ -26,12 +26,18 @@ class MinuteBar:
     def __post_init__(self) -> None:
         if self.timestamp.tzinfo is None:
             raise ValueError("bar timestamps must include a timezone")
-        if min(self.open, self.high, self.low, self.close) <= 0:
+        prices = (self.open, self.high, self.low, self.close)
+        if any(not isinstance(price, Decimal) or not price.is_finite() for price in prices):
+            raise ValueError("OHLC prices must be finite decimals")
+        if min(prices) <= 0:
             raise ValueError("OHLC prices must be positive")
         if self.high < max(self.open, self.close, self.low) or self.low > min(self.open, self.close, self.high):
             raise ValueError("bar high/low do not contain OHLC prices")
-        if self.volume < 0:
-            raise ValueError("volume must be non-negative")
+        if isinstance(self.volume, bool) or not isinstance(self.volume, int) or self.volume < 0:
+            raise ValueError("volume must be a non-negative integer")
+        if (self.spread_bps is not None
+                and (not isinstance(self.spread_bps, Decimal) or not self.spread_bps.is_finite())):
+            raise ValueError("spread must be a finite decimal")
         if self.spread_bps is not None and self.spread_bps < 0:
             raise ValueError("spread must be non-negative")
 
@@ -53,6 +59,12 @@ class QuantConfig:
     def __post_init__(self) -> None:
         if min(self.opening_range_bars, self.ema_period, self.atr_period, self.relative_volume_period) <= 0:
             raise ValueError("indicator periods must be positive")
+        numeric_settings = (
+            self.minimum_relative_volume, self.maximum_spread_bps, self.minimum_turnover,
+            self.atr_stop_multiple, self.reward_risk_multiple, self.commission_bps, self.slippage_bps,
+        )
+        if any(not isinstance(value, Decimal) or not value.is_finite() for value in numeric_settings):
+            raise ValueError("strategy numeric settings must be finite decimals")
         if self.minimum_relative_volume <= 0 or self.maximum_spread_bps < 0 or self.minimum_turnover < 0:
             raise ValueError("liquidity thresholds are invalid")
         if self.atr_stop_multiple <= 0 or self.reward_risk_multiple <= 0:
