@@ -1,6 +1,164 @@
 import { NextResponse } from "next/server";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { resolve, sep } from "node:path";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+type ScheduledTask = {
+  kind: string;
+  market: string | null;
+  symbol: string | null;
+  taskDate: string;
+  state: string;
+  enabled: boolean;
+  principalLogonType: string;
+  requiresInteractiveLogon: boolean | null;
+  wakeToRun: boolean;
+  startWhenAvailable: boolean;
+  nextRunTime: string | null;
+  lastRunTime: string | null;
+  lastTaskResult: number | null;
+};
+
+type LocalOperationsReport = {
+  generatedAt: string;
+  reportSchemaVersion: number;
+  localStackTask: {
+    state: string;
+    principalLogonType: string;
+    requiresInteractiveLogon: boolean | null;
+    enabled: boolean | null;
+    nextRunTime: string | null;
+    lastRunTime: string | null;
+    lastTaskResult: number | null;
+  } | null;
+  sessionMonitorSchedule: {
+    state: string;
+    registeredCount: number;
+    krRegisteredCount: number;
+    usRegisteredCount: number;
+    tasks: ScheduledTask[];
+  } | null;
+  validationTaskSchedule: {
+    state: string;
+    registeredCount: number;
+    paperLifecycleCount: number;
+    modelTrainingCount: number;
+    modelHoldoutCount: number;
+    tasks: ScheduledTask[];
+  } | null;
+};
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function optionalNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function optionalBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function scheduledTasks(value: unknown): ScheduledTask[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const task = asObject(entry);
+    if (!task || typeof task.state !== "string") return [];
+    const market = optionalString(task.market);
+    const kind = typeof task.kind === "string"
+      ? task.kind
+      : market === "KR" ? "KRX_SESSION_MONITOR"
+        : market === "US" ? "US_SESSION_MONITOR" : null;
+    if (!kind) return [];
+    return [{
+      kind,
+      market,
+      symbol: optionalString(task.symbol),
+      taskDate: typeof task.taskDate === "string"
+        ? task.taskDate
+        : typeof task.taskName === "string" ? task.taskName.match(/\d{8}$/)?.[0] ?? "" : "",
+      state: task.state,
+      enabled: task.enabled === true,
+      principalLogonType: typeof task.principalLogonType === "string" ? task.principalLogonType : "UNKNOWN",
+      requiresInteractiveLogon: optionalBoolean(task.requiresInteractiveLogon),
+      wakeToRun: task.wakeToRun === true,
+      startWhenAvailable: task.startWhenAvailable === true,
+      nextRunTime: optionalString(task.nextRunTime),
+      lastRunTime: optionalString(task.lastRunTime),
+      lastTaskResult: optionalNumber(task.lastTaskResult),
+    }];
+  });
+}
+
+function schedule(value: unknown, countKeys: string[]): Record<string, unknown> | null {
+  const raw = asObject(value);
+  if (!raw || typeof raw.state !== "string") return null;
+  const result: Record<string, unknown> = {
+    state: raw.state,
+    registeredCount: optionalNumber(raw.registeredCount) ?? 0,
+    tasks: scheduledTasks(raw.tasks),
+  };
+  for (const key of countKeys) result[key] = optionalNumber(raw[key]) ?? 0;
+  return result;
+}
+
+async function readLocalOperationsReport(): Promise<LocalOperationsReport | null> {
+  const directories = [
+    resolve(process.cwd(), ".local", "reports"),
+    resolve(process.cwd(), "..", ".local", "reports"),
+  ];
+  for (const directory of directories) try {
+    const entries = await readdir(/* turbopackIgnore: true */ directory, { withFileTypes: true });
+    const candidates = await Promise.all(entries
+      .filter((entry) => entry.isFile() && /^operations(?:-run)?-[A-Za-z0-9T._-]+\.json$/i.test(entry.name))
+      .map(async (entry) => {
+        const file = resolve(directory, entry.name);
+        if (!file.startsWith(`${directory}${sep}`)) return null;
+        const info = await stat(/* turbopackIgnore: true */ file);
+        return info.size <= 5_000_000 ? { file, modifiedAt: info.mtimeMs } : null;
+      }));
+    const latest = candidates.filter((item): item is { file: string; modifiedAt: number } => item !== null)
+      .sort((left, right) => right.modifiedAt - left.modifiedAt)[0];
+    if (!latest) continue;
+
+    const reportText = (await readFile(/* turbopackIgnore: true */ latest.file, "utf8")).replace(/^\uFEFF/, "");
+    const raw = asObject(JSON.parse(reportText));
+    if (!raw || typeof raw.generatedAt !== "string" || !Number.isFinite(Date.parse(raw.generatedAt))) return null;
+    const schema = optionalNumber(raw.reportSchemaVersion);
+    if (schema === null || schema < 10) return null;
+
+    const stack = asObject(raw.localStackTask);
+    const localStackTask = stack && typeof stack.state === "string" ? {
+      state: stack.state,
+      principalLogonType: typeof stack.principalLogonType === "string" ? stack.principalLogonType : "UNKNOWN",
+      requiresInteractiveLogon: optionalBoolean(stack.requiresInteractiveLogon),
+      enabled: optionalBoolean(stack.enabled),
+      nextRunTime: optionalString(stack.nextRunTime),
+      lastRunTime: optionalString(stack.lastRunTime),
+      lastTaskResult: optionalNumber(stack.lastTaskResult),
+    } : null;
+
+    return {
+      generatedAt: raw.generatedAt,
+      reportSchemaVersion: schema,
+      localStackTask,
+      sessionMonitorSchedule: schedule(raw.sessionMonitorSchedule, ["krRegisteredCount", "usRegisteredCount"]) as LocalOperationsReport["sessionMonitorSchedule"],
+      validationTaskSchedule: schedule(raw.validationTaskSchedule, ["paperLifecycleCount", "modelTrainingCount", "modelHoldoutCount"]) as LocalOperationsReport["validationTaskSchedule"],
+    };
+  } catch {
+    continue;
+  }
+  return null;
+}
 
 export async function GET() {
   const springBase = process.env.SPRING_API_BASE_URL ?? "http://127.0.0.1:18080";
@@ -26,6 +184,7 @@ export async function GET() {
     ? await krSession.value.json() : null;
   const usSessionResult = usSession.status === "fulfilled" && usSession.value.ok
     ? await usSession.value.json() : null;
+  const localOperationsReport = await readLocalOperationsReport();
   const decisions = paperSessionResult && typeof paperSessionResult === "object"
     ? (paperSessionResult as { decisions?: Record<string, { market?: string; symbol?: string }> }).decisions ?? {}
     : {};
@@ -59,5 +218,6 @@ export async function GET() {
     paperSession: paperSessionResult,
     marketSessions: { KR: krSessionResult, US: usSessionResult },
     marketDataQuality: qualityByMarket,
+    localOperationsReport,
   }, { headers: { "Cache-Control": "no-store" } });
 }
