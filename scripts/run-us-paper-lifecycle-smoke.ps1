@@ -44,6 +44,20 @@ try {
     $smokeSymbol = 'F'
     $smokeOrderExchange = 'NYSE'
     $smokeQuoteExchange = ConvertTo-KisQuoteExchange -Exchange $smokeOrderExchange
+    $sessionUri = "$MarketAiApiBaseUrl/api/v1/market/sessions/US"
+    try {
+        $session = Invoke-RestMethod -Uri $sessionUri -TimeoutSec 10
+    } catch {
+        $safeFailure = Format-SafeLocalApiFailure -Status (Get-SafeHttpStatus $_) `
+            -Path ([Uri]$sessionUri).AbsolutePath -ErrorDetail ([string]$_.ErrorDetails.Message)
+        throw "$safeFailure No KIS quote, account, or order request was sent."
+    }
+    try {
+        Assert-KisPaperSessionOpen -Session $session -Market 'US'
+    } catch {
+        throw "$($_.Exception.Message) No KIS quote, account, or order request was sent."
+    }
+
     $quoteUri = "$MarketAiApiBaseUrl/api/v1/market/quotes/US/$smokeSymbol`?exchange=$smokeQuoteExchange"
     try {
         $quote = Invoke-RestMethod -Uri $quoteUri -TimeoutSec 10

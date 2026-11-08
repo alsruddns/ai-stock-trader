@@ -78,4 +78,15 @@ Describe 'US KIS PAPER lifecycle smoke limit price' {
         $script | Should Match 'Get-KisUsPaperSmokeQuotePrice -Quote \$quote -Symbol \$smokeSymbol -Exchange \$smokeQuoteExchange'
         $script | Should Not Match 'exchange=NASD|Exchange NASD'
     }
+
+    It 'requires a fresh open-session response before requesting a KIS quote or starting the order lifecycle' {
+        $scriptPath = Join-Path $PSScriptRoot '../run-us-paper-lifecycle-smoke.ps1'
+        $script = Get-Content -LiteralPath $scriptPath -Raw
+        $sessionIndex = $script.IndexOf('Assert-KisPaperSessionOpen -Session $session -Market ''US''')
+        $quoteIndex = $script.IndexOf('$quoteUri =')
+        $lifecycleIndex = $script.IndexOf('test-kis-paper-order-lifecycle-isolated.ps1')
+
+        ($sessionIndex -ge 0 -and $sessionIndex -lt $quoteIndex -and $quoteIndex -lt $lifecycleIndex) | Should Be $true
+        $script | Should Match 'No KIS quote, account, or order request was sent\.'
+    }
 }
