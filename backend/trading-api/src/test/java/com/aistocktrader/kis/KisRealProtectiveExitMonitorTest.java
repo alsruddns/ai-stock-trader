@@ -104,6 +104,29 @@ class KisRealProtectiveExitMonitorTest {
     }
 
     @Test
+    void sessionEndClaimsProtectiveSellDuringTheFinalFiveMinutes() {
+        Instant now = Instant.now();
+        Instant sessionClose = now.plus(Duration.ofMinutes(3));
+        when(sessions.session(Market.KR)).thenReturn(new KisMarketSessionClient.MarketSession(Market.KR,
+                LocalDate.now(), true, true, now.minus(Duration.ofHours(2)), sessionClose,
+                now.minus(Duration.ofHours(2)), sessionClose, now));
+        when(marketData.quoteForExit(Market.KR, "005930", null)).thenReturn(
+                new KisMarketAiEvidenceClient.ExitQuote(Market.KR, "005930", null,
+                        new BigDecimal("100"), new BigDecimal("99.99"), new BigDecimal("100.01"), now));
+        when(intents.claimRealExit(eq(plan.getIdempotencyKey()), any(UUID.class), eq("SESSION_END"), eq(2),
+                eq(new BigDecimal("99.99")))).thenReturn(1);
+
+        monitor.monitorRealPositions();
+
+        verify(intents).claimRealExit(eq(plan.getIdempotencyKey()), any(UUID.class), eq("SESSION_END"), eq(2),
+                eq(new BigDecimal("99.99")));
+        verify(accounts).getBalance(KisEnvironment.REAL, Market.KR, null, null, null);
+        verify(orders).submit(any(UUID.class), argThat(request -> request.market() == Market.KR
+                && request.side() == OrderSide.SELL && request.quantity() == 2
+                && request.limitPrice().compareTo(new BigDecimal("99.99")) == 0), isNull(), any());
+    }
+
+    @Test
     void accountQuantityMismatchMovesPlanToManualReviewWithoutSubmitting() {
         when(accounts.getBalance(eq(KisEnvironment.REAL), eq(Market.KR), isNull(), isNull(), isNull()))
                 .thenReturn(account(3));
