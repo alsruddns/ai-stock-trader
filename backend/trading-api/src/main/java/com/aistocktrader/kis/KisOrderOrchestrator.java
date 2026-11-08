@@ -116,7 +116,7 @@ public class KisOrderOrchestrator {
         try {
             String normalizedExchange = intent.getMarket() == Market.US ? normalizeExchange(exchange) : "";
             orders.cancelPaperOrder(intent.getMarket(), intent.getSymbol(), intent.getBrokerOrderNumber(),
-                    intent.getBrokerOrganizationNumber(), 0, normalizedExchange);
+                    intent.getBrokerOrganizationNumber(), intent.getRemainingQuantity(), normalizedExchange);
         } catch (KisOrderOutcomeUnknownException ex) {
             // Keep CANCEL_PENDING; never send a second cancel without broker reconciliation.
         } catch (KisApiException ex) {

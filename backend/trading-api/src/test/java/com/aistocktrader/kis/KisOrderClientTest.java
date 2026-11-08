@@ -206,6 +206,17 @@ class KisOrderClientTest {
     }
 
     @Test
+    void paperCancelRejectsZeroReconciledQuantityBeforeAnyRequest() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+
+        assertThrows(IllegalArgumentException.class, () -> client(true, builder).cancelPaperOrder(
+                Market.US, "AAPL", "5678", null, 0, "NAS"));
+
+        server.verify();
+    }
+
+    @Test
     void paperOrderSwitchIsOffByDefaultAndNeverAttemptsNetwork() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

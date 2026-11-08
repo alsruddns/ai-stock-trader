@@ -111,8 +111,8 @@ public class KisOrderClient {
                                   String exchange) {
         requirePaperOrdersEnabled();
         if (market == null || symbol == null || symbol.isBlank() || brokerOrderNumber == null || brokerOrderNumber.isBlank()
-                || remainingQuantity < 0) {
-            throw new IllegalArgumentException("A symbol, original broker order, and non-negative remaining quantity are required.");
+                || remainingQuantity <= 0) {
+            throw new IllegalArgumentException("A symbol, original broker order, and positive reconciled remaining quantity are required.");
         }
         if (market == Market.KR) {
             throw new KisApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,

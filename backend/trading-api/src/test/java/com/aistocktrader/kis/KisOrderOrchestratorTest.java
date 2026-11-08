@@ -302,7 +302,7 @@ class KisOrderOrchestratorTest {
         assertEquals(1, response.remainingQuantity());
         assertEquals("EGW00123", response.responseCode());
         verify(orders).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
-                org.mockito.ArgumentMatchers.anyInt(), anyString());
+                org.mockito.ArgumentMatchers.eq(1), anyString());
         verify(orders, org.mockito.Mockito.times(2)).reconcilePaperOrder(intent);
         verify(intents, org.mockito.Mockito.times(2))
                 .reconcile(key, new KisBrokerOrderSnapshot(0, 1, null, false, false));
