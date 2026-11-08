@@ -61,6 +61,7 @@ $endpointStatus['local.model_retraining'] = [ordered]@{
 $sessionMonitorSchedule = Get-AiTraderSessionMonitorScheduleSummary
 $endpointStatus['local.session_monitor_schedule'] = [ordered]@{
     state = $sessionMonitorSchedule.state
+    timeZoneId = $sessionMonitorSchedule.timeZoneId
     registeredCount = $sessionMonitorSchedule.registeredCount
     krRegisteredCount = $sessionMonitorSchedule.krRegisteredCount
     usRegisteredCount = $sessionMonitorSchedule.usRegisteredCount
@@ -69,6 +70,7 @@ $endpointStatus['local.session_monitor_schedule'] = [ordered]@{
 $validationTaskSchedule = Get-AiTraderValidationTaskScheduleSummary
 $endpointStatus['local.validation_task_schedule'] = [ordered]@{
     state = $validationTaskSchedule.state
+    timeZoneId = $validationTaskSchedule.timeZoneId
     registeredCount = $validationTaskSchedule.registeredCount
     paperLifecycleCount = $validationTaskSchedule.paperLifecycleCount
     modelTrainingCount = $validationTaskSchedule.modelTrainingCount
@@ -107,7 +109,7 @@ foreach ($market in @('KR', 'US')) {
     $marketDataQuality[$market] = $qualityResult.data
 }
 
-$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 7 -Force
+$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 8 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
 $endpointStates = @($endpointStatus.Values | ForEach-Object { $_.state })

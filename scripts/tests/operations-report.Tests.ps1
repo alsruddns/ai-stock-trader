@@ -33,8 +33,10 @@ Describe 'Optional operations report endpoint diagnostics' {
         }
 
         $summary = Get-AiTraderSessionMonitorScheduleSummary
+        $expectedTimeZoneId = [TimeZoneInfo]::Local.Id
 
         $summary.state | Should Be 'AVAILABLE'
+        $summary.timeZoneId | Should Be $expectedTimeZoneId
         $summary.registeredCount | Should Be 2
         $summary.krRegisteredCount | Should Be 1
         $summary.usRegisteredCount | Should Be 1
@@ -103,11 +105,13 @@ Describe 'Optional operations report endpoint diagnostics' {
         }
 
         $summary = Get-AiTraderValidationTaskScheduleSummary
+        $expectedTimeZoneId = [TimeZoneInfo]::Local.Id
         $paperTask = @($summary.tasks | Where-Object { $_.kind -eq 'PAPER_LIFECYCLE' })[0]
         $trainTask = @($summary.tasks | Where-Object { $_.kind -eq 'P4_MODEL_TRAIN' })[0]
         $holdoutTask = @($summary.tasks | Where-Object { $_.kind -eq 'P4_MODEL_HOLDOUT' })[0]
 
         $summary.state | Should Be 'AVAILABLE'
+        $summary.timeZoneId | Should Be $expectedTimeZoneId
         $summary.registeredCount | Should Be 3
         $summary.paperLifecycleCount | Should Be 1
         $summary.modelTrainingCount | Should Be 1
@@ -220,7 +224,7 @@ Describe 'Daily operations report endpoint health summary' {
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
         $archivedReport = Get-Content -LiteralPath $archivePath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 7
+        $report.reportSchemaVersion | Should Be 8
         $archivedReport.generatedAt | Should Be $report.generatedAt
         $archivedReport.tradingMode | Should Be $report.tradingMode
         $report.pythonConnected | Should Be $true
@@ -231,8 +235,10 @@ Describe 'Daily operations report endpoint health summary' {
         $report.endpointStatus.'local.model_retraining'.state | Should Be 'NO_RUNS'
         $report.endpointStatus.'local.session_monitor_schedule'.state | Should Be $report.sessionMonitorSchedule.state
         $report.endpointStatus.'local.session_monitor_schedule'.registeredCount | Should Be $report.sessionMonitorSchedule.registeredCount
+        $report.endpointStatus.'local.session_monitor_schedule'.timeZoneId | Should Be $report.sessionMonitorSchedule.timeZoneId
         $report.endpointStatus.'local.validation_task_schedule'.state | Should Be $report.validationTaskSchedule.state
         $report.endpointStatus.'local.validation_task_schedule'.registeredCount | Should Be $report.validationTaskSchedule.registeredCount
+        $report.endpointStatus.'local.validation_task_schedule'.timeZoneId | Should Be $report.validationTaskSchedule.timeZoneId
     }
 
     It 'separates available endpoints from incomplete market bars and spread coverage' {

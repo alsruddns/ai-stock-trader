@@ -146,6 +146,7 @@ function Get-AiTraderSessionMonitorScheduleSummary {
         return [ordered]@{
             state = 'UNAVAILABLE'
             errorType = $_.Exception.GetType().Name
+            timeZoneId = [TimeZoneInfo]::Local.Id
             registeredCount = 0
             krRegisteredCount = 0
             usRegisteredCount = 0
@@ -184,6 +185,7 @@ function Get-AiTraderSessionMonitorScheduleSummary {
     return [ordered]@{
         state = if ($rows.Count -eq 0) { 'UNVERIFIED' } elseif (@($rows | Where-Object { $_.state -eq 'UNKNOWN' }).Count -gt 0) { 'PARTIAL' } else { 'AVAILABLE' }
         errorType = $null
+        timeZoneId = [TimeZoneInfo]::Local.Id
         registeredCount = $rows.Count
         krRegisteredCount = @($rows | Where-Object { $_.market -eq 'KR' }).Count
         usRegisteredCount = @($rows | Where-Object { $_.market -eq 'US' }).Count
@@ -206,6 +208,7 @@ function Get-AiTraderValidationTaskScheduleSummary {
         return [ordered]@{
             state = 'UNAVAILABLE'
             errorType = $_.Exception.GetType().Name
+            timeZoneId = [TimeZoneInfo]::Local.Id
             registeredCount = 0
             paperLifecycleCount = 0
             modelTrainingCount = 0
@@ -250,6 +253,7 @@ function Get-AiTraderValidationTaskScheduleSummary {
     return [ordered]@{
         state = if ($rows.Count -eq 0) { 'UNVERIFIED' } elseif (@($rows | Where-Object { $_.state -eq 'UNKNOWN' }).Count -gt 0) { 'PARTIAL' } else { 'AVAILABLE' }
         errorType = $null
+        timeZoneId = [TimeZoneInfo]::Local.Id
         registeredCount = $rows.Count
         paperLifecycleCount = @($rows | Where-Object { $_.kind -eq 'PAPER_LIFECYCLE' }).Count
         modelTrainingCount = @($rows | Where-Object { $_.kind -eq 'P4_MODEL_TRAIN' }).Count
