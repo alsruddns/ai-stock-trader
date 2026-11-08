@@ -30,6 +30,7 @@ jobs:
             'scripts/lib/kis-paper-order-preflight.ps1',
             'scripts/lib/kis-paper-order-lifecycle.ps1',
             'scripts/lib/us-paper-lifecycle-smoke.ps1',
+            'scripts/lib/lean-cost-inputs.ps1',
             'scripts/lib/tracked-credential-scan.ps1',
             'scripts/test-tracked-credentials.ps1',
             'scripts/lib/retired-kis-analysis-scan.ps1',
@@ -73,6 +74,11 @@ jobs:
           $usPaperSmokeResult = Invoke-Pester -Path 'scripts/tests/us-paper-lifecycle-smoke.Tests.ps1' -PassThru
           if ($usPaperSmokeResult.FailedCount -gt 0 -or $usPaperSmokeResult.PassedCount -ne 13) {
             throw "US PAPER lifecycle smoke tests failed: passed=$($usPaperSmokeResult.PassedCount), failed=$($usPaperSmokeResult.FailedCount)."
+          }
+
+          $leanCostResult = Invoke-Pester -Path 'scripts/tests/lean-cost-inputs.Tests.ps1' -PassThru
+          if ($leanCostResult.FailedCount -gt 0 -or $leanCostResult.PassedCount -ne 6) {
+            throw "LEAN cost input tests failed: passed=$($leanCostResult.PassedCount), failed=$($leanCostResult.FailedCount)."
           }
 
           $credentialScanResult = Invoke-Pester -Path 'scripts/tests/tracked-credential-scan.Tests.ps1' -PassThru

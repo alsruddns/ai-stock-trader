@@ -38,62 +38,18 @@ if ($ExpectedBars -le 0) {
     $ExpectedBars = if ($Market -eq 'US') { 390 } else { 380 }
 }
 $currency = if ($Market -eq 'US') { 'USD' } else { 'KRW' }
-$costPrefix = "BACKTEST_${Market}_"
-$costKeys = [ordered]@{
-    buy_commission = "${costPrefix}BUY_COMMISSION_BPS"
-    sell_commission = "${costPrefix}SELL_COMMISSION_BPS"
-    sell_tax = "${costPrefix}SELL_TAX_BPS"
-    slippage = "${costPrefix}SLIPPAGE_BPS"
-}
-$explicitCosts = [ordered]@{
-    buy_commission = $BuyCommissionBps
-    sell_commission = $SellCommissionBps
-    sell_tax = $SellTaxBps
-    slippage = $SlippageBps
-}
-$explicitCostCount = @($explicitCosts.Values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
-if ($explicitCostCount -gt 0 -and $explicitCostCount -lt $explicitCosts.Count) {
-    throw 'Pass all four explicit cost values together, or leave them all blank to use .env_local.'
-}
-$localEnvironment = @{}
-$localEnvironmentPath = Join-Path $repository '.env_local'
-if (Test-Path -LiteralPath $localEnvironmentPath) {
-    foreach ($line in Get-Content -LiteralPath $localEnvironmentPath) {
-        $trimmed = $line.Trim()
-        if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
-        $separator = $trimmed.IndexOf('=')
-        if ($separator -lt 1) { continue }
-        $name = $trimmed.Substring(0, $separator).Trim()
-        if ($costKeys.Values -notcontains $name) { continue }
-        $value = $trimmed.Substring($separator + 1).Trim().Trim('"').Trim("'")
-        if ($value) { $localEnvironment[$name] = $value }
-    }
-}
-$configuredCostCount = @($costKeys.Values | Where-Object { $localEnvironment.ContainsKey($_) }).Count
-if ($explicitCostCount -eq 0 -and $configuredCostCount -gt 0 -and $configuredCostCount -lt $costKeys.Count) {
-    throw "Incomplete $Market backtest cost assumptions in .env_local. Configure all four directional commission, sell tax, and slippage values or leave all four blank for diagnostic parity only."
-}
-$costSource = if ($explicitCostCount -eq $explicitCosts.Count) { 'explicit_parameters' }
-    elseif ($configuredCostCount -eq $costKeys.Count) { 'env_local' }
-    else { 'diagnostic_defaults' }
-$costValues = @{}
-foreach ($costName in $costKeys.Keys) {
-    $costValues[$costName] = if ($costSource -eq 'explicit_parameters') { $explicitCosts[$costName] }
-    elseif ($costSource -eq 'env_local') { $localEnvironment[$costKeys[$costName]] }
-    else {
-        switch ($costName) {
-            'buy_commission' { '5' }
-            'sell_commission' { '5' }
-            'sell_tax' { '0' }
-            'slippage' { '5' }
-        }
-    }
-    $parsedCost = [decimal]0
-    if (-not [decimal]::TryParse([string]$costValues[$costName], [Globalization.NumberStyles]::Float,
-            [cultureinfo]::InvariantCulture, [ref]$parsedCost) -or $parsedCost -lt 0 -or $parsedCost -gt 10000) {
-        throw "The $Market ${costName} cost assumption must be a decimal basis-point value from zero through 10000."
-    }
-    $costValues[$costName] = $parsedCost.ToString([cultureinfo]::InvariantCulture)
+$costEnvironmentPath = Join-Path $repository '.env_local'
+$costSettingsScript = Join-Path $PSScriptRoot 'lib/lean-cost-inputs.ps1'
+. $costSettingsScript
+$costSettings = Get-LeanBacktestCostInputs -Market $Market -EnvironmentFile $costEnvironmentPath `
+    -BuyCommissionBps $BuyCommissionBps -SellCommissionBps $SellCommissionBps `
+    -SellTaxBps $SellTaxBps -SlippageBps $SlippageBps
+$costSource = $costSettings.Source
+$costValues = @{
+    buy_commission = $costSettings.BuyCommissionBps
+    sell_commission = $costSettings.SellCommissionBps
+    sell_tax = $costSettings.SellTaxBps
+    slippage = $costSettings.SlippageBps
 }
 $leanRoot = Join-Path $repository '.local\lean-toolchain'
 $dotnetRoot = Join-Path $leanRoot 'dotnet'
