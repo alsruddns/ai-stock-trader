@@ -167,162 +167,40 @@ class KisOrderClientTest {
     }
 
     @Test
-    void domesticPaperCancelableOrderQueryUsesPaperReadSwitchAndCandidateTransaction() {
+    void paperOrderReconciliationRetriesOnceAfterHttp502OnSupportedReadEndpoint() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
                 .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
         server.expect(requestTo(org.hamcrest.Matchers.containsString(
-                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
-                .andExpect(method(HttpMethod.GET)).andExpect(header("tr_id", "VTTC0084R"))
-                .andExpect(queryParam("CANO", "12345678"))
-                .andExpect(queryParam("ACNT_PRDT_CD", "01"))
-                .andExpect(queryParam("INQR_DVSN_1", "1"))
-                .andExpect(queryParam("INQR_DVSN_2", "0"))
-                .andRespond(withSuccess("""
-                        {"rt_cd":"0","output":[
-                          {"pdno":"005930","odno":"1234","ord_gno_brno":"ORG01","psbl_qty":"1"}
-                        ]}
-                        """, org.springframework.http.MediaType.APPLICATION_JSON));
-
-        var rows = clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders();
-
-        assertEquals(1, rows.size());
-        assertEquals(new KisPaperCancelableOrder("005930", "1234", "ORG01", 1), rows.getFirst());
-        server.verify();
-    }
-
-    @Test
-    void domesticPaperReadRetriesOnceAfterHttp502AndUsesRateLimitedSecondRequest() {
-        RestClient.Builder builder = RestClient.builder();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
-                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
-        server.expect(requestTo(org.hamcrest.Matchers.containsString(
-                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
-                .andExpect(method(HttpMethod.GET)).andExpect(header("tr_id", "VTTC0084R"))
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(method(HttpMethod.GET)).andExpect(header("tr_id", "VTTC0081R"))
                 .andRespond(withStatus(org.springframework.http.HttpStatus.BAD_GATEWAY));
         server.expect(requestTo(org.hamcrest.Matchers.containsString(
-                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
-                .andExpect(method(HttpMethod.GET)).andExpect(header("tr_id", "VTTC0084R"))
-                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"output\":[]}",
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(method(HttpMethod.GET)).andExpect(header("tr_id", "VTTC0081R"))
+                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"output1\":[]}",
                         org.springframework.http.MediaType.APPLICATION_JSON));
 
-        var rows = clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders();
-
-        assertTrue(rows.isEmpty());
+        assertTrue(client(true, builder).reconcilePaperOrder(acceptedDomesticPaperIntent()).isEmpty());
         server.verify();
     }
 
     @Test
-    void domesticPaperReadRetriesOnceAfterKisEgW00002Response() {
+    void paperOrderReconciliationDoesNotRetryHttp429OnSupportedReadEndpoint() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
                 .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
         server.expect(requestTo(org.hamcrest.Matchers.containsString(
-                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
-                .andExpect(method(HttpMethod.GET)).andRespond(withSuccess(
-                        "{\"rt_cd\":\"1\",\"msg_cd\":\"EGW00002\",\"msg1\":\"temporary server error\"}",
-                        org.springframework.http.MediaType.APPLICATION_JSON));
-        server.expect(requestTo(org.hamcrest.Matchers.containsString(
-                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
-                .andExpect(method(HttpMethod.GET)).andRespond(withSuccess("{\"rt_cd\":\"0\",\"output\":[]}",
-                        org.springframework.http.MediaType.APPLICATION_JSON));
-
-        var rows = clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders();
-
-        assertTrue(rows.isEmpty());
-        server.verify();
-    }
-
-    @Test
-    void domesticPaperReadDoesNotRetryHttp429() {
-        RestClient.Builder builder = RestClient.builder();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
-                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
-        server.expect(requestTo(org.hamcrest.Matchers.containsString(
-                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(method(HttpMethod.GET)).andExpect(header("tr_id", "VTTC0081R"))
                 .andRespond(withStatus(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS));
 
         KisApiException error = assertThrows(KisApiException.class,
-                () -> clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders());
+                () -> client(true, builder).reconcilePaperOrder(acceptedDomesticPaperIntent()));
 
         assertEquals(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS, error.status());
-        server.verify();
-    }
-
-    @Test
-    void domesticPaperReadRetriesAtMostOnceAfterRepeatedGatewayFailure() {
-        RestClient.Builder builder = RestClient.builder();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
-                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
-        for (int attempt = 0; attempt < 2; attempt++) {
-            server.expect(requestTo(org.hamcrest.Matchers.containsString(
-                            "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
-                    .andRespond(withStatus(org.springframework.http.HttpStatus.BAD_GATEWAY));
-        }
-
-        KisApiException error = assertThrows(KisApiException.class,
-                () -> clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders());
-
-        assertEquals(org.springframework.http.HttpStatus.BAD_GATEWAY, error.status());
-        server.verify();
-    }
-
-    @Test
-    void domesticPaperReadDoesNotRetryKisRateLimitResponseCode() {
-        RestClient.Builder builder = RestClient.builder();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
-                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
-        server.expect(requestTo(org.hamcrest.Matchers.containsString(
-                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
-                .andRespond(withSuccess(
-                        "{\"rt_cd\":\"1\",\"msg_cd\":\"EGW00201\",\"msg1\":\"rate limited\"}",
-                        org.springframework.http.MediaType.APPLICATION_JSON));
-
-        KisApiException error = assertThrows(KisApiException.class,
-                () -> clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders());
-
-        assertTrue(error.getMessage().contains("EGW00201"));
-        server.verify();
-    }
-
-    @Test
-    void domesticPaperCancelableOrderQueryFailsClosedWhenAccountReadsAreDisabled() {
-        RestClient.Builder builder = RestClient.builder();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-
-        KisApiException error = assertThrows(KisApiException.class,
-                () -> client(true, builder).inquireDomesticPaperCancelableOrders());
-
-        assertEquals(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, error.status());
-        server.verify();
-    }
-
-    @Test
-    void domesticPaperCancelableOrderQueryRejectsMalformedCancelableQuantity() {
-        RestClient.Builder builder = RestClient.builder();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
-                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
-        server.expect(requestTo(org.hamcrest.Matchers.containsString(
-                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
-                .andExpect(header("tr_id", "VTTC0084R"))
-                .andRespond(withSuccess("""
-                        {"rt_cd":"0","output":[
-                          {"pdno":"005930","odno":"1234","ord_gno_brno":"ORG01","psbl_qty":"1.5"}
-                        ]}
-                        """, org.springframework.http.MediaType.APPLICATION_JSON));
-
-        KisApiException error = assertThrows(KisApiException.class,
-                () -> clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders());
-
-        assertEquals(org.springframework.http.HttpStatus.BAD_GATEWAY, error.status());
-        assertTrue(error.getMessage().contains("incomplete order evidence"));
         server.verify();
     }
 
@@ -642,13 +520,14 @@ class KisOrderClientTest {
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("250")), builder);
     }
 
-    private static KisOrderClient clientWithPaperAccountReads(RestClient.Builder builder) {
-        KisProperties.Account paper = new KisProperties.Account("paper-key", "paper-secret", "1234567801");
-        KisProperties properties = new KisProperties(true, true, false, false, paper,
-                new KisProperties.Account("", "", ""), Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ofMillis(100));
-        return new KisOrderClient(properties, new KisOrderProperties(false),
-                new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("250")), builder);
+    private static KisOrderIntent acceptedDomesticPaperIntent() {
+        var request = new com.aistocktrader.order.OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", request, null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+        return intent;
     }
+
 
     private static void assertPaperReconciliationEmpty(String outcomeFields) {
         RestClient.Builder builder = RestClient.builder();

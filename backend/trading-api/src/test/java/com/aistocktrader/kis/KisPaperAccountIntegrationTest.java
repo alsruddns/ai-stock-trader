@@ -16,7 +16,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class KisPaperAccountIntegrationTest {
     @Autowired private KisAccountClient client;
-    @Autowired private KisOrderClient orderClient;
 
     @BeforeAll
     static void configure() {
@@ -75,16 +74,4 @@ class KisPaperAccountIntegrationTest {
                 + (snapshot.orderableCash().compareTo(new BigDecimal("11")) >= 0));
     }
 
-    @Test
-    void probesDomesticPaperCancelableOrderQueryWithoutPlacingOrders() {
-        try {
-            var rows = orderClient.inquireDomesticPaperCancelableOrders();
-            if (rows.stream().anyMatch(row -> row.cancelableQuantity() <= 0)) {
-                throw new AssertionError("KIS returned a non-positive cancelable quantity.");
-            }
-            System.out.println("PAPER_DOMESTIC_CANCEL_PREFLIGHT=SUPPORTED; rows=" + rows.size());
-        } catch (KisApiException exception) {
-            System.out.println("PAPER_DOMESTIC_CANCEL_PREFLIGHT=UNCONFIRMED; http=" + exception.status().value());
-        }
-    }
 }
