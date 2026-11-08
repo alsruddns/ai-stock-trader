@@ -116,10 +116,12 @@ public class KisOrderClient {
                     "Domestic PAPER cancellation is locked until KIS documents a supported mock cancel-quantity preflight (code PAPER_CANCEL_UNSUPPORTED).");
         }
         String account = properties.credentials(KisEnvironment.PAPER).accountNumber();
-        Map<String, String> body = Map.of("CANO", account.substring(0, 8), "ACNT_PRDT_CD", account.substring(8),
-                "OVRS_EXCG_CD", usExchange(exchange), "PDNO", symbol.toUpperCase(Locale.ROOT),
-                "ORGN_ODNO", brokerOrderNumber, "RVSE_CNCL_DVSN_CD", "02", "ORD_QTY", "0",
-                "OVRS_ORD_UNPR", "0", "MGCO_APTM_ODNO", "", "ORD_SVR_DVSN_CD", "0");
+        Map<String, String> body = Map.ofEntries(Map.entry("CANO", account.substring(0, 8)),
+                Map.entry("ACNT_PRDT_CD", account.substring(8)), Map.entry("OVRS_EXCG_CD", usExchange(exchange)),
+                Map.entry("PDNO", symbol.toUpperCase(Locale.ROOT)), Map.entry("ORGN_ODNO", brokerOrderNumber),
+                Map.entry("RVSE_CNCL_DVSN_CD", "02"), Map.entry("ORD_QTY", "0"),
+                Map.entry("OVRS_ORD_UNPR", "0"), Map.entry("QTY_ALL_ORD_YN", "Y"),
+                Map.entry("MGCO_APTM_ODNO", ""), Map.entry("ORD_SVR_DVSN_CD", "0"));
         post(OVERSEAS_CANCEL_PATH, "VTTT1004U", body);
     }
 

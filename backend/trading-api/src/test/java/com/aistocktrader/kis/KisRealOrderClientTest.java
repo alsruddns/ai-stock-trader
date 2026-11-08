@@ -189,6 +189,8 @@ class KisRealOrderClientTest {
                 .andExpect(header("tr_id", "TTTT1004U"))
                 .andExpect(jsonPath("$.OVRS_EXCG_CD").value("NYSE"))
                 .andExpect(jsonPath("$.ORGN_ODNO").value("7111"))
+                .andExpect(jsonPath("$.ORD_QTY").value("0"))
+                .andExpect(jsonPath("$.QTY_ALL_ORD_YN").value("Y"))
                 .andRespond(withSuccess("{\"rt_cd\":\"0\",\"msg_cd\":\"MCA00000\",\"output\":{}}",
                         MediaType.APPLICATION_JSON));
 

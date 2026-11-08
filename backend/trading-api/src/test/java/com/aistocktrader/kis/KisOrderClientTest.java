@@ -180,6 +180,7 @@ class KisOrderClientTest {
                 .andExpect(jsonPath("$.RVSE_CNCL_DVSN_CD").value("02"))
                 .andExpect(jsonPath("$.ORD_QTY").value("0"))
                 .andExpect(jsonPath("$.OVRS_ORD_UNPR").value("0"))
+                .andExpect(jsonPath("$.QTY_ALL_ORD_YN").value("Y"))
                 .andExpect(jsonPath("$.ORD_SVR_DVSN_CD").value("0"))
                 .andRespond(withSuccess("{\"rt_cd\":\"0\",\"msg_cd\":\"0\",\"output\":{}}",
                         org.springframework.http.MediaType.APPLICATION_JSON));
