@@ -723,6 +723,30 @@ def test_non_successful_kis_response_fails_closed() -> None:
     with pytest.raises(KisApiError, match="EGW00123") as exc:
         client.get_quote("KR", "005930")
     assert "sensitive" not in str(exc.value)
+    assert exc.value.broker_code == "EGW00123"
+    client.close()
+
+
+@pytest.mark.parametrize("unsafe_msg_cd", ["EGW00002 token=private", "private-response-code"])
+def test_quote_rejection_does_not_echo_unrecognized_broker_code(unsafe_msg_cd: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        return httpx.Response(200, json={
+            "rt_cd": "1", "msg_cd": unsafe_msg_cd, "msg1": "private response detail",
+        })
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(KisApiError, match=r"KIS rejected the quote request \(code unknown\)") as captured:
+        client.get_quote("US", "F", "NAS")
+
+    assert captured.value.broker_code == "unknown"
+    assert "token=private" not in str(captured.value)
+    assert "private response detail" not in str(captured.value)
     client.close()
 
 

@@ -82,6 +82,15 @@ def _safe_kis_request_failure(operation: str, exc: Exception) -> KisApiError:
     )
 
 
+def _safe_broker_code(value: object) -> str:
+    if not isinstance(value, str):
+        return "unknown"
+    candidate = value.strip()
+    if not re.fullmatch(r"[A-Za-z]{3,4}\d{4,5}", candidate):
+        return "unknown"
+    return candidate.upper()
+
+
 def _ensure_kis_http_success(response: httpx.Response, operation: str) -> None:
     if response.status_code < 400:
         return
@@ -91,9 +100,7 @@ def _ensure_kis_http_success(response: httpx.Response, operation: str) -> None:
     except (ValueError, TypeError):
         payload = None
     if isinstance(payload, dict):
-        candidate = payload.get("msg_cd") if isinstance(payload, dict) else None
-        if isinstance(candidate, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,32}", candidate):
-            code = candidate
+        code = _safe_broker_code(payload.get("msg_cd"))
         response_fields = tuple(
             key for key in payload
             if isinstance(key, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,31}", key)
@@ -408,8 +415,8 @@ class KisReadOnlyClient:
             raise _safe_kis_request_failure("quote", exc) from exc
 
         if payload.get("rt_cd") != "0":
-            code = str(payload.get("msg_cd", "unknown"))[:32]
-            raise KisApiError(f"KIS rejected the quote request (code {code})")
+            code = _safe_broker_code(payload.get("msg_cd"))
+            raise KisApiError(f"KIS rejected the quote request (code {code})", broker_code=code)
         output = payload.get("output")
         if not isinstance(output, dict):
             raise KisApiError("KIS quote response did not contain an output object")
@@ -524,8 +531,8 @@ class KisReadOnlyClient:
         except (httpx.HTTPError, ValueError, TypeError) as exc:
             raise _safe_kis_request_failure("candidate ranking", exc) from exc
         if payload.get("rt_cd") != "0":
-            code = str(payload.get("msg_cd", "unknown"))[:32]
-            raise KisApiError(f"KIS rejected the candidate ranking request (code {code})")
+            code = _safe_broker_code(payload.get("msg_cd"))
+            raise KisApiError(f"KIS rejected the candidate ranking request (code {code})", broker_code=code)
 
         rows = payload.get("output") if market == "KR" else payload.get("output2")
         if not isinstance(rows, list):
@@ -620,8 +627,8 @@ class KisReadOnlyClient:
             raise _safe_kis_request_failure("minute chart", exc) from exc
 
         if payload.get("rt_cd") != "0":
-            code = str(payload.get("msg_cd", "unknown"))[:32]
-            raise KisApiError(f"KIS rejected the minute chart request (code {code})")
+            code = _safe_broker_code(payload.get("msg_cd"))
+            raise KisApiError(f"KIS rejected the minute chart request (code {code})", broker_code=code)
         rows = payload.get("output2")
         if not isinstance(rows, list):
             raise KisApiError("KIS minute chart response did not contain an output array")
@@ -857,8 +864,8 @@ class KisReadOnlyClient:
             raise _safe_kis_request_failure("overseas minute chart", exc) from exc
 
         if payload.get("rt_cd") != "0":
-            code = str(payload.get("msg_cd", "unknown"))[:32]
-            raise KisApiError(f"KIS rejected the overseas minute chart request (code {code})")
+            code = _safe_broker_code(payload.get("msg_cd"))
+            raise KisApiError(f"KIS rejected the overseas minute chart request (code {code})", broker_code=code)
         rows = payload.get("output2")
         if not isinstance(rows, list):
             raise KisApiError("KIS overseas minute chart response did not contain an output array")
@@ -946,8 +953,8 @@ class KisReadOnlyClient:
                 raise _safe_kis_request_failure("account balance", exc) from exc
 
             if payload.get("rt_cd") != "0":
-                code = str(payload.get("msg_cd", "unknown"))[:32]
-                raise KisApiError(f"KIS rejected the account request (code {code})")
+                code = _safe_broker_code(payload.get("msg_cd"))
+                raise KisApiError(f"KIS rejected the account request (code {code})", broker_code=code)
             if page_number == 0:
                 summary = payload.get(summary_field)
             page_rows = payload.get(positions_field)
