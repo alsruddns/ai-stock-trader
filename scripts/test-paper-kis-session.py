@@ -67,9 +67,33 @@ def main() -> int:
         client.close()
     if not bars:
         raise SystemExit("KIS returned no minute bars for the requested session.")
+    if any(bar.spread_bps is not None for bar in bars):
+        raise SystemExit("Unexpected spread data in the KIS historical contract.")
+
+    # A bounded cursor request is useful for diagnosing KIS's historical response,
+    # but it is not a full-session sample and must not be presented as a strategy
+    # backtest. Keep this path read-only and report only the returned bar window.
+    if args.end_time != "153000":
+        print(json.dumps({
+            "status": "partial_data_only",
+            "environment": "paper",
+            "market": "KR",
+            "symbol": args.symbol,
+            "requested_session": args.session_date.isoformat(),
+            "requested_end_time": args.end_time,
+            "bar_count": len(bars),
+            "first_bar_at": bars[0].timestamp.isoformat(),
+            "last_bar_at": bars[-1].timestamp.isoformat(),
+            "spread_observations": 0,
+            "backtest": "not_run_partial_session",
+            "persisted": False,
+            "orders_sent": False,
+        }, ensure_ascii=False, indent=2))
+        return 0
+
     result = backtest_orb_vwap("KR", args.symbol, bars)
-    if result.executable or any(bar.spread_bps is not None for bar in bars):
-        raise SystemExit("Unexpected executable result or spread data in the KIS historical contract.")
+    if result.executable:
+        raise SystemExit("Unexpected executable result in the non-executable backtest contract.")
 
     print(json.dumps({
         "status": "ok",
