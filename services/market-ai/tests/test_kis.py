@@ -226,6 +226,34 @@ def test_us_quote_uses_official_exchange_code_and_fields() -> None:
     client.close()
 
 
+@pytest.mark.parametrize(
+    ("error_type", "expected_category"),
+    [
+        (httpx.ReadTimeout, "timeout"),
+        (httpx.ConnectError, "connect"),
+        (httpx.RemoteProtocolError, "protocol"),
+    ],
+)
+def test_us_quote_transport_failures_expose_only_safe_category(error_type, expected_category: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        raise error_type("private upstream detail and token", request=request)
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(KisApiError, match=f"transport category: {expected_category}") as captured:
+        client.get_quote("US", "F", "NAS")
+
+    assert captured.value.transport_error_category == expected_category
+    assert "private upstream detail" not in str(captured.value)
+    assert "token" not in str(captured.value)
+    client.close()
+
+
 def test_domestic_candidates_use_official_turnover_rank_and_require_fresh_quote_spread() -> None:
     requests_seen: list[httpx.Request] = []
 

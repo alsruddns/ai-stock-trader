@@ -40,7 +40,8 @@ class KisApiError(RuntimeError):
     def __init__(self, message: str, *, http_status: int | None = None,
                  broker_code: str | None = None, response_content_type: str | None = None,
                  response_bytes: int | None = None, response_fields: tuple[str, ...] = (),
-                 response_error_category: str | None = None, response_error_code: str | None = None):
+                 response_error_category: str | None = None, response_error_code: str | None = None,
+                 transport_error_category: str | None = None):
         super().__init__(message)
         self.http_status = http_status
         self.broker_code = broker_code
@@ -49,6 +50,7 @@ class KisApiError(RuntimeError):
         self.response_fields = response_fields
         self.response_error_category = response_error_category
         self.response_error_code = response_error_code
+        self.transport_error_category = transport_error_category
 
 
 class KisSharedRateLimitUnavailable(KisApiError):
@@ -57,6 +59,18 @@ class KisSharedRateLimitUnavailable(KisApiError):
 
 class KisRateLimitError(KisApiError):
     """KIS REST request quota was reached; callers should wait before retrying."""
+
+
+def _safe_transport_error_category(exc: httpx.HTTPError) -> str:
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(exc, httpx.ConnectError):
+        return "connect"
+    if isinstance(exc, httpx.RemoteProtocolError):
+        return "protocol"
+    if isinstance(exc, httpx.NetworkError):
+        return "network"
+    return "other"
 
 
 def _ensure_kis_http_success(response: httpx.Response, operation: str) -> None:
@@ -381,8 +395,17 @@ class KisReadOnlyClient:
             payload = response.json()
         except KisApiError:
             raise
-        except (httpx.HTTPError, ValueError, TypeError) as exc:
-            raise KisApiError("KIS quote request failed") from exc
+        except httpx.HTTPError as exc:
+            category = _safe_transport_error_category(exc)
+            raise KisApiError(
+                f"KIS quote request failed (transport category: {category}).",
+                transport_error_category=category,
+            ) from exc
+        except (ValueError, TypeError) as exc:
+            raise KisApiError(
+                "KIS quote response was invalid (transport category: invalid_response).",
+                transport_error_category="invalid_response",
+            ) from exc
 
         if payload.get("rt_cd") != "0":
             code = str(payload.get("msg_cd", "unknown"))[:32]

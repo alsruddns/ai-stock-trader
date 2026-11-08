@@ -8,6 +8,16 @@ function Get-SafeKisBrokerCode {
     return $match.Groups[1].Value.ToUpperInvariant()
 }
 
+function Get-SafeKisTransportCategory {
+    [CmdletBinding()]
+    param([AllowNull()] [string]$ErrorDetail)
+
+    if ([string]::IsNullOrWhiteSpace($ErrorDetail)) { return $null }
+    $match = [regex]::Match($ErrorDetail, '(?i)\btransport category:\s*(timeout|connect|network|protocol|other|invalid_response)\b')
+    if (-not $match.Success) { return $null }
+    return $match.Groups[1].Value.ToLowerInvariant()
+}
+
 function Format-SafeLocalApiFailure {
     [CmdletBinding()]
     param(
@@ -25,8 +35,11 @@ function Format-SafeLocalApiFailure {
         } catch { }
     }
     $brokerCode = Get-SafeKisBrokerCode -ErrorDetail $ErrorDetail
-    $codeSummary = if ($brokerCode) { ", KIS code $brokerCode" } else { '' }
-    return "Local preflight request failed (HTTP $Status$codeSummary) for $Path; inspect the sanitized service logs."
+    $transportCategory = Get-SafeKisTransportCategory -ErrorDetail $ErrorDetail
+    $diagnostic = if ($brokerCode) { ", KIS code $brokerCode" }
+        elseif ($transportCategory) { ", KIS transport $transportCategory" }
+        else { '' }
+    return "Local preflight request failed (HTTP $Status$diagnostic) for $Path; inspect the sanitized service logs."
 }
 
 function Assert-KisPaperQuoteFresh {

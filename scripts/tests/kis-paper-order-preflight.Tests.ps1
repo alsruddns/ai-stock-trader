@@ -152,6 +152,18 @@ Describe 'Sanitized KIS error reporting' {
         $message | Should Be 'Local preflight request failed (HTTP 502, KIS code EGW00002) for /api/v1/market/quotes/US/F; inspect the sanitized service logs.'
     }
 
+    It 'formats an allowlisted upstream timeout without exposing response details' {
+        $message = Format-SafeLocalApiFailure -Status '502' -Path '/api/v1/market/quotes/US/F' `
+            -ErrorDetail '{"detail":"KIS quote request failed (transport category: timeout)."}'
+        $message | Should Be 'Local preflight request failed (HTTP 502, KIS transport timeout) for /api/v1/market/quotes/US/F; inspect the sanitized service logs.'
+    }
+
+    It 'does not expose an unrecognized upstream category' {
+        $message = Format-SafeLocalApiFailure -Status '502' -Path '/api/v1/market/quotes/US/F' `
+            -ErrorDetail '{"detail":"transport category: token=hidden"}'
+        $message | Should Be 'Local preflight request failed (HTTP 502) for /api/v1/market/quotes/US/F; inspect the sanitized service logs.'
+    }
+
     It 'suppresses response text and rejects unsafe status or path values' {
         $message = Format-SafeLocalApiFailure -Status '502 token=hidden' -Path '/path?account=hidden' `
             -ErrorDetail '{"detail":"token=hidden code password123"}'
