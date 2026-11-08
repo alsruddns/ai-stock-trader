@@ -19,6 +19,7 @@ def test_parse_domestic_trade_frame_extracts_market_only_fields() -> None:
     frame = _frame("H0STCNT0", 46, {
         0: "005930", 1: "100101", 2: "73500", 7: "73000", 8: "74000", 9: "72500",
         10: "73510", 11: "73500", 12: "3", 13: "1000", 14: "73500000", 33: "20261105",
+        45: "2",
     })
     tick = parse_trade_frame(frame, "KR")[0]
     assert tick.symbol == "005930"
@@ -38,10 +39,21 @@ def test_parse_domestic_multi_record_frame_uses_trade_volume_not_cumulative_volu
         fields[0], fields[1], fields[2] = "005930", time_value, "73500"
         fields[10], fields[11] = "73510", "73500"
         fields[12], fields[13], fields[33] = trade_volume, cumulative_volume, "20261105"
+        fields[45] = "2"
         rows.extend(fields)
     ticks = parse_trade_frame("0|H0STCNT0|2|" + "^".join(rows), "KR")
 
     assert [tick.volume for tick in ticks] == [3, 5]
+
+
+@pytest.mark.parametrize("market_class", ["1", "3", "5", ""])
+def test_domestic_trade_parser_excludes_non_regular_market_ticks(market_class: str) -> None:
+    frame = _frame("H0STCNT0", 46, {
+        0: "005930", 1: "160101", 2: "73500", 10: "73510", 11: "73500",
+        12: "3", 33: "20261105", 45: market_class,
+    })
+
+    assert parse_trade_frame(frame, "KR") == []
 
 
 def test_parse_domestic_orderbook_frame_extracts_best_prices_from_official_columns() -> None:
@@ -49,7 +61,7 @@ def test_parse_domestic_orderbook_frame_extracts_best_prices_from_official_colum
     from zoneinfo import ZoneInfo
 
     frame = _frame("H0STASP0", 63, {
-        0: "005930", 1: "100101", 3: "73510", 13: "73500",
+        0: "005930", 1: "100101", 3: "73510", 13: "73500", 62: "2",
     })
     quotes = parse_domestic_orderbook_frame(
         frame, received_at=datetime(2026, 11, 6, 10, 1, 2, tzinfo=ZoneInfo("Asia/Seoul")),
@@ -60,6 +72,15 @@ def test_parse_domestic_orderbook_frame_extracts_best_prices_from_official_colum
     assert quotes[0].timestamp.isoformat() == "2026-11-06T10:01:01+09:00"
     assert quotes[0].bid == Decimal("73500")
     assert quotes[0].ask == Decimal("73510")
+
+
+@pytest.mark.parametrize("market_class", ["1", "3", "5", ""])
+def test_domestic_orderbook_parser_excludes_non_regular_market_quotes(market_class: str) -> None:
+    frame = _frame("H0STASP0", 63, {
+        0: "005930", 1: "160101", 3: "73510", 13: "73500", 62: market_class,
+    })
+
+    assert parse_domestic_orderbook_frame(frame) == []
 
 
 def test_parse_overseas_trade_frame_uses_exchange_local_timestamp() -> None:

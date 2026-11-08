@@ -93,6 +93,9 @@ def parse_trade_frame(frame: str, market: str, exchange: str | None = None) -> l
     ticks: list[TradeTick] = []
     for index in range(count):
         row = fields[index * width:(index + 1) * width]
+        if market == "KR" and row[45].strip() != "2":
+            # KIS MARKET_CLS_CODE: only regular-session executions enter strategy bars.
+            continue
         tick = get_tick(row)
         if tick.price <= 0:
             raise ValueError("KIS trade price must be positive")
@@ -125,6 +128,9 @@ def parse_domestic_orderbook_frame(
     quotes: list[OrderBookQuote] = []
     for index in range(count):
         row = fields[index * width:(index + 1) * width]
+        if row[62].strip() != "2":
+            # Do not reuse pre/after-market or auction quotes for regular-session bars.
+            continue
         try:
             clock = datetime.strptime(row[1], "%H%M%S").time()
             timestamp = datetime.combine(reference.date(), clock, zone)
