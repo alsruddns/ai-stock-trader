@@ -1386,6 +1386,57 @@ def test_exit_worker_uses_persisted_stop_and_submits_only_local_paper_exit() -> 
     assert trader.exit["model_id"] == "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 
+def test_exit_worker_flattens_before_krx_continuous_session_ends() -> None:
+    class Broker:
+        def get_strategy_positions(self):
+            return [{"market": "KR", "symbol": "005930", "currency": "KRW", "quantity": 2,
+                     "stopPrice": "98", "targetPrice": "104", "openedAt": "2026-11-05T00:00:00Z",
+                     "strategyId": "ORB_VWAP", "modelId": "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]
+
+    class Trader:
+        exit = None
+
+        def submit_exit(self, **kwargs):
+            self.exit = kwargs
+            return {"state": "FILLED", "executable": False}
+
+    watch = parse_watchlist("KR:005930")[0]
+    at = datetime.fromisoformat("2026-11-05T15:19:00+09:00")
+    bar = MinuteBar(at, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100.5"), 1000, Decimal("5"))
+    trader = Trader()
+
+    result = PaperSessionFeedMonitor._manage_strategy_exit(
+        Broker(), trader, watch, bar, PaperOpsLimits(flatten_before_close_minutes=5),
+    )
+
+    assert result["state"] == "FILLED"
+    assert trader.exit["reason"] == "SESSION_END"
+    assert trader.exit["exit_price"] == Decimal("100.5")
+
+
+@pytest.mark.parametrize(("watchlist", "timestamp"), [
+    ("KR:005930", "2026-11-05T15:25:00+09:00"),
+    ("US:AAPL:NAS", "2026-11-06T16:01:00-05:00"),
+])
+def test_exit_worker_never_submits_outside_continuous_session(watchlist: str, timestamp: str) -> None:
+    class Broker:
+        def get_strategy_positions(self):
+            raise AssertionError("broker positions must not be read outside continuous trading")
+
+    class Trader:
+        def submit_exit(self, **_kwargs):
+            raise AssertionError("no paper exit may be submitted outside continuous trading")
+
+    watch = parse_watchlist(watchlist)[0]
+    at = datetime.fromisoformat(timestamp)
+    bar = MinuteBar(at, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100.5"), 1000, Decimal("5"))
+
+    result = PaperSessionFeedMonitor._manage_strategy_exit(Broker(), Trader(), watch, bar, PaperOpsLimits())
+
+    assert result["state"] == "EXIT_MONITORING"
+    assert result["reason"] == "OUTSIDE_REGULAR_SESSION"
+
+
 def test_daily_baseline_worker_captures_early_session_equity(monkeypatch) -> None:
     class Broker:
         recorded = None

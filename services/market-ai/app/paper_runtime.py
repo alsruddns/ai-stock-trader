@@ -1125,6 +1125,15 @@ class PaperSessionFeedMonitor:
     @staticmethod
     def _manage_strategy_exit(broker: SpringPaperBrokerClient, trader: PaperAutoTrader,
                                watch: PaperWatch, bar: MinuteBar, limits: PaperOpsLimits) -> dict[str, object] | None:
+        try:
+            continuous_window = exchange_continuous_session_window(watch.market, bar.timestamp)
+        except RuntimeError:
+            return {"state": "BLOCKED", "reason": "MARKET_CALENDAR_UNAVAILABLE", "executable": False}
+        bar_at = bar.timestamp.astimezone(timezone.utc)
+        if continuous_window is None:
+            return {"state": "EXIT_MONITORING", "reason": "MARKET_CLOSED", "executable": False}
+        if not continuous_window[0] <= bar_at < continuous_window[1]:
+            return {"state": "EXIT_MONITORING", "reason": "OUTSIDE_REGULAR_SESSION", "executable": False}
         rows = broker.get_strategy_positions()
         position = next((row for row in rows
                          if str(row.get("market", "")).upper() == watch.market
@@ -1138,9 +1147,7 @@ class PaperSessionFeedMonitor:
             currency = str(position["currency"]).upper()
         except (KeyError, ValueError, ArithmeticError):
             return {"state": "BLOCKED", "reason": "PERSISTED_EXIT_STATE_INVALID", "executable": False}
-        window = exchange_session_window(watch.market, bar.timestamp)
-        flatten = bool(window and window[1] - bar.timestamp.astimezone(timezone.utc)
-                       <= timedelta(minutes=limits.flatten_before_close_minutes))
+        flatten = continuous_window[1] - bar_at <= timedelta(minutes=limits.flatten_before_close_minutes)
         exit_candidate = evaluate_paper_exit(bar, stop_price=stop, target_price=target, flatten_required=flatten)
         if exit_candidate is None:
             return {"state": "EXIT_MONITORING", "reason": "EXIT_LEVELS_NOT_REACHED", "executable": False}
