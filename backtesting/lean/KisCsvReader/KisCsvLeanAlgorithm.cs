@@ -161,6 +161,10 @@ namespace QuantConnect.Algorithm.CSharp
         private string _currency;
         private string _aiModelId;
         private decimal? _aiThreshold;
+        private decimal _buyCommissionBps = 5m;
+        private decimal _sellCommissionBps = 5m;
+        private decimal _sellTaxBps;
+        private decimal _slippageBps = 5m;
         private bool _entryPending;
 
         public override void Initialize()
@@ -169,6 +173,10 @@ namespace QuantConnect.Algorithm.CSharp
             if (_market != "US" && _market != "KR") throw new ArgumentException("market must be US or KR");
             _sourceSymbol = GetParameter("symbol") ?? (_market == "US" ? "AAPL" : "005930");
             _currency = GetParameter("currency") ?? (_market == "US" ? "USD" : "KRW");
+            _buyCommissionBps = ReadNonNegativeCostParameter("buy-commission-bps", 5m);
+            _sellCommissionBps = ReadNonNegativeCostParameter("sell-commission-bps", 5m);
+            _sellTaxBps = ReadNonNegativeCostParameter("sell-tax-bps", 0m);
+            _slippageBps = ReadNonNegativeCostParameter("slippage-bps", 5m);
             var sessionText = GetParameter("session");
             if (string.IsNullOrWhiteSpace(sessionText)) throw new ArgumentException("session parameter is required");
             var session = DateTime.ParseExact(sessionText, "yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -206,8 +214,9 @@ namespace QuantConnect.Algorithm.CSharp
             SetAccountCurrency(_currency);
             SetCash(100_000m);
             _symbol = AddData<KisCsvMinuteBar>("KISCSV", Resolution.Minute, TimeZones.Utc).Symbol;
-            Securities[_symbol].SetFillModel(new KisCsvCostFillModel());
-            Securities[_symbol].SetFeeModel(new KisCsvCommissionFeeModel(_currency));
+            Securities[_symbol].SetFillModel(new KisCsvCostFillModel(_slippageBps));
+            Securities[_symbol].SetFeeModel(new KisCsvCommissionFeeModel(
+                _currency, _buyCommissionBps, _sellCommissionBps, _sellTaxBps, _slippageBps));
         }
 
         public override void OnData(Slice slice)
@@ -230,7 +239,7 @@ namespace QuantConnect.Algorithm.CSharp
                     throw new InvalidOperationException("Entry signal spread is outside the configured limit");
                 var signalHistory = _bars.Take(_bars.Count - 1).ToList();
                 var risk = Atr(signalHistory, AtrPeriod) * AtrStopMultiple;
-                var entryCostsBps = SlippageBps + signalSpreadBps / 2m;
+                var entryCostsBps = _slippageBps + signalSpreadBps / 2m;
                 var expectedFill = bar.Open * (1m + entryCostsBps / 10_000m);
                 _entryPrice = expectedFill;
                 _stopPrice = expectedFill - risk;
@@ -309,6 +318,16 @@ namespace QuantConnect.Algorithm.CSharp
                     throw new ArgumentException("AI score file contains malformed, invalid, or duplicate rows");
             }
             return scores;
+        }
+
+        private decimal ReadNonNegativeCostParameter(string name, decimal fallback)
+        {
+            var raw = GetParameter(name);
+            if (string.IsNullOrWhiteSpace(raw)) return fallback;
+            if (!decimal.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                || value < 0m || value > 10_000m)
+                throw new ArgumentException($"{name} must be a decimal basis-point value from zero through 10000");
+            return value;
         }
 
         private static bool IsEntryCandidate(IReadOnlyList<KisCsvMinuteBar> bars, decimal openingHigh, decimal cumulativeTypicalVolume, decimal cumulativeVolume)
@@ -414,13 +433,20 @@ namespace QuantConnect.Algorithm.CSharp
 
     public class KisCsvCostFillModel : FillModel
     {
+        private readonly decimal _slippageBps;
+
+        public KisCsvCostFillModel(decimal slippageBps)
+        {
+            _slippageBps = slippageBps;
+        }
+
         public override OrderEvent MarketFill(Security asset, MarketOrder order)
         {
             var fill = base.MarketFill(asset, order);
             if (fill.Status != OrderStatus.Filled || asset.GetLastData() is not KisCsvMinuteBar bar) return fill;
             var rawPrice = KisCsvExecutionCostInputs.RawPrice(order.Tag, bar);
             var effectiveSpreadBps = KisCsvExecutionCostInputs.SpreadBps(order.Tag, bar);
-            var costsBps = 5m + effectiveSpreadBps / 2m;
+            var costsBps = _slippageBps + effectiveSpreadBps / 2m;
             fill.FillPrice = order.Direction == OrderDirection.Buy
                 ? rawPrice * (1m + costsBps / 10_000m)
                 : rawPrice * (1m - costsBps / 10_000m);
@@ -431,10 +457,19 @@ namespace QuantConnect.Algorithm.CSharp
     public class KisCsvCommissionFeeModel : FeeModel
     {
         private readonly string _currency;
+        private readonly decimal _buyCommissionBps;
+        private readonly decimal _sellCommissionBps;
+        private readonly decimal _sellTaxBps;
+        private readonly decimal _slippageBps;
 
-        public KisCsvCommissionFeeModel(string currency)
+        public KisCsvCommissionFeeModel(string currency, decimal buyCommissionBps,
+            decimal sellCommissionBps, decimal sellTaxBps, decimal slippageBps)
         {
             _currency = currency;
+            _buyCommissionBps = buyCommissionBps;
+            _sellCommissionBps = sellCommissionBps;
+            _sellTaxBps = sellTaxBps;
+            _slippageBps = slippageBps;
         }
 
         public override OrderFee GetOrderFee(OrderFeeParameters parameters)
@@ -442,13 +477,14 @@ namespace QuantConnect.Algorithm.CSharp
             if (parameters.Security.GetLastData() is not KisCsvMinuteBar bar) return OrderFee.Zero;
             var rawPrice = KisCsvExecutionCostInputs.RawPrice(parameters.Order.Tag, bar);
             var effectiveSpreadBps = KisCsvExecutionCostInputs.SpreadBps(parameters.Order.Tag, bar);
-            var costsBps = 5m + effectiveSpreadBps / 2m;
+            var costsBps = _slippageBps + effectiveSpreadBps / 2m;
             var fillPrice = parameters.Order.Direction == OrderDirection.Buy
                 ? rawPrice * (1m + costsBps / 10_000m)
                 : rawPrice * (1m - costsBps / 10_000m);
-            return new OrderFee(new CashAmount(Math.Abs(parameters.Order.Quantity) * fillPrice * CommissionBps / 10_000m, _currency));
+            var commissionAndTaxBps = parameters.Order.Direction == OrderDirection.Buy
+                ? _buyCommissionBps : _sellCommissionBps + _sellTaxBps;
+            return new OrderFee(new CashAmount(
+                Math.Abs(parameters.Order.Quantity) * fillPrice * commissionAndTaxBps / 10_000m, _currency));
         }
-
-        private const decimal CommissionBps = 5m;
     }
 }

@@ -7,6 +7,7 @@ import os
 import shutil
 import sys
 from datetime import timezone
+from decimal import Decimal
 from pathlib import Path
 
 repository = Path(__file__).resolve().parents[1]
@@ -15,7 +16,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
 from app.ai_pipeline import LocalModelRegistry, predict_probability_series
-from app.quant import backtest_orb_vwap
+from app.quant import QuantConfig, backtest_orb_vwap
 
 
 def main() -> int:
@@ -28,8 +29,24 @@ def main() -> int:
     parser.add_argument("--data-folder", type=Path, default=repository / ".local" / "lean-data")
     parser.add_argument("--model-id", help="fixed LightGBM/XGBoost candidate ID for AI+quant parity replay")
     parser.add_argument("--registry", type=Path, default=repository / ".local" / "models")
+    parser.add_argument("--buy-commission-bps", type=Decimal, default=Decimal("5"))
+    parser.add_argument("--sell-commission-bps", type=Decimal, default=Decimal("5"))
+    parser.add_argument("--sell-tax-bps", type=Decimal, default=Decimal("0"))
+    parser.add_argument("--slippage-bps", type=Decimal, default=Decimal("5"))
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+
+    cost_values = (args.buy_commission_bps, args.sell_commission_bps,
+                   args.sell_tax_bps, args.slippage_bps)
+    if any(not value.is_finite() or value < 0 or value > Decimal("10000") for value in cost_values):
+        parser.error("cost assumptions must be finite basis-point values from zero through 10000")
+    quant_config = QuantConfig(
+        commission_bps=Decimal("0"),
+        buy_commission_bps=args.buy_commission_bps,
+        sell_commission_bps=args.sell_commission_bps,
+        sell_tax_bps=args.sell_tax_bps,
+        slippage_bps=args.slippage_bps,
+    )
 
     try:
         provenance = load_data_provenance(args.csv_file, purpose="backtesting")
@@ -37,7 +54,7 @@ def main() -> int:
         if len(sessions) != 1:
             raise ValueError("LEAN adapter accepts exactly one exchange-local session per import")
         session, bars = next(iter(sessions.items()))
-        quant_result = backtest_orb_vwap(args.market, args.symbol, bars)
+        quant_result = backtest_orb_vwap(args.market, args.symbol, bars, quant_config)
         model_metadata = None
         score_by_timestamp = None
         ai_threshold = None
@@ -66,7 +83,7 @@ def main() -> int:
                 return probability >= ai_threshold
 
             ai_result = backtest_orb_vwap(
-                args.market, args.symbol, bars, entry_filter=ai_entry_filter
+                args.market, args.symbol, bars, quant_config, entry_filter=ai_entry_filter
             )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
@@ -100,6 +117,12 @@ def main() -> int:
         "net_pnl": str(ai_result.net_pnl),
         "dataset_sha256": digest,
         "rights_reviewed": provenance["rights_reviewed"],
+        "cost_assumptions_bps": {
+            "buy_commission": str(quant_config.effective_buy_commission_bps),
+            "sell_commission": str(quant_config.effective_sell_commission_bps),
+            "sell_tax": str(quant_config.sell_tax_bps),
+            "slippage_per_fill": str(quant_config.slippage_bps),
+        },
         "staged": not args.dry_run,
         "destination": str(destination),
     }

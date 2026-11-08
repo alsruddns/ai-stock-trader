@@ -96,20 +96,20 @@ LightGBM·XGBoost 학습용 선택 의존성은 `python -m pip install -e ".[dev
 
 ### LEAN 로컬 전략 백테스트
 
-`scripts/run-lean-backtest.ps1`은 권리 sidecar와 완전한 단일 세션을 검사하고, 공식 LEAN 엔진 소스와 .NET 10 SDK를 무시된 `.local/lean-toolchain`에 준비한 뒤 C# ORB/VWAP/EMA/ATR 전략을 로컬로 실행합니다. 이 Windows 네이티브 경로에는 Docker나 QuantConnect 유료 조직 계정이 필요하지 않습니다. KIS 데이터는 로컬 data folder만 사용하며 cloud로 업로드하지 않습니다. 첫 실행은 인터넷에서 Microsoft SDK 설치 스크립트, QuantConnect LEAN 소스, NuGet 패키지를 가져옵니다. 빌드·실행 기록은 `.local/logs`에 저장됩니다.
+`scripts/run-lean-backtest.ps1`은 권리 sidecar와 완전한 단일 세션을 검사하고, 공식 LEAN 엔진 소스와 .NET 10 SDK를 무시된 `.local/lean-toolchain`에 준비한 뒤 C# ORB/VWAP/EMA/ATR 전략을 로컬로 실행합니다. 이 Windows 네이티브 경로에는 Docker나 QuantConnect 유료 조직 계정이 필요하지 않습니다. KIS 데이터는 로컬 data folder만 사용하며 cloud로 업로드하지 않습니다. 첫 실행은 인터넷에서 Microsoft SDK 설치 스크립트, QuantConnect LEAN 소스, NuGet 패키지를 가져옵니다. 빌드·실행 기록은 `.local/logs`에 저장됩니다. 시장별 `.env_local`의 매수·매도 수수료, 매도세, 체결별 슬리피지가 모두 설정되면 두 엔진이 그 값을 함께 사용합니다. 전부 비어 있으면 5/5/0/5 bps 진단 기본값임을 결과에 표시하고, 일부만 설정하면 중단합니다. 네 값을 명령행 인자로 명시해 비교할 수도 있습니다.
 
 ```powershell
 .\scripts\run-lean-backtest.ps1 -CsvFile .\data\licensed\AAPL-2026-11-06.csv -Market US -Symbol AAPL -Session 2026-11-06
 .\scripts\run-lean-backtest.ps1 -CsvFile .\data\backtests\kis-kr-005930-2026-10-30.csv -Market KR -Symbol 005930 -Session 2026-10-30
+# 선택: 계좌별 실제 비용값이 아닌 별도 진단 비용을 명시해 두 엔진 비교
+.\scripts\run-lean-backtest.ps1 -CsvFile .\data\licensed\AAPL-2026-11-06.csv -Market US -Symbol AAPL -Session 2026-11-06 -BuyCommissionBps 7 -SellCommissionBps 9 -SellTaxBps 2 -SlippageBps 3
 # 선택: 검증용 후보 모델의 AI 확률 필터 포함 재생
 .\scripts\run-lean-backtest.ps1 -CsvFile .\data\licensed\AAPL-session.csv -Market US -Symbol AAPL -Session 2026-11-06 -ModelId xgboost-<32자리hex>
 ```
 
-실행 도구는 Python 기준 백테스트와 LEAN의 봉 수·양자/AI 신호·거래 수·순손익을 비교하고 차이가 1센트를 넘으면 실패합니다. `-ModelId`를 주면 로컬 registry에서 현재 feature schema와 권리 provenance를 확인하고, 시점별 확률 파일의 해시와 세션 timestamp를 대조합니다. 검증된 현재 표본은 미국 AAPL 2026-11-06 390봉/9신호/9거래와 국내 005930 2026-10-30 380봉/0신호/0거래입니다. 미국 한 세션의 순손익 추정은 두 엔진에서 -$7.7139928212093으로 일치했습니다. 국내 자료는 과거 스프레드가 없어 거래가 생성되지 않았습니다. 이 소수 표본은 전략 성과를 입증하지 않으며, AI 모델을 포함한 LEAN 재생은 후보·완전한 세션 자료가 준비된 뒤 결과 검증이 필요합니다.
+실행 도구는 Python 기준 백테스트와 LEAN의 봉 수·양자/AI 신호·거래 수·순손익을 비교하고 차이가 1센트를 넘으면 실패합니다. `-ModelId`를 주면 로컬 registry에서 현재 feature schema와 권리 provenance를 확인하고, 시점별 확률 파일의 해시와 세션 timestamp를 대조합니다. 검증 표본은 미국 AAPL 2026-11-06 390봉/9신호/9거래와 국내 005930 2026-10-30 380봉/0신호/0거래입니다. 기본값 경로는 현재 5/5/0/5 bps 진단 비용으로 미국 순손익 차이가 0.01 미만입니다. 별도 비용 7/9/2/3 bps를 명시한 미국 재생에서도 9건 거래의 결과가 일치했습니다. 이 진단 비용은 계좌 적용 수수료를 뜻하지 않습니다. 국내 자료에는 과거 스프레드가 없어 거래가 생성되지 않았습니다. 이 소수 표본은 전략 성과를 입증하지 않으며, AI 모델을 포함한 LEAN 재생은 후보·완전한 세션 자료가 준비된 뒤 결과 검증이 필요합니다.
 
-```powershell
-python .\scripts\train-ai-models.py .\data\licensed\005930.csv --market KR --symbol 005930 --commission-bps 5 --slippage-bps 5
-```
+P4 모델 학습은 왕복 레이블 비용과 매수·매도 수수료, 매도세, 체결별 슬리피지 값을 모두 요구합니다. 실제 계좌 적용값을 확인한 뒤 [비용 설정 및 학습 절차](docs/operations.md)에 있는 명령 형식으로 실행하세요. 진단 기본값을 실계좌 비용으로 대신 사용하지 않습니다.
 
 
 PostgreSQL에 저장된 분봉은 로컬 CSV로 내보낼 수 있습니다. 예: `.\services\market-ai\.venv\Scripts\python.exe .\scripts\export-market-data.py --market KR --symbol 005930 --from-date 2026-11-01 --to-date 2026-11-06 --output .\data\exports\005930.csv`. 날짜 범위는 거래소 현지 날짜 기준으로 양 끝을 포함합니다. 먼저 `--dry-run`을 추가하면 파일을 만들지 않고 전체 행·출처와 세션별 기대 봉 수, 봉 완전성, 스프레드 완전성을 확인합니다. 실제 내보내기 조회도 DB 읽기 전용이며 `data/`는 Git에서 제외됩니다. 모든 행 출처가 KIS Open API인 경우 sidecar는 사용자가 확인한 로컬 저장·백테스트·본인 계좌용 학습 권한과 개인 운용 제한을 SHA-256에 묶어 기록합니다. 타사 또는 혼합 출처가 포함되면 모든 권한을 `false`로 유지해 해당 제공자의 별도 검토를 요구합니다.
