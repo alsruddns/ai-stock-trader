@@ -51,12 +51,12 @@ LIVE_TRADING_ENABLED=false
 KIS_PAPER_ORDERS_ENABLED=false
 KIS_REAL_ORDERS_ENABLED=false
 PAPER_AUTOTRADING_ENABLED=false
-KIS_APP_SECRET=never-print-this
+KIS_APP_SECRET=TEST_ONLY_PLACEHOLDER
 '@ | Set-Content -LiteralPath (Join-Path $directory '.env_local')
 
         $settings = Read-AiTraderLocalSafetySettings -RepositoryRoot $directory
 
         $settings.TRADING_MODE | Should Be 'paper'
-        ($settings | ConvertTo-Json -Compress) | Should Not Match 'never-print-this'
+        ($settings | ConvertTo-Json -Compress) | Should Not Match 'TEST_ONLY_PLACEHOLDER'
     }
 }
