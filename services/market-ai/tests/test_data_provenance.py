@@ -160,8 +160,10 @@ def test_model_training_rejects_missing_or_partial_session_coverage() -> None:
 @pytest.mark.parametrize(
     ("script_name", "arguments"),
     [
-        ("train-ai-models.py", ["--market", "KR", "--symbol", "005930"]),
-        ("backtest-quant.py", ["--market", "KR", "--symbol", "005930"]),
+        ("train-ai-models.py", ["--market", "KR", "--symbol", "005930",
+                                "--round-trip-cost-bps", "20", "--commission-bps", "5", "--slippage-bps", "5"]),
+        ("backtest-quant.py", ["--market", "KR", "--symbol", "005930",
+                               "--commission-bps", "5", "--slippage-bps", "5"]),
     ],
 )
 def test_data_clis_refuse_csv_without_rights_sidecar(tmp_path, monkeypatch, capsys, script_name, arguments) -> None:
@@ -176,3 +178,26 @@ def test_data_clis_refuse_csv_without_rights_sidecar(tmp_path, monkeypatch, caps
 
     assert result.value.code == 2
     assert "required data provenance file is missing" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("script_name", "arguments", "missing_flag"),
+    [
+        ("train-ai-models.py", ["--market", "KR", "--symbol", "005930"], "--round-trip-cost-bps"),
+        ("backtest-quant.py", ["--market", "KR", "--symbol", "005930"], "--commission-bps"),
+    ],
+)
+def test_data_clis_require_explicit_cost_assumptions(
+    tmp_path, monkeypatch, capsys, script_name, arguments, missing_flag
+) -> None:
+    repository = Path(__file__).resolve().parents[3]
+    csv = tmp_path / "bars.csv"
+    csv.write_text("timestamp,open,high,low,close,volume\n", encoding="utf-8")
+    script = repository / "scripts" / script_name
+    monkeypatch.setattr(sys, "argv", [str(script), str(csv), *arguments])
+
+    with pytest.raises(SystemExit) as result:
+        runpy.run_path(str(script), run_name="__main__")
+
+    assert result.value.code == 2
+    assert f"the following arguments are required: {missing_flag}" in capsys.readouterr().err

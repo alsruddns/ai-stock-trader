@@ -23,8 +23,10 @@ def main() -> int:
     parser.add_argument("csv_file", type=Path)
     parser.add_argument("--market", choices=("KR", "US"), required=True)
     parser.add_argument("--symbol", required=True, help="single instrument represented by the input CSV")
-    parser.add_argument("--commission-bps", type=Decimal, default=Decimal("5"))
-    parser.add_argument("--slippage-bps", type=Decimal, default=Decimal("5"))
+    parser.add_argument("--commission-bps", type=Decimal, required=True,
+                        help="verified commission assumption per fill in basis points")
+    parser.add_argument("--slippage-bps", type=Decimal, required=True,
+                        help="explicit slippage assumption per fill in basis points")
     parser.add_argument("--minimum-turnover", type=Decimal, default=Decimal("1000000"))
     parser.add_argument("--maximum-spread-bps", type=Decimal, default=Decimal("15"))
     args = parser.parse_args()

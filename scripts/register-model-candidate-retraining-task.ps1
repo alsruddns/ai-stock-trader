@@ -23,7 +23,6 @@ if ($Market -eq 'US' -and $symbolValue -notmatch '^[A-Z][A-Z0-9.-]{0,15}$') { th
 $from = [DateTime]::ParseExact($FromDate, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
 $to = [DateTime]::ParseExact($ToDate, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
 if ($from.Date -gt $to.Date) { throw 'FromDate must be on or before ToDate.' }
-
 $envFile = Join-Path $repoRoot '.env_local'
 if (-not (Test-Path -LiteralPath $envFile)) { throw 'The ignored .env_local file is required.' }
 $localSettings = @{}
@@ -37,6 +36,23 @@ if ($localSettings.TRADING_MODE -ne 'paper' -or $localSettings.LIVE_TRADING_ENAB
     $localSettings.KIS_PAPER_ORDERS_ENABLED -ne 'false' -or $localSettings.KIS_REAL_ORDERS_ENABLED -ne 'false' -or
     $localSettings.PAPER_AUTOTRADING_ENABLED -ne 'false') {
     throw 'Candidate retraining task requires PAPER mode with live orders, PAPER orders, and paper automation disabled.'
+}
+$costPrefix = "BACKTEST_$Market"
+$costs = @{}
+foreach ($suffix in 'COMMISSION_BPS', 'SLIPPAGE_BPS', 'ROUND_TRIP_COST_BPS') {
+    $key = "${costPrefix}_$suffix"
+    $parsed = [decimal]0
+    if (-not $localSettings.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($localSettings[$key]) -or
+        -not [decimal]::TryParse($localSettings[$key], [Globalization.NumberStyles]::Number,
+            [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed) -or $parsed -lt 0) {
+        throw "Market backtest cost assumption '$key' must be configured in .env_local before scheduling training."
+    }
+    $costs[$suffix] = $parsed
+}
+if ($costs.COMMISSION_BPS -gt 10000 -or $costs.SLIPPAGE_BPS -gt 10000 -or
+    $costs.ROUND_TRIP_COST_BPS -gt 40000 -or
+    $costs.ROUND_TRIP_COST_BPS -lt (2 * ($costs.COMMISSION_BPS + $costs.SLIPPAGE_BPS))) {
+    throw 'Market backtest cost assumptions are invalid or the label round-trip cost is too low.'
 }
 
 $pythonPath = Join-Path $repoRoot 'services\market-ai\.venv\Scripts\python.exe'

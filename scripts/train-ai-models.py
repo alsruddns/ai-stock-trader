@@ -25,10 +25,12 @@ def main() -> int:
                         help="single instrument used for held-out quant and AI+quant strategy backtests")
     parser.add_argument("--registry", type=Path, default=Path(".local/models"))
     parser.add_argument("--horizon-bars", type=int, default=5)
-    parser.add_argument("--round-trip-cost-bps", type=Decimal, default=Decimal("20"),
-                        help="cost deducted from forward labels; default matches two 5 bps commission and slippage fills")
-    parser.add_argument("--commission-bps", type=Decimal, default=Decimal("5"))
-    parser.add_argument("--slippage-bps", type=Decimal, default=Decimal("5"))
+    parser.add_argument("--round-trip-cost-bps", type=Decimal, required=True,
+                        help="verified/conservative total round-trip cost deducted from forward labels")
+    parser.add_argument("--commission-bps", type=Decimal, required=True,
+                        help="verified commission assumption per fill in basis points")
+    parser.add_argument("--slippage-bps", type=Decimal, required=True,
+                        help="explicit slippage assumption per fill in basis points")
     args = parser.parse_args()
     try:
         source_bytes = args.csv_file.read_bytes()

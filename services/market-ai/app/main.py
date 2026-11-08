@@ -142,6 +142,8 @@ class QuantBacktestRequest(BaseModel):
     market: Market
     symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Za-z0-9.-]+$")
     quantity: int = Field(default=1, gt=0, le=100_000)
+    commission_bps: Decimal = Field(ge=0, description="Explicit commission assumption per fill in basis points")
+    slippage_bps: Decimal = Field(ge=0, description="Explicit slippage assumption per fill in basis points")
     bars: list[QuantBarRequest] = Field(min_length=1, max_length=5000)
 
 
@@ -988,7 +990,8 @@ def backtest_orb_vwap_endpoint(request: QuantBacktestRequest) -> QuantBacktestRe
             timestamp=item.timestamp, open=item.open, high=item.high, low=item.low,
             close=item.close, volume=item.volume, spread_bps=item.spread_bps,
         ) for item in request.bars]
-        result = backtest_orb_vwap(request.market, request.symbol, bars, QuantConfig(), quantity=request.quantity)
+        config = QuantConfig(commission_bps=request.commission_bps, slippage_bps=request.slippage_bps)
+        result = backtest_orb_vwap(request.market, request.symbol, bars, config, quantity=request.quantity)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:

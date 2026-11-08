@@ -1031,7 +1031,7 @@ def test_market_kis_client_is_closed_and_evicted_on_shutdown(monkeypatch) -> Non
 def test_quant_backtest_endpoint_accepts_supplied_bars_and_never_creates_orders() -> None:
     session_open = datetime(2026, 11, 5, 9, 0, tzinfo=timezone(timedelta(hours=9)))
     response = client.post("/api/v1/strategies/orb-vwap/backtest", json={
-        "market": "KR", "symbol": "005930", "bars": [
+        "market": "KR", "symbol": "005930", "commission_bps": "5", "slippage_bps": "5", "bars": [
             {"timestamp": (session_open + timedelta(minutes=i)).isoformat(), "open": "100", "high": "101",
              "low": "99", "close": "100", "volume": 1000, "spread_bps": "5"}
             for i in range(380)
@@ -1043,9 +1043,20 @@ def test_quant_backtest_endpoint_accepts_supplied_bars_and_never_creates_orders(
     assert response.json()["trades"] == []
 
 
-def test_quant_backtest_endpoint_rejects_naive_timestamps() -> None:
+def test_quant_backtest_endpoint_requires_explicit_cost_assumptions() -> None:
     response = client.post("/api/v1/strategies/orb-vwap/backtest", json={
         "market": "KR", "symbol": "005930", "bars": [
+            {"timestamp": "2026-11-05T09:00:00+09:00", "open": "100", "high": "101",
+             "low": "99", "close": "100", "volume": 1000}
+        ],
+    })
+    assert response.status_code == 422
+    assert {item["loc"][-1] for item in response.json()["detail"]} >= {"commission_bps", "slippage_bps"}
+
+
+def test_quant_backtest_endpoint_rejects_naive_timestamps() -> None:
+    response = client.post("/api/v1/strategies/orb-vwap/backtest", json={
+        "market": "KR", "symbol": "005930", "commission_bps": "5", "slippage_bps": "5", "bars": [
             {"timestamp": "2026-11-05T09:00:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": 1000}
         ],
     })
@@ -1054,7 +1065,7 @@ def test_quant_backtest_endpoint_rejects_naive_timestamps() -> None:
 
 def test_quant_backtest_endpoint_rejects_us_premarket_bars() -> None:
     response = client.post("/api/v1/strategies/orb-vwap/backtest", json={
-        "market": "US", "symbol": "AAPL", "bars": [
+        "market": "US", "symbol": "AAPL", "commission_bps": "5", "slippage_bps": "5", "bars": [
             {"timestamp": f"2026-11-05T23:{i:02d}:00+09:00", "open": "100", "high": "101",
              "low": "99", "close": "100", "volume": 1000, "spread_bps": "5"}
             for i in range(3)

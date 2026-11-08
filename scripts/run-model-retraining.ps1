@@ -12,17 +12,53 @@ param(
     [Parameter(Mandatory = $true)]
     [datetime]$ToDate,
 
-    [string]$PythonPath = (Join-Path (Split-Path -Parent $PSScriptRoot) 'services\market-ai\.venv\Scripts\python.exe'),
-    [decimal]$CommissionBps = 5,
-    [decimal]$SlippageBps = 5
+    [decimal]$CommissionBps,
+
+    [decimal]$SlippageBps,
+
+    [decimal]$RoundTripCostBps,
+
+    [string]$PythonPath
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($PythonPath)) {
+    $PythonPath = Join-Path $repoRoot 'services\market-ai\.venv\Scripts\python.exe'
+}
 . (Join-Path $PSScriptRoot 'lib\paper-safety.ps1')
 . (Join-Path $PSScriptRoot 'lib\model-retraining-report.ps1')
 $localSettings = Read-AiTraderLocalSafetySettings -RepositoryRoot $repoRoot
 Assert-AiTraderPaperSafetyLocks -Settings $localSettings
+$providedCostParameters = $PSBoundParameters
+
+$envSettings = @{}
+foreach ($line in Get-Content -LiteralPath (Join-Path $repoRoot '.env_local')) {
+    if ($line -match '^\s*([^#=]+)=(.*)$') {
+        $envSettings[$matches[1].Trim()] = $matches[2].Trim().Trim('"').Trim("'")
+    }
+}
+function Resolve-CostAssumption([string]$ParameterName, [string]$EnvironmentName, [decimal]$Value) {
+    if ($providedCostParameters.ContainsKey($ParameterName)) {
+        if ($Value -lt 0 -or $Value -gt 10000) { throw "Cost assumption '$ParameterName' is out of range." }
+        return $Value
+    }
+    $raw = $envSettings[$EnvironmentName]
+    $parsed = [decimal]0
+    if ([string]::IsNullOrWhiteSpace($raw) -or
+        -not [decimal]::TryParse($raw, [Globalization.NumberStyles]::Number,
+            [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed) -or $parsed -lt 0 -or $parsed -gt 40000) {
+        throw "Required market backtest cost assumption '$EnvironmentName' is missing or invalid."
+    }
+    return $parsed
+}
+$marketCostPrefix = "BACKTEST_$Market"
+$CommissionBps = Resolve-CostAssumption 'CommissionBps' "${marketCostPrefix}_COMMISSION_BPS" $CommissionBps
+$SlippageBps = Resolve-CostAssumption 'SlippageBps' "${marketCostPrefix}_SLIPPAGE_BPS" $SlippageBps
+$RoundTripCostBps = Resolve-CostAssumption 'RoundTripCostBps' "${marketCostPrefix}_ROUND_TRIP_COST_BPS" $RoundTripCostBps
+if ($CommissionBps -gt 10000 -or $SlippageBps -gt 10000 -or $RoundTripCostBps -lt (2 * ($CommissionBps + $SlippageBps))) {
+    throw 'Market backtest cost assumptions are invalid or the label round-trip cost is too low.'
+}
 
 $symbolValue = $Symbol.Trim().ToUpperInvariant()
 if ($Market -eq 'KR' -and $symbolValue -notmatch '^\d{6}$') {
@@ -92,7 +128,8 @@ try {
         '--market', $Market,
         '--symbol', $symbolValue,
         '--commission-bps', $CommissionBps.ToString([Globalization.CultureInfo]::InvariantCulture),
-        '--slippage-bps', $SlippageBps.ToString([Globalization.CultureInfo]::InvariantCulture)
+        '--slippage-bps', $SlippageBps.ToString([Globalization.CultureInfo]::InvariantCulture),
+        '--round-trip-cost-bps', $RoundTripCostBps.ToString([Globalization.CultureInfo]::InvariantCulture)
     )
     $existingManifestNames = @(
         Get-ChildItem -LiteralPath $modelDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue |
