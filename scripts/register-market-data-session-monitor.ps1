@@ -57,8 +57,7 @@ $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $arguments 
 $trigger = New-ScheduledTaskTrigger -Once -At $runAt
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 8) -MultipleInstances IgnoreNew
+$settings = New-ExchangeSessionMonitorTaskSettings
 $description = "Read-only KIS $market session data monitor; verifies $expectedBars closed bars and market close; no orders."
 
 if ($PSCmdlet.ShouldProcess($taskName, "Register read-only session monitor for $SessionDate at $runTime local time")) {

@@ -214,6 +214,16 @@ Describe 'Exchange session monitor registration times' {
         $start = Get-ExchangeSessionMonitorStart 'US' ([DateTimeOffset]::Parse('2026-07-06T13:30:00Z'))
         $start.ToString('yyyy-MM-dd HH:mm zzz') | Should Be '2026-07-06 22:25 +09:00'
     }
+
+    It 'retries transient session monitor failures without starting overlapping captures' {
+        $settings = New-ExchangeSessionMonitorTaskSettings
+        $settings.RestartCount | Should Be 4
+        $settings.RestartInterval | Should Be 'PT1M'
+        $settings.ExecutionTimeLimit | Should Be 'PT8H'
+        $settings.MultipleInstances | Should Be 'IgnoreNew'
+        $settings.StartWhenAvailable | Should Be $true
+        $settings.WakeToRun | Should Be $true
+    }
 }
 
 function New-TestScheduledTask($State, $Arguments, $TriggerType, $StartBoundary, $DaysInterval = 1) {

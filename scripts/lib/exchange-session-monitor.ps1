@@ -28,6 +28,12 @@ function Get-ExchangeSessionMonitorStart([string]$Market, [DateTimeOffset]$OpenU
     return [TimeZoneInfo]::ConvertTime($OpenUtc.ToUniversalTime().AddMinutes(-$leadMinutes), $koreaZone)
 }
 
+function New-ExchangeSessionMonitorTaskSettings {
+    New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun `
+        -ExecutionTimeLimit (New-TimeSpan -Hours 8) -MultipleInstances IgnoreNew `
+        -RestartCount 4 -RestartInterval (New-TimeSpan -Minutes 1)
+}
+
 function Get-ExchangeSessionPhase([DateTimeOffset]$Timestamp, $SessionWindow) {
     if (-not $SessionWindow) { return 'NOT_APPLICABLE' }
     $instant = $Timestamp.ToUniversalTime()
