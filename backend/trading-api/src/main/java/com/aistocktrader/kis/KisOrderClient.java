@@ -5,6 +5,9 @@ import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderSide;
 import com.aistocktrader.config.TradingSafetyProperties;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.LinkedMultiValueMap;
@@ -32,6 +35,8 @@ import java.util.Set;
 /** Internal paper-only KIS order adapter. No public trading controller uses it in this phase. */
 @Component
 public class KisOrderClient {
+    private static final Logger log = LoggerFactory.getLogger(KisOrderClient.class);
+    private static final int MAX_TRANSIENT_READ_RETRIES = 1;
     private static final String DOMESTIC_ORDER_PATH = "/uapi/domestic-stock/v1/trading/order-cash";
     private static final String OVERSEAS_ORDER_PATH = "/uapi/overseas-stock/v1/trading/order";
     private static final String OVERSEAS_CANCEL_PATH = "/uapi/overseas-stock/v1/trading/order-rvsecncl";
@@ -293,22 +298,66 @@ public class KisOrderClient {
 
     private BrokerQueryResponse getPaper(String path, String trId, MultiValueMap<String, String> params,
                               String continuation, KisProperties.Account credentials) {
+        var uriBuilder = UriComponentsBuilder.fromUriString(KisEnvironment.PAPER.baseUrl() + path);
+        params.forEach((key, values) -> values.forEach(value -> uriBuilder.queryParam(key, value)));
+        for (int attempt = 0; attempt <= MAX_TRANSIENT_READ_RETRIES; attempt++) {
+            try {
+                rateLimiter.acquire(KisEnvironment.PAPER, credentials.appKey(), properties.minRequestInterval());
+                var response = http.get().uri(uriBuilder.build().encode().toUri())
+                        .header("authorization", "Bearer " + tokenProvider.accessToken(KisEnvironment.PAPER))
+                        .header("appkey", credentials.appKey()).header("appsecret", credentials.appSecret())
+                        .header("tr_id", trId).header("custtype", "P").header("tr_cont", continuation)
+                        .accept(MediaType.APPLICATION_JSON).retrieve().toEntity(JsonNode.class);
+                JsonNode body = response.getBody();
+                String code = body == null ? "unknown" : safeCode(body.path("msg_cd").asText("unknown"));
+                if (attempt < MAX_TRANSIENT_READ_RETRIES && isTransientKisReadError(body)) {
+                    log.warn("Transient KIS PAPER read response; retrying once (path={}, code={}).", path, code);
+                    waitBeforeReadRetry();
+                    continue;
+                }
+                return new BrokerQueryResponse(body, response.getHeaders().getFirst("tr_cont"));
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE, "KIS order query was interrupted.");
+            } catch (ResourceAccessException exception) {
+                if (attempt < MAX_TRANSIENT_READ_RETRIES) {
+                    log.warn("Transient KIS PAPER read transport failure; retrying once (path={}).", path);
+                    waitBeforeReadRetry();
+                    continue;
+                }
+                throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS order query transport failed.");
+            } catch (RestClientResponseException exception) {
+                int status = exception.getStatusCode().value();
+                if (status == HttpStatus.TOO_MANY_REQUESTS.value()) {
+                    throw new KisApiException(HttpStatus.TOO_MANY_REQUESTS, "KIS order query was rate limited.");
+                }
+                if (attempt < MAX_TRANSIENT_READ_RETRIES && isTransientHttpStatus(status)) {
+                    log.warn("Transient KIS PAPER read HTTP failure; retrying once (path={}, status={}).", path, status);
+                    waitBeforeReadRetry();
+                    continue;
+                }
+                throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS order query failed.");
+            }
+        }
+        throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS order query failed after one transient retry.");
+    }
+
+    private static boolean isTransientKisReadError(JsonNode body) {
+        if (body == null || "0".equals(body.path("rt_cd").asText())) return false;
+        String code = safeCode(body.path("msg_cd").asText("unknown"));
+        return "EGW00001".equals(code) || "EGW00002".equals(code);
+    }
+
+    private static boolean isTransientHttpStatus(int status) {
+        return status == 500 || status == 502 || status == 503 || status == 504;
+    }
+
+    private static void waitBeforeReadRetry() {
         try {
-            var uriBuilder = UriComponentsBuilder.fromUriString(KisEnvironment.PAPER.baseUrl() + path);
-            params.forEach((key, values) -> values.forEach(value -> uriBuilder.queryParam(key, value)));
-            rateLimiter.acquire(KisEnvironment.PAPER, credentials.appKey(), properties.minRequestInterval());
-            var response = http.get().uri(uriBuilder.build().encode().toUri())
-                    .header("authorization", "Bearer " + tokenProvider.accessToken(KisEnvironment.PAPER))
-                    .header("appkey", credentials.appKey()).header("appsecret", credentials.appSecret())
-                    .header("tr_id", trId).header("custtype", "P").header("tr_cont", continuation)
-                    .accept(MediaType.APPLICATION_JSON).retrieve().toEntity(JsonNode.class);
-            return new BrokerQueryResponse(response.getBody(), response.getHeaders().getFirst("tr_cont"));
+            Thread.sleep(500);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new KisApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
-                    "KIS order query was interrupted.");
-        } catch (ResourceAccessException | RestClientResponseException exception) {
-            throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "KIS order reconciliation request failed.");
+            throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE, "KIS order query retry was interrupted.");
         }
     }
 

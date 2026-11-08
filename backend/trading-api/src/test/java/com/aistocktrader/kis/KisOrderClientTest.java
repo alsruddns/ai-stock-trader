@@ -193,6 +193,105 @@ class KisOrderClientTest {
     }
 
     @Test
+    void domesticPaperReadRetriesOnceAfterHttp502AndUsesRateLimitedSecondRequest() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
+                .andExpect(method(HttpMethod.GET)).andExpect(header("tr_id", "VTTC0084R"))
+                .andRespond(withStatus(org.springframework.http.HttpStatus.BAD_GATEWAY));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
+                .andExpect(method(HttpMethod.GET)).andExpect(header("tr_id", "VTTC0084R"))
+                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"output\":[]}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+
+        var rows = clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders();
+
+        assertTrue(rows.isEmpty());
+        server.verify();
+    }
+
+    @Test
+    void domesticPaperReadRetriesOnceAfterKisEgW00002Response() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
+                .andExpect(method(HttpMethod.GET)).andRespond(withSuccess(
+                        "{\"rt_cd\":\"1\",\"msg_cd\":\"EGW00002\",\"msg1\":\"temporary server error\"}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
+                .andExpect(method(HttpMethod.GET)).andRespond(withSuccess("{\"rt_cd\":\"0\",\"output\":[]}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+
+        var rows = clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders();
+
+        assertTrue(rows.isEmpty());
+        server.verify();
+    }
+
+    @Test
+    void domesticPaperReadDoesNotRetryHttp429() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
+                .andRespond(withStatus(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS));
+
+        KisApiException error = assertThrows(KisApiException.class,
+                () -> clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders());
+
+        assertEquals(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS, error.status());
+        server.verify();
+    }
+
+    @Test
+    void domesticPaperReadRetriesAtMostOnceAfterRepeatedGatewayFailure() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        for (int attempt = 0; attempt < 2; attempt++) {
+            server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                            "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
+                    .andRespond(withStatus(org.springframework.http.HttpStatus.BAD_GATEWAY));
+        }
+
+        KisApiException error = assertThrows(KisApiException.class,
+                () -> clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders());
+
+        assertEquals(org.springframework.http.HttpStatus.BAD_GATEWAY, error.status());
+        server.verify();
+    }
+
+    @Test
+    void domesticPaperReadDoesNotRetryKisRateLimitResponseCode() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
+                .andRespond(withSuccess(
+                        "{\"rt_cd\":\"1\",\"msg_cd\":\"EGW00201\",\"msg1\":\"rate limited\"}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+
+        KisApiException error = assertThrows(KisApiException.class,
+                () -> clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders());
+
+        assertTrue(error.getMessage().contains("EGW00201"));
+        server.verify();
+    }
+
+    @Test
     void domesticPaperCancelableOrderQueryFailsClosedWhenAccountReadsAreDisabled() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
