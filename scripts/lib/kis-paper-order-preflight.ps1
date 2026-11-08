@@ -1,3 +1,13 @@
+function Get-SafeKisBrokerCode {
+    [CmdletBinding()]
+    param([AllowNull()] [string]$ErrorDetail)
+
+    if ([string]::IsNullOrWhiteSpace($ErrorDetail)) { return $null }
+    $match = [regex]::Match($ErrorDetail, '(?i)(?:code|msg_cd)[^A-Z0-9]*([A-Z]{3,4}\d{4,5})\b')
+    if (-not $match.Success) { return $null }
+    return $match.Groups[1].Value.ToUpperInvariant()
+}
+
 function Assert-KisPaperQuoteFresh {
     [CmdletBinding()]
     param(

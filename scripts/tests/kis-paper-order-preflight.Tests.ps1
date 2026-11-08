@@ -137,6 +137,16 @@ Describe 'KIS quote exchange mapping' {
     }
 }
 
+Describe 'Sanitized KIS error reporting' {
+    It 'extracts a recognized KIS broker code from an API error detail' {
+        Get-SafeKisBrokerCode -ErrorDetail '{"detail":"KIS quote request failed (HTTP 502, code EGW00002)."}' | Should Be 'EGW00002'
+    }
+
+    It 'does not expose arbitrary error values as broker codes' {
+        Get-SafeKisBrokerCode -ErrorDetail '{"detail":"failed token=hidden code password123"}' | Should Be $null
+    }
+}
+
 Describe 'KIS PAPER exchange session preflight' {
     $now = [DateTimeOffset]::Parse('2026-11-06T08:30:00Z')
     $openSession = @{
