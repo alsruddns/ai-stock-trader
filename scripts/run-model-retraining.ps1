@@ -12,7 +12,11 @@ param(
     [Parameter(Mandatory = $true)]
     [datetime]$ToDate,
 
-    [decimal]$CommissionBps,
+    [decimal]$BuyCommissionBps,
+
+    [decimal]$SellCommissionBps,
+
+    [decimal]$SellTaxBps,
 
     [decimal]$SlippageBps,
 
@@ -39,24 +43,30 @@ foreach ($line in Get-Content -LiteralPath (Join-Path $repoRoot '.env_local')) {
     }
 }
 function Resolve-CostAssumption([string]$ParameterName, [string]$EnvironmentName, [decimal]$Value) {
+    $maximum = if ($ParameterName -eq 'RoundTripCostBps') { 40000 } else { 10000 }
     if ($providedCostParameters.ContainsKey($ParameterName)) {
-        if ($Value -lt 0 -or $Value -gt 10000) { throw "Cost assumption '$ParameterName' is out of range." }
+        if ($Value -lt 0 -or $Value -gt $maximum) { throw "Cost assumption '$ParameterName' is out of range." }
         return $Value
     }
     $raw = $envSettings[$EnvironmentName]
     $parsed = [decimal]0
     if ([string]::IsNullOrWhiteSpace($raw) -or
         -not [decimal]::TryParse($raw, [Globalization.NumberStyles]::Number,
-            [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed) -or $parsed -lt 0 -or $parsed -gt 40000) {
+            [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed) -or $parsed -lt 0 -or $parsed -gt $maximum) {
         throw "Required market backtest cost assumption '$EnvironmentName' is missing or invalid."
     }
     return $parsed
 }
 $marketCostPrefix = "BACKTEST_$Market"
-$CommissionBps = Resolve-CostAssumption 'CommissionBps' "${marketCostPrefix}_COMMISSION_BPS" $CommissionBps
+$BuyCommissionBps = Resolve-CostAssumption 'BuyCommissionBps' "${marketCostPrefix}_BUY_COMMISSION_BPS" $BuyCommissionBps
+$SellCommissionBps = Resolve-CostAssumption 'SellCommissionBps' "${marketCostPrefix}_SELL_COMMISSION_BPS" $SellCommissionBps
+$SellTaxBps = Resolve-CostAssumption 'SellTaxBps' "${marketCostPrefix}_SELL_TAX_BPS" $SellTaxBps
 $SlippageBps = Resolve-CostAssumption 'SlippageBps' "${marketCostPrefix}_SLIPPAGE_BPS" $SlippageBps
 $RoundTripCostBps = Resolve-CostAssumption 'RoundTripCostBps' "${marketCostPrefix}_ROUND_TRIP_COST_BPS" $RoundTripCostBps
-if ($CommissionBps -gt 10000 -or $SlippageBps -gt 10000 -or $RoundTripCostBps -lt (2 * ($CommissionBps + $SlippageBps))) {
+if ($BuyCommissionBps + $SellCommissionBps + $SellTaxBps + 2 * $SlippageBps -le 0 -or
+    $BuyCommissionBps -gt 10000 -or $SellCommissionBps -gt 10000 -or $SellTaxBps -gt 10000 -or
+    $SlippageBps -gt 10000 -or
+    $RoundTripCostBps -lt ($BuyCommissionBps + $SellCommissionBps + $SellTaxBps + 2 * $SlippageBps)) {
     throw 'Market backtest cost assumptions are invalid or the label round-trip cost is too low.'
 }
 
@@ -127,7 +137,9 @@ try {
         $csvPath,
         '--market', $Market,
         '--symbol', $symbolValue,
-        '--commission-bps', $CommissionBps.ToString([Globalization.CultureInfo]::InvariantCulture),
+        '--buy-commission-bps', $BuyCommissionBps.ToString([Globalization.CultureInfo]::InvariantCulture),
+        '--sell-commission-bps', $SellCommissionBps.ToString([Globalization.CultureInfo]::InvariantCulture),
+        '--sell-tax-bps', $SellTaxBps.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--slippage-bps', $SlippageBps.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--round-trip-cost-bps', $RoundTripCostBps.ToString([Globalization.CultureInfo]::InvariantCulture)
     )

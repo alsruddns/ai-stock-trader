@@ -19,6 +19,19 @@ from app.quant import MinuteBar
 from app.real_signal_orders import RealSignalOrderOutcomeUnknown, real_signal_idempotency_key
 
 
+def _set_quant_cost_settings(monkeypatch, market: str) -> None:
+    prefix = f"BACKTEST_{market}"
+    paper_prefix = "PAPER_KR" if market == "KR" else "PAPER_US"
+    monkeypatch.setenv("PAPER_COST_MODEL_ENABLED", "true")
+    monkeypatch.setenv(f"{paper_prefix}_COMMISSION_BPS", "2")
+    monkeypatch.setenv(f"{paper_prefix}_SELL_COST_BPS", "7")
+    for suffix, value in {
+        "BUY_COMMISSION_BPS": "2", "SELL_COMMISSION_BPS": "3", "SELL_TAX_BPS": "4",
+        "SLIPPAGE_BPS": "5", "ROUND_TRIP_COST_BPS": "19",
+    }.items():
+        monkeypatch.setenv(f"{prefix}_{suffix}", value)
+
+
 def test_watchlist_normalizes_and_deduplicates_valid_symbols() -> None:
     watches = parse_watchlist("KR:005930;US:aapl:nas;KR:005930")
     assert [watch.key for watch in watches] == ["KR:005930:", "US:AAPL:NAS"]
@@ -344,7 +357,8 @@ def test_closed_paper_websocket_bars_are_written_off_loop_with_spread(monkeypatc
     assert runtime.status()["bar_storage_state"] == "RUNNING"
 
 
-def test_partial_session_restore_cannot_create_a_buy_candidate() -> None:
+def test_partial_session_restore_cannot_create_a_buy_candidate(monkeypatch) -> None:
+    _set_quant_cost_settings(monkeypatch, "KR")
     runtime = PaperSessionFeedMonitor()
     watch = parse_watchlist("KR:005930")[0]
     start = datetime.fromisoformat("2026-11-05T10:12:00+09:00")
@@ -1208,7 +1222,8 @@ def test_paper_autotrading_requires_persisted_session_history(monkeypatch) -> No
     assert not runtime._stream_tasks
 
 
-def test_closed_bars_update_non_executable_quant_decision_and_reset_each_session() -> None:
+def test_closed_bars_update_non_executable_quant_decision_and_reset_each_session(monkeypatch) -> None:
+    _set_quant_cost_settings(monkeypatch, "KR")
     runtime = PaperSessionFeedMonitor()
     watch = parse_watchlist("KR:005930")[0]
     runtime._bars[watch.key] = deque(maxlen=5_000)
@@ -1303,7 +1318,53 @@ def test_us_session_history_does_not_reset_at_korean_midnight() -> None:
     assert runtime._bars[watch.key][0].timestamp == start
 
 
+def test_missing_cost_assumptions_keep_strategy_signal_on_hold(monkeypatch) -> None:
+    for suffix in ("BUY_COMMISSION_BPS", "SELL_COMMISSION_BPS", "SELL_TAX_BPS", "SLIPPAGE_BPS", "ROUND_TRIP_COST_BPS"):
+        monkeypatch.delenv(f"BACKTEST_KR_{suffix}", raising=False)
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    runtime._bars[watch.key] = deque(maxlen=5_000)
+    runtime._decisions[watch.key] = {}
+    start = datetime(2026, 11, 5, 9, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+
+    for index in range(21):
+        price = Decimal("1002") if index == 20 else Decimal("1000")
+        runtime._record_closed_bar(watch, MinuteBar(
+            start + timedelta(minutes=index), price, price + Decimal("0.1"), price - Decimal("0.1"),
+            price, 2000 if index == 20 else 1000, Decimal("5"),
+        ))
+
+    decision = runtime.decisions()[watch.key]
+    assert decision["signal"] == "HOLD"
+    assert decision["reason"] == "STRATEGY_COST_ASSUMPTIONS_UNAVAILABLE"
+    assert decision["model_id"] is None
+    assert decision["executable"] is False
+
+
+def test_disabled_paper_ledger_cost_model_keeps_strategy_signal_on_hold(monkeypatch) -> None:
+    _set_quant_cost_settings(monkeypatch, "KR")
+    monkeypatch.setenv("PAPER_COST_MODEL_ENABLED", "false")
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    runtime._bars[watch.key] = deque(maxlen=5_000)
+    runtime._decisions[watch.key] = {}
+    start = datetime(2026, 11, 5, 9, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+
+    for index in range(21):
+        price = Decimal("1002") if index == 20 else Decimal("1000")
+        runtime._record_closed_bar(watch, MinuteBar(
+            start + timedelta(minutes=index), price, price + Decimal("0.1"), price - Decimal("0.1"),
+            price, 2000 if index == 20 else 1000, Decimal("5"),
+        ))
+
+    decision = runtime.decisions()[watch.key]
+    assert decision["signal"] == "HOLD"
+    assert decision["reason"] == "STRATEGY_COST_ASSUMPTIONS_UNAVAILABLE"
+    assert decision["executable"] is False
+
+
 def test_quant_candidate_is_held_without_an_active_approved_market_model(tmp_path, monkeypatch) -> None:
+    _set_quant_cost_settings(monkeypatch, "KR")
     monkeypatch.setenv("AI_MODEL_REGISTRY_PATH", str(tmp_path / "models"))
     runtime = PaperSessionFeedMonitor()
     watch = parse_watchlist("KR:005930")[0]
@@ -1326,6 +1387,7 @@ def test_quant_candidate_is_held_without_an_active_approved_market_model(tmp_pat
 
 
 def test_approved_ai_candidate_publishes_atr_stop_distance_for_server_risk_check(monkeypatch) -> None:
+    _set_quant_cost_settings(monkeypatch, "KR")
     class Registry:
         def active_approved_model(self, _market, _symbol):
             return {"model_id": "lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
@@ -1602,6 +1664,7 @@ class _EntryBroker:
 
 
 def _prepare_entry_runtime(monkeypatch, *, cash: str = "1000000", baseline: str = "1000000"):
+    _set_quant_cost_settings(monkeypatch, "KR")
     monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "true")
     monkeypatch.setenv("TRADING_MODE", "paper")
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
@@ -1645,6 +1708,22 @@ def test_approved_candidate_enters_only_local_paper_ledger_after_risk_gates(monk
     assert Decimal(0) < broker.last_fill["stop_price"] < bar.close < broker.last_fill["target_price"]
     assert broker.last_order["strategyId"] == "ORB_VWAP"
     assert broker.last_order["modelId"] == "approved-kr-model"
+
+
+def test_unconfigured_cost_assumptions_block_paper_entry_before_broker_reads(monkeypatch) -> None:
+    runtime, watch, bar, quotes, broker = _prepare_entry_runtime(monkeypatch)
+    for suffix in ("BUY_COMMISSION_BPS", "SELL_COMMISSION_BPS", "SELL_TAX_BPS", "SLIPPAGE_BPS", "ROUND_TRIP_COST_BPS"):
+        monkeypatch.delenv(f"BACKTEST_KR_{suffix}", raising=False)
+    trader = PaperAutoTrader(broker)
+
+    result = runtime._manage_strategy_entry(
+        broker, trader, watch, bar, {"signal": "BUY_CANDIDATE", "model_id": "approved-kr-model"},
+        quotes, PaperOpsLimits(),
+    )
+
+    assert result == {"state": "BLOCKED", "reason": "STRATEGY_COST_ASSUMPTIONS_UNAVAILABLE", "executable": False}
+    assert broker.created_orders == 0
+    assert broker.recorded_fills == 0
 
 
 def test_stale_signal_bar_blocks_entry_before_reading_or_writing_broker(monkeypatch) -> None:

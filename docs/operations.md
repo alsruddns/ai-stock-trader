@@ -175,16 +175,18 @@ PostgreSQL에 저장된 특정 거래일 분봉의 완전성과 스프레드 포
 감시 중인 시장의 여러 종목을 한 번에 감사하려면 `GET /api/v1/market/session-quality/{market}?symbols=005930&symbols=069500&session_date=YYYY-MM-DD`를 사용합니다. 세션 날짜를 직접 지정하지 않고 `latest_closed=true`를 주면 거래소 현지 날짜 기준으로 아직 폐장하지 않은 세션을 건너뛰고 최근 마감 세션을 선택합니다. 최근 30일 안에서 거래일을 확인할 수 없으면 `503`으로 닫힙니다. 이 API는 종목 수를 최대 50개로 제한하고 단일 읽기 전용 DB 쿼리로 결과를 묶습니다. 각 결과에는 누락된 예상 분봉 시각과 저장된 분봉 중 스프레드가 없는 시각이 포함되며, 운영 대시보드는 처음 세 시각까지 각 거래소 현지 시간으로 표시합니다. 이 진단은 저장 자료를 수정하거나 누락 데이터를 만들어 내지 않습니다. 대시보드는 현재 구독 종목의 분봉 완전성·누락 수·스프레드 포함률과 선택된 거래일도 보여 주며, API나 저장소가 응답하지 않으면 품질을 확인 불가로 표시합니다.
 
 ```powershell
-$commissionBps = [decimal](Read-Host 'Verified per-fill commission in basis points')
+$buyCommissionBps = [decimal](Read-Host 'Verified buy commission in basis points')
+$sellCommissionBps = [decimal](Read-Host 'Verified sell commission in basis points')
+$sellTaxBps = [decimal](Read-Host 'Verified sell tax/levy in basis points; enter zero only if verified')
 $slippageBps = [decimal](Read-Host 'Reviewed per-fill slippage in basis points')
 $roundTripCostBps = [decimal](Read-Host 'Reviewed total round-trip label cost in basis points')
-.\services\market-ai\.venv\Scripts\python.exe .\scripts\backtest-quant.py .\data\licensed-bars.csv --market KR --symbol 005930 --commission-bps $commissionBps --slippage-bps $slippageBps
-.\services\market-ai\.venv\Scripts\python.exe .\scripts\train-ai-models.py .\data\licensed-bars.csv --market KR --symbol 005930 --commission-bps $commissionBps --slippage-bps $slippageBps --round-trip-cost-bps $roundTripCostBps
+.\services\market-ai\.venv\Scripts\python.exe .\scripts\backtest-quant.py .\data\licensed-bars.csv --market KR --symbol 005930 --buy-commission-bps $buyCommissionBps --sell-commission-bps $sellCommissionBps --sell-tax-bps $sellTaxBps --slippage-bps $slippageBps
+.\services\market-ai\.venv\Scripts\python.exe .\scripts\train-ai-models.py .\data\licensed-bars.csv --market KR --symbol 005930 --buy-commission-bps $buyCommissionBps --sell-commission-bps $sellCommissionBps --sell-tax-bps $sellTaxBps --slippage-bps $slippageBps --round-trip-cost-bps $roundTripCostBps
 ```
 
-Backtest and training commands require explicit cost assumptions; there are no command-line defaults for commission, slippage, or label round-trip cost. Use the KIS account's verified commission schedule and an explicitly reviewed conservative slippage estimate. The label round-trip cost must cover at least two commission and slippage fills; include applicable taxes, exchange fees, and market impact in the reviewed assumptions. Do not treat an unverified example value as the account's actual rate. Model manifests record the supplied assumptions. Approval still requires at least five distinct held-out sessions and five AI+quant fills, positive AI+quant net P&L, and performance above the quant baseline over the same period.
+Backtest and training commands require explicit cost assumptions; there are no command-line defaults for buy/sell commission, sell tax, slippage, or label round-trip cost. Use the KIS account's verified commission schedule and an explicitly reviewed conservative slippage estimate. The label round-trip cost must cover buy commission + sell commission + sell tax + two slippage fills; include applicable exchange fees and market impact in the reviewed assumptions. Do not treat an unverified example value as the account's actual rate. Model manifests record each supplied assumption. Approval still requires at least five distinct held-out sessions and five AI+quant fills, positive AI+quant net P&L, and performance above the quant baseline over the same period.
 
-로컬 PostgreSQL의 새 데이터를 안전하게 다시 학습 후보로 만들려면 `.env_local`의 `BACKTEST_KR_*` 또는 `BACKTEST_US_*` 비용 설정을 먼저 채운 뒤 아래 실행기를 사용합니다. 비용 설정이 없거나 label 왕복 비용이 두 번의 수수료·슬리피지 합보다 낮으면 DB 내보내기 전에 중단합니다. 날짜는 시장 현지 날짜이며, CSV와 보고서는 고유한 실행 ID로 로컬 전용 `data/model-candidates/`와 `.local/models/retraining/`에 생성됩니다. 학습은 세션 완전성과 권리 manifest를 다시 확인하고, 중복 실행이 기존 CSV를 덮어쓰지 않습니다. 생성 후보는 항상 미승인 상태이며, 별도 held-out 성능 검토와 모델 거버넌스 승인이 없으면 운영에 선택되지 않습니다.
+로컬 PostgreSQL의 새 데이터를 안전하게 다시 학습 후보로 만들려면 `.env_local`의 해당 시장 `BACKTEST_*` 매수수수료·매도수수료·매도세금·슬리피지·왕복비용 설정을 먼저 채운 뒤 아래 실행기를 사용합니다. 비용 설정이 없거나 label 왕복 비용이 매수수수료+매도수수료+매도세금+양쪽 슬리피지 합보다 낮으면 DB 내보내기 전에 중단합니다. 날짜는 시장 현지 날짜이며, CSV와 보고서는 고유한 실행 ID로 로컬 전용 `data/model-candidates/`와 `.local/models/retraining/`에 생성됩니다. 학습은 세션 완전성과 권리 manifest를 다시 확인하고, 중복 실행이 기존 CSV를 덮어쓰지 않습니다. 생성 후보는 항상 미승인 상태이며, 별도 held-out 성능 검토와 모델 거버넌스 승인이 없으면 운영에 선택되지 않습니다.
 
 ```powershell
 .\scripts\run-model-retraining.ps1 -Market US -Symbol AAPL -FromDate 2026-11-02 -ToDate 2026-11-06
@@ -192,7 +194,7 @@ Backtest and training commands require explicit cost assumptions; there are no c
 
 실행 보고서에서 `candidate_created_review_required`가 아니면 후보가 만들어졌다고 간주하지 마세요. 실패 보고서는 실행 전후의 모델 manifest와 artifact 파일을 비교해 이번 실행에서 새로 생긴 후보와 고아 파일을 표시합니다. 실패 뒤 새 artifact가 남으면 그 파일을 검토·정리하기 전까지 승인이나 활성화를 진행하지 마세요.
 
-사전에 세션 자료가 3개 이상 모일 것으로 예상되는 범위만 자동 후보 학습 작업으로 등록합니다. `register-model-candidate-retraining-task.ps1`는 거래소 캘린더에서 3개 이상 거래일인지 확인하고 `.env_local`의 PAPER 모드·주문 잠금 및 시장별 비용 설정을 확인합니다. 예약 작업은 실행 당일 `.env_local` 비용 가정을 읽으므로 이미 등록된 일정도 새 실행 코드와 호환됩니다. 등록·실행 전에 계좌 수수료와 보수적 슬리피지 및 왕복 비용을 검토하세요. 예약 실행 시에도 재학습·홀드아웃 스크립트가 `.env_local`에서 안전 스위치만 다시 읽어 PAPER 모드, PAPER/REAL 주문 비활성, PAPER 자동매매 비활성을 확인합니다. 하나라도 빠졌거나 켜져 있으면 데이터 내보내기 전에 종료합니다. 실제 학습은 권리 manifest와 완전한 세션 데이터가 다시 확인된 경우에만 진행됩니다. 이 작업은 후보를 자동 승인하거나 활성화하지 않으며, 주문 API를 호출하지 않습니다. Windows 사용자가 로그인하고 PostgreSQL이 실행 중이어야 합니다.
+사전에 세션 자료가 3개 이상 모일 것으로 예상되는 범위만 자동 후보 학습 작업으로 등록합니다. `register-model-candidate-retraining-task.ps1`는 거래소 캘린더에서 3개 이상 거래일인지 확인하고 `.env_local`의 PAPER 모드·주문 잠금 및 시장별 비용 설정을 확인합니다. 예약 작업은 실행 당일 `.env_local` 비용 가정을 읽으므로 이미 등록된 일정도 새 실행 코드와 호환됩니다. 등록·실행 전에 매수/매도 수수료, 매도세금, 보수적 슬리피지와 왕복 비용을 검토하세요. 예약 실행 시에도 재학습·홀드아웃 스크립트가 `.env_local`에서 안전 스위치만 다시 읽어 PAPER 모드, PAPER/REAL 주문 비활성, PAPER 자동매매 비활성을 확인합니다. 하나라도 빠졌거나 켜져 있으면 데이터 내보내기 전에 종료합니다. 실제 학습은 권리 manifest와 완전한 세션 데이터가 다시 확인된 경우에만 진행됩니다. 이 작업은 후보를 자동 승인하거나 활성화하지 않으며, 주문 API를 호출하지 않습니다. Windows 사용자가 로그인하고 PostgreSQL이 실행 중이어야 합니다.
 
 퀀트 결과는 세션별 JSON과 CSV SHA-256을 출력하며 주문 실행 권한이 없습니다. AI 학습도 입력 CSV SHA-256을 각 모델 manifest에 기록합니다. 각 백테스트 세션은 1주 수량으로 독립 계산하고, 포트폴리오 자본 복리·계좌별 세금·거래소 비용·시장충격은 별도 검증해야 합니다. 조정주가, 종목코드 변경, 분봉 누락, 데이터 이용·저장·재배포 권한은 CSV 제공자가 확인해야 합니다.
 

@@ -53,7 +53,12 @@ class QuantConfig:
     minimum_turnover: Decimal = Decimal("1000000")
     atr_stop_multiple: Decimal = Decimal("1.5")
     reward_risk_multiple: Decimal = Decimal("2")
+    # commission_bps remains a fallback for internal callers until they provide
+    # direction-specific KIS assumptions.
     commission_bps: Decimal = Decimal("5")
+    buy_commission_bps: Decimal | None = None
+    sell_commission_bps: Decimal | None = None
+    sell_tax_bps: Decimal = Decimal("0")
     slippage_bps: Decimal = Decimal("5")
 
     def __post_init__(self) -> None:
@@ -61,16 +66,35 @@ class QuantConfig:
             raise ValueError("indicator periods must be positive")
         numeric_settings = (
             self.minimum_relative_volume, self.maximum_spread_bps, self.minimum_turnover,
-            self.atr_stop_multiple, self.reward_risk_multiple, self.commission_bps, self.slippage_bps,
+            self.atr_stop_multiple, self.reward_risk_multiple, self.commission_bps,
+            self.sell_tax_bps, self.slippage_bps,
         )
         if any(not isinstance(value, Decimal) or not value.is_finite() for value in numeric_settings):
             raise ValueError("strategy numeric settings must be finite decimals")
+        direction_costs = (self.buy_commission_bps, self.sell_commission_bps)
+        if any(value is not None and (not isinstance(value, Decimal) or not value.is_finite())
+               for value in direction_costs):
+            raise ValueError("direction-specific commission settings must be finite decimals")
         if self.minimum_relative_volume <= 0 or self.maximum_spread_bps < 0 or self.minimum_turnover < 0:
             raise ValueError("liquidity thresholds are invalid")
         if self.atr_stop_multiple <= 0 or self.reward_risk_multiple <= 0:
             raise ValueError("risk multiples must be positive")
-        if min(self.commission_bps, self.slippage_bps) < 0:
+        if (min(self.commission_bps, self.sell_tax_bps, self.slippage_bps) < 0
+                or any(value is not None and value < 0 for value in direction_costs)):
             raise ValueError("trading costs cannot be negative")
+
+    @property
+    def effective_buy_commission_bps(self) -> Decimal:
+        return self.commission_bps if self.buy_commission_bps is None else self.buy_commission_bps
+
+    @property
+    def effective_sell_commission_bps(self) -> Decimal:
+        return self.commission_bps if self.sell_commission_bps is None else self.sell_commission_bps
+
+    @property
+    def minimum_round_trip_cost_bps(self) -> Decimal:
+        return (self.effective_buy_commission_bps + self.effective_sell_commission_bps
+                + self.sell_tax_bps + Decimal(2) * self.slippage_bps)
 
 
 @dataclass(frozen=True)
@@ -245,8 +269,9 @@ def backtest_orb_vwap(
                 gross = (exit_price - raw_entry) * quantity
                 execution_costs = ((fill_price - raw_entry) + (exit_price - slipped_exit)) * quantity
                 commission_costs = (
-                    _cost(fill_price, quantity, config.commission_bps)
-                    + _cost(slipped_exit, quantity, config.commission_bps)
+                    _cost(fill_price, quantity, config.effective_buy_commission_bps)
+                    + _cost(slipped_exit, quantity,
+                            config.effective_sell_commission_bps + config.sell_tax_bps)
                 )
                 costs = execution_costs + commission_costs
                 trades.append(Trade(bars[entry_index].timestamp, bar.timestamp, fill_price, slipped_exit, quantity, gross, costs, gross - costs, reason))

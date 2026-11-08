@@ -41,6 +41,37 @@ from .paper_risk import baseline_capture_open, daily_loss_percent, paper_equity_
 SUBSCRIPTION_ACK_TIMEOUT_SECONDS = 15
 
 
+def _market_quant_config(market: str) -> QuantConfig | None:
+    normalized_market = market.strip().upper()
+    if normalized_market not in {"KR", "US"}:
+        return None
+    if os.getenv("PAPER_COST_MODEL_ENABLED", "false").strip().lower() != "true":
+        return None
+    paper_prefix = "PAPER_KR" if normalized_market == "KR" else "PAPER_US"
+    prefix = f"BACKTEST_{normalized_market}"
+    fields = {
+        "buy_commission_bps": f"{prefix}_BUY_COMMISSION_BPS",
+        "sell_commission_bps": f"{prefix}_SELL_COMMISSION_BPS",
+        "sell_tax_bps": f"{prefix}_SELL_TAX_BPS",
+        "slippage_bps": f"{prefix}_SLIPPAGE_BPS",
+    }
+    try:
+        paper_buy_cost = Decimal(os.environ[f"{paper_prefix}_COMMISSION_BPS"])
+        paper_sell_cost = Decimal(os.environ[f"{paper_prefix}_SELL_COST_BPS"])
+        values = {name: Decimal(os.environ[key]) for name, key in fields.items()}
+        round_trip_cost = Decimal(os.environ[f"{prefix}_ROUND_TRIP_COST_BPS"])
+        config = QuantConfig(commission_bps=Decimal("0"), **values)
+    except (ArithmeticError, KeyError, TypeError, ValueError):
+        return None
+    if (not paper_buy_cost.is_finite() or not paper_sell_cost.is_finite()
+            or paper_buy_cost < 0 or paper_sell_cost < 0 or paper_buy_cost + paper_sell_cost <= 0
+            or not round_trip_cost.is_finite() or round_trip_cost <= 0 or round_trip_cost > 40000
+            or any(value > 10000 for value in values.values())
+            or round_trip_cost < config.minimum_round_trip_cost_bps):
+        return None
+    return config
+
+
 def next_market_session_open(market: Literal["KR", "US"], now: datetime) -> datetime:
     """Return the next strictly future exchange open, including today's open if upcoming."""
     if now.tzinfo is None or now.utcoffset() is None:
@@ -1169,6 +1200,9 @@ class PaperSessionFeedMonitor:
         signal_bar_age = (now - bar.timestamp.astimezone(timezone.utc)).total_seconds()
         if signal_bar_age < -5 or signal_bar_age > limits.max_signal_bar_age_seconds:
             return {"state": "BLOCKED", "reason": "SIGNAL_BAR_STALE", "executable": False}
+        quant_config = _market_quant_config(watch.market)
+        if quant_config is None:
+            return {"state": "BLOCKED", "reason": "STRATEGY_COST_ASSUMPTIONS_UNAVAILABLE", "executable": False}
         currency = "KRW" if watch.market == "KR" else "USD"
         try:
             positions = broker.get_positions()
@@ -1224,7 +1258,7 @@ class PaperSessionFeedMonitor:
             return {"state": "BLOCKED", "reason": "PAPER_CASH_MISSING", "executable": False}
         history = list(self.bars(watch))
         try:
-            atr = _atr(history, QuantConfig().atr_period)
+            atr = _atr(history, quant_config.atr_period)
             max_notional = Decimal(os.getenv("MAX_ORDER_NOTIONAL_KRW" if currency == "KRW" else "MAX_ORDER_NOTIONAL_USD",
                                             "1000000" if currency == "KRW" else "100"))
             sizing = size_paper_order(price=bar.close, atr=atr, equity=snapshot.equity,
@@ -1234,7 +1268,7 @@ class PaperSessionFeedMonitor:
             return {"state": "BLOCKED", "reason": "PAPER_ORDER_SIZING_FAILED", "executable": False}
         if sizing is None:
             return {"state": "BLOCKED", "reason": "PAPER_ORDER_SIZE_ZERO", "executable": False}
-        target = bar.close + sizing.stop_distance * QuantConfig().reward_risk_multiple
+        target = bar.close + sizing.stop_distance * quant_config.reward_risk_multiple
         entry_decision = PaperEntryDecision(
             market=watch.market, symbol=watch.symbol, currency=currency, signal="BUY_CANDIDATE",
             model_approved=is_approved_candidate, gate=gate, sizing=sizing, bar_timestamp=bar.timestamp,
@@ -1308,15 +1342,20 @@ class PaperSessionFeedMonitor:
         model_id: str | None = None
         if len(history) >= max(QuantConfig().opening_range_bars, QuantConfig().ema_period,
                                QuantConfig().atr_period, QuantConfig().relative_volume_period):
-            try:
-                quant_candidate = orb_vwap_entry_candidate(
-                    list(history), QuantConfig(), market=watch.market,
-                )
-            except ValueError:
+            quant_config = _market_quant_config(watch.market)
+            if quant_config is None:
                 quant_candidate = False
-                reason = "BAR_SEQUENCE_INVALID"
+                reason = "STRATEGY_COST_ASSUMPTIONS_UNAVAILABLE"
             else:
-                reason = "STRATEGY_FILTERS_NOT_MET"
+                try:
+                    quant_candidate = orb_vwap_entry_candidate(
+                        list(history), quant_config, market=watch.market,
+                    )
+                except ValueError:
+                    quant_candidate = False
+                    reason = "BAR_SEQUENCE_INVALID"
+                else:
+                    reason = "STRATEGY_FILTERS_NOT_MET"
             if quant_candidate:
                 try:
                     registry = LocalModelRegistry(os.getenv("AI_MODEL_REGISTRY_PATH", ".local/models"))

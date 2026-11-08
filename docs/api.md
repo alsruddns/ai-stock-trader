@@ -107,7 +107,7 @@ Paper 주문 응답이 타임아웃되면 `GET /api/v1/orders/paper/by-idempoten
 
 ## Quant backtest
 
-`POST /api/v1/strategies/orb-vwap/backtest`는 클라이언트가 전달한 시간대 포함 1분봉 한 세션에 대해 ORB/VWAP/EMA/ATR·상대거래량·스프레드·거래대금 조건을 평가합니다. 요청에는 `commission_bps`와 `slippage_bps` 비용 가정이 필수이며 기본 추정값은 없습니다. 진입은 신호 다음 봉의 시가부터, 요청된 수수료·슬리피지를 반영합니다. 같은 봉에서 손절과 목표가가 모두 닿으면 보수적으로 손절 우선 처리합니다. 데이터 공급·권리·정합성 및 비용 가정은 요청자가 책임지며 API는 저장하거나 주문하지 않습니다. 결과의 `executable`은 항상 `false`입니다.
+`POST /api/v1/strategies/orb-vwap/backtest`는 클라이언트가 전달한 시간대 포함 1분봉 한 세션에 대해 ORB/VWAP/EMA/ATR·상대거래량·스프레드·거래대금 조건을 평가합니다. 요청에는 `buy_commission_bps`, `sell_commission_bps`, `sell_tax_bps`, `slippage_bps` 비용 가정이 모두 필수이며 기본 추정값은 없습니다. 진입은 신호 다음 봉의 시가부터 실행하고, 매수수수료·매도수수료·매도세금·슬리피지를 각각 비용으로 반영합니다. 같은 봉에서 손절과 목표가가 모두 닿으면 보수적으로 손절 우선 처리합니다. 데이터 공급·권리·정합성 및 비용 가정은 요청자가 책임지며 API는 저장하거나 주문하지 않습니다. 결과의 `executable`은 항상 `false`입니다.
 
 ## AI inference
 

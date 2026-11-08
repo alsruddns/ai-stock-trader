@@ -61,6 +61,25 @@ def test_orb_vwap_enters_on_next_bar_and_applies_costs() -> None:
     assert result.executable is False
 
 
+def test_backtest_applies_direction_specific_commissions_and_sell_tax() -> None:
+    bars = [MinuteBar(bar.timestamp, bar.open, bar.high, bar.low, bar.close, bar.volume, Decimal("0"))
+            for bar in _session_bars()]
+    config = QuantConfig(
+        commission_bps=Decimal("0"), buy_commission_bps=Decimal("2"),
+        sell_commission_bps=Decimal("3"), sell_tax_bps=Decimal("4"),
+        slippage_bps=Decimal("0"), minimum_turnover=Decimal("0"),
+        minimum_relative_volume=Decimal("1.5"),
+    )
+
+    result = backtest_orb_vwap("KR", "005930", bars, config)
+
+    trade = result.trades[0]
+    expected_fee = (trade.entry_price * Decimal("2") / Decimal("10000")
+                    + trade.exit_price * Decimal("7") / Decimal("10000"))
+    assert trade.costs == expected_fee
+    assert config.minimum_round_trip_cost_bps == Decimal("9")
+
+
 def test_observed_spread_reduces_entry_and_exit_fill_prices() -> None:
     bars_with_spread = _session_bars()
     bars_without_spread = [
@@ -202,7 +221,8 @@ def test_minute_bar_rejects_non_finite_spread_and_non_integer_volume() -> None:
         MinuteBar(timestamp, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"), True)
 
 
-@pytest.mark.parametrize("field", ["minimum_turnover", "commission_bps", "slippage_bps"])
+@pytest.mark.parametrize("field", ["minimum_turnover", "commission_bps", "buy_commission_bps",
+                                    "sell_commission_bps", "sell_tax_bps", "slippage_bps"])
 def test_quant_config_rejects_non_finite_numeric_settings(field: str) -> None:
     with pytest.raises(ValueError, match="finite decimals"):
         QuantConfig(**{field: Decimal("Infinity")})

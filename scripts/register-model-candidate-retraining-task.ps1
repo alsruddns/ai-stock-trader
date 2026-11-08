@@ -39,7 +39,7 @@ if ($localSettings.TRADING_MODE -ne 'paper' -or $localSettings.LIVE_TRADING_ENAB
 }
 $costPrefix = "BACKTEST_$Market"
 $costs = @{}
-foreach ($suffix in 'COMMISSION_BPS', 'SLIPPAGE_BPS', 'ROUND_TRIP_COST_BPS') {
+foreach ($suffix in 'BUY_COMMISSION_BPS', 'SELL_COMMISSION_BPS', 'SELL_TAX_BPS', 'SLIPPAGE_BPS', 'ROUND_TRIP_COST_BPS') {
     $key = "${costPrefix}_$suffix"
     $parsed = [decimal]0
     if (-not $localSettings.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($localSettings[$key]) -or
@@ -49,9 +49,13 @@ foreach ($suffix in 'COMMISSION_BPS', 'SLIPPAGE_BPS', 'ROUND_TRIP_COST_BPS') {
     }
     $costs[$suffix] = $parsed
 }
-if ($costs.COMMISSION_BPS -gt 10000 -or $costs.SLIPPAGE_BPS -gt 10000 -or
+if ($costs.BUY_COMMISSION_BPS -gt 10000 -or $costs.SELL_COMMISSION_BPS -gt 10000 -or
+    $costs.SELL_TAX_BPS -gt 10000 -or $costs.SLIPPAGE_BPS -gt 10000 -or
     $costs.ROUND_TRIP_COST_BPS -gt 40000 -or
-    $costs.ROUND_TRIP_COST_BPS -lt (2 * ($costs.COMMISSION_BPS + $costs.SLIPPAGE_BPS))) {
+    $costs.BUY_COMMISSION_BPS + $costs.SELL_COMMISSION_BPS + $costs.SELL_TAX_BPS +
+        2 * $costs.SLIPPAGE_BPS -le 0 -or
+    $costs.ROUND_TRIP_COST_BPS -lt ($costs.BUY_COMMISSION_BPS + $costs.SELL_COMMISSION_BPS +
+        $costs.SELL_TAX_BPS + 2 * $costs.SLIPPAGE_BPS)) {
     throw 'Market backtest cost assumptions are invalid or the label round-trip cost is too low.'
 }
 

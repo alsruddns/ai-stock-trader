@@ -160,10 +160,11 @@ def test_model_training_rejects_missing_or_partial_session_coverage() -> None:
 @pytest.mark.parametrize(
     ("script_name", "arguments"),
     [
-        ("train-ai-models.py", ["--market", "KR", "--symbol", "005930",
-                                "--round-trip-cost-bps", "20", "--commission-bps", "5", "--slippage-bps", "5"]),
-        ("backtest-quant.py", ["--market", "KR", "--symbol", "005930",
-                               "--commission-bps", "5", "--slippage-bps", "5"]),
+        ("train-ai-models.py", ["--market", "KR", "--symbol", "005930", "--round-trip-cost-bps", "24",
+                                "--buy-commission-bps", "2", "--sell-commission-bps", "3",
+                                "--sell-tax-bps", "4", "--slippage-bps", "5"]),
+        ("backtest-quant.py", ["--market", "KR", "--symbol", "005930", "--buy-commission-bps", "2",
+                               "--sell-commission-bps", "3", "--sell-tax-bps", "4", "--slippage-bps", "5"]),
     ],
 )
 def test_data_clis_refuse_csv_without_rights_sidecar(tmp_path, monkeypatch, capsys, script_name, arguments) -> None:
@@ -184,7 +185,7 @@ def test_data_clis_refuse_csv_without_rights_sidecar(tmp_path, monkeypatch, caps
     ("script_name", "arguments", "missing_flag"),
     [
         ("train-ai-models.py", ["--market", "KR", "--symbol", "005930"], "--round-trip-cost-bps"),
-        ("backtest-quant.py", ["--market", "KR", "--symbol", "005930"], "--commission-bps"),
+        ("backtest-quant.py", ["--market", "KR", "--symbol", "005930"], "--buy-commission-bps"),
     ],
 )
 def test_data_clis_require_explicit_cost_assumptions(

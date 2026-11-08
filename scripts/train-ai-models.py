@@ -27,11 +27,21 @@ def main() -> int:
     parser.add_argument("--horizon-bars", type=int, default=5)
     parser.add_argument("--round-trip-cost-bps", type=Decimal, required=True,
                         help="verified/conservative total round-trip cost deducted from forward labels")
-    parser.add_argument("--commission-bps", type=Decimal, required=True,
-                        help="verified commission assumption per fill in basis points")
+    parser.add_argument("--buy-commission-bps", type=Decimal, required=True,
+                        help="verified buy commission in basis points")
+    parser.add_argument("--sell-commission-bps", type=Decimal, required=True,
+                        help="verified sell commission in basis points")
+    parser.add_argument("--sell-tax-bps", type=Decimal, required=True,
+                        help="verified sell tax/levy assumption in basis points; use zero only if verified")
     parser.add_argument("--slippage-bps", type=Decimal, required=True,
                         help="explicit slippage assumption per fill in basis points")
     args = parser.parse_args()
+    minimum_round_trip_cost = (args.buy_commission_bps + args.sell_commission_bps
+                               + args.sell_tax_bps + 2 * args.slippage_bps)
+    if min(args.buy_commission_bps, args.sell_commission_bps, args.sell_tax_bps, args.slippage_bps) < 0:
+        parser.error("cost assumptions cannot be negative")
+    if minimum_round_trip_cost <= 0 or args.round_trip_cost_bps < minimum_round_trip_cost:
+        parser.error("round-trip label cost must cover positive buy/sell fees, sell tax, and both slippage fills")
     try:
         source_bytes = args.csv_file.read_bytes()
         dataset_sha256 = hashlib.sha256(source_bytes).hexdigest()
@@ -46,7 +56,11 @@ def main() -> int:
         validate_model_training_coverage(provenance, market=args.market, sessions=sessions)
     except ValueError as exc:
         parser.error(str(exc))
-    quant_config = QuantConfig(commission_bps=args.commission_bps, slippage_bps=args.slippage_bps)
+    quant_config = QuantConfig(
+        commission_bps=Decimal("0"), buy_commission_bps=args.buy_commission_bps,
+        sell_commission_bps=args.sell_commission_bps, sell_tax_bps=args.sell_tax_bps,
+        slippage_bps=args.slippage_bps,
+    )
     results = LocalModelRegistry(args.registry).train_compare(
         market=args.market, symbol=args.symbol, sessions=sessions, quant_config=quant_config,
         label_horizon_bars=args.horizon_bars, label_round_trip_cost_bps=args.round_trip_cost_bps,

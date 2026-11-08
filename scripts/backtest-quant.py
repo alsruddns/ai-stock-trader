@@ -23,13 +23,22 @@ def main() -> int:
     parser.add_argument("csv_file", type=Path)
     parser.add_argument("--market", choices=("KR", "US"), required=True)
     parser.add_argument("--symbol", required=True, help="single instrument represented by the input CSV")
-    parser.add_argument("--commission-bps", type=Decimal, required=True,
-                        help="verified commission assumption per fill in basis points")
+    parser.add_argument("--buy-commission-bps", type=Decimal, required=True,
+                        help="verified buy commission in basis points")
+    parser.add_argument("--sell-commission-bps", type=Decimal, required=True,
+                        help="verified sell commission in basis points")
+    parser.add_argument("--sell-tax-bps", type=Decimal, required=True,
+                        help="verified sell tax/levy assumption in basis points; use zero only if verified")
     parser.add_argument("--slippage-bps", type=Decimal, required=True,
                         help="explicit slippage assumption per fill in basis points")
     parser.add_argument("--minimum-turnover", type=Decimal, default=Decimal("1000000"))
     parser.add_argument("--maximum-spread-bps", type=Decimal, default=Decimal("15"))
     args = parser.parse_args()
+    costs = (args.buy_commission_bps, args.sell_commission_bps, args.sell_tax_bps, args.slippage_bps)
+    if any(value < 0 for value in costs):
+        parser.error("cost assumptions cannot be negative")
+    if sum(costs) <= 0:
+        parser.error("at least one explicit trading cost must be positive")
 
     try:
         provenance = load_data_provenance(args.csv_file, purpose="backtesting")
@@ -37,7 +46,10 @@ def main() -> int:
         parser.error(str(exc))
     dataset_sha256 = hashlib.sha256(args.csv_file.read_bytes()).hexdigest()
     sessions = load_minute_bar_sessions(args.csv_file, market=args.market, expected_symbol=args.symbol)
-    config = replace(QuantConfig(), commission_bps=args.commission_bps, slippage_bps=args.slippage_bps,
+    config = replace(QuantConfig(), commission_bps=Decimal("0"),
+                     buy_commission_bps=args.buy_commission_bps,
+                     sell_commission_bps=args.sell_commission_bps,
+                     sell_tax_bps=args.sell_tax_bps, slippage_bps=args.slippage_bps,
                      minimum_turnover=args.minimum_turnover, maximum_spread_bps=args.maximum_spread_bps)
     results = [backtest_orb_vwap(args.market, args.symbol, bars, config)
                for _, bars in sorted(sessions.items())]
@@ -61,14 +73,18 @@ def main() -> int:
             "estimated_costs": str(sum((result.costs for result in results), Decimal(0))),
             "net_pnl": str(sum((result.net_pnl for result in results), Decimal(0))),
         },
-        "cost_assumptions_bps": {"commission_per_fill": str(config.commission_bps),
-                                 "slippage_per_fill": str(config.slippage_bps)},
+        "cost_assumptions_bps": {
+            "buy_commission_per_fill": str(config.effective_buy_commission_bps),
+            "sell_commission_per_fill": str(config.effective_sell_commission_bps),
+            "sell_tax_per_fill": str(config.sell_tax_bps),
+            "slippage_per_fill": str(config.slippage_bps),
+        },
         "quantity_per_session": 1,
         "executable": False,
         "limitations": [
             "Input data licensing, corrections, symbol mapping, and timestamp zone are the operator's responsibility.",
             "Each session is simulated independently at one share; results do not compound portfolio capital.",
-            "Estimated costs do not include account-specific taxes, exchange fees, or market impact.",
+            "Exchange fees and market impact must be reflected in the supplied assumptions where applicable.",
         ],
     }
     print(json.dumps(output, indent=2, ensure_ascii=False))

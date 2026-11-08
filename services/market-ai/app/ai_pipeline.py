@@ -27,7 +27,7 @@ FEATURE_NAMES = (
 )
 FEATURE_VERSION = 3
 LABEL_VERSION = 2
-BACKTEST_VERSION = 4
+BACKTEST_VERSION = 5
 BACKTEST_SPREAD_MODEL = "observed_half_spread_entry_exit_v1"
 MIN_MODEL_APPROVAL_TEST_SESSIONS = 5
 MIN_MODEL_APPROVAL_TEST_TRADES = 5
@@ -100,9 +100,9 @@ def build_training_samples(
     normalized_market = market.strip().upper()
     if normalized_market not in _MARKETS:
         raise ValueError("market must be KR or US")
-    minimum_label_cost = 2 * (quant_config.commission_bps + quant_config.slippage_bps)
-    if round_trip_cost_bps < minimum_label_cost:
-        raise ValueError("label round-trip cost must cover modeled entry and exit commission and slippage")
+    minimum_label_cost = quant_config.minimum_round_trip_cost_bps
+    if minimum_label_cost <= 0 or round_trip_cost_bps < minimum_label_cost:
+        raise ValueError("label round-trip cost must cover modeled buy/sell fees, tax, and slippage")
     samples: list[TrainingSample] = []
     required = max(warmup_bars, 21, 15, 10)
     for session, bars in sorted(sessions.items()):
@@ -693,13 +693,17 @@ class LocalModelRegistry:
                     or config.get("backtest_spread_model") != BACKTEST_SPREAD_MODEL):
                 return False
             label_cost = Decimal(str(config["label_round_trip_cost_bps"]))
-            commission = Decimal(str(config["backtest_commission_bps"]))
+            buy_commission = Decimal(str(config["backtest_buy_commission_bps"]))
+            sell_commission = Decimal(str(config["backtest_sell_commission_bps"]))
+            sell_tax = Decimal(str(config["backtest_sell_tax_bps"]))
             slippage = Decimal(str(config["backtest_slippage_bps"]))
-            if any(not value.is_finite() or value < 0 for value in (label_cost, commission, slippage)):
+            if any(not value.is_finite() or value < 0 for value in
+                   (label_cost, buy_commission, sell_commission, sell_tax, slippage)):
                 return False
-            # Labels span one entry and one exit. Keep their cost floor at least as
-            # conservative as the backtest's per-side commission and slippage.
-            if commission + slippage <= 0 or label_cost < 2 * (commission + slippage):
+            # Labels span one buy and one sell. The floor includes direction-specific
+            # commissions, sell-side tax, and slippage on both fills.
+            if (buy_commission + sell_commission + sell_tax + 2 * slippage <= 0
+                    or label_cost < buy_commission + sell_commission + sell_tax + 2 * slippage):
                 return False
             for metrics in (ai, quant):
                 session_count = Decimal(str(metrics["session_count"]))
@@ -904,9 +908,9 @@ class LocalModelRegistry:
             raise ValueError("a single instrument symbol is required for strategy backtests")
         if label_horizon_bars <= 0 or label_round_trip_cost_bps < 0:
             raise ValueError("label horizon and round-trip cost settings are invalid")
-        minimum_label_cost = 2 * (quant_config.commission_bps + quant_config.slippage_bps)
-        if label_round_trip_cost_bps < minimum_label_cost:
-            raise ValueError("label round-trip cost must cover modeled entry and exit commission and slippage")
+        minimum_label_cost = quant_config.minimum_round_trip_cost_bps
+        if minimum_label_cost <= 0 or label_round_trip_cost_bps < minimum_label_cost:
+            raise ValueError("label round-trip cost must cover modeled buy/sell fees, tax, and slippage")
         if not re.fullmatch(r"[a-f0-9]{64}", dataset_sha256):
             raise ValueError("dataset_sha256 must be a lowercase SHA-256 digest")
         provenance = validate_data_provenance(dataset_provenance, expected_sha256=dataset_sha256,
@@ -956,7 +960,9 @@ class LocalModelRegistry:
             "label_horizon_bars": label_horizon_bars,
             "label_round_trip_cost_bps": str(label_round_trip_cost_bps),
             "backtest_quantity_per_session": 1,
-            "backtest_commission_bps": str(quant_config.commission_bps),
+            "backtest_buy_commission_bps": str(quant_config.effective_buy_commission_bps),
+            "backtest_sell_commission_bps": str(quant_config.effective_sell_commission_bps),
+            "backtest_sell_tax_bps": str(quant_config.sell_tax_bps),
             "backtest_slippage_bps": str(quant_config.slippage_bps),
             "backtest_minimum_turnover": str(quant_config.minimum_turnover),
             "backtest_maximum_spread_bps": str(quant_config.maximum_spread_bps),
@@ -1087,7 +1093,10 @@ class LocalModelRegistry:
                 raise ValueError("only the validation-selected candidate may consume holdout sessions")
             config_data = metadata["training_config"]
             quant_config = QuantConfig(
-                commission_bps=Decimal(str(config_data["backtest_commission_bps"])),
+                commission_bps=Decimal("0"),
+                buy_commission_bps=Decimal(str(config_data["backtest_buy_commission_bps"])),
+                sell_commission_bps=Decimal(str(config_data["backtest_sell_commission_bps"])),
+                sell_tax_bps=Decimal(str(config_data["backtest_sell_tax_bps"])),
                 slippage_bps=Decimal(str(config_data["backtest_slippage_bps"])),
                 minimum_turnover=Decimal(str(config_data["backtest_minimum_turnover"])),
                 maximum_spread_bps=Decimal(str(config_data["backtest_maximum_spread_bps"])),

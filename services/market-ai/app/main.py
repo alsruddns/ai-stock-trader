@@ -142,7 +142,9 @@ class QuantBacktestRequest(BaseModel):
     market: Market
     symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Za-z0-9.-]+$")
     quantity: int = Field(default=1, gt=0, le=100_000)
-    commission_bps: Decimal = Field(ge=0, description="Explicit commission assumption per fill in basis points")
+    buy_commission_bps: Decimal = Field(ge=0, description="Explicit buy commission assumption in basis points")
+    sell_commission_bps: Decimal = Field(ge=0, description="Explicit sell commission assumption in basis points")
+    sell_tax_bps: Decimal = Field(ge=0, description="Explicit sell tax/levy assumption in basis points")
     slippage_bps: Decimal = Field(ge=0, description="Explicit slippage assumption per fill in basis points")
     bars: list[QuantBarRequest] = Field(min_length=1, max_length=5000)
 
@@ -157,6 +159,7 @@ class QuantBacktestResponse(BaseModel):
     net_pnl: Decimal
     data_points: int
     signals: int
+    cost_assumptions_bps: dict[str, Decimal]
     executable: bool
 
 
@@ -990,7 +993,13 @@ def backtest_orb_vwap_endpoint(request: QuantBacktestRequest) -> QuantBacktestRe
             timestamp=item.timestamp, open=item.open, high=item.high, low=item.low,
             close=item.close, volume=item.volume, spread_bps=item.spread_bps,
         ) for item in request.bars]
-        config = QuantConfig(commission_bps=request.commission_bps, slippage_bps=request.slippage_bps)
+        config = QuantConfig(
+            commission_bps=Decimal("0"), buy_commission_bps=request.buy_commission_bps,
+            sell_commission_bps=request.sell_commission_bps, sell_tax_bps=request.sell_tax_bps,
+            slippage_bps=request.slippage_bps,
+        )
+        if config.minimum_round_trip_cost_bps <= 0:
+            raise ValueError("at least one explicit trading cost must be positive")
         result = backtest_orb_vwap(request.market, request.symbol, bars, config, quantity=request.quantity)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1000,7 +1009,14 @@ def backtest_orb_vwap_endpoint(request: QuantBacktestRequest) -> QuantBacktestRe
         market=result.market, symbol=result.symbol, session=result.session,
         trades=[trade.__dict__ for trade in result.trades], gross_pnl=result.gross_pnl,
         costs=result.costs, net_pnl=result.net_pnl, data_points=result.data_points,
-        signals=result.signals, executable=False,
+        signals=result.signals,
+        cost_assumptions_bps={
+            "buy_commission_per_fill": config.effective_buy_commission_bps,
+            "sell_commission_per_fill": config.effective_sell_commission_bps,
+            "sell_tax_per_fill": config.sell_tax_bps,
+            "slippage_per_fill": config.slippage_bps,
+        },
+        executable=False,
     )
 
 

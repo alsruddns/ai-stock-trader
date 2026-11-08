@@ -37,7 +37,7 @@ type Payload = { generatedAt: string; springConnected: boolean; pythonConnected:
 const money = (value: string | number, currency: string) => new Intl.NumberFormat("ko-KR", { style: "currency", currency, maximumFractionDigits: currency === "KRW" ? 0 : 2 }).format(Number(value));
 const percent = (value?: number) => value == null ? "—" : `${(value * 100).toFixed(1)}%`;
 const basisPoints = (value?: number) => value == null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(2)} bps`;
-const trainingConfig = (value?: Record<string, string | number>) => value?.symbol ? `레이블 ${value.label_horizon_bars ?? "?"}봉 · 비용 ${value.label_round_trip_cost_bps ?? "?"} bps · 1주/세션 · 수수료 ${value.backtest_commission_bps ?? "?"} / 슬리피지 ${value.backtest_slippage_bps ?? "?"} bps` : "이전 모델 · 미기록";
+const trainingConfig = (value?: Record<string, string | number>) => value?.symbol ? `레이블 ${value.label_horizon_bars ?? "?"}봉 · 비용 ${value.label_round_trip_cost_bps ?? "?"} bps · 1주/세션 · 매수/매도 수수료 ${value.backtest_buy_commission_bps ?? "?"}/${value.backtest_sell_commission_bps ?? "?"} · 매도세금 ${value.backtest_sell_tax_bps ?? "?"} · 편도 슬리피지 ${value.backtest_slippage_bps ?? "?"} bps` : "이전 모델 · 미기록";
 const time = (value: string) => new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "medium" }).format(new Date(value));
 const marketMinute = (value: string, market: string) => new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", timeZone: market === "KR" ? "Asia/Seoul" : "America/New_York" }).format(new Date(value));
 

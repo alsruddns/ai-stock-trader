@@ -242,7 +242,7 @@ def test_training_skips_samples_with_missing_future_spread() -> None:
 
 
 def test_training_sample_generation_rejects_cost_below_backtest_cost() -> None:
-    with pytest.raises(ValueError, match="must cover modeled entry and exit"):
+    with pytest.raises(ValueError, match="must cover modeled buy/sell fees, tax, and slippage"):
         build_training_samples(_sample_sessions(), market="KR", horizon_bars=5,
                                round_trip_cost_bps=Decimal("19.999"))
 
@@ -379,7 +379,9 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path,
         assert isinstance(metadata["ai_quant_backtest_test_metrics"]["net_pnl"], str)
         assert metadata["training_config"]["symbol"] == "005930"
         assert metadata["training_config"]["label_horizon_bars"] == 5
-        assert metadata["training_config"]["backtest_commission_bps"] == "5"
+        assert metadata["training_config"]["backtest_buy_commission_bps"] == "5"
+        assert metadata["training_config"]["backtest_sell_commission_bps"] == "5"
+        assert metadata["training_config"]["backtest_sell_tax_bps"] == "0"
         assert metadata["training_config"]["backtest_spread_model"] == BACKTEST_SPREAD_MODEL
         assert "candidate_positive_rate" in result.test_metrics
         assert "candidate_mean_forward_net_bps" in result.test_metrics
@@ -412,7 +414,7 @@ def test_training_rejects_malformed_dataset_digest_before_training(tmp_path) -> 
 
 
 def test_training_rejects_label_cost_below_modeled_round_trip_cost(tmp_path) -> None:
-    with pytest.raises(ValueError, match="must cover modeled entry and exit"):
+    with pytest.raises(ValueError, match="must cover modeled buy/sell fees, tax, and slippage"):
         LocalModelRegistry(tmp_path).train_compare(
             market="KR", symbol="005930", sessions={},
             label_horizon_bars=5, label_round_trip_cost_bps=Decimal("19.999"),
@@ -511,7 +513,9 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_hold
         "training_config": {
             "symbol": symbol, "label_version": LABEL_VERSION,
             "label_horizon_bars": 5, "label_round_trip_cost_bps": "20",
-            "backtest_quantity_per_session": 1, "backtest_commission_bps": "5",
+            "backtest_quantity_per_session": 1,
+            "backtest_buy_commission_bps": "5", "backtest_sell_commission_bps": "5",
+            "backtest_sell_tax_bps": "0",
             "backtest_slippage_bps": "5", "backtest_version": BACKTEST_VERSION,
             "backtest_spread_model": BACKTEST_SPREAD_MODEL,
             "backtest_minimum_turnover": "1000000", "backtest_maximum_spread_bps": "15",
@@ -609,7 +613,7 @@ def test_model_governance_requires_review_and_records_rollback(tmp_path) -> None
     approval_event = next(event for event in registry.governance_events() if event["action"] == "approve")
     assert len(approval_event["test_sessions"]) == 5
     assert approval_event["ai_quant_backtest_test_metrics"]["net_pnl"] == 12.0
-    assert approval_event["training_config"]["backtest_commission_bps"] == "5"
+    assert approval_event["training_config"]["backtest_buy_commission_bps"] == "5"
     assert registry.governance_events()[-1]["action"] == "rollback"
     assert registry.active_approved_model("KR", "005930")["model_id"] == first
     assert registry.active_approved_model("KR", "000660") is None
@@ -920,7 +924,9 @@ def test_model_approval_rejects_zero_cost_backtests(tmp_path) -> None:
     manifest_path = tmp_path / f"{model_id}.json"
     metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
     metadata["training_config"]["label_round_trip_cost_bps"] = "0"
-    metadata["training_config"]["backtest_commission_bps"] = "0"
+    metadata["training_config"]["backtest_buy_commission_bps"] = "0"
+    metadata["training_config"]["backtest_sell_commission_bps"] = "0"
+    metadata["training_config"]["backtest_sell_tax_bps"] = "0"
     metadata["training_config"]["backtest_slippage_bps"] = "0"
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
 
