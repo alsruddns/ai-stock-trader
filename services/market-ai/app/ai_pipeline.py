@@ -25,9 +25,9 @@ FEATURE_NAMES = (
     "return_1m", "return_3m", "return_5m", "close_vwap_pct", "ema9_gap_pct",
     "ema20_gap_pct", "atr14_pct", "relative_volume20", "spread_bps", "session_progress",
 )
-FEATURE_VERSION = 2
+FEATURE_VERSION = 3
 LABEL_VERSION = 2
-BACKTEST_VERSION = 3
+BACKTEST_VERSION = 4
 BACKTEST_SPREAD_MODEL = "observed_half_spread_entry_exit_v1"
 MIN_MODEL_APPROVAL_TEST_SESSIONS = 5
 MIN_MODEL_APPROVAL_TEST_TRADES = 5
@@ -128,8 +128,8 @@ def build_training_samples(
                 for period in (1, 3, 5)
             ]
             vwap = _vwap(history)
-            ema9 = _ema([item.close for item in history[-9:]], 9)
-            ema20 = _ema([item.close for item in history[-20:]], 20)
+            ema9 = _ema([item.close for item in history], 9)
+            ema20 = _ema([item.close for item in history], 20)
             atr_pct = _atr(history, 14) / close
             session_progress = _session_progress(current.timestamp, normalized_market)
             feature_values = (
@@ -180,8 +180,8 @@ def latest_features(bars: list[MinuteBar], *, market: str, minimum_bars: int = 2
     features = (
         *(Decimal(0) if index < period else close / bars[index - period].close - Decimal(1) for period in (1, 3, 5)),
         close / _vwap(bars) - Decimal(1),
-        close / _ema([item.close for item in bars[-9:]], 9) - Decimal(1),
-        close / _ema([item.close for item in bars[-20:]], 20) - Decimal(1),
+        close / _ema([item.close for item in bars], 9) - Decimal(1),
+        close / _ema([item.close for item in bars], 20) - Decimal(1),
         _atr(bars, 14) / close,
         volume_ratio,
         current.spread_bps,

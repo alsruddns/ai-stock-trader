@@ -135,9 +135,11 @@ def _validate_session(bars: list[MinuteBar], market: Market, *, require_complete
 
 
 def _ema(values: list[Decimal], period: int) -> Decimal:
+    if period <= 0 or len(values) < period:
+        raise ValueError("EMA requires a positive period and at least one full period of values")
     alpha = Decimal(2) / Decimal(period + 1)
-    result = values[0]
-    for value in values[1:]:
+    result = sum(values[:period], Decimal(0)) / Decimal(period)
+    for value in values[period:]:
         result = value * alpha + result * (Decimal(1) - alpha)
     return result
 
@@ -178,7 +180,7 @@ def orb_vwap_entry_candidate(
     turnover_ok = current.close * current.volume >= config.minimum_turnover
     return (
         current.close > opening_high and current.close > _vwap(bars)
-        and current.close > _ema([bar.close for bar in bars[-config.ema_period:]], config.ema_period)
+        and current.close > _ema([bar.close for bar in bars], config.ema_period)
         and relative_volume >= config.minimum_relative_volume and spread_ok and turnover_ok
     )
 

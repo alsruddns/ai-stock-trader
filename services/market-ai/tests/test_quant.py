@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.quant import MinuteBar, QuantConfig, backtest_orb_vwap, orb_vwap_entry_candidate
+from app.quant import MinuteBar, QuantConfig, _ema, backtest_orb_vwap, orb_vwap_entry_candidate
 
 
 def _session_bars(bar_count: int = 380) -> list[MinuteBar]:
@@ -21,6 +21,28 @@ def _session_bars(bar_count: int = 380) -> list[MinuteBar]:
         for i in range(23, bar_count)
     )
     return bars
+
+
+def test_ema_uses_initial_period_sma_then_all_subsequent_values() -> None:
+    assert _ema([Decimal("10"), Decimal("11"), Decimal("12"), Decimal("13")], 3) == Decimal("12")
+    with pytest.raises(ValueError, match="at least one full period"):
+        _ema([Decimal("10"), Decimal("11")], 3)
+
+
+def test_entry_candidate_ema_uses_full_session_prefix(monkeypatch) -> None:
+    bars = _session_bars()[:21]
+    observed_lengths = []
+
+    def record_ema(values, period):
+        observed_lengths.append(len(values))
+        return Decimal("100")
+
+    monkeypatch.setattr("app.quant._ema", record_ema)
+
+    assert orb_vwap_entry_candidate(
+        bars, QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1")), market="KR",
+    ) is True
+    assert observed_lengths == [21]
 
 
 def test_orb_vwap_enters_on_next_bar_and_applies_costs() -> None:

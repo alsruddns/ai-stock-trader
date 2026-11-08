@@ -77,6 +77,20 @@ def test_features_at_time_t_match_online_inference_features() -> None:
         latest_features(bars[:20], market="KR")
 
 
+def test_online_ema_features_use_full_regular_session_prefix(monkeypatch) -> None:
+    bars = _sample_sessions()[date(2026, 10, 1)][:24]
+    observed_lengths = []
+
+    def record_ema(values, period):
+        observed_lengths.append((len(values), period))
+        return Decimal("100")
+
+    monkeypatch.setattr(ai_pipeline, "_ema", record_ema)
+    latest_features(bars, market="KR")
+
+    assert observed_lengths == [(24, 9), (24, 20)]
+
+
 def test_latest_features_reject_premarket_and_incomplete_minute_history() -> None:
     bars = _sample_sessions()[date(2026, 10, 1)][:21]
     premarket = datetime(2026, 10, 1, 8, 0, tzinfo=timezone(timedelta(hours=9)))
