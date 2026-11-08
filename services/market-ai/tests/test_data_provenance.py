@@ -63,6 +63,19 @@ def test_changed_csv_digest_rejects_old_rights_record(tmp_path) -> None:
         load_data_provenance(csv, purpose="backtesting")
 
 
+def test_provenance_can_be_bound_to_the_exact_bytes_used_for_parsing(tmp_path) -> None:
+    csv = tmp_path / "bars.csv"
+    csv.write_bytes(b"timestamp,open,high,low,close,volume\noriginal\n")
+    source_snapshot = csv.read_bytes()
+    digest = hashlib.sha256(source_snapshot).hexdigest()
+    (tmp_path / "bars.csv.provenance.json").write_text(json.dumps(_payload(digest)), encoding="utf-8")
+    csv.write_bytes(b"timestamp,open,high,low,close,volume\nchanged\n")
+
+    result = load_data_provenance(csv, purpose="model_training", source_bytes=source_snapshot)
+
+    assert result["dataset_sha256"] == digest
+
+
 def test_rights_review_and_workflow_permission_are_mandatory() -> None:
     digest = "a" * 64
     payload = _payload(digest)

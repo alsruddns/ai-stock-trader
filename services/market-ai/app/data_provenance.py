@@ -154,8 +154,10 @@ def validate_model_training_coverage(
         )
 
 
-def load_data_provenance(csv_path: str | Path, *, purpose: str) -> dict[str, Any]:
-    """Read `<csv-name>.provenance.json` and bind it to the CSV's current bytes."""
+def load_data_provenance(
+    csv_path: str | Path, *, purpose: str, source_bytes: bytes | None = None,
+) -> dict[str, Any]:
+    """Read `<csv-name>.provenance.json` and bind it to the parsed CSV byte snapshot."""
     path = Path(csv_path)
     sidecar = path.with_name(path.name + ".provenance.json")
     try:
@@ -164,8 +166,12 @@ def load_data_provenance(csv_path: str | Path, *, purpose: str) -> dict[str, Any
         raise ValueError(f"required data provenance file is missing: {sidecar.name}") from exc
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError("data provenance file could not be read") from exc
-    try:
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError as exc:
-        raise ValueError("CSV file could not be read") from exc
+    if source_bytes is not None and not isinstance(source_bytes, bytes):
+        raise ValueError("CSV source snapshot must be bytes")
+    if source_bytes is None:
+        try:
+            source_bytes = path.read_bytes()
+        except OSError as exc:
+            raise ValueError("CSV file could not be read") from exc
+    digest = hashlib.sha256(source_bytes).hexdigest()
     return validate_data_provenance(payload, expected_sha256=digest, purpose=purpose)

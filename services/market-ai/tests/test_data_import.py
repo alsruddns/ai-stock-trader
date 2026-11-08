@@ -24,6 +24,19 @@ def test_minute_bar_loader_groups_valid_timezone_aware_sessions(tmp_path) -> Non
     assert sessions[next(iter(sessions))][0].spread_bps == 5
 
 
+def test_minute_bar_loader_uses_the_supplied_immutable_source_snapshot(tmp_path) -> None:
+    path = _write_csv(tmp_path / "snapshot.csv", """timestamp,open,high,low,close,volume,symbol
+2026-11-05T09:00:00+09:00,100,101,99,100,1000,005930
+""")
+    snapshot = path.read_bytes()
+    path.write_text("timestamp,open,high,low,close,volume,symbol\n"
+                    "2026-11-05T09:00:00+09:00,200,201,199,200,1000,005930\n", encoding="utf-8")
+
+    sessions = load_minute_bar_sessions(path, market="KR", expected_symbol="005930", source_bytes=snapshot)
+
+    assert sessions[next(iter(sessions))][0].close == 100
+
+
 @pytest.mark.parametrize("content, message", [
     ("timestamp,open,high,low,close,volume\n2026-11-05T09:00:00,100,101,99,100,1000\n", "timezone"),
     ("timestamp,open,high,low,close,volume\n2026-11-05T09:00:00+09:00,100,99,101,100,1000\n", "high/low"),

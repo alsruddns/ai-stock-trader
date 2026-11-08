@@ -6,6 +6,7 @@ import csv
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from io import StringIO
 from pathlib import Path
 
 from .quant import Market, MinuteBar, exchange_session_date
@@ -15,13 +16,22 @@ REQUIRED_COLUMNS = {"timestamp", "open", "high", "low", "close", "volume"}
 
 def load_minute_bar_sessions(
     csv_path: str | Path, *, market: Market, expected_symbol: str | None = None,
+    source_bytes: bytes | None = None,
 ) -> dict[date, list[MinuteBar]]:
-    """Load one instrument and group its timezone-aware bars by exchange-local session date."""
+    """Load one instrument from a file or immutable byte snapshot and group its sessions."""
     sessions: dict[date, list[MinuteBar]] = defaultdict(list)
-    try:
-        source = Path(csv_path).open("r", encoding="utf-8-sig", newline="")
-    except OSError as exc:
-        raise ValueError("minute-bar CSV could not be opened") from exc
+    if source_bytes is None:
+        try:
+            source = Path(csv_path).open("r", encoding="utf-8-sig", newline="")
+        except OSError as exc:
+            raise ValueError("minute-bar CSV could not be opened") from exc
+    else:
+        if not isinstance(source_bytes, bytes):
+            raise ValueError("minute-bar source snapshot must be bytes")
+        try:
+            source = StringIO(source_bytes.decode("utf-8-sig"), newline="")
+        except UnicodeDecodeError as exc:
+            raise ValueError("minute-bar CSV must be valid UTF-8") from exc
 
     with source:
         reader = csv.DictReader(source)

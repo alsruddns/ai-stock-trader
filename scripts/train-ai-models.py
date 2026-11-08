@@ -31,11 +31,15 @@ def main() -> int:
     parser.add_argument("--slippage-bps", type=Decimal, default=Decimal("5"))
     args = parser.parse_args()
     try:
-        provenance = load_data_provenance(args.csv_file, purpose="model_training")
+        source_bytes = args.csv_file.read_bytes()
+        dataset_sha256 = hashlib.sha256(source_bytes).hexdigest()
+        provenance = load_data_provenance(args.csv_file, purpose="model_training", source_bytes=source_bytes)
+        sessions = load_minute_bar_sessions(args.csv_file, market=args.market,
+                                            expected_symbol=args.symbol, source_bytes=source_bytes)
     except ValueError as exc:
         parser.error(str(exc))
-    dataset_sha256 = hashlib.sha256(args.csv_file.read_bytes()).hexdigest()
-    sessions = load_minute_bar_sessions(args.csv_file, market=args.market, expected_symbol=args.symbol)
+    except OSError:
+        parser.error("minute-bar CSV could not be read")
     try:
         validate_model_training_coverage(provenance, market=args.market, sessions=sessions)
     except ValueError as exc:
