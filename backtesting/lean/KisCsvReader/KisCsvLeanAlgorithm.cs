@@ -149,6 +149,8 @@ namespace QuantConnect.Algorithm.CSharp
         private decimal? _entryPrice;
         private decimal? _stopPrice;
         private decimal? _targetPrice;
+        private decimal? _pendingEntrySpreadBps;
+        private int _entryBarIndex = -1;
         private int _signals;
         private int _quantSignals;
         private int _trades;
@@ -221,28 +223,39 @@ namespace QuantConnect.Algorithm.CSharp
             if (_entryPending)
             {
                 _entryPending = false;
-                if (bar.HasSpread && bar.SpreadBps <= MaximumSpreadBps)
-                {
-                    var signalHistory = _bars.Take(_bars.Count - 1).ToList();
-                    var risk = Atr(signalHistory, AtrPeriod) * AtrStopMultiple;
-                    var entryCostsBps = SlippageBps + bar.SpreadBps / 2m;
-                    var expectedFill = bar.Open * (1m + entryCostsBps / 10_000m);
-                    _entryPrice = expectedFill;
-                    _stopPrice = expectedFill - risk;
-                    _targetPrice = expectedFill + risk * RewardRiskMultiple;
-                    MarketOrder(_symbol, 1m, false, "ENTRY");
-                }
+                var signalSpreadBps = _pendingEntrySpreadBps
+                    ?? throw new InvalidOperationException("Entry signal did not retain its observed spread");
+                _pendingEntrySpreadBps = null;
+                if (signalSpreadBps < 0m || signalSpreadBps > MaximumSpreadBps)
+                    throw new InvalidOperationException("Entry signal spread is outside the configured limit");
+                var signalHistory = _bars.Take(_bars.Count - 1).ToList();
+                var risk = Atr(signalHistory, AtrPeriod) * AtrStopMultiple;
+                var entryCostsBps = SlippageBps + signalSpreadBps / 2m;
+                var expectedFill = bar.Open * (1m + entryCostsBps / 10_000m);
+                _entryPrice = expectedFill;
+                _stopPrice = expectedFill - risk;
+                _targetPrice = expectedFill + risk * RewardRiskMultiple;
+                _entryBarIndex = _bars.Count - 1;
+                MarketOrder(_symbol, 1m, false,
+                    $"ENTRY:{signalSpreadBps.ToString(CultureInfo.InvariantCulture)}");
             }
 
             if (_entryPrice.HasValue)
             {
-                var exit = ResolveExit(bar, _bars, _stopPrice.Value, _targetPrice.Value, _expectedBars);
+                var exit = ResolveExit(bar, _bars, _stopPrice.Value, _targetPrice.Value,
+                    _expectedBars, _entryBarIndex);
                 if (exit.HasValue)
                 {
-                    MarketOrder(_symbol, -1m, false, $"EXIT:{exit.Value.Price.ToString(CultureInfo.InvariantCulture)}:{exit.Value.Reason}");
+                    var exitSpreadBps = exit.Value.Reason == "SESSION_END"
+                        ? (bar.HasSpread ? bar.SpreadBps : MaximumSpreadBps)
+                        : (_bars.Count > 1 && _bars[_bars.Count - 2].HasSpread
+                            ? _bars[_bars.Count - 2].SpreadBps : MaximumSpreadBps);
+                    MarketOrder(_symbol, -1m, false,
+                        $"EXIT:{exit.Value.Price.ToString(CultureInfo.InvariantCulture)}:{exit.Value.Reason}:{exitSpreadBps.ToString(CultureInfo.InvariantCulture)}");
                     _entryPrice = null;
                     _stopPrice = null;
                     _targetPrice = null;
+                    _entryBarIndex = -1;
                     _trades++;
                     return;
                 }
@@ -262,7 +275,11 @@ namespace QuantConnect.Algorithm.CSharp
                 if (passesAi)
                 {
                     _signals++;
-                    if (_bars.Count < _expectedBars) _entryPending = true;
+                    if (_bars.Count < _expectedBars)
+                    {
+                        _pendingEntrySpreadBps = bar.SpreadBps;
+                        _entryPending = true;
+                    }
                 }
             }
         }
@@ -303,7 +320,7 @@ namespace QuantConnect.Algorithm.CSharp
             var averageVolume = priorVolumes.Count == 0 ? 0m : priorVolumes.Average();
             var relativeVolume = averageVolume == 0m ? 0m : current.Volume / averageVolume;
             var vwap = cumulativeVolume == 0m ? current.Close : cumulativeTypicalVolume / cumulativeVolume;
-            var ema = Ema(bars.Skip(Math.Max(0, bars.Count - EmaPeriod)).Select(item => item.Close).ToList());
+            var ema = Ema(bars.Select(item => item.Close).ToList());
             return current.Close > openingHigh && current.Close > vwap && current.Close > ema
                 && relativeVolume >= 1.5m && current.HasSpread && current.SpreadBps <= MaximumSpreadBps
                 && current.Close * current.Volume >= MinimumTurnover;
@@ -311,9 +328,12 @@ namespace QuantConnect.Algorithm.CSharp
 
         private static decimal Ema(IReadOnlyList<decimal> values)
         {
-            var alpha = 2m / (values.Count + 1m);
-            var result = values[0];
-            for (var i = 1; i < values.Count; i++) result = values[i] * alpha + result * (1m - alpha);
+            if (values.Count < EmaPeriod)
+                throw new InvalidOperationException("EMA history is shorter than its configured period");
+            var alpha = 2m / (EmaPeriod + 1m);
+            var result = values.Take(EmaPeriod).Average();
+            for (var i = EmaPeriod; i < values.Count; i++)
+                result = values[i] * alpha + result * (1m - alpha);
             return result;
         }
 
@@ -329,34 +349,77 @@ namespace QuantConnect.Algorithm.CSharp
             return ranges.Skip(Math.Max(0, ranges.Count - period)).Average();
         }
 
-        private static (decimal Price, string Reason)? ResolveExit(KisCsvMinuteBar bar, IReadOnlyList<KisCsvMinuteBar> history, decimal stop, decimal target, int expectedBars)
+        private static (decimal Price, string Reason)? ResolveExit(
+            KisCsvMinuteBar bar, IReadOnlyList<KisCsvMinuteBar> history, decimal stop,
+            decimal target, int expectedBars, int entryBarIndex)
         {
+            var currentBarIndex = history.Count - 1;
+            if (currentBarIndex > entryBarIndex)
+            {
+                var previous = history[currentBarIndex - 1];
+                var completedHistory = history.Take(currentBarIndex).ToList();
+                var completedVolume = completedHistory.Sum(item => item.Volume);
+                var completedTypicalVolume = completedHistory.Sum(item =>
+                    ((item.High + item.Low + item.Close) / 3m) * item.Volume);
+                var completedVwap = completedVolume == 0m
+                    ? previous.Close : completedTypicalVolume / completedVolume;
+                if (previous.Close < completedVwap) return (bar.Open, "VWAP_LOSS");
+            }
             if (bar.Open <= stop || bar.Low <= stop) return (Math.Min(bar.Open, stop), "ATR_STOP");
             if (bar.Open >= target) return (bar.Open, "TAKE_PROFIT_GAP");
             if (bar.High >= target) return (target, "TAKE_PROFIT");
-            var totalTypicalVolume = history.Sum(item => ((item.High + item.Low + item.Close) / 3m) * item.Volume);
-            var totalVolume = history.Sum(item => item.Volume);
-            var vwap = totalVolume == 0m ? bar.Close : totalTypicalVolume / totalVolume;
-            if (bar.Close < vwap) return (bar.Close, "VWAP_LOSS");
             if (history.Count == expectedBars) return (bar.Close, "SESSION_END");
             return null;
         }
     }
 
-    public class KisCsvCostFillModel : FillModel
+    internal static class KisCsvExecutionCostInputs
     {
         private const decimal MaximumSpreadBps = 15m;
 
+        public static decimal RawPrice(string tag, KisCsvMinuteBar bar)
+        {
+            var fields = tag.Split(':');
+            if (fields[0] == "EXIT")
+            {
+                if (fields.Length != 4
+                    || !decimal.TryParse(fields[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var exitPrice))
+                    throw new ArgumentException("Exit order tag has invalid price or execution spread");
+                return exitPrice;
+            }
+            if (fields[0] == "ENTRY") return bar.Open;
+            return bar.Open;
+        }
+
+        public static decimal SpreadBps(string tag, KisCsvMinuteBar bar)
+        {
+            var fields = tag.Split(':');
+            string? explicitSpread = fields[0] switch
+            {
+                "ENTRY" when fields.Length == 2 => fields[1],
+                "EXIT" when fields.Length == 4 => fields[3],
+                "ENTRY" or "EXIT" => throw new ArgumentException("Order tag has invalid execution spread fields"),
+                _ => null,
+            };
+            if (explicitSpread is not null)
+            {
+                if (!decimal.TryParse(explicitSpread, NumberStyles.Float, CultureInfo.InvariantCulture, out var spread)
+                    || spread < 0m)
+                    throw new ArgumentException("Order tag has an invalid execution spread");
+                return spread;
+            }
+            return bar.HasSpread ? bar.SpreadBps : MaximumSpreadBps;
+        }
+    }
+
+    public class KisCsvCostFillModel : FillModel
+    {
         public override OrderEvent MarketFill(Security asset, MarketOrder order)
         {
             var fill = base.MarketFill(asset, order);
             if (fill.Status != OrderStatus.Filled || asset.GetLastData() is not KisCsvMinuteBar bar) return fill;
-            var rawPrice = bar.Open;
-            if (order.Tag.StartsWith("EXIT:", StringComparison.Ordinal))
-            {
-                rawPrice = decimal.Parse(order.Tag.Split(':')[1], CultureInfo.InvariantCulture);
-            }
-            var effectiveSpreadBps = bar.HasSpread ? bar.SpreadBps : MaximumSpreadBps;
+            var rawPrice = KisCsvExecutionCostInputs.RawPrice(order.Tag, bar);
+            var effectiveSpreadBps = KisCsvExecutionCostInputs.SpreadBps(order.Tag, bar);
             var costsBps = 5m + effectiveSpreadBps / 2m;
             fill.FillPrice = order.Direction == OrderDirection.Buy
                 ? rawPrice * (1m + costsBps / 10_000m)
@@ -367,7 +430,6 @@ namespace QuantConnect.Algorithm.CSharp
 
     public class KisCsvCommissionFeeModel : FeeModel
     {
-        private const decimal MaximumSpreadBps = 15m;
         private readonly string _currency;
 
         public KisCsvCommissionFeeModel(string currency)
@@ -378,12 +440,8 @@ namespace QuantConnect.Algorithm.CSharp
         public override OrderFee GetOrderFee(OrderFeeParameters parameters)
         {
             if (parameters.Security.GetLastData() is not KisCsvMinuteBar bar) return OrderFee.Zero;
-            var rawPrice = bar.Open;
-            if (parameters.Order.Tag.StartsWith("EXIT:", StringComparison.Ordinal))
-            {
-                rawPrice = decimal.Parse(parameters.Order.Tag.Split(':')[1], CultureInfo.InvariantCulture);
-            }
-            var effectiveSpreadBps = bar.HasSpread ? bar.SpreadBps : MaximumSpreadBps;
+            var rawPrice = KisCsvExecutionCostInputs.RawPrice(parameters.Order.Tag, bar);
+            var effectiveSpreadBps = KisCsvExecutionCostInputs.SpreadBps(parameters.Order.Tag, bar);
             var costsBps = 5m + effectiveSpreadBps / 2m;
             var fillPrice = parameters.Order.Direction == OrderDirection.Buy
                 ? rawPrice * (1m + costsBps / 10_000m)
