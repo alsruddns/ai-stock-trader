@@ -122,7 +122,9 @@ foreach ($market in @('KR', 'US')) {
 $report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 10 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
-$endpointStates = @($endpointStatus.Values | ForEach-Object { $_.state })
+$endpointStates = @($endpointStatus.GetEnumerator() |
+    Where-Object { $_.Key -ne 'local.local_stack_task' } |
+    ForEach-Object { $_.Value.state })
 $optionalDataStatus = if (@($endpointStates | Where-Object { $_ -in @('HTTP_ERROR', 'UNREACHABLE', 'UNAVAILABLE', 'PARTIAL') }).Count -gt 0) {
     'PARTIAL'
 } elseif (@($endpointStates | Where-Object { $_ -ne 'AVAILABLE' }).Count -gt 0) {
