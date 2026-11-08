@@ -40,6 +40,7 @@ jobs:
             'scripts/lib/market-session-scheduler.ps1',
             'scripts/register-market-data-session-monitor.ps1',
             'scripts/register-market-data-session-horizon.ps1',
+            'scripts/update-market-data-session-monitor-duration.ps1',
             'scripts/enable-local-automation-task-wake.ps1',
             'scripts/lib/paper-safety.ps1',
             'scripts/lib/local-postgres-binding.ps1',
@@ -96,7 +97,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Retired KIS analysis API runtime scan failed.' }
 
           $sessionResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -PassThru
-          if ($sessionResult.FailedCount -gt 0 -or $sessionResult.PassedCount -ne 23) {
+          if ($sessionResult.FailedCount -gt 0 -or $sessionResult.PassedCount -ne 24) {
             throw "Exchange session monitor tests failed: passed=$($sessionResult.PassedCount), failed=$($sessionResult.FailedCount)."
           }
 

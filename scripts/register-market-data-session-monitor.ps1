@@ -52,7 +52,8 @@ $monitorPath = Join-Path $PSScriptRoot 'test-paper-websocket-monitor.ps1'
 $powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 if (-not (Test-Path -LiteralPath $powerShellPath)) { $powerShellPath = Join-Path $PSHOME 'pwsh.exe' }
 if (-not (Test-Path -LiteralPath $powerShellPath)) { throw 'No PowerShell executable was found.' }
-$arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$monitorPath`" -Feed $Feed -DurationSeconds 24300 -PollIntervalSeconds 15 -MaxNoTickSeconds 300 -MinimumBarsDelta $expectedBars -EvidencePath `"$evidencePath`" -RequireSessionClose"
+$durationSeconds = Get-SessionMonitorDurationSeconds
+$arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$monitorPath`" -Feed $Feed -DurationSeconds $durationSeconds -PollIntervalSeconds 15 -MaxNoTickSeconds 300 -MinimumBarsDelta $expectedBars -EvidencePath `"$evidencePath`" -RequireSessionClose"
 $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $arguments -WorkingDirectory $repoRoot
 $trigger = New-ScheduledTaskTrigger -Once -At $runAt
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name

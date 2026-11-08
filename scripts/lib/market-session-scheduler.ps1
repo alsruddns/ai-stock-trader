@@ -1,10 +1,15 @@
+function Get-SessionMonitorDurationSeconds {
+    return 25200
+}
+
 function Test-SessionMonitorTaskDefinition {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$Task,
         [Parameter(Mandatory)][string]$MonitorPath,
         [Parameter(Mandatory)][ValidateSet('paper', 'real')][string]$Feed,
-        [Parameter(Mandatory)][DateTimeOffset]$ExpectedRunAt
+        [Parameter(Mandatory)][DateTimeOffset]$ExpectedRunAt,
+        [ValidateRange(1, 36000)][int]$ExpectedDurationSeconds = (Get-SessionMonitorDurationSeconds)
     )
 
     if (-not $Task -or $Task.State -eq 'Disabled' -or
@@ -21,6 +26,7 @@ function Test-SessionMonitorTaskDefinition {
     if (-not [bool]$trigger.Enabled -or $trigger.CimClass.CimClassName -ne 'MSFT_TaskTimeTrigger' -or
         [string]$action.Arguments -notmatch [regex]::Escape($MonitorPath) -or
         [string]$action.Arguments -notmatch "-Feed\s+$Feed(?:\s|$)" -or
+        [string]$action.Arguments -notmatch "-DurationSeconds\s+$ExpectedDurationSeconds(?:\s|$)" -or
         [string]$action.Arguments -notmatch '-RequireSessionClose(?:\s|$)') { return $false }
 
     try {
