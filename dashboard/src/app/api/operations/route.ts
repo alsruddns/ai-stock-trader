@@ -50,6 +50,10 @@ type LocalOperationsReport = {
   } | null;
 };
 
+const TRAINING_READINESS_CACHE_MS = 5 * 60 * 1000;
+const trainingReadinessCache = new Map<string, { expiresAt: number; value: unknown }>();
+const trainingReadinessInFlight = new Map<string, Promise<unknown | null>>();
+
 function asObject(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -109,6 +113,32 @@ function schedule(value: unknown, countKeys: string[]): Record<string, unknown> 
   };
   for (const key of countKeys) result[key] = optionalNumber(raw[key]) ?? 0;
   return result;
+}
+
+async function fetchTrainingReadiness(pythonBase: string, market: string, symbol: string): Promise<unknown | null> {
+  const key = `${pythonBase}:${market}:${symbol}`;
+  const cached = trainingReadinessCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const pending = trainingReadinessInFlight.get(key);
+  if (pending) return pending;
+  const request = (async () => {
+    try {
+      const response = await fetch(
+        `${pythonBase}/api/v1/market/training-readiness/${market}/${encodeURIComponent(symbol)}`,
+        { cache: "no-store", signal: AbortSignal.timeout(5000) },
+      );
+      if (!response.ok) return null;
+      const value = await response.json();
+      trainingReadinessCache.set(key, { expiresAt: Date.now() + TRAINING_READINESS_CACHE_MS, value });
+      return value;
+    } catch {
+      return null;
+    } finally {
+      trainingReadinessInFlight.delete(key);
+    }
+  })();
+  trainingReadinessInFlight.set(key, request);
+  return request;
 }
 
 async function readLocalOperationsReport(): Promise<LocalOperationsReport | null> {
@@ -185,6 +215,13 @@ export async function GET() {
   const usSessionResult = usSession.status === "fulfilled" && usSession.value.ok
     ? await usSession.value.json() : null;
   const localOperationsReport = await readLocalOperationsReport();
+  const trainingTasks = (localOperationsReport?.validationTaskSchedule?.tasks ?? [])
+    .filter((task) => task.kind === "P4_MODEL_TRAIN" && task.market && task.symbol);
+  const trainingPairs = [...new Map(trainingTasks.map((task) => [`${task.market}:${task.symbol}`, task])).values()];
+  const trainingReadinessRows = await Promise.all(trainingPairs.map(async (task) => {
+    const key = `${task.market}:${task.symbol}`;
+    return [key, await fetchTrainingReadiness(pythonBase, task.market ?? "", task.symbol ?? "")] as const;
+  }));
   const decisions = paperSessionResult && typeof paperSessionResult === "object"
     ? (paperSessionResult as { decisions?: Record<string, { market?: string; symbol?: string }> }).decisions ?? {}
     : {};
@@ -219,5 +256,6 @@ export async function GET() {
     marketSessions: { KR: krSessionResult, US: usSessionResult },
     marketDataQuality: qualityByMarket,
     localOperationsReport,
+    trainingReadiness: Object.fromEntries(trainingReadinessRows),
   }, { headers: { "Cache-Control": "no-store" } });
 }

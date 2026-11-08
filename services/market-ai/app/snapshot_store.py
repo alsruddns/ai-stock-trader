@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, time as datetime_time, timezone
+from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import psycopg
@@ -98,6 +98,48 @@ def load_session_minute_bars(market: str, symbol: str, session_date: date, *, li
         timestamp=row[0], open=row[1], high=row[2], low=row[3], close=row[4],
         volume=int(row[5]), spread_bps=row[6],
     ) for row in reversed(rows)]
+
+
+def load_minute_bar_training_history(
+    market: str, symbol: str, from_date: date, to_date: date, *, limit: int = 60000,
+) -> dict[date, dict[str, object]]:
+    """Load bounded stored bars and source counts in a read-only transaction."""
+    if (market not in {"KR", "US"} or not symbol.strip() or from_date > to_date
+            or (to_date - from_date).days > 120 or not 1 <= limit <= 60000):
+        raise ValueError("market, symbol, date range, and bounded row limit are required")
+    zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
+    range_start = datetime.combine(from_date, datetime_time.min, tzinfo=zone)
+    range_end = datetime.combine(to_date + timedelta(days=1), datetime_time.min, tzinfo=zone)
+    with _connect() as connection:
+        connection.execute("SET TRANSACTION READ ONLY")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT bar_at, open_price, high_price, low_price, close_price,
+                          volume, spread_bps, source
+                     FROM market_minute_bar
+                    WHERE market = %s AND symbol = %s AND bar_at >= %s AND bar_at < %s
+                    ORDER BY bar_at
+                    LIMIT %s""",
+                (market, symbol.upper(), range_start, range_end, limit + 1),
+            )
+            rows = cursor.fetchall()
+    if len(rows) > limit:
+        raise RuntimeError("stored market-data history exceeds the bounded audit limit")
+
+    sessions: dict[date, dict[str, object]] = {}
+    for timestamp, open_price, high_price, low_price, close_price, volume, spread_bps, source in rows:
+        session_date = timestamp.astimezone(zone).date()
+        entry = sessions.setdefault(session_date, {"bars": [], "source_counts": {}})
+        bars = entry["bars"]
+        source_counts = entry["source_counts"]
+        assert isinstance(bars, list) and isinstance(source_counts, dict)
+        bars.append(MinuteBar(
+            timestamp=timestamp, open=open_price, high=high_price, low=low_price, close=close_price,
+            volume=int(volume), spread_bps=spread_bps,
+        ))
+        if source:
+            source_counts[str(source)] = int(source_counts.get(str(source), 0)) + 1
+    return sessions
 
 
 def load_session_minute_bars_for_symbols(

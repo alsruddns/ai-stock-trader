@@ -297,6 +297,70 @@ def test_session_quality_batch_requires_one_date_selection_mode() -> None:
     assert conflicting.status_code == 422
 
 
+def test_training_readiness_counts_only_complete_approved_websocket_sessions(monkeypatch) -> None:
+    from datetime import time as datetime_time
+
+    zone = ZoneInfo("Asia/Seoul")
+    history = {}
+    for session_date, source in (
+        (date(2026, 11, 5), "KIS_PAPER_WEBSOCKET"),
+        (date(2026, 11, 6), "KIS_REST_MINUTE_SESSION"),
+    ):
+        opened = datetime.combine(session_date, datetime_time(9, 0), tzinfo=zone)
+        bars = [MinuteBar(
+            timestamp=opened + timedelta(minutes=index),
+            open=Decimal("100"), high=Decimal("101"), low=Decimal("99"), close=Decimal("100"),
+            volume=1000, spread_bps=Decimal("5"),
+        ) for index in range(380)]
+        history[session_date] = {
+            "bars": bars,
+            "source_counts": {source: len(bars)},
+        }
+    monkeypatch.setattr(main.snapshot_store, "enabled", lambda: True)
+    calls = []
+
+    def load(market, symbol, from_date, to_date):
+        calls.append((market, symbol, from_date, to_date))
+        return history
+
+    monkeypatch.setattr(main.snapshot_store, "load_minute_bar_training_history", load)
+    response = client.get(
+        "/api/v1/market/training-readiness/KR/005930"
+        "?from_date=2026-11-05&to_date=2026-11-06",
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["minimum_required_sessions"] == 13
+    assert body["eligible_sessions"] == 1
+    assert body["additional_sessions_needed"] == 12
+    assert body["minimum_met"] is False
+    assert [row["eligible_for_training"] for row in body["sessions"]] == [True, False]
+    assert calls == [("KR", "005930", date(2026, 11, 5), date(2026, 11, 6))]
+
+
+def test_training_readiness_rejects_oversized_ranges_and_wrong_symbols(monkeypatch) -> None:
+    monkeypatch.setattr(main.snapshot_store, "enabled", lambda: True)
+    oversized = client.get(
+        "/api/v1/market/training-readiness/KR/005930"
+        "?from_date=2026-01-01&to_date=2026-05-02",
+    )
+    wrong_symbol = client.get(
+        "/api/v1/market/training-readiness/KR/AAPL?from_date=2026-11-05&to_date=2026-11-06",
+    )
+    assert oversized.status_code == 422
+    assert wrong_symbol.status_code == 422
+
+
+def test_training_readiness_fails_closed_when_snapshot_persistence_is_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(main.snapshot_store, "enabled", lambda: False)
+    response = client.get(
+        "/api/v1/market/training-readiness/US/AAPL"
+        "?from_date=2026-11-05&to_date=2026-11-06",
+    )
+    assert response.status_code == 503
+
+
 def test_session_quality_batch_endpoint_limits_symbols_and_rejects_mixed_market_codes() -> None:
     too_many = client.get(
         "/api/v1/market/session-quality/US?" + "&".join(

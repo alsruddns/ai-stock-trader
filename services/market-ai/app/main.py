@@ -2,7 +2,7 @@ from enum import StrEnum
 import os
 import re
 import threading
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
 import asyncio
@@ -20,6 +20,7 @@ from .kis import (AccountBalance, Exchange, HistoricalMinuteSession, KisApiError
 from . import snapshot_store
 from . import kis_stream
 from .ai_pipeline import LocalModelRegistry
+from .data_provenance import MIN_MODEL_TRAINING_SESSIONS
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from .paper_ops import exchange_session_window, korean_calendar_compatibility
 from .paper_automation import PaperAutomationReadiness
@@ -457,6 +458,84 @@ async def market_session_quality_batch(
     for report in reports:
         report["source_counts"] = source_counts_by_symbol.get(str(report["symbol"]), {})
     return {"market": normalized_market, "session_date": session_date.isoformat(), "sessions": reports}
+
+
+@app.get("/api/v1/market/training-readiness/{market}/{symbol}")
+async def market_training_readiness(
+    market: Market = Path(),
+    symbol: str = Path(pattern=r"^[A-Za-z0-9.-]{1,16}$"),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+) -> dict[str, object]:
+    """Count stored sessions eligible for model training; never fetches or changes market data."""
+    normalized_market = str(market).upper()
+    normalized_symbol = symbol.strip().upper()
+    pattern = r"\d{6}" if normalized_market == "KR" else r"[A-Z][A-Z0-9.-]{0,15}"
+    if not re.fullmatch(pattern, normalized_symbol):
+        raise HTTPException(status_code=422, detail="Symbol format does not match the selected market")
+
+    zone = ZoneInfo("Asia/Seoul" if normalized_market == "KR" else "America/New_York")
+    local_today = datetime.now(timezone.utc).astimezone(zone).date()
+    selected_to = to_date or local_today
+    selected_from = from_date or selected_to - timedelta(days=89)
+    if (selected_from > selected_to or selected_to > local_today
+            or (selected_to - selected_from).days > 120):
+        raise HTTPException(status_code=422, detail="Training-readiness date range must be ordered, current, and at most 121 days")
+    if not snapshot_store.enabled():
+        raise HTTPException(status_code=503, detail="Market snapshot persistence is disabled")
+    try:
+        history = await asyncio.to_thread(
+            snapshot_store.load_minute_bar_training_history,
+            normalized_market, normalized_symbol, selected_from, selected_to,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Stored market-data history exceeds the audit bounds") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Stored market-data history could not be audited within its configured bounds") from exc
+    except psycopg.Error as exc:
+        raise HTTPException(status_code=503, detail="Stored market data is unavailable") from exc
+
+    expected_source = "KIS_PAPER_WEBSOCKET" if normalized_market == "KR" else "KIS_REAL_US_WEBSOCKET"
+    evaluated_at = datetime.now(timezone.utc)
+    reports = []
+    eligible_sessions = 0
+    for session_date, value in sorted(history.items()):
+        bars = value["bars"]
+        source_counts = value["source_counts"]
+        if not isinstance(bars, list) or not isinstance(source_counts, dict):
+            raise HTTPException(status_code=503, detail="Stored market-data provenance is invalid")
+        quality = _session_quality_report(
+            normalized_market, normalized_symbol, session_date, bars, evaluated_at,
+        )
+        expected_bars = int(quality["expected_bars"])
+        eligible = (
+            quality["full_session_complete"] is True
+            and int(quality["spread_bars"]) == expected_bars
+            and source_counts == {expected_source: expected_bars}
+        )
+        eligible_sessions += int(eligible)
+        reports.append({
+            "session_date": session_date.isoformat(),
+            "status": quality["status"],
+            "observed_bars": quality["observed_bars"],
+            "expected_bars": expected_bars,
+            "spread_bars": quality["spread_bars"],
+            "spread_coverage_percent": quality["spread_coverage_percent"],
+            "source_counts": source_counts,
+            "eligible_for_training": eligible,
+        })
+
+    return {
+        "market": normalized_market,
+        "symbol": normalized_symbol,
+        "from_date": selected_from.isoformat(),
+        "to_date": selected_to.isoformat(),
+        "minimum_required_sessions": MIN_MODEL_TRAINING_SESSIONS,
+        "eligible_sessions": eligible_sessions,
+        "additional_sessions_needed": max(0, MIN_MODEL_TRAINING_SESSIONS - eligible_sessions),
+        "minimum_met": eligible_sessions >= MIN_MODEL_TRAINING_SESSIONS,
+        "sessions": reports,
+    }
 
 
 @app.get("/api/v1/market/quotes/{market}/{symbol}", response_model=QuoteResponse)
