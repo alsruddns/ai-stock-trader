@@ -57,6 +57,14 @@ $endpointStatus['local.model_retraining'] = [ordered]@{
     failureStage = $modelRetraining.latestRun.failureStage
     errorType = $modelRetraining.latestRun.errorType
 }
+$sessionMonitorSchedule = Get-AiTraderSessionMonitorScheduleSummary
+$endpointStatus['local.session_monitor_schedule'] = [ordered]@{
+    state = $sessionMonitorSchedule.state
+    registeredCount = $sessionMonitorSchedule.registeredCount
+    krRegisteredCount = $sessionMonitorSchedule.krRegisteredCount
+    usRegisteredCount = $sessionMonitorSchedule.usRegisteredCount
+    errorType = $sessionMonitorSchedule.errorType
+}
 $marketSessions = @{ KR = $null; US = $null }
 $marketDataQuality = @{ KR = $null; US = $null }
 foreach ($market in @('KR', 'US')) {
@@ -89,11 +97,11 @@ foreach ($market in @('KR', 'US')) {
     $marketDataQuality[$market] = $qualityResult.data
 }
 
-$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 5 -Force
+$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 6 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
 $endpointStates = @($endpointStatus.Values | ForEach-Object { $_.state })
-$optionalDataStatus = if (@($endpointStates | Where-Object { $_ -in @('HTTP_ERROR', 'UNREACHABLE') }).Count -gt 0) {
+$optionalDataStatus = if (@($endpointStates | Where-Object { $_ -in @('HTTP_ERROR', 'UNREACHABLE', 'UNAVAILABLE', 'PARTIAL') }).Count -gt 0) {
     'PARTIAL'
 } elseif (@($endpointStates | Where-Object { $_ -ne 'AVAILABLE' }).Count -gt 0) {
     'INCOMPLETE'
@@ -106,6 +114,7 @@ $report | Add-Member -MemberType NoteProperty -Name pythonHealth -Value $pythonH
 $report | Add-Member -MemberType NoteProperty -Name paperSession -Value $paperSession -Force
 $report | Add-Member -MemberType NoteProperty -Name aiModels -Value $aiModels -Force
 $report | Add-Member -MemberType NoteProperty -Name modelRetraining -Value $modelRetraining -Force
+$report | Add-Member -MemberType NoteProperty -Name sessionMonitorSchedule -Value $sessionMonitorSchedule -Force
 $report | Add-Member -MemberType NoteProperty -Name marketSessions -Value $marketSessions -Force
 $report | Add-Member -MemberType NoteProperty -Name marketDataQuality -Value $marketDataQuality -Force
 $report | Add-Member -MemberType NoteProperty -Name marketDataQualitySummary -Value (Get-AiTraderMarketDataQualitySummary -EndpointStatus $endpointStatus -MarketDataQuality $marketDataQuality) -Force

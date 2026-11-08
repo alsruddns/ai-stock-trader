@@ -2,6 +2,74 @@
 . (Join-Path $PSScriptRoot '..\lib\model-retraining-report.ps1')
 
 Describe 'Optional operations report endpoint diagnostics' {
+    It 'summarizes only the registered KR and US market monitor tasks' {
+        $nextRun = [datetime]'2026-11-09T08:45:00'
+        Mock Get-ScheduledTask {
+            @(
+                [pscustomobject]@{ TaskName = 'AIStockTrader-KRX-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
+                [pscustomobject]@{ TaskName = 'Unrelated-Task'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } }
+            )
+        }
+        Mock Get-ScheduledTaskInfo {
+            return [pscustomobject]@{
+                NextRunTime = $nextRun
+                LastRunTime = [datetime]::MinValue
+                LastTaskResult = 267011
+            }
+        }
+
+        $summary = Get-AiTraderSessionMonitorScheduleSummary
+
+        $summary.state | Should Be 'AVAILABLE'
+        $summary.registeredCount | Should Be 2
+        $summary.krRegisteredCount | Should Be 1
+        $summary.usRegisteredCount | Should Be 1
+        $summary.tasks[0].lastRunTime | Should Be $null
+        $summary.tasks[0].lastTaskResult | Should Be 267011
+    }
+
+    It 'marks missing session monitor schedules as unverified' {
+        Mock Get-ScheduledTask { @() }
+
+        $summary = Get-AiTraderSessionMonitorScheduleSummary
+
+        $summary.state | Should Be 'UNVERIFIED'
+        $summary.registeredCount | Should Be 0
+        $summary.tasks.Count | Should Be 0
+    }
+
+    It 'records a safe error class when Task Scheduler cannot be queried' {
+        Mock Get-ScheduledTask { throw [System.InvalidOperationException]::new('private task details') }
+
+        $summary = Get-AiTraderSessionMonitorScheduleSummary
+        $json = $summary | ConvertTo-Json -Compress
+
+        $summary.state | Should Be 'UNAVAILABLE'
+        $summary.errorType | Should Be 'InvalidOperationException'
+        $json | Should Not Match 'private task details'
+    }
+
+    It 'marks the schedule summary partial when one task status cannot be read' {
+        Mock Get-ScheduledTask {
+            @(
+                [pscustomobject]@{ TaskName = 'AIStockTrader-KRX-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } }
+            )
+        }
+        Mock Get-ScheduledTaskInfo {
+            if ($TaskName -like '*US-*') { throw [System.InvalidOperationException]::new('private status detail') }
+            return [pscustomobject]@{ NextRunTime = [datetime]::Now; LastRunTime = [datetime]::MinValue; LastTaskResult = 267011 }
+        }
+
+        $summary = Get-AiTraderSessionMonitorScheduleSummary
+        $json = $summary | ConvertTo-Json -Compress
+
+        $summary.state | Should Be 'PARTIAL'
+        @($summary.tasks | Where-Object { $_.state -eq 'UNKNOWN' }).Count | Should Be 1
+        $json | Should Not Match 'private status detail'
+    }
+
     It 'marks a successful endpoint as available and retains its JSON data' {
         Mock Invoke-RestMethod { return @{ status = 'ok' } }
 
@@ -57,13 +125,15 @@ Describe 'Daily operations report endpoint health summary' {
             -ModelRetrainingReportDirectory $retrainingDirectory | Out-Null
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 5
+        $report.reportSchemaVersion | Should Be 6
         $report.pythonConnected | Should Be $true
         $report.optionalDataStatus | Should Be 'INCOMPLETE'
         $report.marketDataQualitySummary.sessionCompleteness | Should Be 'UNVERIFIED'
         $report.marketDataQualitySummary.spreadCoverage | Should Be 'UNVERIFIED'
         $report.endpointStatus.'python.market_data_quality_KR'.state | Should Be 'SKIPPED_NO_SYMBOLS'
         $report.endpointStatus.'local.model_retraining'.state | Should Be 'NO_RUNS'
+        $report.endpointStatus.'local.session_monitor_schedule'.state | Should Be $report.sessionMonitorSchedule.state
+        $report.endpointStatus.'local.session_monitor_schedule'.registeredCount | Should Be $report.sessionMonitorSchedule.registeredCount
     }
 
     It 'separates available endpoints from incomplete market bars and spread coverage' {

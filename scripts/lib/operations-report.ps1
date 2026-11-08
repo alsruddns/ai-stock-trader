@@ -124,3 +124,58 @@ function Get-AiTraderMarketDataQualitySummary {
         sessionsMissingSpreads = $sessionsMissingSpreads
     }
 }
+
+function Get-AiTraderSessionMonitorScheduleSummary {
+    try {
+        $tasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object {
+            $_.TaskName -match '^AIStockTrader-(KRX|US)-Session-Monitor-\d{8}$'
+        })
+    }
+    catch {
+        return [ordered]@{
+            state = 'UNAVAILABLE'
+            errorType = $_.Exception.GetType().Name
+            registeredCount = 0
+            krRegisteredCount = 0
+            usRegisteredCount = 0
+            tasks = @()
+        }
+    }
+
+    $rows = @()
+    foreach ($task in $tasks) {
+        $market = if ($task.TaskName -like 'AIStockTrader-KRX-*') { 'KR' } else { 'US' }
+        try {
+            $info = Get-ScheduledTaskInfo -TaskName $task.TaskName -ErrorAction Stop
+            $rows += [ordered]@{
+                market = $market
+                taskName = $task.TaskName
+                state = [string]$task.State
+                enabled = [bool]$task.Settings.Enabled
+                nextRunTime = if ($info.NextRunTime -and $info.NextRunTime.Year -gt 2000) { $info.NextRunTime.ToString('o') } else { $null }
+                lastRunTime = if ($info.LastRunTime -and $info.LastRunTime.Year -gt 2000) { $info.LastRunTime.ToString('o') } else { $null }
+                lastTaskResult = [int]$info.LastTaskResult
+            }
+        }
+        catch {
+            $rows += [ordered]@{
+                market = $market
+                taskName = $task.TaskName
+                state = 'UNKNOWN'
+                enabled = [bool]$task.Settings.Enabled
+                nextRunTime = $null
+                lastRunTime = $null
+                lastTaskResult = $null
+            }
+        }
+    }
+
+    return [ordered]@{
+        state = if ($rows.Count -eq 0) { 'UNVERIFIED' } elseif (@($rows | Where-Object { $_.state -eq 'UNKNOWN' }).Count -gt 0) { 'PARTIAL' } else { 'AVAILABLE' }
+        errorType = $null
+        registeredCount = $rows.Count
+        krRegisteredCount = @($rows | Where-Object { $_.market -eq 'KR' }).Count
+        usRegisteredCount = @($rows | Where-Object { $_.market -eq 'US' }).Count
+        tasks = @($rows | Sort-Object market, taskName)
+    }
+}
