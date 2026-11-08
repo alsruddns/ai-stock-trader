@@ -22,9 +22,12 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /** Internal paper-only KIS order adapter. No public trading controller uses it in this phase. */
 @Component
@@ -143,6 +146,7 @@ public class KisOrderClient {
         String continuation = "";
         String nextKey = "";
         String nextSearch = "";
+        Set<List<String>> seenCursors = new HashSet<>();
         for (int page = 0; page < 10; page++) {
             if (intent.getMarket() == Market.KR) {
                 path = "/uapi/domestic-stock/v1/trading/inquire-daily-ccld";
@@ -180,7 +184,6 @@ public class KisOrderClient {
             }
             String headerContinuation = queryResponse.continuation();
             if (!"M".equalsIgnoreCase(headerContinuation) && !"F".equalsIgnoreCase(headerContinuation)) break;
-            continuation = "N";
             if (intent.getMarket() == Market.KR) {
                 nextSearch = response.path("ctx_area_fk100").asText("");
                 nextKey = response.path("ctx_area_nk100").asText("");
@@ -188,6 +191,13 @@ public class KisOrderClient {
                 nextSearch = response.path("ctx_area_fk200").asText("");
                 nextKey = response.path("ctx_area_nk200").asText("");
             }
+            if (nextSearch.isBlank() || nextKey.isBlank()
+                    || !seenCursors.add(List.of(nextSearch, nextKey))) {
+                // Missing or repeated page cursors cannot prove an order state. Return no
+                // snapshot so callers keep the intent unresolved and never act on stale rows.
+                return Optional.empty();
+            }
+            continuation = "N";
         }
         return Optional.empty();
     }

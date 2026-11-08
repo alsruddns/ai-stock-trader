@@ -325,6 +325,64 @@ class KisOrderClientTest {
     }
 
     @Test
+    void repeatedPaperReconciliationCursorReturnsUnknownWithoutAThirdBrokerRequest() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        var repeatedPage = (org.springframework.test.web.client.ResponseCreator) request -> {
+            var response = new org.springframework.mock.http.client.MockClientHttpResponse("""
+                    {"rt_cd":"0","ctx_area_fk100":"cursor-a","ctx_area_nk100":"key-a","output1":[]}
+                    """.getBytes(java.nio.charset.StandardCharsets.UTF_8), org.springframework.http.HttpStatus.OK);
+            response.getHeaders().setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            response.getHeaders().set("tr_cont", "M");
+            return response;
+        };
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_cont", ""))
+                .andRespond(repeatedPage);
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_cont", "N"))
+                .andExpect(queryParam("CTX_AREA_FK100", "cursor-a"))
+                .andExpect(queryParam("CTX_AREA_NK100", "key-a"))
+                .andRespond(repeatedPage);
+
+        var request = new com.aistocktrader.order.OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", request, null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+
+        assertTrue(client(true, builder).reconcilePaperOrder(intent).isEmpty());
+        server.verify();
+    }
+
+    @Test
+    void missingPaperReconciliationCursorReturnsUnknownWithoutRepeatingFirstPage() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_cont", ""))
+                .andRespond(request -> {
+                    var response = new org.springframework.mock.http.client.MockClientHttpResponse("""
+                            {"rt_cd":"0","ctx_area_fk100":"","ctx_area_nk100":"","output1":[]}
+                            """.getBytes(java.nio.charset.StandardCharsets.UTF_8), org.springframework.http.HttpStatus.OK);
+                    response.getHeaders().setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+                    response.getHeaders().set("tr_cont", "M");
+                    return response;
+                });
+
+        var request = new com.aistocktrader.order.OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", request, null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+
+        assertTrue(client(true, builder).reconcilePaperOrder(intent).isEmpty());
+        server.verify();
+    }
+
+    @Test
     void overseasPaperReconciliationQueriesTheMockWholeDayAndMatchesOrderLocally() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
