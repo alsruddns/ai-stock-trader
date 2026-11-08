@@ -23,6 +23,7 @@ from app.ai_pipeline import (
     predict_probability_series,
     _session_progress,
 )
+from app.data_provenance import MIN_MODEL_TRAINING_SESSIONS
 from app.quant import MinuteBar
 from app.market_calendar import exchange_session_window
 
@@ -271,7 +272,7 @@ def test_chronological_split_keeps_sessions_disjoint_and_ordered() -> None:
 
 
 @pytest.mark.parametrize(("session_count", "expected_partition_sizes"), [
-    (13, (5, 3, 5)),
+    (MIN_MODEL_TRAINING_SESSIONS, (5, 3, 5)),
     (14, (6, 3, 5)),
     (15, (7, 3, 5)),
     (25, (15, 5, 5)),

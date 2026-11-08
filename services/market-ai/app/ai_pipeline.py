@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .data_provenance import validate_data_provenance
+from .data_provenance import MIN_MODEL_TRAINING_SESSIONS, validate_data_provenance
 from .market_calendar import exchange_continuous_session_window
 from .quant import (MinuteBar, QuantConfig, _atr, _ema, _vwap,
                     _validate_session, backtest_orb_vwap, exchange_session_date, orb_vwap_entry_candidate)
@@ -221,7 +221,7 @@ def _chronological_partitions(samples: list[TrainingSample]) -> tuple[list[Train
     dates = sorted({sample.session for sample in samples})
     if len(dates) < 3:
         raise ValueError("at least three distinct sessions are required for train/validation/test splits")
-    if len(dates) >= 13:
+    if len(dates) >= MIN_MODEL_TRAINING_SESSIONS:
         # Production datasets must retain enough chronological validation and test
         # sessions for candidate selection and the independent approval gate.
         test_count = max(MIN_MODEL_APPROVAL_TEST_SESSIONS, math.ceil(len(dates) * 0.2))
@@ -230,7 +230,9 @@ def _chronological_partitions(samples: list[TrainingSample]) -> tuple[list[Train
         test_start = len(dates) - test_count
         validation_start = test_start - validation_count
         if validation_start < 1:
-            raise ValueError("at least thirteen distinct sessions are required for approval-ready partitions")
+            raise ValueError(
+                f"at least {MIN_MODEL_TRAINING_SESSIONS} distinct sessions are required for approval-ready partitions"
+            )
         train_dates = set(dates[:validation_start])
         validation_dates = set(dates[validation_start:test_start])
         test_dates = set(dates[test_start:])
