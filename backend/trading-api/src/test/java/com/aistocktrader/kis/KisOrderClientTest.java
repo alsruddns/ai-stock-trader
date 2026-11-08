@@ -278,6 +278,27 @@ class KisOrderClientTest {
     }
 
     @Test
+    void brokerOrderRejectionWithNonCodeTextUsesSafeFallback() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/domestic-stock/v1/trading/order-cash")))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("tr_id", "VTTC0012U"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"1","msg_cd":"rejected","msg1":"private broker diagnostic"}
+                        """, org.springframework.http.MediaType.APPLICATION_JSON));
+
+        KisApiException failure = assertThrows(KisApiException.class, () -> client(true, builder).placePaperLimitOrder(
+                Market.KR, "005930", OrderSide.BUY, 1, new BigDecimal("70000"), Currency.KRW, null));
+
+        assertEquals("KIS rejected the paper order (code unknown).", failure.getMessage());
+        assertFalse(failure.getMessage().contains("private broker diagnostic"));
+        server.verify();
+    }
+
+    @Test
     void paperNotionalLimitIsAppliedBeforeBrokerCall() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

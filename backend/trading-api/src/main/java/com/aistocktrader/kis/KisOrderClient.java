@@ -360,6 +360,8 @@ public class KisOrderClient {
     }
 
     private static String safeCode(String code) {
-        return code.matches("[A-Za-z0-9_-]{1,32}") ? code : "unknown";
+        // Preserve only KIS error identifiers (for example EGW00002 or OPSQ2000),
+        // not arbitrary response text such as the non-code value "rejected".
+        return code.matches("(?i)[A-Z]{2,4}[0-9]{4,5}") ? code.toUpperCase(Locale.ROOT) : "unknown";
     }
 }
