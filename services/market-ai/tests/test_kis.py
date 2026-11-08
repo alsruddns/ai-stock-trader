@@ -179,6 +179,28 @@ def test_read_only_get_retries_one_transport_failure(monkeypatch) -> None:
     client.close()
 
 
+def test_read_only_get_does_not_retry_non_transport_configuration_errors(monkeypatch) -> None:
+    slots: list[bool] = []
+    delays: list[float] = []
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.UnsupportedProtocol("private configuration detail")
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setattr(client, "_wait_for_rest_slot", lambda: slots.append(True))
+    monkeypatch.setattr("app.kis.time.sleep", delays.append)
+
+    with pytest.raises(httpx.UnsupportedProtocol):
+        client._get("https://kis.example/read-only", headers={}, params={})
+
+    assert len(slots) == 1
+    assert delays == []
+    client.close()
+
+
 def test_read_only_get_stops_after_one_retry_when_server_remains_unavailable(monkeypatch) -> None:
     requests_seen: list[httpx.Request] = []
     client = KisReadOnlyClient(

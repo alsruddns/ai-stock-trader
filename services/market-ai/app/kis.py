@@ -337,11 +337,14 @@ class KisReadOnlyClient:
             try:
                 response = self._http.get(url, headers=headers, params=params)
             except httpx.HTTPError as exc:
-                if attempt >= READ_ONLY_GET_RETRY_LIMIT:
+                category = _safe_transport_error_category(exc)
+                if attempt >= READ_ONLY_GET_RETRY_LIMIT or category not in {
+                    "timeout", "connect", "protocol", "network",
+                }:
                     raise
                 _logger.warning(
                     "KIS read-only GET transport failure; retrying attempt %d/%d (category=%s).",
-                    attempt + 1, READ_ONLY_GET_RETRY_LIMIT + 1, _safe_transport_error_category(exc),
+                    attempt + 1, READ_ONLY_GET_RETRY_LIMIT + 1, category,
                 )
                 time.sleep(READ_ONLY_GET_RETRY_DELAY_SECONDS)
                 continue
