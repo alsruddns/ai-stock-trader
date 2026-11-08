@@ -23,6 +23,30 @@ def test_health_discloses_read_only_mode() -> None:
     assert response.json()["paper_session_monitor"] == "DISABLED"
 
 
+def test_health_reports_connected_only_when_all_kis_feeds_are_running(monkeypatch) -> None:
+    monkeypatch.setattr(main.paper_session_monitor, "status", lambda: {
+        "state": "RUNNING", "enabled": True,
+        "stream_connections": {"paper": "RUNNING", "real": "RUNNING"},
+    })
+
+    response = client.get("/api/v1/health")
+
+    assert response.status_code == 200
+    assert response.json()["broker_connected"] is True
+
+
+def test_health_does_not_report_connected_when_one_kis_feed_is_reconnecting(monkeypatch) -> None:
+    monkeypatch.setattr(main.paper_session_monitor, "status", lambda: {
+        "state": "PARTIAL", "enabled": True,
+        "stream_connections": {"paper": "RUNNING", "real": "RECONNECTING"},
+    })
+
+    response = client.get("/api/v1/health")
+
+    assert response.status_code == 200
+    assert response.json()["broker_connected"] is False
+
+
 def test_health_reports_korean_calendar_compatibility(monkeypatch) -> None:
     import pandas as pd
 

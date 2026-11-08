@@ -290,12 +290,21 @@ def _session_quality_report(
 @app.get("/api/v1/health")
 def health() -> dict[str, str | bool]:
     settings = KisSettings.from_environment()
+    monitor_status = paper_session_monitor.status()
+    connections = monitor_status.get("stream_connections")
+    broker_connected = (
+        bool(monitor_status.get("enabled"))
+        and monitor_status.get("state") == "RUNNING"
+        and isinstance(connections, dict)
+        and bool(connections)
+        and all(state == "RUNNING" for state in connections.values())
+    )
     return {
         "status": "ok",
         "mode": "read-only-preview",
-        "broker_connected": False,
+        "broker_connected": broker_connected,
         "kis_market_data_enabled": settings.enabled,
-        "paper_session_monitor": paper_session_monitor.status()["state"],
+        "paper_session_monitor": monitor_status["state"],
         "kr_calendar_compatibility": korean_calendar_compatibility(),
         "paper_automation_enabled": PaperAutomationReadiness.from_environment().enabled,
         "live_trading_enabled": False,
