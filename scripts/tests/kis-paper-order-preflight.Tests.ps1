@@ -168,6 +168,13 @@ Describe 'Sanitized KIS error reporting' {
         $message | Should Be 'Local preflight request failed (HTTP 502, KIS upstream HTTP 502) for /api/v1/market/quotes/US/F; inspect the sanitized service logs.'
     }
 
+    It 'marks an unclassified KIS detail while keeping its contents hidden' {
+        $message = Format-SafeLocalApiFailure -Status '502' -Path '/api/v1/market/quotes/US/F' `
+            -ErrorDetail '{"detail":"KIS error with private content"}'
+        $message | Should Be 'Local preflight request failed (HTTP 502, KIS detail withheld) for /api/v1/market/quotes/US/F; inspect the sanitized service logs.'
+        $message | Should Not Match 'private content'
+    }
+
     It 'does not expose an unrecognized upstream category' {
         $message = Format-SafeLocalApiFailure -Status '502' -Path '/api/v1/market/quotes/US/F' `
             -ErrorDetail '{"detail":"transport category: token=hidden"}'

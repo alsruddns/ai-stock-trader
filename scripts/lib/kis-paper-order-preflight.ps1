@@ -50,6 +50,7 @@ function Format-SafeLocalApiFailure {
     $diagnostic = if ($brokerCode) { ", KIS code $brokerCode" }
         elseif ($transportCategory) { ", KIS transport $transportCategory" }
         elseif ($upstreamStatus) { ", KIS upstream HTTP $upstreamStatus" }
+        elseif ($ErrorDetail -match '(?i)\bKIS\b') { ', KIS detail withheld' }
         else { '' }
     return "Local preflight request failed (HTTP $Status$diagnostic) for $Path; inspect the sanitized service logs."
 }
