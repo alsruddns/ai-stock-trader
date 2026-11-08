@@ -12,7 +12,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 
 from app.ai_pipeline import LocalModelRegistry, build_training_samples
 from app.data_import import load_minute_bar_sessions
-from app.data_provenance import load_data_provenance
+from app.data_provenance import load_data_provenance, validate_model_training_coverage
 from app.quant import QuantConfig
 
 
@@ -36,6 +36,10 @@ def main() -> int:
         parser.error(str(exc))
     dataset_sha256 = hashlib.sha256(args.csv_file.read_bytes()).hexdigest()
     sessions = load_minute_bar_sessions(args.csv_file, market=args.market, expected_symbol=args.symbol)
+    try:
+        validate_model_training_coverage(provenance, market=args.market, sessions=sessions)
+    except ValueError as exc:
+        parser.error(str(exc))
     quant_config = QuantConfig(commission_bps=args.commission_bps, slippage_bps=args.slippage_bps)
     samples = build_training_samples(
         sessions, market=args.market, horizon_bars=args.horizon_bars,

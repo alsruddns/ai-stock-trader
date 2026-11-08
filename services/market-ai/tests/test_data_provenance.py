@@ -3,10 +3,16 @@ import json
 from pathlib import Path
 import runpy
 import sys
+from datetime import date, timedelta
+from types import SimpleNamespace
 
 import pytest
 
-from app.data_provenance import load_data_provenance, validate_data_provenance
+from app.data_provenance import (
+    load_data_provenance,
+    validate_data_provenance,
+    validate_model_training_coverage,
+)
 
 
 def _payload(digest: str) -> dict:
@@ -76,6 +82,66 @@ def test_timezone_is_required_for_retrieval_and_rights_review() -> None:
     payload["verified_at"] = "2026-11-02T10:00:00"
     with pytest.raises(ValueError, match="include a timezone"):
         validate_data_provenance(payload, expected_sha256=digest, purpose="backtesting")
+
+
+def test_model_training_requires_complete_spread_covered_approved_source_sessions() -> None:
+    first_session = date(2026, 11, 2)
+    session_dates = [first_session + timedelta(days=index) for index in range(13)]
+    sessions = {session_date: [SimpleNamespace(spread_bps=5) for _ in range(390)]
+                for session_date in session_dates}
+    payload = _payload("c" * 64)
+    payload["coverage"] = {
+        "observed_session_count": 13,
+        "observed_bar_count": 13 * 390,
+        "complete_session_count": 13,
+        "spread_complete_session_count": 13,
+        "sessions": [
+            {
+                "session_date": session_date.isoformat(), "bars": 390, "expected_bars": 390,
+                "complete": True, "bars_with_spread": 390, "spread_complete": True,
+                "sources": ["KIS_REAL_US_WEBSOCKET"],
+            }
+            for session_date in session_dates
+        ],
+    }
+
+    validate_model_training_coverage(payload, market="US", sessions=sessions)
+
+    payload["coverage"]["sessions"][0]["sources"] = ["KIS_REST_MINUTE_SESSION"]
+    with pytest.raises(ValueError, match="approved KIS WebSocket feed"):
+        validate_model_training_coverage(payload, market="US", sessions=sessions)
+
+    short_sessions = dict(list(sessions.items())[:-1])
+    short_rows = [dict(row) for row in payload["coverage"]["sessions"][:12]]
+    short_rows[0]["sources"] = ["KIS_REAL_US_WEBSOCKET"]
+    short_coverage = dict(payload["coverage"])
+    short_coverage["sessions"] = short_rows
+    short_coverage["observed_session_count"] = 12
+    short_coverage["observed_bar_count"] = 12 * 390
+    short_coverage["complete_session_count"] = 12
+    short_coverage["spread_complete_session_count"] = 12
+    short_payload = {**payload, "coverage": short_coverage}
+    with pytest.raises(ValueError, match="at least 13 eligible exchange sessions"):
+        validate_model_training_coverage(short_payload, market="US", sessions=short_sessions)
+
+
+def test_model_training_rejects_missing_or_partial_session_coverage() -> None:
+    sessions = {date(2026, 11, 2): [SimpleNamespace(spread_bps=None)]}
+    with pytest.raises(ValueError, match="requires exported session quality coverage"):
+        validate_model_training_coverage(_payload("d" * 64), market="US", sessions=sessions)
+
+    payload = _payload("d" * 64)
+    payload["coverage"] = {
+        "observed_session_count": 1, "observed_bar_count": 1,
+        "complete_session_count": 1, "spread_complete_session_count": 1,
+        "sessions": [{
+            "session_date": "2026-11-02", "bars": 1, "expected_bars": 1,
+            "complete": True, "bars_with_spread": 1, "spread_complete": True,
+            "sources": ["KIS_REAL_US_WEBSOCKET"],
+        }],
+    }
+    with pytest.raises(ValueError, match="complete, spread-covered sessions"):
+        validate_model_training_coverage(payload, market="US", sessions=sessions)
 
 
 @pytest.mark.parametrize(

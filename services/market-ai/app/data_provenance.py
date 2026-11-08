@@ -6,13 +6,14 @@ import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping, Sequence
 
 _DATE_FIELDS = ("retrieved_at",)
 _TEXT_FIELDS = ("provider", "dataset_name", "source_reference", "license_or_terms",
                 "terms_reference")
 _PERMISSIONS = ("local_storage", "backtesting", "model_training")
 _PURPOSE_PERMISSION = {"backtesting": "backtesting", "model_training": "model_training"}
+MIN_MODEL_TRAINING_SESSIONS = 13
 
 
 def validate_data_provenance(
@@ -89,7 +90,68 @@ def validate_data_provenance(
     if not normalized_permissions[required_permission]:
         raise ValueError(f"'{required_permission}' permission is required for this workflow")
     normalized["permissions"] = normalized_permissions
+    coverage = payload.get("coverage")
+    if coverage is not None:
+        if not isinstance(coverage, dict):
+            raise ValueError("data provenance coverage must be an object")
+        normalized["coverage"] = coverage
     return normalized
+
+
+def validate_model_training_coverage(
+    provenance: Mapping[str, Any], *, market: str, sessions: Mapping[Any, Sequence[Any]],
+) -> None:
+    """Require exact, spread-complete sessions from the market's approved KIS WebSocket feed."""
+    normalized_market = market.strip().upper()
+    expected_source = {
+        "KR": "KIS_PAPER_WEBSOCKET",
+        "US": "KIS_REAL_US_WEBSOCKET",
+    }.get(normalized_market)
+    if expected_source is None:
+        raise ValueError("model training market must be KR or US")
+    coverage = provenance.get("coverage")
+    if not isinstance(coverage, dict):
+        raise ValueError("model training requires exported session quality coverage")
+    quality_rows = coverage.get("sessions")
+    if not isinstance(quality_rows, list):
+        raise ValueError("model training session quality coverage is incomplete")
+    def count_matches(value: Any, expected: int) -> bool:
+        return type(value) is int and value == expected
+
+    by_date: dict[str, dict[str, Any]] = {}
+    for row in quality_rows:
+        if not isinstance(row, dict) or not isinstance(row.get("session_date"), str):
+            raise ValueError("model training session quality row is invalid")
+        session_date = row["session_date"]
+        if session_date in by_date:
+            raise ValueError("model training session quality contains duplicate dates")
+        by_date[session_date] = row
+
+    expected_dates = {session.isoformat() for session in sessions}
+    if (not expected_dates or set(by_date) != expected_dates
+            or not count_matches(coverage.get("observed_session_count"), len(expected_dates))
+            or not count_matches(coverage.get("observed_bar_count"), sum(len(bars) for bars in sessions.values()))):
+        raise ValueError("model training session quality does not match the CSV sessions")
+    complete_count = 0
+    spread_complete_count = 0
+    for session, bars in sessions.items():
+        row = by_date[session.isoformat()]
+        if (row.get("complete") is not True or row.get("spread_complete") is not True
+                or not count_matches(row.get("bars"), len(bars))
+                or not count_matches(row.get("expected_bars"), len(bars))
+                or not count_matches(row.get("bars_with_spread"), len(bars))
+                or row.get("sources") != [expected_source]
+                or any(getattr(bar, "spread_bps", None) is None for bar in bars)):
+            raise ValueError("model training requires complete, spread-covered sessions from the approved KIS WebSocket feed")
+        complete_count += 1
+        spread_complete_count += 1
+    if (not count_matches(coverage.get("complete_session_count"), complete_count)
+            or not count_matches(coverage.get("spread_complete_session_count"), spread_complete_count)):
+        raise ValueError("model training session quality totals are inconsistent")
+    if len(expected_dates) < MIN_MODEL_TRAINING_SESSIONS:
+        raise ValueError(
+            f"model training requires at least {MIN_MODEL_TRAINING_SESSIONS} eligible exchange sessions"
+        )
 
 
 def load_data_provenance(csv_path: str | Path, *, purpose: str) -> dict[str, Any]:
