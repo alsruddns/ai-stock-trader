@@ -129,6 +129,41 @@ class KisRealOrderOrchestratorTest {
     }
 
     @Test
+    void transientKisServerErrorLocksRealOrderAsUnknownAndDuplicateDoesNotResend() {
+        UUID key = UUID.randomUUID();
+        OrderRequest sell = new OrderRequest(Market.KR, "005930", OrderSide.SELL, 1,
+                new BigDecimal("69999"), Currency.KRW);
+        KisAccountSnapshot.Position held = new KisAccountSnapshot.Position("005930", "Samsung",
+                BigDecimal.ONE, BigDecimal.ONE, new BigDecimal("70000"), new BigDecimal("69999"),
+                new BigDecimal("69999"), BigDecimal.ZERO, BigDecimal.ZERO);
+        KisAccountSnapshot account = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
+                new BigDecimal("100000"), new BigDecimal("100000"), new BigDecimal("100000"),
+                List.of(held), Instant.now(), "KIS_READ_ONLY_REST");
+        KisOrderIntent intent = new KisOrderIntent(key, "sell-hash", KisEnvironment.REAL, sell, null);
+        when(marketAiEvidence.quoteForExit(Market.KR, "005930", null)).thenReturn(
+                new KisMarketAiEvidenceClient.ExitQuote(Market.KR, "005930", null,
+                        new BigDecimal("70000"), new BigDecimal("69999"), new BigDecimal("70001"), Instant.now()));
+        when(intents.prepare(eq(key), anyString(), eq(KisEnvironment.REAL), eq(sell), isNull()))
+                .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true),
+                        new KisOrderIntentStore.PreparedIntent(intent, false));
+        when(intents.markUnknown(key)).thenAnswer(call -> { intent.markUnknown(); return intent; });
+        doThrow(new KisApiException(HttpStatus.BAD_GATEWAY,
+                "KIS rejected the real order request (code EGW00002)."))
+                .when(orders).placeRealLimitOrder(eq(Market.KR), eq("005930"), eq(OrderSide.SELL), eq(1),
+                        eq(new BigDecimal("69999")), eq(Currency.KRW), isNull(), any());
+
+        KisOrderIntentResponse first = orchestrator.submit(key, sell, null, account);
+        KisOrderIntentResponse duplicate = orchestrator.submit(key, sell, null, account);
+
+        assertEquals(KisOrderStatus.UNKNOWN, first.status());
+        assertEquals(KisOrderStatus.UNKNOWN, duplicate.status());
+        verify(intents).markUnknown(key);
+        verify(intents, never()).reject(eq(key), anyString());
+        verify(orders, times(1)).placeRealLimitOrder(eq(Market.KR), eq("005930"), eq(OrderSide.SELL), eq(1),
+                eq(new BigDecimal("69999")), eq(Currency.KRW), isNull(), any());
+    }
+
+    @Test
     void missingRealLossHistoryBlocksBuyEvenWhenMarketEvidenceIsApproved() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();

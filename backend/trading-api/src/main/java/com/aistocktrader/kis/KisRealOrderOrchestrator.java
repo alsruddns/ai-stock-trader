@@ -158,6 +158,11 @@ public class KisRealOrderOrchestrator {
         } catch (KisOrderOutcomeUnknownException exception) {
             return KisOrderIntentResponse.from(intents.markUnknown(idempotencyKey));
         } catch (KisApiException exception) {
+            if (KisResponseCodes.indicatesIndeterminateOrderOutcome(exception.getMessage())) {
+                // A transient KIS server error does not prove the broker rejected the order.
+                // Keep the idempotency key unresolved; never permit a fresh automatic submission.
+                return KisOrderIntentResponse.from(intents.markUnknown(idempotencyKey));
+            }
             return KisOrderIntentResponse.from(intents.reject(idempotencyKey, extractCode(exception.getMessage())));
         } catch (IllegalArgumentException exception) {
             return KisOrderIntentResponse.from(intents.reject(idempotencyKey, "PREFLIGHT_BLOCKED"));
