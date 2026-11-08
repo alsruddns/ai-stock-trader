@@ -112,6 +112,8 @@ KIS PAPER 주문·취소 통합 확인은 `scripts/test-kis-paper-order-lifecycl
 
 지원 확인된 시장의 모의 주문·취소는 같은 인수에 `-PreflightOnly` 대신 `-ConfirmPaperOrderAndCancel`을 지정합니다. 국내 모의 주문은 취소까지 안전하게 확인할 수 있게 될 때까지 사용하지 마세요.
 
+예약된 미국 1주 PAPER 수명주기 검증은 `AIStockTrader-US-Paper-Lifecycle-Smoke-20261109` 작업으로 2026-11-09 23:45 KST에 한 번 실행하도록 등록했습니다. 현재 US `F` 시세에서 최소 5% 낮은 지정가를 계산하고, 격리 Spring 프로세스에서만 PAPER 주문 스위치를 켭니다. 최신 시세, 장중 여부, USD 주문가능액 또는 취소 대조 조건이 충족되지 않으면 주문 없이 종료합니다. 작업은 현재 사용자 로그인 세션이 필요하고 `StartWhenAvailable=false`이므로 예약 시각을 놓치면 나중에 자동 재실행되지 않습니다. 결과는 `.local/logs/us-paper-lifecycle-smoke-*.log`에 남습니다. 결과가 불명확하거나 취소되지 않은 주문이 남으면 같은 테스트를 자동 재전송하지 않습니다.
+
 1주 매수 지정가만 허용하며 KIS 시세와 종목별 주문가능금액의 `retrieved_at`이 현재 시각 기준 60초 이내이고, 최근 시세보다 5% 이상 낮은 가격, 설정 한도와 별도 PAPER 테스트 한도(국내 10만원/미국 100달러) 안에서만 진행합니다. 시세·계좌 조회가 누락되거나 오래됐거나 잔액이 부족하면 주문 전에 중단합니다. Spring은 POST 직전 주문가능금액을 다시 조회합니다. 응답이 끊기면 새 주문을 보내지 않고 같은 멱등 키를 조회하며, 즉시 취소 후 상태를 대조합니다. PAPER 주문은 모의 계좌 상태를 바꾸므로 체결되면 모의 포지션을 정리하세요. 시험 로그는 `.local/logs`에 보관됩니다.
 
 주문을 보내지 않고 현재 PAPER 시세와 종목별 주문가능금액만 읽기 전용으로 확인하려면 `.env_local`의 주문 잠금을 그대로 둔 채 `scripts/test-kis-paper-order-lifecycle.ps1`에 `-PreflightOnly`를 전달합니다. 예: `-Market KR -Symbol 069500 -LimitPrice 75000 -PreflightOnly`. 이 모드는 주문 잠금이 꺼져 있는 Spring 설정만 허용하고, 시세와 계좌 확인이 모두 최신·충분할 때만 통과합니다.
