@@ -109,7 +109,7 @@ jobs:
           }
 
           $dashboardTaskResult = Invoke-Pester -Path 'scripts/tests/dashboard-task.Tests.ps1' -PassThru
-          if ($dashboardTaskResult.FailedCount -gt 0 -or $dashboardTaskResult.PassedCount -ne 6) {
+          if ($dashboardTaskResult.FailedCount -gt 0 -or $dashboardTaskResult.PassedCount -ne 7) {
             throw "Dashboard task safety tests failed: passed=$($dashboardTaskResult.PassedCount), failed=$($dashboardTaskResult.FailedCount)."
           }
 

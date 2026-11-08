@@ -22,9 +22,8 @@ function Get-DashboardProcessIdentity {
     param([int]$ProcessId)
     $process = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction SilentlyContinue
     if (-not $process) { return $null }
-    $expectedCli = [IO.Path]::GetFullPath($nextCli)
-    if (-not [string]::Equals([string]$process.ExecutablePath, [IO.Path]::GetFullPath($nodePath), [StringComparison]::OrdinalIgnoreCase) -or
-        [string]$process.CommandLine -notmatch [regex]::Escape($expectedCli)) {
+    if (-not (Test-DashboardNodeProcessIdentity -ExecutablePath ([string]$process.ExecutablePath) `
+            -CommandLine ([string]$process.CommandLine) -ExpectedNodePath $nodePath -ExpectedCliPath $nextCli)) {
         return $null
     }
     return $process
@@ -58,8 +57,33 @@ function Test-UpstreamServicesReady {
 try {
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     if (-not (Test-Path -LiteralPath $nextCli)) { throw 'Dashboard production build is missing; build the dashboard before starting its task.' }
-    if (Get-NetTCPConnection -State Listen -LocalPort 13000 -ErrorAction SilentlyContinue) {
-        throw 'Dashboard loopback port 13000 is already occupied; no process was replaced.'
+    $allListeners = @(Get-NetTCPConnection -State Listen -LocalPort 13000 -ErrorAction SilentlyContinue)
+    if (@($allListeners | Where-Object {
+            $_.LocalAddress -notin @('127.0.0.1', '::1')
+        }).Count -gt 0) {
+        throw 'Dashboard port 13000 is bound to a non-loopback address; no process was replaced.'
+    }
+    $listeners = @($allListeners | Where-Object {
+        [string]::Equals([string]$_.LocalAddress, '127.0.0.1', [StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($listeners.Count -gt 0) {
+        $listenerOwners = @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)
+        if ($listenerOwners.Count -ne 1) { throw 'Dashboard loopback port 13000 has ambiguous listener ownership; no process was replaced.' }
+        $listenerPid = [int]$listenerOwners[0]
+        $verifiedNode = Get-DashboardProcessIdentity -ProcessId $listenerPid
+        if ($null -eq $verifiedNode) { throw 'Dashboard loopback port 13000 is occupied by an unverified process; no process was replaced.' }
+        if (-not (Test-Path -LiteralPath $runtimeStatePath)) {
+            throw 'A verified dashboard process is running without its supervisor state; no process was replaced.'
+        }
+        $previousState = Get-Content -LiteralPath $runtimeStatePath -Raw | ConvertFrom-Json
+        if ([int]$previousState.nodeProcessId -ne $listenerPid) {
+            throw 'Dashboard supervisor state does not match the verified listener; no process was replaced.'
+        }
+        if (Get-Process -Id ([int]$previousState.runnerProcessId) -ErrorAction SilentlyContinue) {
+            throw 'Dashboard is already supervised by a running task; duplicate startup was refused.'
+        }
+        $nodeProcess = Get-Process -Id $listenerPid -ErrorAction Stop
+        $startupMode = 'adopted the verified dashboard process after its previous supervisor stopped'
     }
 
     $upstreamDeadline = [DateTimeOffset]::UtcNow.AddMinutes(6)
@@ -69,10 +93,13 @@ try {
     }
     if (-not (Test-UpstreamServicesReady)) { throw 'Spring and FastAPI did not become healthy and PAPER-locked within six minutes.' }
 
-    $argumentLine = '"{0}" start --hostname 127.0.0.1 --port 13000' -f $nextCli
-    $nodeProcess = Start-Process -FilePath $nodePath -ArgumentList $argumentLine `
-        -WorkingDirectory $dashboardRoot -WindowStyle Hidden -PassThru `
-        -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    if ($null -eq $nodeProcess) {
+        $argumentLine = '"{0}" start --hostname 127.0.0.1 --port 13000' -f $nextCli
+        $nodeProcess = Start-Process -FilePath $nodePath -ArgumentList $argumentLine `
+            -WorkingDirectory $dashboardRoot -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        $startupMode = 'started a new dashboard process'
+    }
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
     $readyResponse = $null
     while ([DateTimeOffset]::UtcNow -lt $deadline) {
@@ -94,7 +121,7 @@ try {
     $temporaryStatePath = "$runtimeStatePath.tmp"
     Set-Content -LiteralPath $temporaryStatePath -Value $state -Encoding UTF8
     Move-Item -LiteralPath $temporaryStatePath -Destination $runtimeStatePath -Force
-    Write-DashboardTaskLog 'Dashboard is healthy on loopback and both APIs report required PAPER and order locks.'
+    Write-DashboardTaskLog "Dashboard is healthy on loopback and both APIs report required PAPER and order locks; supervisor $startupMode."
 
     while ($true) {
         Start-Sleep -Seconds 5

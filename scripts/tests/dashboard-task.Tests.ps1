@@ -49,4 +49,18 @@ Describe 'P7 dashboard startup gate' {
             Test-DashboardOperationsReady $response | Should Be $false
         }
     }
+
+    It 'recognizes only the repository Node process bound to loopback dashboard port' {
+        $node = Join-Path $TestDrive 'node.exe'
+        $cli = Join-Path $TestDrive 'dashboard\node_modules\next\dist\bin\next'
+        $command = '"{0}" start --hostname 127.0.0.1 --port 13000' -f $cli
+        Test-DashboardNodeProcessIdentity -ExecutablePath $node -CommandLine $command `
+            -ExpectedNodePath $node -ExpectedCliPath $cli | Should Be $true
+        Test-DashboardNodeProcessIdentity -ExecutablePath $node -CommandLine ($command -replace '13000', '3000') `
+            -ExpectedNodePath $node -ExpectedCliPath $cli | Should Be $false
+        Test-DashboardNodeProcessIdentity -ExecutablePath $node -CommandLine ($command -replace '127\.0\.0\.1', '0.0.0.0') `
+            -ExpectedNodePath $node -ExpectedCliPath $cli | Should Be $false
+        Test-DashboardNodeProcessIdentity -ExecutablePath (Join-Path $TestDrive 'other.exe') -CommandLine $command `
+            -ExpectedNodePath $node -ExpectedCliPath $cli | Should Be $false
+    }
 }

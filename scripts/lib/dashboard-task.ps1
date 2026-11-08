@@ -1,3 +1,25 @@
+function Test-DashboardNodeProcessIdentity {
+    param(
+        [AllowNull()][string]$ExecutablePath,
+        [AllowNull()][string]$CommandLine,
+        [Parameter(Mandatory)][string]$ExpectedNodePath,
+        [Parameter(Mandatory)][string]$ExpectedCliPath,
+        [int]$Port = 13000
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ExecutablePath) -or [string]::IsNullOrWhiteSpace($CommandLine)) {
+        return $false
+    }
+    if (-not [string]::Equals([IO.Path]::GetFullPath($ExecutablePath),
+            [IO.Path]::GetFullPath($ExpectedNodePath), [StringComparison]::OrdinalIgnoreCase) -or
+        $CommandLine -notmatch [regex]::Escape([IO.Path]::GetFullPath($ExpectedCliPath)) -or
+        $CommandLine -notmatch '--hostname\s+127\.0\.0\.1(?:\s|$)' -or
+        $CommandLine -notmatch ('--port\s+' + [regex]::Escape([string]$Port) + '(?:\s|$)')) {
+        return $false
+    }
+    return $true
+}
+
 function Test-DashboardOperationsReady {
     param([AllowNull()]$Response)
 
