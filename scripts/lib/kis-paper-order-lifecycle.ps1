@@ -46,6 +46,14 @@ function Get-KisPaperOrderLifecycleResult {
         }
     }
 
+    if ($Intent.status -eq 'REJECTED' -and $hasValidFillQuantity -and $filledQuantity -eq 0) {
+        return [pscustomobject]@{
+            exitCode = 1
+            filledQuantity = $fillLabel
+            message = 'KIS PAPER rejected the order with zero fills; no accepted order remains.'
+        }
+    }
+
     if ($Intent.status -eq 'CANCELLED' -and (-not $hasValidFillQuantity -or -not $hasValidOrderQuantity)) {
         return [pscustomobject]@{
             exitCode = 2

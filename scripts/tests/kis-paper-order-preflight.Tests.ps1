@@ -34,6 +34,13 @@ Describe 'KIS PAPER order lifecycle completion result' {
         $result.exitCode | Should Be 2
         $result.message | Should Match 'simulated fill occurred'
     }
+
+    It 'reports a terminal rejection with zero fills separately from an unresolved state' {
+        $result = Get-KisPaperOrderLifecycleResult -Intent @{ status = 'REJECTED'; filledQuantity = 0 }
+        $result.exitCode | Should Be 1
+        $result.filledQuantity | Should Be '0'
+        $result.message | Should Match 'rejected the order with zero fills'
+    }
 }
 
 Describe 'Isolated KIS PAPER lifecycle port' {
