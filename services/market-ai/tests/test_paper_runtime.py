@@ -1444,6 +1444,30 @@ def test_exit_worker_never_submits_outside_continuous_session(watchlist: str, ti
     assert result["reason"] == "OUTSIDE_REGULAR_SESSION"
 
 
+def test_exit_worker_fails_closed_when_market_calendar_is_unavailable(monkeypatch) -> None:
+    class Broker:
+        def get_strategy_positions(self):
+            raise AssertionError("broker positions must not be read without a trusted market calendar")
+
+    class Trader:
+        def submit_exit(self, **_kwargs):
+            raise AssertionError("no paper exit may be submitted without a trusted market calendar")
+
+    def unavailable_calendar(_market, _timestamp):
+        raise RuntimeError("calendar unavailable")
+
+    monkeypatch.setattr("app.paper_runtime.exchange_continuous_session_window", unavailable_calendar)
+    watch = parse_watchlist("US:AAPL:NAS")[0]
+    at = datetime.fromisoformat("2026-11-06T15:59:00-05:00")
+    bar = MinuteBar(at, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100.5"), 1000, Decimal("5"))
+
+    result = PaperSessionFeedMonitor._manage_strategy_exit(Broker(), Trader(), watch, bar, PaperOpsLimits())
+
+    assert result["state"] == "BLOCKED"
+    assert result["reason"] == "MARKET_CALENDAR_UNAVAILABLE"
+    assert result["executable"] is False
+
+
 def test_daily_baseline_worker_captures_early_session_equity(monkeypatch) -> None:
     class Broker:
         recorded = None
