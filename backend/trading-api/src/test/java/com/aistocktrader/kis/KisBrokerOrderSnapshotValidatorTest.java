@@ -42,6 +42,26 @@ class KisBrokerOrderSnapshotValidatorTest {
         assertTrue(matches(intent, "{\"pdno\":\"AAPL\",\"sll_buy_dvsn\":\"01\"}"));
     }
 
+    @Test
+    void filledBrokerSnapshotRequiresPositiveAverageFillPrice() {
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                        new BigDecimal("70000"), Currency.KRW), null);
+
+        assertTrue(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
+                new KisBrokerOrderSnapshot(0, 2, null, false, false)));
+        assertTrue(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
+                new KisBrokerOrderSnapshot(1, 1, new BigDecimal("69900"), false, false)));
+        assertFalse(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
+                new KisBrokerOrderSnapshot(1, 1, null, false, false)));
+        assertFalse(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
+                new KisBrokerOrderSnapshot(1, 1, BigDecimal.ZERO, false, false)));
+        assertFalse(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
+                new KisBrokerOrderSnapshot(1, 1, new BigDecimal("-1"), false, false)));
+        assertFalse(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
+                new KisBrokerOrderSnapshot(0, 2, new BigDecimal("-1"), false, false)));
+    }
+
     private boolean matches(KisOrderIntent intent, String json) throws Exception {
         return KisBrokerOrderSnapshotValidator.matchesBrokerIdentity(mapper.readTree(json), intent);
     }
