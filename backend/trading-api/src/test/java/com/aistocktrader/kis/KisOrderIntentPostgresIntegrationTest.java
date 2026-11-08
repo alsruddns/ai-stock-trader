@@ -556,7 +556,7 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(0, persisted.getRemainingQuantity());
             assertEquals(0, persisted.getAverageFillPrice().compareTo(new BigDecimal("70000")));
             verify(kisOrderClient, times(1)).cancelPaperOrder(Market.KR, order.symbol(), brokerNumber,
-                    "ITORG01", 0, "");
+                    "ITORG01", 2, "");
             verify(kisOrderClient, times(2)).reconcilePaperOrder(any(KisOrderIntent.class));
         } finally {
             kisOrderRepository.deleteById(key);
@@ -631,7 +631,7 @@ class KisOrderIntentPostgresIntegrationTest {
                 .thenReturn(Optional.of(openSnapshot), Optional.of(cancelledSnapshot));
         doThrow(new KisOrderOutcomeUnknownException("simulated cancel timeout", new RuntimeException("mock")))
                 .when(kisOrderClient).cancelPaperOrder(Market.KR, order.symbol(), brokerNumber,
-                        "ITORG01", 0, "");
+                        "ITORG01", 1, "");
 
         try {
             assertEquals(KisOrderStatus.ACCEPTED, kisOrders.submitPaperOrder(key, order, null).status());
@@ -643,7 +643,7 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(KisOrderStatus.CANCEL_PENDING, persistedPending.getStatus());
             assertEquals(KisOrderStatus.CANCEL_PENDING, kisOrders.cancelPaperOrder(key, null).status());
             verify(kisOrderClient, times(1)).cancelPaperOrder(Market.KR, order.symbol(), brokerNumber,
-                    "ITORG01", 0, "");
+                    "ITORG01", 1, "");
 
             assertEquals(KisOrderStatus.CANCELLED, kisOrders.reconcilePaperOrder(key).status());
             entityManager.flush();
