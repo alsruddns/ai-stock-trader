@@ -285,6 +285,10 @@ class KisAccountClientTest {
                 .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"msg_cd\":\"OPSQ2000\",\"msg1\":\"private broker detail\",\"token\":\"never-show\"}"));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/domestic-stock/")))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"msg_cd\":\"OPSQ2000\",\"msg1\":\"private broker detail\",\"token\":\"never-show\"}"));
 
         KisApiException error = assertThrows(KisApiException.class,
                 () -> client.getBalance(KisEnvironment.PAPER, Market.KR, null, null, null));
@@ -326,11 +330,52 @@ class KisAccountClientTest {
                 .andRespond(withSuccess(token("paper-token"), MediaType.APPLICATION_JSON));
         server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/domestic-stock/")))
                 .andRespond(withException(new SocketTimeoutException("private timeout detail")));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/domestic-stock/")))
+                .andRespond(withException(new SocketTimeoutException("private timeout detail")));
 
         KisApiException error = assertThrows(KisApiException.class,
                 () -> client.getBalance(KisEnvironment.PAPER, Market.KR, null, null, null));
         assertEquals(HttpStatus.GATEWAY_TIMEOUT, error.status());
         assertFalse(error.getMessage().contains("private timeout detail"));
+        server.verify();
+    }
+
+    @Test
+    void paperAccountReadRetriesOnceAfterGatewayFailure() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisAccountClient client = new KisAccountClient(properties(true), builder, new ObjectMapper());
+        server.expect(requestTo(PAPER_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token("paper-token"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/domestic-stock/")))
+                .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/domestic-stock/")))
+                .andRespond(withSuccess(domesticBalance(), MediaType.APPLICATION_JSON));
+
+        KisAccountSnapshot result = client.getBalance(KisEnvironment.PAPER, Market.KR, null, null, null);
+
+        assertEquals(KisEnvironment.PAPER, result.environment());
+        assertEquals(new BigDecimal("1"), result.cashBalance());
+        server.verify();
+    }
+
+    @Test
+    void paperAccountReadRetriesOnceAfterEgW00002() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisAccountClient client = new KisAccountClient(properties(true), builder, new ObjectMapper());
+        server.expect(requestTo(PAPER_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token("paper-token"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/domestic-stock/")))
+                .andRespond(withSuccess(
+                        "{\"rt_cd\":\"1\",\"msg_cd\":\"EGW00002\",\"msg1\":\"transient\"}",
+                        MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(PAPER_URL + "/uapi/domestic-stock/")))
+                .andRespond(withSuccess(domesticBalance(), MediaType.APPLICATION_JSON));
+
+        KisAccountSnapshot result = client.getBalance(KisEnvironment.PAPER, Market.KR, null, null, null);
+
+        assertEquals(KisEnvironment.PAPER, result.environment());
         server.verify();
     }
 

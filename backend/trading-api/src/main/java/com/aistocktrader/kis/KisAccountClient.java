@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -22,11 +24,16 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** KIS read-only account adapter. No order or amend/cancel routes exist in this client. */
 @Component
 public class KisAccountClient {
+    private static final Logger log = LoggerFactory.getLogger(KisAccountClient.class);
+    private static final int MAX_TRANSIENT_READ_RETRIES = 1;
+    private static final Pattern HTTP_STATUS_IN_ERROR = Pattern.compile("\\(HTTP (\\d{3}), code ");
     private final KisProperties properties;
     private final RestClient http;
     private final ObjectMapper mapper;
@@ -232,6 +239,25 @@ public class KisAccountClient {
 
     private ApiPage getPage(KisEnvironment environment, String path, String trId,
                             Map<String, String> params, String continuation) {
+        for (int attempt = 0; attempt <= MAX_TRANSIENT_READ_RETRIES; attempt++) {
+            try {
+                return getPageOnce(environment, path, trId, params, continuation);
+            } catch (KisApiException exception) {
+                if (attempt < MAX_TRANSIENT_READ_RETRIES && isTransientReadFailure(exception)) {
+                    String code = KisResponseCodes.fromErrorMessage(exception.getMessage(), "unknown");
+                    log.warn("Transient KIS account GET failed; retrying once (environment={}, endpoint={}, status={}, code={}).",
+                            environment.name(), path, exception.status().value(), safeBrokerCode(code));
+                    waitBeforeReadRetry();
+                    continue;
+                }
+                throw exception;
+            }
+        }
+        throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS account request failed after one transient retry.");
+    }
+
+    private ApiPage getPageOnce(KisEnvironment environment, String path, String trId,
+                                Map<String, String> params, String continuation) {
         KisProperties.Account credentials = properties.credentials(environment);
         try {
             String token = accessToken(environment);
@@ -271,6 +297,29 @@ public class KisAccountClient {
             throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE, "KIS request was interrupted.");
         } catch (RuntimeException ex) {
             throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS account request failed; check the environment and KIS status.");
+        }
+    }
+
+    private static boolean isTransientReadFailure(KisApiException exception) {
+        if (exception.status() == HttpStatus.GATEWAY_TIMEOUT) return true;
+        if (exception.status() != HttpStatus.BAD_GATEWAY) return false;
+        String message = exception.getMessage();
+        if (message != null && message.contains("KIS account service is unreachable.")) return true;
+        Matcher status = message == null ? null : HTTP_STATUS_IN_ERROR.matcher(message);
+        if (status != null && status.find()) {
+            int value = Integer.parseInt(status.group(1));
+            return value == 500 || value == 502 || value == 503 || value == 504;
+        }
+        String code = KisResponseCodes.fromErrorMessage(message, "");
+        return "EGW00001".equals(code) || "EGW00002".equals(code);
+    }
+
+    private static void waitBeforeReadRetry() {
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE, "KIS account retry was interrupted.");
         }
     }
 
