@@ -240,6 +240,25 @@ class KisRealOrderClientTest {
     }
 
     @Test
+    void realReconciliationRejectsMalformedQuantityInsteadOfInferringIt() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[
+                          {"odno":"7001","pdno":"005930","sll_buy_dvsn_cd":"02","ord_gno_brno":"ORG01","tot_ccld_qty":"1","rmn_qty":"unknown","avg_prvs":"69900"}
+                        ]}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertTrue(new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                .reconcileRealOrder(realIntent(Market.KR, "005930", "7001", "ORG01", null, 2)).isEmpty());
+        server.verify();
+    }
+
+    @Test
     void realReconciliationRejectsSameOrderNumberForDifferentSymbolOrSide() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

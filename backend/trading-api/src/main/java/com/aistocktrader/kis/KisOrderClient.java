@@ -226,8 +226,11 @@ public class KisOrderClient {
     private record BrokerQueryResponse(JsonNode body, String continuation) { }
 
     private static Optional<KisBrokerOrderSnapshot> parseSnapshot(JsonNode row, KisOrderIntent intent) {
-        Integer filled = integer(row, "tot_ccld_qty", "ft_ccld_qty", "ccld_qty", "filled_qty");
-        Integer remaining = integer(row, "rmn_qty", "nccs_qty", "unfilled_qty", "remaining_qty");
+        String[] filledFields = {"tot_ccld_qty", "ft_ccld_qty", "ccld_qty", "filled_qty"};
+        String[] remainingFields = {"rmn_qty", "nccs_qty", "unfilled_qty", "remaining_qty"};
+        if (hasMalformedInteger(row, filledFields) || hasMalformedInteger(row, remainingFields)) return Optional.empty();
+        Integer filled = integer(row, filledFields);
+        Integer remaining = integer(row, remainingFields);
         if (filled == null && remaining == null) return Optional.empty();
         if (filled == null) filled = Math.max(0, intent.getQuantity() - remaining);
         if (remaining == null) remaining = Math.max(0, intent.getQuantity() - filled);
@@ -242,6 +245,18 @@ public class KisOrderClient {
         String value = firstText(row, fields);
         try { return value.isBlank() ? null : Integer.parseInt(value); }
         catch (NumberFormatException ignored) { return null; }
+    }
+
+    private static boolean hasMalformedInteger(JsonNode row, String... fields) {
+        for (String field : fields) {
+            JsonNode value = row.path(field);
+            if (value.isMissingNode() || value.isNull()) continue;
+            if (!value.isNumber() && !value.isTextual()) return true;
+            if (value.asText("").isBlank()) continue;
+            try { Integer.parseInt(value.asText()); }
+            catch (NumberFormatException ignored) { return true; }
+        }
+        return false;
     }
 
     private static BigDecimal decimal(JsonNode row, String... fields) {

@@ -304,6 +304,27 @@ class KisOrderClientTest {
     }
 
     @Test
+    void domesticPaperReconciliationRejectsMalformedQuantityInsteadOfInferringIt() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[
+                          {"odno":"1234","ord_gno_brno":"ORG01","pdno":"005930","sll_buy_dvsn_cd":"02","tot_ccld_qty":"1.5","rmn_qty":"1","avg_prvs":"70000"}
+                        ]}
+                        """, org.springframework.http.MediaType.APPLICATION_JSON));
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new com.aistocktrader.order.OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                        new BigDecimal("70000"), Currency.KRW), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+
+        assertTrue(client(true, builder).reconcilePaperOrder(intent).isEmpty());
+        server.verify();
+    }
+
+    @Test
     void domesticReconciliationDoesNotApplyFillFromMismatchedBrokerIdentity() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
