@@ -542,6 +542,8 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(KisOrderStatus.UNKNOWN, persisted.getStatus());
             assertEquals(KisOrderStatus.UNKNOWN, duplicate.intent().getStatus());
             assertEquals(false, duplicate.createdNow());
+            assertEquals(true, store.hasUnresolvedRealOrder(order.market(), UUID.randomUUID()));
+            assertEquals(false, store.hasUnresolvedRealOrder(order.market(), key));
         } finally {
             kisOrderRepository.deleteById(key);
         }
