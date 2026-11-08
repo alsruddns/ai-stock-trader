@@ -38,6 +38,7 @@ jobs:
             'scripts/lib/market-session-scheduler.ps1',
             'scripts/register-market-data-session-monitor.ps1',
             'scripts/register-market-data-session-horizon.ps1',
+            'scripts/enable-local-automation-task-wake.ps1',
             'scripts/lib/paper-safety.ps1',
             'scripts/lib/local-postgres-binding.ps1',
             'scripts/run-model-retraining.ps1',

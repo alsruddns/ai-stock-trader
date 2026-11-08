@@ -2,9 +2,9 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$taskPattern = '^AIStockTrader-(?:KRX|US)-Session-Monitor-\d{8}$|^AIStockTrader-P4-Model-(?:Train|Holdout)-'
+$taskPattern = '^AIStockTrader-(?:KRX|US)-Session-Monitor-\d{8}$|^AIStockTrader-P4-Model-(?:Train|Holdout)-|^AIStockTrader-(?:KRX|US)-Paper-Lifecycle-Smoke-\d{8}$'
 $tasks = @(Get-ScheduledTask | Where-Object { $_.TaskName -match $taskPattern })
-if ($tasks.Count -eq 0) { throw 'No registered market-monitor or P4 evaluation tasks were found.' }
+if ($tasks.Count -eq 0) { throw 'No registered market-monitor, PAPER lifecycle, or P4 evaluation tasks were found.' }
 
 $updated = [System.Collections.Generic.List[string]]::new()
 foreach ($task in $tasks) {
