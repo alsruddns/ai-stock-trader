@@ -7,14 +7,11 @@ function Get-KisTrackedCredentialFinding {
     )
 
     $match = [regex]::Match($Line,
-        '^\s*(?<name>KIS_(?:(?:PAPER|REAL)_)?(?:APP_KEY|APP_SECRET|ACCOUNT_NUMBER))\s*=\s*(?<value>.*?)\s*$')
+        '(?:^|[,{}])\s*["'']?(?<name>KIS_(?:(?:PAPER|REAL)_)?(?:APP_KEY|APP_SECRET|ACCOUNT_NUMBER))["'']?\s*(?:=|:)\s*(?<value>[^,}]*?)\s*,?\s*$')
     if (-not $match.Success) { return $null }
 
-    $value = $match.Groups['value'].Value.Trim()
-    if (($value.StartsWith('"') -and $value.EndsWith('"')) -or
-        ($value.StartsWith("'") -and $value.EndsWith("'"))) {
-        $value = $value.Substring(1, $value.Length - 2).Trim()
-    }
+    $value = $match.Groups['value'].Value.Trim().TrimEnd(',').Trim()
+    $value = $value.Trim([char[]]@('"', "'")).Trim()
     if (-not $value) { return $null }
     if ($value -match '^(?:<[^>]+>|(?:YOUR|REPLACE(?:_ME)?|CHANGE(?:_ME)?|EXAMPLE|TEST_ONLY_PLACEHOLDER|DUMMY|PLACEHOLDER|SAMPLE|FAKE)(?:[_-][A-Z0-9]+)*|X{3,})$') {
         return $null

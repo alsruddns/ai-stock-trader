@@ -80,8 +80,8 @@ def test_auth_only_probe_reports_safe_oauth_error_metadata(tmp_path: Path, monke
         "TRADING_MODE": "paper", "LIVE_TRADING_ENABLED": "false",
         "KIS_PAPER_ORDERS_ENABLED": "false", "KIS_REAL_ORDERS_ENABLED": "false",
         "PAPER_AUTOTRADING_ENABLED": "false", "KIS_REAL_ACCOUNT_READ_ENABLED": "false",
-        "KIS_ENVIRONMENT": "paper", "KIS_PAPER_APP_KEY": "paper-key",
-        "KIS_PAPER_APP_SECRET": "paper-secret", "KIS_SHARED_RATE_LIMIT_ENABLED": "true",
+        "KIS_ENVIRONMENT": "paper", "KIS_PAPER_APP_KEY": "TEST_ONLY_PLACEHOLDER",
+        "KIS_PAPER_APP_SECRET": "TEST_ONLY_PLACEHOLDER", "KIS_SHARED_RATE_LIMIT_ENABLED": "true",
     }.items():
         monkeypatch.setenv(key, value)
 

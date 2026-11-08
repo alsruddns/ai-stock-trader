@@ -25,8 +25,8 @@ def valid_environment() -> dict[str, str]:
         "KIS_MARKET_DATA_ENABLED": "true",
         "KIS_REAL_MARKET_DATA_ENABLED": "true",
         "KIS_SHARED_RATE_LIMIT_ENABLED": "true",
-        "KIS_REAL_APP_KEY": "real-key",
-        "KIS_REAL_APP_SECRET": "real-secret",
+        "KIS_REAL_APP_KEY": "TEST_ONLY_PLACEHOLDER",
+        "KIS_REAL_APP_SECRET": "TEST_ONLY_PLACEHOLDER",
         "POSTGRES_PASSWORD": "local-only",
     }
 

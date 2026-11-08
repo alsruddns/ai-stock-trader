@@ -36,14 +36,14 @@ try {
 
     [IO.File]::WriteAllLines($fixturePath, @(
         'POSTGRES_PASSWORD=reload-fixture'
-        'KIS_PAPER_APP_KEY=first-fixture-key'
-        'KIS_REAL_APP_SECRET=stale-fixture-secret'
+        'KIS_PAPER_APP_KEY=TEST_ONLY_PLACEHOLDER_FIRST'
+        'KIS_REAL_APP_SECRET=TEST_ONLY_PLACEHOLDER_SECRET'
         'TRADING_MODE=live'
         'LIVE_TRADING_ENABLED=true'
         'KIS_REAL_ORDERS_ENABLED=true'
     ), $utf8)
     $firstHash = Import-LocalEnvironment
-    if ($env:KIS_PAPER_APP_KEY -ne 'first-fixture-key' -or
+    if ($env:KIS_PAPER_APP_KEY -ne 'TEST_ONLY_PLACEHOLDER_FIRST' -or
         -not $env:KIS_REAL_APP_SECRET -or
         $env:TRADING_MODE -ne 'paper' -or
         $env:LIVE_TRADING_ENABLED -ne 'false' -or
@@ -53,11 +53,11 @@ try {
 
     [IO.File]::WriteAllLines($fixturePath, @(
         'POSTGRES_PASSWORD=reload-fixture'
-        'KIS_PAPER_APP_KEY=second-fixture-key'
+        'KIS_PAPER_APP_KEY=TEST_ONLY_PLACEHOLDER_SECOND'
         'TRADING_MODE=live'
     ), $utf8)
     $secondHash = Import-LocalEnvironment
-    if ($env:KIS_PAPER_APP_KEY -ne 'second-fixture-key' -or
+    if ($env:KIS_PAPER_APP_KEY -ne 'TEST_ONLY_PLACEHOLDER_SECOND' -or
         $env:KIS_REAL_APP_SECRET -or
         $env:TRADING_MODE -ne 'paper' -or
         $env:LIVE_TRADING_ENABLED -ne 'false' -or
