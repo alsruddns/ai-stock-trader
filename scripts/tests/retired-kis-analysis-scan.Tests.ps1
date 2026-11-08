@@ -46,4 +46,19 @@ Describe 'Retired KIS domestic analysis API scan' {
 
         $findings.Count | Should Be 0
     }
+
+    It 'detects direct REST endpoint paths even when helper names are not used' {
+        $root = Join-Path $TestDrive 'raw-endpoint-repository'
+        $javaRoot = Join-Path $root 'backend/trading-api/src/main/java/com/example'
+        $pythonRoot = Join-Path $root 'services/market-ai/app'
+        New-Item -ItemType Directory -Path $javaRoot -Force | Out-Null
+        New-Item -ItemType Directory -Path $pythonRoot -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $javaRoot 'RawClient.java') -Value 'String path = "/uapi/domestic-stock/v1/finance/balance-sheet";'
+        Set-Content -LiteralPath (Join-Path $pythonRoot 'raw_client.py') -Value "path = '/uapi/domestic-stock/v1/finance/growth-ratio?x=1'"
+
+        $findings = @(Get-RetiredKisDomesticAnalysisFindings -RepositoryRoot $root)
+
+        $findings.Count | Should Be 2
+        @($findings | Where-Object { $_.Function -like 'endpoint:*' }).Count | Should Be 2
+    }
 }

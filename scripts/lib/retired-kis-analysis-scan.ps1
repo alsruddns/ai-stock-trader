@@ -8,6 +8,19 @@ $script:RetiredKisDomesticAnalysisFunctions = @(
     'finance_growth_ratio'
 )
 
+# Also catch direct REST clients that use the endpoint path instead of the
+# official helper function names. Keep these paths scoped to the seven retired
+# KIS finance APIs so unrelated market data endpoints remain allowed.
+$script:RetiredKisDomesticAnalysisEndpoints = @(
+    'balance-sheet',
+    'income-statement',
+    'financial-ratio',
+    'profit-ratio',
+    'other-major-ratios',
+    'stability-ratio',
+    'growth-ratio'
+)
+
 function Get-RetiredKisDomesticAnalysisFindings {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepositoryRoot)
@@ -17,7 +30,10 @@ function Get-RetiredKisDomesticAnalysisFindings {
         (Join-Path $root 'backend/trading-api/src/main/java'),
         (Join-Path $root 'services/market-ai/app')
     ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container }
-    $pattern = '\b(?:' + (($script:RetiredKisDomesticAnalysisFunctions | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')\b'
+    $functionPattern = '\b(?:' + (($script:RetiredKisDomesticAnalysisFunctions | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')\b'
+    $endpointPattern = '/uapi/domestic-stock/v1/finance/(?:' +
+        (($script:RetiredKisDomesticAnalysisEndpoints | ForEach-Object { [regex]::Escape($_) }) -join '|') +
+        ')(?=$|[?#"''\s])'
     $findings = [System.Collections.Generic.List[object]]::new()
     foreach ($runtimeRoot in $runtimeRoots) {
         $files = Get-ChildItem -LiteralPath $runtimeRoot -File -Recurse -ErrorAction Stop |
@@ -25,7 +41,14 @@ function Get-RetiredKisDomesticAnalysisFindings {
         foreach ($file in $files) {
             $lines = [IO.File]::ReadAllLines($file.FullName)
             for ($index = 0; $index -lt $lines.Length; $index++) {
-                foreach ($match in [regex]::Matches($lines[$index], $pattern, [Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
+                $line = $lines[$index]
+                $matches = @(
+                    [regex]::Matches($line, $functionPattern, [Text.RegularExpressions.RegexOptions]::IgnoreCase) |
+                        ForEach-Object { [pscustomobject]@{ Value = $_.Value } }
+                    [regex]::Matches($line, $endpointPattern, [Text.RegularExpressions.RegexOptions]::IgnoreCase) |
+                        ForEach-Object { [pscustomobject]@{ Value = "endpoint:$($_.Value)" } }
+                )
+                foreach ($match in $matches) {
                     $relativePath = $file.FullName.Substring($root.Length).TrimStart([IO.Path]::DirectorySeparatorChar) -replace '\\', '/'
                     $findings.Add([pscustomobject]@{
                         Path = $relativePath

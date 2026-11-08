@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $findings = @(Get-RetiredKisDomesticAnalysisFindings -RepositoryRoot $RepositoryRoot)
 if ($findings.Count -gt 0) {
     foreach ($finding in $findings) {
-        Write-Error ("Retired KIS domestic analysis call {0} at {1}:{2}; use an independently approved data source." -f `
+        Write-Error ("Retired KIS domestic analysis API reference {0} at {1}:{2}; use an independently approved data source." -f `
             $finding.Function, $finding.Path, $finding.Line)
     }
     throw 'Retired KIS domestic analysis API calls are not allowed in runtime source.'

@@ -81,7 +81,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Tracked KIS credential scan failed.' }
 
           $retiredKisApiResult = Invoke-Pester -Path 'scripts/tests/retired-kis-analysis-scan.Tests.ps1' -PassThru
-          if ($retiredKisApiResult.FailedCount -gt 0 -or $retiredKisApiResult.PassedCount -ne 3) {
+          if ($retiredKisApiResult.FailedCount -gt 0 -or $retiredKisApiResult.PassedCount -ne 4) {
             throw "Retired KIS analysis API scan tests failed: passed=$($retiredKisApiResult.PassedCount), failed=$($retiredKisApiResult.FailedCount)."
           }
           & 'scripts/test-retired-kis-analysis.ps1'
