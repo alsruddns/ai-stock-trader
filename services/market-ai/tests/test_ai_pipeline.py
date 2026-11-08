@@ -270,6 +270,28 @@ def test_chronological_split_keeps_sessions_disjoint_and_ordered() -> None:
     assert max(validation_dates) < min(test_dates)
 
 
+@pytest.mark.parametrize(("session_count", "expected_partition_sizes"), [
+    (13, (5, 3, 5)),
+    (15, (7, 3, 5)),
+    (25, (15, 5, 5)),
+])
+def test_approval_ready_partition_reserves_validation_and_five_test_sessions(
+    session_count: int, expected_partition_sizes: tuple[int, int, int],
+) -> None:
+    samples = [
+        TrainingSample(date(2026, 1, 1) + timedelta(days=index), str(index), (float(index),), index % 2)
+        for index in range(session_count)
+    ]
+
+    partitions = _chronological_partitions(samples)
+
+    assert tuple(len({sample.session for sample in partition}) for partition in partitions) == expected_partition_sizes
+    dates = [{sample.session for sample in partition} for partition in partitions]
+    assert dates[0].isdisjoint(dates[1] | dates[2])
+    assert dates[1].isdisjoint(dates[2])
+    assert max(dates[0]) < min(dates[1]) < min(dates[2])
+
+
 def test_quant_baseline_reports_candidate_coverage_and_cost_adjusted_label_rate() -> None:
     samples = [
         TrainingSample(date(2026, 10, 1), "t1", (), 1, True, 20.0),

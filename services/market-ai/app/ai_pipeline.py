@@ -221,12 +221,28 @@ def _chronological_partitions(samples: list[TrainingSample]) -> tuple[list[Train
     dates = sorted({sample.session for sample in samples})
     if len(dates) < 3:
         raise ValueError("at least three distinct sessions are required for train/validation/test splits")
-    train_end = max(1, math.floor(len(dates) * 0.6))
-    validation_end = max(train_end + 1, math.floor(len(dates) * 0.8))
-    validation_end = min(validation_end, len(dates) - 1)
-    train_dates = set(dates[:train_end])
-    validation_dates = set(dates[train_end:validation_end])
-    test_dates = set(dates[validation_end:])
+    if len(dates) >= 13:
+        # Production datasets must retain enough chronological validation and test
+        # sessions for candidate selection and the independent approval gate.
+        test_count = max(MIN_MODEL_APPROVAL_TEST_SESSIONS, math.ceil(len(dates) * 0.2))
+        validation_count = max(MIN_MODEL_HOLDOUT_SELECTION_VALIDATION_SESSIONS,
+                               math.ceil(len(dates) * 0.2))
+        test_start = len(dates) - test_count
+        validation_start = test_start - validation_count
+        if validation_start < 1:
+            raise ValueError("at least thirteen distinct sessions are required for approval-ready partitions")
+        train_dates = set(dates[:validation_start])
+        validation_dates = set(dates[validation_start:test_start])
+        test_dates = set(dates[test_start:])
+    else:
+        # Small synthetic/unit datasets can exercise candidate generation, but can
+        # never meet the production model approval session requirements.
+        train_end = max(1, math.floor(len(dates) * 0.6))
+        validation_end = max(train_end + 1, math.floor(len(dates) * 0.8))
+        validation_end = min(validation_end, len(dates) - 1)
+        train_dates = set(dates[:train_end])
+        validation_dates = set(dates[train_end:validation_end])
+        test_dates = set(dates[validation_end:])
     parts = tuple([sample for sample in samples if sample.session in group] for group in (train_dates, validation_dates, test_dates))
     if any(not part for part in parts):
         raise ValueError("chronological train/validation/test partitions must all contain samples")
