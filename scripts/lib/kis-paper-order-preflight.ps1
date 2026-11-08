@@ -18,6 +18,16 @@ function Get-SafeKisTransportCategory {
     return $match.Groups[1].Value.ToLowerInvariant()
 }
 
+function Get-SafeKisUpstreamHttpStatus {
+    [CmdletBinding()]
+    param([AllowNull()] [string]$ErrorDetail)
+
+    if ([string]::IsNullOrWhiteSpace($ErrorDetail)) { return $null }
+    $match = [regex]::Match($ErrorDetail, '(?i)\bKIS [A-Za-z ]+ request failed \(HTTP (\d{3}), code [A-Za-z0-9_-]{1,32}\)')
+    if (-not $match.Success) { return $null }
+    return $match.Groups[1].Value
+}
+
 function Format-SafeLocalApiFailure {
     [CmdletBinding()]
     param(
@@ -36,8 +46,10 @@ function Format-SafeLocalApiFailure {
     }
     $brokerCode = Get-SafeKisBrokerCode -ErrorDetail $ErrorDetail
     $transportCategory = Get-SafeKisTransportCategory -ErrorDetail $ErrorDetail
+    $upstreamStatus = Get-SafeKisUpstreamHttpStatus -ErrorDetail $ErrorDetail
     $diagnostic = if ($brokerCode) { ", KIS code $brokerCode" }
         elseif ($transportCategory) { ", KIS transport $transportCategory" }
+        elseif ($upstreamStatus) { ", KIS upstream HTTP $upstreamStatus" }
         else { '' }
     return "Local preflight request failed (HTTP $Status$diagnostic) for $Path; inspect the sanitized service logs."
 }
