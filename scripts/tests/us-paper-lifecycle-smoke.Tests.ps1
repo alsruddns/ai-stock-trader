@@ -31,4 +31,15 @@ Describe 'US KIS PAPER lifecycle smoke limit price' {
         try { & $scriptPath } catch { $message = $_.Exception.Message }
         $message | Should Be 'No request was sent. The one-share PAPER lifecycle smoke requires -ConfirmPaperLifecycleSmoke.'
     }
+
+    It 'uses the NYSE listing code for Ford in both quote and PAPER order requests' {
+        $scriptPath = Join-Path $PSScriptRoot '../run-us-paper-lifecycle-smoke.ps1'
+        $script = Get-Content -LiteralPath $scriptPath -Raw
+        $script | Should Match '\$smokeSymbol = ''F'''
+        $script | Should Match '\$smokeOrderExchange = ''NYSE'''
+        $script | Should Match 'ConvertTo-KisQuoteExchange -Exchange \$smokeOrderExchange'
+        $script | Should Match '\$smokeQuoteExchange'
+        $script | Should Match '-Exchange \$smokeOrderExchange'
+        $script | Should Not Match 'exchange=NASD|Exchange NASD'
+    }
 }

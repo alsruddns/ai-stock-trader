@@ -41,7 +41,10 @@ try {
         throw 'Persistent service is not in the required locked PAPER state; no quote or account request was sent.'
     }
 
-    $quoteUri = "$MarketAiApiBaseUrl/api/v1/market/quotes/US/F?exchange=NASD"
+    $smokeSymbol = 'F'
+    $smokeOrderExchange = 'NYSE'
+    $smokeQuoteExchange = ConvertTo-KisQuoteExchange -Exchange $smokeOrderExchange
+    $quoteUri = "$MarketAiApiBaseUrl/api/v1/market/quotes/US/$smokeSymbol`?exchange=$smokeQuoteExchange"
     try {
         $quote = Invoke-RestMethod -Uri $quoteUri -TimeoutSec 10
     } catch {
@@ -50,7 +53,7 @@ try {
         throw "$safeFailure No PAPER order was submitted."
     }
     Assert-KisPaperQuoteFresh -Quote $quote
-    if ($quote.market -ne 'US' -or $quote.symbol -ne 'F') {
+    if ($quote.market -ne 'US' -or $quote.symbol -ne $smokeSymbol) {
         throw 'Fresh quote did not match the fixed US PAPER smoke instrument; no order was submitted.'
     }
 
@@ -63,7 +66,7 @@ try {
     $testScript = Join-Path $PSScriptRoot 'test-kis-paper-order-lifecycle-isolated.ps1'
     $limitText = $limitPrice.ToString([Globalization.CultureInfo]::InvariantCulture)
     & $powershellPath -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $testScript `
-        -Market US -Symbol F -LimitPrice $limitText -Exchange NASD `
+        -Market US -Symbol $smokeSymbol -LimitPrice $limitText -Exchange $smokeOrderExchange `
         -SpringApiBaseUrl $SpringApiBaseUrl -MarketAiApiBaseUrl $MarketAiApiBaseUrl `
         -ConfirmPaperOrderAndCancel
     if ($LASTEXITCODE -ne 0) {
