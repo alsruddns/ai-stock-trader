@@ -34,6 +34,8 @@ Describe 'Optional operations report endpoint diagnostics' {
 
         $summary = Get-AiTraderSessionMonitorScheduleSummary
         $expectedTimeZoneId = [TimeZoneInfo]::Local.Id
+        $krTask = @($summary.tasks | Where-Object { $_.market -eq 'KR' })[0]
+        $usTask = @($summary.tasks | Where-Object { $_.market -eq 'US' })[0]
 
         $summary.state | Should Be 'AVAILABLE'
         $summary.timeZoneId | Should Be $expectedTimeZoneId
@@ -42,9 +44,9 @@ Describe 'Optional operations report endpoint diagnostics' {
         $summary.usRegisteredCount | Should Be 1
         $summary.tasks[0].lastRunTime | Should Be $null
         $summary.tasks[0].lastTaskResult | Should Be 267011
-        $summary.tasks[0].wakeToRun | Should Be $true
-        $summary.tasks[0].startWhenAvailable | Should Be $true
-        $summary.tasks[1].wakeToRun | Should Be $false
+        $krTask.wakeToRun | Should Be $true
+        $krTask.startWhenAvailable | Should Be $true
+        $usTask.wakeToRun | Should Be $false
     }
 
     It 'marks missing session monitor schedules as unverified' {
