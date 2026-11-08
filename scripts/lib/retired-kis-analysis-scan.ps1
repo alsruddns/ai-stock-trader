@@ -34,6 +34,12 @@ function Get-RetiredKisDomesticAnalysisFindings {
     $endpointPattern = '/uapi/domestic-stock/v1/finance/(?:' +
         (($script:RetiredKisDomesticAnalysisEndpoints | ForEach-Object { [regex]::Escape($_) }) -join '|') +
         ')(?=$|[?#"''\s])'
+    # Catch URL builders that keep the endpoint suffix separate from the
+    # shared finance-path prefix. Arbitrary computed values remain outside the
+    # guarantees of this static source scan.
+    $endpointFragmentPattern = '(?<![A-Za-z0-9_-])(?:' +
+        (($script:RetiredKisDomesticAnalysisEndpoints | ForEach-Object { [regex]::Escape($_) }) -join '|') +
+        ')(?![A-Za-z0-9_-])'
     $findings = [System.Collections.Generic.List[object]]::new()
     foreach ($runtimeRoot in $runtimeRoots) {
         $files = Get-ChildItem -LiteralPath $runtimeRoot -File -Recurse -ErrorAction Stop |
@@ -48,6 +54,12 @@ function Get-RetiredKisDomesticAnalysisFindings {
                     [regex]::Matches($line, $endpointPattern, [Text.RegularExpressions.RegexOptions]::IgnoreCase) |
                         ForEach-Object { [pscustomobject]@{ Value = "endpoint:$($_.Value)" } }
                 )
+                if ($matches.Count -eq 0) {
+                    $matches += @(
+                        [regex]::Matches($line, $endpointFragmentPattern, [Text.RegularExpressions.RegexOptions]::IgnoreCase) |
+                            ForEach-Object { [pscustomobject]@{ Value = "endpoint-fragment:$($_.Value)" } }
+                    )
+                }
                 foreach ($match in $matches) {
                     $relativePath = $file.FullName.Substring($root.Length).TrimStart([IO.Path]::DirectorySeparatorChar) -replace '\\', '/'
                     $findings.Add([pscustomobject]@{

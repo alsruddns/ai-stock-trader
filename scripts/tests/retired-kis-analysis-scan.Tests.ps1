@@ -61,4 +61,20 @@ Describe 'Retired KIS domestic analysis API scan' {
         $findings.Count | Should Be 2
         @($findings | Where-Object { $_.Function -like 'endpoint:*' }).Count | Should Be 2
     }
+
+    It 'detects a retired endpoint suffix stored separately from its URL prefix' {
+        $root = Join-Path $TestDrive 'dynamic-endpoint-repository'
+        $pythonRoot = Join-Path $root 'services/market-ai/app'
+        New-Item -ItemType Directory -Path $pythonRoot -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $pythonRoot 'raw_client.py') -Value @(
+            'FINANCE_API_PREFIX = "/uapi/domestic-stock/v1/finance/"',
+            'endpoint = "balance-sheet"',
+            'url = FINANCE_API_PREFIX + endpoint'
+        )
+
+        $findings = @(Get-RetiredKisDomesticAnalysisFindings -RepositoryRoot $root)
+
+        $findings.Count | Should Be 1
+        $findings[0].Function | Should Be 'endpoint-fragment:balance-sheet'
+    }
 }
