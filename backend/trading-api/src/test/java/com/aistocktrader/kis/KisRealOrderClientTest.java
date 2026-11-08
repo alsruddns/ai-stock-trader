@@ -259,6 +259,14 @@ class KisRealOrderClientTest {
     }
 
     @Test
+    void realReconciliationRejectsUnknownConflictingOrMalformedOutcomeFlags() {
+        assertRealReconciliationEmpty("\"cncl_yn\":\"X\"");
+        assertRealReconciliationEmpty("\"cncl_yn\":\"Y\",\"cancel_yn\":\"N\"");
+        assertRealReconciliationEmpty("\"rjct_qty\":\"unknown\"");
+        assertRealReconciliationEmpty("\"rjct_qty\":\"-1\"");
+    }
+
+    @Test
     void realReconciliationRejectsSameOrderNumberForDifferentSymbolOrSide() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -616,5 +624,21 @@ class KisRealOrderClientTest {
         intent.accept(new KisOrderReceipt("real", market.name(), symbol, "BUY", brokerNumber,
                 brokerOrganizationNumber, "0", java.time.Instant.now()));
         return intent;
+    }
+
+    private void assertRealReconciliationEmpty(String outcomeFields) {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[{"odno":"7001","ord_gno_brno":"ORG01","pdno":"005930","sll_buy_dvsn_cd":"02","tot_ccld_qty":"0","rmn_qty":"1",%s}]}
+                        """.formatted(outcomeFields), MediaType.APPLICATION_JSON));
+
+        assertTrue(new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                .reconcileRealOrder(realIntent(Market.KR, "005930", "7001", "ORG01", null, 1)).isEmpty());
+        server.verify();
     }
 }

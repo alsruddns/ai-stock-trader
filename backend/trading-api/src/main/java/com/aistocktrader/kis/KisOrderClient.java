@@ -234,11 +234,34 @@ public class KisOrderClient {
         if (filled == null && remaining == null) return Optional.empty();
         if (filled == null) filled = Math.max(0, intent.getQuantity() - remaining);
         if (remaining == null) remaining = Math.max(0, intent.getQuantity() - filled);
+        String[] rejectedFields = {"rjct_qty", "rejected_qty"};
+        ParsedFlag cancellationFlag = parseFlag(row, "cncl_yn", "cncl_cfm_yn", "cancel_yn");
+        if (!cancellationFlag.valid() || hasMalformedInteger(row, rejectedFields)) return Optional.empty();
+        Integer rejectedQuantity = integer(row, rejectedFields);
+        if (rejectedQuantity != null && rejectedQuantity < 0) return Optional.empty();
         BigDecimal average = decimal(row, "avg_prvs", "ft_ccld_unpr3", "avg_ccld_unpr");
-        boolean cancelled = "Y".equalsIgnoreCase(firstText(row, "cncl_yn", "cncl_cfm_yn", "cancel_yn"));
-        Integer rejectedQuantity = integer(row, "rjct_qty", "rejected_qty");
-        return Optional.of(new KisBrokerOrderSnapshot(filled, remaining, average, cancelled,
+        return Optional.of(new KisBrokerOrderSnapshot(filled, remaining, average, Boolean.TRUE.equals(cancellationFlag.value()),
                 rejectedQuantity != null && rejectedQuantity > 0));
+    }
+
+    private record ParsedFlag(boolean valid, Boolean value) { }
+
+    private static ParsedFlag parseFlag(JsonNode row, String... fields) {
+        Boolean parsed = null;
+        for (String field : fields) {
+            JsonNode value = row.path(field);
+            if (value.isMissingNode() || value.isNull()) continue;
+            if (!value.isTextual()) return new ParsedFlag(false, null);
+            String text = value.asText().trim();
+            if (text.isBlank()) continue;
+            Boolean candidate;
+            if ("Y".equalsIgnoreCase(text)) candidate = true;
+            else if ("N".equalsIgnoreCase(text)) candidate = false;
+            else return new ParsedFlag(false, null);
+            if (parsed != null && !parsed.equals(candidate)) return new ParsedFlag(false, null);
+            parsed = candidate;
+        }
+        return new ParsedFlag(true, parsed);
     }
 
     private static Integer integer(JsonNode row, String... fields) {

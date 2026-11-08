@@ -325,6 +325,14 @@ class KisOrderClientTest {
     }
 
     @Test
+    void domesticPaperReconciliationRejectsUnknownConflictingOrMalformedOutcomeFlags() {
+        assertPaperReconciliationEmpty("\"cncl_yn\":\"X\"");
+        assertPaperReconciliationEmpty("\"cncl_yn\":\"Y\",\"cancel_yn\":\"N\"");
+        assertPaperReconciliationEmpty("\"rjct_qty\":\"unknown\"");
+        assertPaperReconciliationEmpty("\"rjct_qty\":\"-1\"");
+    }
+
+    @Test
     void domesticReconciliationDoesNotApplyFillFromMismatchedBrokerIdentity() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -440,6 +448,24 @@ class KisOrderClientTest {
                 new KisProperties.Account("", "", ""), Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ofMillis(100));
         return new KisOrderClient(properties, new KisOrderProperties(enabled),
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("250")), builder);
+    }
+
+    private static void assertPaperReconciliationEmpty(String outcomeFields) {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[{"odno":"1234","ord_gno_brno":"ORG01","pdno":"005930","sll_buy_dvsn_cd":"02","tot_ccld_qty":"0","rmn_qty":"1",%s}]}
+                        """.formatted(outcomeFields), org.springframework.http.MediaType.APPLICATION_JSON));
+        var request = new com.aistocktrader.order.OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", request, null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+
+        assertTrue(client(true, builder).reconcilePaperOrder(intent).isEmpty());
+        server.verify();
     }
 
     private static String token() {
