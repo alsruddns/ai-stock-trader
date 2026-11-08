@@ -523,6 +523,32 @@ class KisOrderIntentPostgresIntegrationTest {
 
     @Test
     @Transactional
+    void realIndeterminateOutcomePersistsUnknownAcrossReloadAndRejectsDuplicateIntent() {
+        UUID key = UUID.randomUUID();
+        OrderRequest order = request();
+        String hash = "a".repeat(64);
+
+        try {
+            var prepared = store.prepare(key, hash, KisEnvironment.REAL, order, null);
+            var unresolved = store.markUnknown(key);
+            entityManager.flush();
+            entityManager.clear();
+
+            var persisted = kisOrderRepository.findById(key).orElseThrow();
+            var duplicate = store.prepare(key, hash, KisEnvironment.REAL, order, null);
+
+            assertTrue(prepared.createdNow());
+            assertEquals(KisOrderStatus.UNKNOWN, unresolved.getStatus());
+            assertEquals(KisOrderStatus.UNKNOWN, persisted.getStatus());
+            assertEquals(KisOrderStatus.UNKNOWN, duplicate.intent().getStatus());
+            assertEquals(false, duplicate.createdNow());
+        } finally {
+            kisOrderRepository.deleteById(key);
+        }
+    }
+
+    @Test
+    @Transactional
     void mockBrokerCancelIsConfirmedByReconciliationAndPersistsCancelledState() {
         UUID key = UUID.randomUUID();
         OrderRequest order = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
