@@ -614,6 +614,48 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    @Transactional
+    void ambiguousCancelPersistsPendingAndRequiresReadOnlyReconciliationBeforeAnyRetry() {
+        UUID key = UUID.randomUUID();
+        OrderRequest order = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        String brokerNumber = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        var openSnapshot = new KisBrokerOrderSnapshot(0, 1, null, false, false);
+        var cancelledSnapshot = new KisBrokerOrderSnapshot(0, 0, null, true, false);
+        when(kisAccountClient.getBalance(KisEnvironment.PAPER, Market.KR, order.symbol(), order.limitPrice(), ""))
+                .thenReturn(new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR, "KRW",
+                        new BigDecimal("500000"), new BigDecimal("500000"), List.of(), Instant.now(), "test"));
+        when(kisOrderClient.placePaperLimitOrder(Market.KR, order.symbol(), OrderSide.BUY, 1,
+                order.limitPrice(), Currency.KRW, null)).thenReturn(receipt("paper", brokerNumber));
+        when(kisOrderClient.reconcilePaperOrder(any(KisOrderIntent.class)))
+                .thenReturn(Optional.of(openSnapshot), Optional.of(cancelledSnapshot));
+        doThrow(new KisOrderOutcomeUnknownException("simulated cancel timeout", new RuntimeException("mock")))
+                .when(kisOrderClient).cancelPaperOrder(Market.KR, order.symbol(), brokerNumber,
+                        "ITORG01", 0, "");
+
+        try {
+            assertEquals(KisOrderStatus.ACCEPTED, kisOrders.submitPaperOrder(key, order, null).status());
+            assertEquals(KisOrderStatus.CANCEL_PENDING, kisOrders.cancelPaperOrder(key, null).status());
+            entityManager.flush();
+            entityManager.clear();
+
+            KisOrderIntent persistedPending = kisOrderRepository.findById(key).orElseThrow();
+            assertEquals(KisOrderStatus.CANCEL_PENDING, persistedPending.getStatus());
+            assertEquals(KisOrderStatus.CANCEL_PENDING, kisOrders.cancelPaperOrder(key, null).status());
+            verify(kisOrderClient, times(1)).cancelPaperOrder(Market.KR, order.symbol(), brokerNumber,
+                    "ITORG01", 0, "");
+
+            assertEquals(KisOrderStatus.CANCELLED, kisOrders.reconcilePaperOrder(key).status());
+            entityManager.flush();
+            entityManager.clear();
+            assertEquals(KisOrderStatus.CANCELLED, kisOrderRepository.findById(key).orElseThrow().getStatus());
+            verify(kisOrderClient, times(2)).reconcilePaperOrder(any(KisOrderIntent.class));
+        } finally {
+            kisOrderRepository.deleteById(key);
+        }
+    }
+
+    @Test
     void onlyOneConcurrentCallerCanClaimCancellationForAnOrder() throws Exception {
         UUID key = UUID.randomUUID();
         try {
