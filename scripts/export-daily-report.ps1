@@ -109,7 +109,7 @@ foreach ($market in @('KR', 'US')) {
     $marketDataQuality[$market] = $qualityResult.data
 }
 
-$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 8 -Force
+$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 9 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
 $endpointStates = @($endpointStatus.Values | ForEach-Object { $_.state })

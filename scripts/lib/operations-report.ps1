@@ -164,6 +164,8 @@ function Get-AiTraderSessionMonitorScheduleSummary {
                 taskName = $task.TaskName
                 state = [string]$task.State
                 enabled = [bool]$task.Settings.Enabled
+                wakeToRun = [bool]$task.Settings.WakeToRun
+                startWhenAvailable = [bool]$task.Settings.StartWhenAvailable
                 nextRunTime = if ($info.NextRunTime -and $info.NextRunTime.Year -gt 2000) { $info.NextRunTime.ToString('o') } else { $null }
                 lastRunTime = if ($info.LastRunTime -and $info.LastRunTime.Year -gt 2000) { $info.LastRunTime.ToString('o') } else { $null }
                 lastTaskResult = [int]$info.LastTaskResult
@@ -175,6 +177,8 @@ function Get-AiTraderSessionMonitorScheduleSummary {
                 taskName = $task.TaskName
                 state = 'UNKNOWN'
                 enabled = [bool]$task.Settings.Enabled
+                wakeToRun = [bool]$task.Settings.WakeToRun
+                startWhenAvailable = [bool]$task.Settings.StartWhenAvailable
                 nextRunTime = $null
                 lastRunTime = $null
                 lastTaskResult = $null
@@ -234,6 +238,8 @@ function Get-AiTraderValidationTaskScheduleSummary {
             taskName = [string]$task.TaskName
             state = [string]$task.State
             enabled = [bool]$task.Settings.Enabled
+            wakeToRun = [bool]$task.Settings.WakeToRun
+            startWhenAvailable = [bool]$task.Settings.StartWhenAvailable
             nextRunTime = $null
             lastRunTime = $null
             lastTaskResult = $null

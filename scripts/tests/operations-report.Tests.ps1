@@ -19,8 +19,8 @@ Describe 'Optional operations report endpoint diagnostics' {
         $nextRun = [datetime]'2026-11-09T08:45:00'
         Mock Get-ScheduledTask {
             @(
-                [pscustomobject]@{ TaskName = 'AIStockTrader-KRX-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
-                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-KRX-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $false; StartWhenAvailable = $true } },
                 [pscustomobject]@{ TaskName = 'Unrelated-Task'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } }
             )
         }
@@ -42,6 +42,9 @@ Describe 'Optional operations report endpoint diagnostics' {
         $summary.usRegisteredCount | Should Be 1
         $summary.tasks[0].lastRunTime | Should Be $null
         $summary.tasks[0].lastTaskResult | Should Be 267011
+        $summary.tasks[0].wakeToRun | Should Be $true
+        $summary.tasks[0].startWhenAvailable | Should Be $true
+        $summary.tasks[1].wakeToRun | Should Be $false
     }
 
     It 'marks missing session monitor schedules as unverified' {
@@ -89,9 +92,9 @@ Describe 'Optional operations report endpoint diagnostics' {
         $nextRun = [datetime]'2026-11-09T23:45:00'
         Mock Get-ScheduledTask {
             @(
-                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Paper-Lifecycle-Smoke-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
-                [pscustomobject]@{ TaskName = 'AIStockTrader-P4-Model-Train-KR-005930-20261128'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
-                [pscustomobject]@{ TaskName = 'AIStockTrader-P4-Model-Holdout-US-AAPL-20261205'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Paper-Lifecycle-Smoke-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-P4-Model-Train-KR-005930-20261128'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-P4-Model-Holdout-US-AAPL-20261205'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $false; StartWhenAvailable = $false } },
                 [pscustomobject]@{ TaskName = 'AIStockTrader-US-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
                 [pscustomobject]@{ TaskName = 'Unrelated-Task'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } }
             )
@@ -119,10 +122,14 @@ Describe 'Optional operations report endpoint diagnostics' {
         $paperTask.market | Should Be 'US'
         $paperTask.taskDate | Should Be '20261109'
         $paperTask.nextRunTime | Should Be $nextRun.ToString('o')
+        $paperTask.wakeToRun | Should Be $true
+        $paperTask.startWhenAvailable | Should Be $true
         $trainTask.market | Should Be 'KR'
         $trainTask.symbol | Should Be '005930'
+        $trainTask.wakeToRun | Should Be $true
         $holdoutTask.market | Should Be 'US'
         $holdoutTask.symbol | Should Be 'AAPL'
+        $holdoutTask.startWhenAvailable | Should Be $false
     }
 
     It 'marks missing validation tasks unverified' {
@@ -224,7 +231,7 @@ Describe 'Daily operations report endpoint health summary' {
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
         $archivedReport = Get-Content -LiteralPath $archivePath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 8
+        $report.reportSchemaVersion | Should Be 9
         $archivedReport.generatedAt | Should Be $report.generatedAt
         $archivedReport.tradingMode | Should Be $report.tradingMode
         $report.pythonConnected | Should Be $true
