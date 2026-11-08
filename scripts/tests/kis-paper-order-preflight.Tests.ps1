@@ -1,4 +1,40 @@
 . (Join-Path $PSScriptRoot '../lib/kis-paper-order-preflight.ps1')
+. (Join-Path $PSScriptRoot '../lib/kis-paper-order-lifecycle.ps1')
+
+Describe 'KIS PAPER order lifecycle completion result' {
+    It 'reports a zero-fill cancellation as successful' {
+        $result = Get-KisPaperOrderLifecycleResult -Intent @{ status = 'CANCELLED'; filledQuantity = 0 }
+        $result.exitCode | Should Be 0
+        $result.filledQuantity | Should Be '0'
+    }
+
+    It 'flags a cancelled order with a partial fill for position review' {
+        $result = Get-KisPaperOrderLifecycleResult -Intent @{ status = 'CANCELLED'; quantity = 3; filledQuantity = 1 }
+        $result.exitCode | Should Be 2
+        $result.filledQuantity | Should Be '1'
+        $result.message | Should Match 'partial fill of 1 share'
+        $result.message | Should Match 'remaining simulated position'
+    }
+
+    It 'flags a one-share order filled before its cancellation' {
+        $result = Get-KisPaperOrderLifecycleResult -Intent @{ status = 'CANCELLED'; quantity = 1; filledQuantity = 1 }
+        $result.exitCode | Should Be 2
+        $result.message | Should Match 'All 1 requested PAPER share'
+    }
+
+    It 'fails closed when a cancelled response omits filled quantity' {
+        $result = Get-KisPaperOrderLifecycleResult -Intent @{ status = 'CANCELLED'; quantity = 1; filledQuantity = $null }
+        $result.exitCode | Should Be 2
+        $result.filledQuantity | Should Be 'unknown'
+        $result.message | Should Match 'missing a valid fill or order quantity'
+    }
+
+    It 'flags a fill even if the broker does not return the FILLED status' {
+        $result = Get-KisPaperOrderLifecycleResult -Intent @{ status = 'CANCEL_PENDING'; filledQuantity = 1 }
+        $result.exitCode | Should Be 2
+        $result.message | Should Match 'simulated fill occurred'
+    }
+}
 
 Describe 'Isolated KIS PAPER lifecycle port' {
     It 'defaults the temporary Spring API to the dedicated 18081 loopback port' {

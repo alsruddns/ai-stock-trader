@@ -30,6 +30,7 @@ if ($Market -eq 'KR' -and $ConfirmPaperOrderAndCancel) {
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'lib/kis-paper-order-preflight.ps1')
+. (Join-Path $PSScriptRoot 'lib/kis-paper-order-lifecycle.ps1')
 $envPath = Join-Path $repoRoot '.env_local'
 if (-not (Test-Path -LiteralPath $envPath)) { $envPath = Join-Path $repoRoot '.env' }
 if (-not (Test-Path -LiteralPath $envPath)) { throw 'Missing ignored .env_local or .env file.' }
@@ -209,12 +210,10 @@ for ($attempt = 0; $attempt -lt 15 -and $intent.status -notin @('CANCELLED', 'FI
     }
 }
 
-Write-Output "PAPER lifecycle result: market=$Market symbol=$normalizedSymbol quantity=1 status=$($intent.status) key=$idempotencyKey"
-if ($intent.status -ne 'CANCELLED') {
-    if ($intent.status -eq 'FILLED') { Write-Output 'A simulated fill occurred; review and close the PAPER position if needed.' }
-    else { Write-Output 'Broker state is not terminal. Do not resubmit; reconcile this key manually.' }
-    exit 2
-}
+$lifecycleResult = Get-KisPaperOrderLifecycleResult -Intent $intent
+Write-Output "PAPER lifecycle result: market=$Market symbol=$normalizedSymbol quantity=1 status=$($intent.status) filled=$($lifecycleResult.filledQuantity) key=$idempotencyKey"
+Write-Output $lifecycleResult.message
+if ($lifecycleResult.exitCode -ne 0) { exit $lifecycleResult.exitCode }
 }
 finally {
     $currentEnvironment = [Environment]::GetEnvironmentVariables('Process')
