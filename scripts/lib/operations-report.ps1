@@ -60,6 +60,17 @@ function Set-AiTraderAtomicJsonFile {
     }
 }
 
+function New-AiTraderOperationsReportRunPath {
+    param(
+        [Parameter(Mandatory)][string]$Directory,
+        [DateTimeOffset]$Timestamp = [DateTimeOffset]::UtcNow
+    )
+
+    $stamp = $Timestamp.ToUniversalTime().ToString('yyyy-MM-ddTHHmmssfffZ', [Globalization.CultureInfo]::InvariantCulture)
+    $runId = [guid]::NewGuid().ToString('N').Substring(0, 8)
+    return Join-Path $Directory ("operations-run-{0}-{1}.json" -f $stamp, $runId)
+}
+
 function Get-AiTraderMarketDataQualitySummary {
     param(
         [Parameter(Mandatory)]$EndpointStatus,

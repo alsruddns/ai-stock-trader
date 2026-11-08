@@ -1,6 +1,19 @@
 . (Join-Path $PSScriptRoot '..\lib\operations-report.ps1')
 . (Join-Path $PSScriptRoot '..\lib\model-retraining-report.ps1')
 
+Describe 'Operations report run archive paths' {
+    It 'creates unique UTC timestamped JSON filenames without overwriting prior runs' {
+        $directory = Join-Path $TestDrive 'reports'
+        $timestamp = [DateTimeOffset]::Parse('2026-11-08T01:30:00+00:00')
+
+        $first = New-AiTraderOperationsReportRunPath -Directory $directory -Timestamp $timestamp
+        $second = New-AiTraderOperationsReportRunPath -Directory $directory -Timestamp $timestamp
+
+        (Split-Path -Leaf $first) | Should Match '^operations-run-2026-11-08T013000000Z-[a-f0-9]{8}\.json$'
+        $first | Should Not Be $second
+    }
+}
+
 Describe 'Optional operations report endpoint diagnostics' {
     It 'summarizes only the registered KR and US market monitor tasks' {
         $nextRun = [datetime]'2026-11-09T08:45:00'
@@ -119,13 +132,18 @@ Describe 'Daily operations report endpoint health summary' {
         }
 
         $outputPath = Join-Path $TestDrive 'operations-report.json'
+        $archivePath = Join-Path $TestDrive 'archive\operations-run-2026-11-08T013000000Z-12345678.json'
         $retrainingDirectory = Join-Path $TestDrive 'no-retraining-runs'
         & (Join-Path $PSScriptRoot '..\export-daily-report.ps1') `
             -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath `
+            -ArchiveOutputPath $archivePath `
             -ModelRetrainingReportDirectory $retrainingDirectory | Out-Null
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
+        $archivedReport = Get-Content -LiteralPath $archivePath -Raw | ConvertFrom-Json
 
         $report.reportSchemaVersion | Should Be 6
+        $archivedReport.generatedAt | Should Be $report.generatedAt
+        $archivedReport.tradingMode | Should Be $report.tradingMode
         $report.pythonConnected | Should Be $true
         $report.optionalDataStatus | Should Be 'INCOMPLETE'
         $report.marketDataQualitySummary.sessionCompleteness | Should Be 'UNVERIFIED'

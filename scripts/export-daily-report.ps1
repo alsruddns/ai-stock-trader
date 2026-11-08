@@ -4,6 +4,7 @@ param(
     [ValidateRange(0, 3600)] [int]$WaitTimeoutSeconds = 0,
     [ValidateRange(1, 300)] [int]$RetryIntervalSeconds = 10,
     [string]$OutputPath,
+    [string]$ArchiveOutputPath,
     [string]$ModelRetrainingReportDirectory
 )
 
@@ -127,7 +128,21 @@ if ([string]::IsNullOrWhiteSpace($OutputPath)) {
 } else {
     $reportPath = Join-Path $repoRoot $OutputPath
 }
-$outputDirectory = Split-Path -Parent $reportPath
-if ($outputDirectory) { New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null }
-Set-AiTraderAtomicJsonFile -Path $reportPath -Value $report -Depth 12
-Write-Output "Saved local operations report: $reportPath"
+$reportPaths = [System.Collections.Generic.List[string]]::new()
+$reportPaths.Add($reportPath)
+if (-not [string]::IsNullOrWhiteSpace($ArchiveOutputPath)) {
+    if ([IO.Path]::IsPathRooted($ArchiveOutputPath)) {
+        $archivePath = [IO.Path]::GetFullPath($ArchiveOutputPath)
+    } else {
+        $archivePath = [IO.Path]::GetFullPath((Join-Path $repoRoot $ArchiveOutputPath))
+    }
+    if (-not [string]::Equals([IO.Path]::GetFullPath($reportPath), $archivePath, [StringComparison]::OrdinalIgnoreCase)) {
+        $reportPaths.Add($archivePath)
+    }
+}
+foreach ($path in $reportPaths) {
+    $outputDirectory = Split-Path -Parent $path
+    if ($outputDirectory) { New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null }
+    Set-AiTraderAtomicJsonFile -Path $path -Value $report -Depth 12
+    Write-Output "Saved local operations report: $path"
+}

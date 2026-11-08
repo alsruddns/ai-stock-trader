@@ -8,12 +8,15 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $reportDirectory = Join-Path $repoRoot ".local\reports"
 $logPath = Join-Path $reportDirectory "daily-report-task.log"
 New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null
+$operationsReportLibrary = Join-Path $PSScriptRoot 'lib\operations-report.ps1'
+. $operationsReportLibrary
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz"
 
 try {
+    $archivePath = New-AiTraderOperationsReportRunPath -Directory $reportDirectory
     & (Join-Path $PSScriptRoot "export-daily-report.ps1") `
-        -ApiBaseUrl $ApiBaseUrl -WaitTimeoutSeconds $WaitTimeoutSeconds | Out-Null
-    Add-Content -LiteralPath $logPath -Value "$timestamp SUCCESS report exported" -Encoding utf8
+        -ApiBaseUrl $ApiBaseUrl -WaitTimeoutSeconds $WaitTimeoutSeconds -ArchiveOutputPath $archivePath | Out-Null
+    Add-Content -LiteralPath $logPath -Value "$timestamp SUCCESS report exported archive=$([IO.Path]::GetFileName($archivePath))" -Encoding utf8
 }
 catch {
     $errorType = $_.Exception.GetType().Name
