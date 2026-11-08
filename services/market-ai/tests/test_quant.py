@@ -98,6 +98,32 @@ def test_missing_exit_spread_uses_configured_spread_ceiling() -> None:
     assert result.trades[0].exit_price < bars[-1].close
 
 
+def test_vwap_close_signal_exits_at_next_bar_open_not_same_close(monkeypatch) -> None:
+    bars = _session_bars()
+    failing = bars[22]
+    bars[22] = MinuteBar(failing.timestamp, Decimal("102.5"), Decimal("103"), Decimal("100.8"),
+                         Decimal("101"), failing.volume, Decimal("0"))
+    next_bar = bars[23]
+    bars[23] = MinuteBar(next_bar.timestamp, Decimal("101.7"), Decimal("102"), Decimal("101.5"),
+                         Decimal("101.8"), next_bar.volume, Decimal("0"))
+    monkeypatch.setattr(
+        "app.quant._vwap",
+        lambda history: Decimal("102.5") if len(history) >= 22 else Decimal("100"),
+    )
+    config = QuantConfig(
+        minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"),
+        slippage_bps=Decimal("0"), commission_bps=Decimal("0"),
+    )
+
+    result = backtest_orb_vwap("KR", "005930", bars, config)
+
+    assert len(result.trades) == 1
+    trade = result.trades[0]
+    assert trade.exit_reason == "VWAP_LOSS"
+    assert trade.exit_time == bars[23].timestamp
+    assert trade.exit_price == bars[23].open
+
+
 def test_optional_ai_entry_filter_runs_only_after_quant_candidate_without_future_bars(monkeypatch) -> None:
     bars = _session_bars()
     seen_histories = []

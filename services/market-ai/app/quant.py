@@ -208,15 +208,17 @@ def backtest_orb_vwap(
             entry_index, fill_price, stop_price, target_price = entry
             exit_price: Decimal | None = None
             reason = ""
-            if bar.open <= stop_price or bar.low <= stop_price:
+            # A close-based VWAP signal is only known after the prior bar ends,
+            # so the earliest executable exit is this bar's open.
+            if index > entry_index and bars[index - 1].close < _vwap(bars[:index]):
+                exit_price, reason = bar.open, "VWAP_LOSS"
+            elif bar.open <= stop_price or bar.low <= stop_price:
                 exit_price = min(bar.open, stop_price)  # gap-through stop is filled at the worse open
                 reason = "ATR_STOP"
             elif bar.open >= target_price:
                 exit_price, reason = bar.open, "TAKE_PROFIT_GAP"
             elif bar.high >= target_price:
                 exit_price, reason = target_price, "TAKE_PROFIT"
-            elif bar.close < _vwap(history):
-                exit_price, reason = bar.close, "VWAP_LOSS"
             elif index == len(bars) - 1:
                 exit_price, reason = bar.close, "SESSION_END"
             if exit_price is not None:
