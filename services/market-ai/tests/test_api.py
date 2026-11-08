@@ -3,7 +3,7 @@ from fastapi import HTTPException
 import pytest
 from app import main
 from app.main import app, get_kis_client, get_kis_real_market_data_client, get_market_data_client
-from app.kis import (HistoricalMinuteSession, KisRateLimitError,
+from app.kis import (HistoricalMinuteSession, KisApiError, KisRateLimitError,
                      KisSharedRateLimitUnavailable, MarketCandidate, Quote)
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -429,6 +429,34 @@ def test_quote_route_returns_normalized_snapshot() -> None:
         assert response.json()["price"] == "231.59"
         assert response.json()["currency"] == "USD"
         assert response.json()["source"] == "KIS_REST_SNAPSHOT"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_quote_route_exposes_safe_response_shape_diagnostics_only() -> None:
+    class RejectedKisClient:
+        def get_quote(self, *_args, **_kwargs):
+            raise KisApiError(
+                "KIS rejected the quote request (HTTP 200, code unknown, "
+                "content-type application/json, response-bytes 104, "
+                "fields rt_cd,msg_cd,msg1)",
+                http_status=200,
+                broker_code="unknown",
+                response_content_type="application/json",
+                response_bytes=104,
+                response_fields=("rt_cd", "msg_cd", "msg1"),
+            )
+
+    app.dependency_overrides[get_market_data_client] = lambda: RejectedKisClient()
+    try:
+        response = client.get("/api/v1/market/quotes/US/F?exchange=NAS")
+        assert response.status_code == 502
+        detail = response.json()["detail"]
+        assert "HTTP 200, code unknown" in detail
+        assert "fields rt_cd,msg_cd,msg1" in detail
+        assert "application/json" in detail
+        assert "response-bytes 104" in detail
+        assert "sensitive" not in detail
     finally:
         app.dependency_overrides.clear()
 

@@ -204,13 +204,15 @@ def test_domestic_quote_uses_read_only_endpoint_and_reuses_token() -> None:
     client.close()
 
 
-def test_us_quote_uses_official_exchange_code_and_fields() -> None:
+@pytest.mark.parametrize("array_output", [False, True])
+def test_us_quote_uses_official_exchange_code_and_fields(array_output: bool) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/oauth2/tokenP":
             return httpx.Response(200, json=_token_response())
+        output = {"last": "231.59", "diff": "3.57", "rate": "1.57", "tvol": "38914221"}
         return httpx.Response(200, json={
             "rt_cd": "0",
-            "output": {"last": "231.59", "diff": "3.57", "rate": "1.57", "tvol": "38914221"},
+            "output": [output] if array_output else output,
         })
 
     client = KisReadOnlyClient(
@@ -223,6 +225,23 @@ def test_us_quote_uses_official_exchange_code_and_fields() -> None:
     assert str(quote.price) == "231.59"
     assert quote.currency == "USD"
     assert str(quote.change_percent) == "1.57"
+    client.close()
+
+
+@pytest.mark.parametrize("output", [[], [{"last": "231.59"}, {"last": "232.00"}], ["malformed"]])
+def test_us_quote_rejects_ambiguous_or_invalid_output_arrays(output: object) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        return httpx.Response(200, json={"rt_cd": "0", "output": output})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(KisApiError, match="exactly one output object"):
+        client.get_quote("US", "F", "NAS")
     client.close()
 
 

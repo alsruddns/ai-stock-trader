@@ -1,6 +1,6 @@
 # KIS API compatibility check
 
-Last checked: 2026-11-07 against the current examples in the official KIS repository.
+Last checked: 2026-11-08 against the current examples in the official KIS repository.
 
 ## Read-only account balance
 
@@ -38,6 +38,8 @@ Read-only account integration was successfully rechecked on 2026-11-07: Spring P
 | United States | `/uapi/overseas-price/v1/quotations/price` | `HHDFS00000300` | `HHDFS00000300` | Uses `AUTH` (empty as in the official sample), `EXCD`, and `SYMB`; supports configured `NAS`, `NYS`, and `AMS` exchanges. |
 
 These REST endpoints provide quote snapshots. The official domestic example directs clients to WebSocket for real-time quotes; the project's separate WebSocket stream is therefore the real-time path. Authenticated PAPER smoke on 2026-11-06 returned valid KIS REST quote contracts for KR symbol 005930 and US symbol AAPL. This verifies these two quote requests only; it does not validate account access, WebSocket continuity, or trading entitlement.
+
+The official overseas `price.py` sample explicitly maps both `real` and `demo` to `HHDFS00000300`, uses `/uapi/overseas-price/v1/quotations/price`, and normalizes `output` to a list before consuming it. The client accepts either the usual object or exactly one object in an array; empty arrays, multiple rows, and malformed arrays fail closed. The official overseas MCP configuration also declares `env_dv=demo` for this quote operation. These sources establish supported sample parameters, not the reason for a specific PAPER HTTP 502; the next market-session smoke must inspect only sanitized diagnostics. [KIS official overseas quote sample](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/overseas_stock/price/price.py) · [KIS official overseas API configuration](https://github.com/koreainvestment/open-trading-api/blob/main/MCP/Kis%20Trading%20MCP/configs/overseas_stock.json)
 
 ## Read-only realized-profit statements
 

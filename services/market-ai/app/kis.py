@@ -439,6 +439,10 @@ class KisReadOnlyClient:
                 response_fields=fields,
             )
         output = payload.get("output")
+        if isinstance(output, list):
+            if len(output) != 1 or not isinstance(output[0], dict):
+                raise KisApiError("KIS quote response did not contain exactly one output object")
+            output = output[0]
         if not isinstance(output, dict):
             raise KisApiError("KIS quote response did not contain an output object")
 
