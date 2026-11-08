@@ -35,6 +35,7 @@ public class KisOrderClient {
     private static final String DOMESTIC_ORDER_PATH = "/uapi/domestic-stock/v1/trading/order-cash";
     private static final String OVERSEAS_ORDER_PATH = "/uapi/overseas-stock/v1/trading/order";
     private static final String OVERSEAS_CANCEL_PATH = "/uapi/overseas-stock/v1/trading/order-rvsecncl";
+    private static final String DOMESTIC_CANCEL_PREFLIGHT_PATH = "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl";
 
     private final KisProperties properties;
     private final KisOrderProperties orderProperties;
@@ -126,6 +127,94 @@ public class KisOrderClient {
                 Map.entry("OVRS_ORD_UNPR", "0"), Map.entry("QTY_ALL_ORD_YN", "Y"),
                 Map.entry("MGCO_APTM_ODNO", ""), Map.entry("ORD_SVR_DVSN_CD", "0"));
         post(OVERSEAS_CANCEL_PATH, "VTTT1004U", body);
+    }
+
+    /**
+     * Reads KIS's domestic cancelable-order list without requiring the PAPER order switch.
+     * The transaction ID is verified separately against the configured PAPER endpoint before
+     * this response may be used to authorize a cancellation.
+     */
+    public List<KisPaperCancelableOrder> inquireDomesticPaperCancelableOrders() {
+        requirePaperAccountReadsEnabled();
+        KisProperties.Account credentials = properties.credentials(KisEnvironment.PAPER);
+        String account = credentials.accountNumber();
+        String continuation = "";
+        String nextSearch = "";
+        String nextKey = "";
+        Set<List<String>> seenCursors = new HashSet<>();
+        Set<String> seenOrders = new HashSet<>();
+        java.util.ArrayList<KisPaperCancelableOrder> result = new java.util.ArrayList<>();
+
+        for (int page = 0; page < 10; page++) {
+            MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+            params.add("CANO", account.substring(0, 8));
+            params.add("ACNT_PRDT_CD", account.substring(8));
+            params.add("INQR_DVSN_1", "1");
+            params.add("INQR_DVSN_2", "0");
+            params.add("CTX_AREA_FK100", nextSearch);
+            params.add("CTX_AREA_NK100", nextKey);
+            BrokerQueryResponse query = getPaper(DOMESTIC_CANCEL_PREFLIGHT_PATH, "VTTC0084R",
+                    params, continuation, credentials);
+            JsonNode response = query.body();
+            if (response == null || !"0".equals(response.path("rt_cd").asText())) {
+                String code = response == null ? "unknown" : safeCode(response.path("msg_cd").asText("unknown"));
+                throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
+                        "KIS PAPER cancelable-order query failed (code " + code + ").");
+            }
+            JsonNode rows = response.path("output");
+            if (rows.isArray()) {
+                for (JsonNode row : rows) addPaperCancelableOrder(result, seenOrders, row);
+            } else if (rows.isObject() && rows.size() > 0) {
+                addPaperCancelableOrder(result, seenOrders, rows);
+            } else if (!rows.isArray() && !rows.isObject()) {
+                throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
+                        "KIS PAPER cancelable-order query returned an invalid output shape.");
+            }
+
+            continuation = query.continuation();
+            if (!"M".equalsIgnoreCase(continuation) && !"F".equalsIgnoreCase(continuation)) {
+                return List.copyOf(result);
+            }
+            nextSearch = response.path("ctx_area_fk100").asText("");
+            nextKey = response.path("ctx_area_nk100").asText("");
+            if (nextSearch.isBlank() || nextKey.isBlank()
+                    || !seenCursors.add(List.of(nextSearch, nextKey))) {
+                throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
+                        "KIS PAPER cancelable-order pagination is incomplete.");
+            }
+        }
+        throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
+                "KIS PAPER cancelable-order query exceeded the page limit.");
+    }
+
+    private static void addPaperCancelableOrder(List<KisPaperCancelableOrder> result, Set<String> seenOrders,
+                                                 JsonNode row) {
+        String symbol = firstText(row, "pdno", "PDNO");
+        String orderNumber = firstText(row, "odno", "ODNO");
+        String organizationNumber = firstText(row, "ord_gno_brno", "ORD_GNO_BRNO");
+        Integer cancelableQuantity = integer(row, "psbl_qty", "PSBL_QTY");
+        if (symbol.isBlank() || orderNumber.isBlank() || organizationNumber.isBlank()
+                || cancelableQuantity == null || cancelableQuantity <= 0) {
+            throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
+                    "KIS PAPER cancelable-order query returned incomplete order evidence.");
+        }
+        String key = symbol + "|" + orderNumber + "|" + organizationNumber;
+        if (!seenOrders.add(key)) {
+            throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
+                    "KIS PAPER cancelable-order query returned duplicate order evidence.");
+        }
+        result.add(new KisPaperCancelableOrder(symbol, orderNumber, organizationNumber, cancelableQuantity));
+    }
+
+    private void requirePaperAccountReadsEnabled() {
+        if (!properties.accountReadEnabled() || !properties.paperAccountReadEnabled()) {
+            throw new KisApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                    "KIS PAPER account reads are disabled.");
+        }
+        if (!properties.credentials(KisEnvironment.PAPER).configured()) {
+            throw new KisApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                    "KIS PAPER credentials are not configured.");
+        }
     }
 
     public Optional<KisBrokerOrderSnapshot> reconcilePaperOrder(KisOrderIntent intent) {

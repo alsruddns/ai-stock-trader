@@ -167,6 +167,67 @@ class KisOrderClientTest {
     }
 
     @Test
+    void domesticPaperCancelableOrderQueryUsesPaperReadSwitchAndCandidateTransaction() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
+                .andExpect(method(HttpMethod.GET)).andExpect(header("tr_id", "VTTC0084R"))
+                .andExpect(queryParam("CANO", "12345678"))
+                .andExpect(queryParam("ACNT_PRDT_CD", "01"))
+                .andExpect(queryParam("INQR_DVSN_1", "1"))
+                .andExpect(queryParam("INQR_DVSN_2", "0"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output":[
+                          {"pdno":"005930","odno":"1234","ord_gno_brno":"ORG01","psbl_qty":"1"}
+                        ]}
+                        """, org.springframework.http.MediaType.APPLICATION_JSON));
+
+        var rows = clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders();
+
+        assertEquals(1, rows.size());
+        assertEquals(new KisPaperCancelableOrder("005930", "1234", "ORG01", 1), rows.getFirst());
+        server.verify();
+    }
+
+    @Test
+    void domesticPaperCancelableOrderQueryFailsClosedWhenAccountReadsAreDisabled() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+
+        KisApiException error = assertThrows(KisApiException.class,
+                () -> client(true, builder).inquireDomesticPaperCancelableOrders());
+
+        assertEquals(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, error.status());
+        server.verify();
+    }
+
+    @Test
+    void domesticPaperCancelableOrderQueryRejectsMalformedCancelableQuantity() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl?")))
+                .andExpect(header("tr_id", "VTTC0084R"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output":[
+                          {"pdno":"005930","odno":"1234","ord_gno_brno":"ORG01","psbl_qty":"1.5"}
+                        ]}
+                        """, org.springframework.http.MediaType.APPLICATION_JSON));
+
+        KisApiException error = assertThrows(KisApiException.class,
+                () -> clientWithPaperAccountReads(builder).inquireDomesticPaperCancelableOrders());
+
+        assertEquals(org.springframework.http.HttpStatus.BAD_GATEWAY, error.status());
+        assertTrue(error.getMessage().contains("incomplete order evidence"));
+        server.verify();
+    }
+
+    @Test
     void overseasPaperCancelUsesPaperTransactionAndFullRemainingQuantityContract() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -479,6 +540,14 @@ class KisOrderClientTest {
         KisProperties properties = new KisProperties(false, false, paper,
                 new KisProperties.Account("", "", ""), Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ofMillis(100));
         return new KisOrderClient(properties, new KisOrderProperties(enabled),
+                new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("250")), builder);
+    }
+
+    private static KisOrderClient clientWithPaperAccountReads(RestClient.Builder builder) {
+        KisProperties.Account paper = new KisProperties.Account("paper-key", "paper-secret", "1234567801");
+        KisProperties properties = new KisProperties(true, true, false, false, paper,
+                new KisProperties.Account("", "", ""), Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ofMillis(100));
+        return new KisOrderClient(properties, new KisOrderProperties(false),
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("250")), builder);
     }
 

@@ -16,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class KisPaperAccountIntegrationTest {
     @Autowired private KisAccountClient client;
+    @Autowired private KisOrderClient orderClient;
 
     @BeforeAll
     static void configure() {
@@ -25,6 +26,8 @@ class KisPaperAccountIntegrationTest {
         assertTrue(paper.configured(), "Paper KIS credentials must be configured for this opt-in test.");
         assertEquals("true", System.getenv("KIS_ACCOUNT_READ_ENABLED"),
                 "Set KIS_ACCOUNT_READ_ENABLED=true only when intentionally running this read-only test.");
+        assertEquals("true", System.getenv("KIS_PAPER_ACCOUNT_READ_ENABLED"),
+                "Set KIS_PAPER_ACCOUNT_READ_ENABLED=true only when intentionally running this read-only test.");
         assertEquals("paper", System.getenv().getOrDefault("TRADING_MODE", "paper").toLowerCase());
         assertEquals("false", System.getenv().getOrDefault("LIVE_TRADING_ENABLED", "false").toLowerCase());
         assertEquals("false", System.getenv().getOrDefault("KIS_PAPER_ORDERS_ENABLED", "false").toLowerCase());
@@ -70,5 +73,18 @@ class KisPaperAccountIntegrationTest {
         assertTrue(snapshot.orderableCash().signum() >= 0, "Paper US orderable cash cannot be negative.");
         System.out.println("PAPER_US_F_11_USD_ORDERABLE="
                 + (snapshot.orderableCash().compareTo(new BigDecimal("11")) >= 0));
+    }
+
+    @Test
+    void probesDomesticPaperCancelableOrderQueryWithoutPlacingOrders() {
+        try {
+            var rows = orderClient.inquireDomesticPaperCancelableOrders();
+            if (rows.stream().anyMatch(row -> row.cancelableQuantity() <= 0)) {
+                throw new AssertionError("KIS returned a non-positive cancelable quantity.");
+            }
+            System.out.println("PAPER_DOMESTIC_CANCEL_PREFLIGHT=SUPPORTED; rows=" + rows.size());
+        } catch (KisApiException exception) {
+            System.out.println("PAPER_DOMESTIC_CANCEL_PREFLIGHT=UNCONFIRMED; http=" + exception.status().value());
+        }
     }
 }
