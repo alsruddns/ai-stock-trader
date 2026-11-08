@@ -26,9 +26,9 @@ FEATURE_NAMES = (
     "ema20_gap_pct", "atr14_pct", "relative_volume20", "spread_bps", "session_progress",
 )
 FEATURE_VERSION = 3
-LABEL_VERSION = 2
-BACKTEST_VERSION = 5
-BACKTEST_SPREAD_MODEL = "observed_half_spread_entry_exit_v1"
+LABEL_VERSION = 3
+BACKTEST_VERSION = 6
+BACKTEST_SPREAD_MODEL = "known_prior_bar_half_spread_entry_exit_v2"
 MIN_MODEL_APPROVAL_TEST_SESSIONS = 5
 MIN_MODEL_APPROVAL_TEST_TRADES = 5
 MIN_MODEL_HOLDOUT_SELECTION_VALIDATION_SESSIONS = 3
@@ -90,7 +90,8 @@ def build_training_samples(
 ) -> list[TrainingSample]:
     """Create samples using features available at t and an executable forward label.
 
-    A signal at t is entered at the next bar open, matching ``backtest_orb_vwap``.
+    A signal at t is entered at the next bar open, using the spread observed by
+    the signal close because the next bar's aggregated spread is only known later.
     The exit is the close ``horizon_bars`` after t. Sessions are processed
     independently, so labels never cross a close. Caller owns data licensing and
     corporate-action/symbol normalization.
@@ -120,8 +121,6 @@ def build_training_samples(
             if current.spread_bps is None:
                 continue
             entry = bars[index + 1]
-            if entry.spread_bps is None:
-                continue
             close = current.close
             returns = [
                 Decimal(0) if index < period else close / bars[index - period].close - Decimal(1)
@@ -148,7 +147,7 @@ def build_training_samples(
             if future.spread_bps is None:
                 continue
             future_return = future.close / entry.open - Decimal(1)
-            observed_round_trip_spread = (entry.spread_bps + future.spread_bps) / Decimal(2)
+            observed_round_trip_spread = (current.spread_bps + future.spread_bps) / Decimal(2)
             forward_net_return_bps = (
                 future_return * Decimal(10_000) - round_trip_cost_bps - observed_round_trip_spread
             )

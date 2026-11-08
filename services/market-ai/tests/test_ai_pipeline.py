@@ -168,7 +168,7 @@ def test_training_labels_deduct_observed_entry_and_exit_spread() -> None:
     assert spread_sample.forward_net_return_bps == pytest.approx(zero_spread_sample.forward_net_return_bps - 5)
 
 
-def test_training_label_uses_next_bar_open_and_entry_exit_spreads() -> None:
+def test_training_label_uses_next_bar_open_and_only_known_signal_and_exit_spreads() -> None:
     sessions = _sample_sessions()
     session = date(2026, 10, 1)
     bars = sessions[session]
@@ -188,12 +188,12 @@ def test_training_label_uses_next_bar_open_and_entry_exit_spreads() -> None:
     sample = next(item for item in samples if item.session == session
                   and item.timestamp == bars[signal_index].timestamp.isoformat())
     expected = ((bars[exit_index].close / bars[entry_index].open - Decimal(1))
-                * Decimal(10_000) - Decimal("20") - Decimal("12"))
+                * Decimal(10_000) - Decimal("20") - Decimal("9"))
     assert sample.forward_net_return_bps == pytest.approx(float(expected))
     assert sample.label == int(expected > 0)
 
 
-def test_training_label_does_not_charge_signal_bar_spread_as_execution_cost() -> None:
+def test_training_label_charges_signal_bar_spread_available_before_next_open() -> None:
     sessions = _sample_sessions()
     session = date(2026, 10, 1)
     bars = sessions[session]
@@ -209,16 +209,30 @@ def test_training_label_does_not_charge_signal_bar_spread_as_execution_cost() ->
     baseline_samples = build_training_samples({session: baseline}, market="KR", horizon_bars=5,
                                               round_trip_cost_bps=Decimal("20"))
     baseline_sample = next(item for item in baseline_samples if item.timestamp == baseline[20].timestamp.isoformat())
-    assert sample.forward_net_return_bps == pytest.approx(baseline_sample.forward_net_return_bps)
+    assert sample.forward_net_return_bps == pytest.approx(baseline_sample.forward_net_return_bps - 47.5)
     assert sample.features[-2] == 100
 
 
-def test_training_skips_sample_when_next_bar_entry_spread_is_missing() -> None:
+def test_training_keeps_sample_when_next_bar_spread_is_missing() -> None:
     sessions = _sample_sessions()
     session = date(2026, 10, 1)
     entry = sessions[session][21]
     sessions[session][21] = MinuteBar(entry.timestamp, entry.open, entry.high, entry.low,
                                       entry.close, entry.volume, None)
+
+    samples = build_training_samples(sessions, market="KR", horizon_bars=5,
+                                     round_trip_cost_bps=Decimal("20"))
+    assert any(sample.session == session
+               and sample.timestamp == sessions[session][20].timestamp.isoformat()
+               for sample in samples)
+
+
+def test_training_skips_sample_when_signal_bar_spread_is_missing() -> None:
+    sessions = _sample_sessions()
+    session = date(2026, 10, 1)
+    signal = sessions[session][20]
+    sessions[session][20] = MinuteBar(signal.timestamp, signal.open, signal.high, signal.low,
+                                      signal.close, signal.volume, None)
 
     samples = build_training_samples(sessions, market="KR", horizon_bars=5,
                                      round_trip_cost_bps=Decimal("20"))

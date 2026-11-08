@@ -102,21 +102,35 @@ def test_observed_spread_reduces_entry_and_exit_fill_prices() -> None:
     assert zero_spread_trade.costs == 0
 
 
-def test_entry_with_missing_or_over_limit_next_bar_spread_is_not_filled() -> None:
+def test_next_bar_spread_does_not_look_ahead_into_entry_fill() -> None:
     for next_spread in (None, Decimal("16")):
         bars = _session_bars()
         next_bar = bars[21]
         bars[21] = MinuteBar(next_bar.timestamp, next_bar.open, next_bar.high, next_bar.low,
                              next_bar.close, next_bar.volume, next_spread)
-        following = bars[22]
-        bars[22] = MinuteBar(following.timestamp, following.open, following.high, following.low,
-                             following.close, following.volume, Decimal("16"))
         result = backtest_orb_vwap(
             "KR", "005930", bars,
             QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1")),
         )
-        assert result.signals >= 1
-        assert result.trades == ()
+        assert len(result.trades) == 1
+        expected_entry = bars[21].open * (Decimal(1) + (Decimal("5") + Decimal("2.5")) / Decimal("10000"))
+        assert result.trades[0].entry_price == expected_entry
+
+
+def test_intrabar_exit_cost_uses_preceding_quote_not_exit_bar_future_spread() -> None:
+    baseline = _session_bars()
+    changed = list(baseline)
+    target_bar = changed[22]
+    changed[22] = MinuteBar(target_bar.timestamp, target_bar.open, target_bar.high, target_bar.low,
+                            target_bar.close, target_bar.volume, Decimal("100"))
+    config = QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"))
+
+    baseline_trade = backtest_orb_vwap("KR", "005930", baseline, config).trades[0]
+    changed_trade = backtest_orb_vwap("KR", "005930", changed, config).trades[0]
+
+    assert baseline_trade.exit_reason == changed_trade.exit_reason == "TAKE_PROFIT"
+    assert changed_trade.exit_price == baseline_trade.exit_price
+    assert changed_trade.costs == baseline_trade.costs
 
 
 def test_missing_exit_spread_uses_configured_spread_ceiling() -> None:

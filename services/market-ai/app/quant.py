@@ -260,9 +260,11 @@ def backtest_orb_vwap(
             elif index == len(bars) - 1:
                 exit_price, reason = bar.close, "SESSION_END"
             if exit_price is not None:
-                # Use the observed full spread when available. If the exit bar lacks
-                # a quote, charge the configured entry spread ceiling conservatively.
-                exit_spread_bps = bar.spread_bps if bar.spread_bps is not None else config.maximum_spread_bps
+                # A spread aggregated anywhere inside this bar may arrive after an
+                # open/intrabar exit. Use only the previous completed bar's quote;
+                # for a session-close fill, the final bar's quote is contemporaneous.
+                exit_spread = (bar.spread_bps if reason == "SESSION_END" else prior[-1].spread_bps)
+                exit_spread_bps = exit_spread if exit_spread is not None else config.maximum_spread_bps
                 exit_cost_bps = config.slippage_bps + exit_spread_bps / Decimal(2)
                 slipped_exit = exit_price * (Decimal(1) - exit_cost_bps / Decimal(10_000))
                 raw_entry = bars[entry_index].open
@@ -288,8 +290,11 @@ def backtest_orb_vwap(
             signals += 1
             if index + 1 < len(bars):
                 next_bar = bars[index + 1]
-                if next_bar.spread_bps is not None and next_bar.spread_bps <= config.maximum_spread_bps:
-                    entry_cost_bps = config.slippage_bps + next_bar.spread_bps / Decimal(2)
+                # The next bar's spread is only known after that minute closes.
+                # Price the next-open fill from the quote available at signal close.
+                signal_spread_bps = bar.spread_bps
+                if signal_spread_bps is not None and signal_spread_bps <= config.maximum_spread_bps:
+                    entry_cost_bps = config.slippage_bps + signal_spread_bps / Decimal(2)
                     fill = next_bar.open * (Decimal(1) + entry_cost_bps / Decimal(10_000))
                     risk = _atr(history, config.atr_period) * config.atr_stop_multiple
                     stop = fill - risk
