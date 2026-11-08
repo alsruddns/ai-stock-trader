@@ -9,7 +9,7 @@ Describe 'LEAN backtest cost inputs' {
             'BACKTEST_US_SELL_COMMISSION_BPS=9'
             'BACKTEST_US_SELL_TAX_BPS=2'
             'BACKTEST_US_SLIPPAGE_BPS=3'
-            'KIS_APP_SECRET=must-not-be-read'
+            'UNRELATED_SECRET=must-not-be-read'
         ) | Set-Content -LiteralPath $environmentFile -Encoding ASCII
 
         $settings = Get-LeanBacktestCostInputs -Market US -EnvironmentFile $environmentFile
