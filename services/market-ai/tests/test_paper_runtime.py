@@ -733,6 +733,7 @@ def test_real_signal_submission_stays_locked_without_real_rest_evidence_settings
     monkeypatch.setenv("KIS_REAL_APP_KEY", "real-key")
     monkeypatch.setenv("KIS_REAL_APP_SECRET", "real-secret")
     monkeypatch.setenv("KIS_REAL_ACCOUNT_NUMBER", "1234567801")
+    monkeypatch.setenv("KIS_REAL_MARKET_DATA_ENABLED", "true")
     monkeypatch.setenv("PAPER_WATCHLIST", "KR:005930")
     monkeypatch.setenv("KIS_ENVIRONMENT", "paper")
     monkeypatch.setenv("KIS_MARKET_DATA_ENABLED", "false")
