@@ -254,6 +254,25 @@ def test_us_quote_transport_failures_expose_only_safe_category(error_type, expec
     client.close()
 
 
+def test_us_quote_invalid_json_exposes_only_invalid_response_category() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        return httpx.Response(200, content=b"private response body", headers={"content-type": "application/json"})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(KisApiError, match="transport category: invalid_response") as captured:
+        client.get_quote("US", "F", "NAS")
+
+    assert captured.value.transport_error_category == "invalid_response"
+    assert "private response body" not in str(captured.value)
+    client.close()
+
+
 def test_domestic_candidates_use_official_turnover_rank_and_require_fresh_quote_spread() -> None:
     requests_seen: list[httpx.Request] = []
 

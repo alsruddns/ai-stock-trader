@@ -73,6 +73,15 @@ def _safe_transport_error_category(exc: httpx.HTTPError) -> str:
     return "other"
 
 
+def _safe_kis_request_failure(operation: str, exc: Exception) -> KisApiError:
+    category = (_safe_transport_error_category(exc) if isinstance(exc, httpx.HTTPError)
+                else "invalid_response")
+    return KisApiError(
+        f"KIS {operation} request failed (transport category: {category}).",
+        transport_error_category=category,
+    )
+
+
 def _ensure_kis_http_success(response: httpx.Response, operation: str) -> None:
     if response.status_code < 400:
         return
@@ -356,7 +365,7 @@ class KisReadOnlyClient:
             except KisApiError:
                 raise
             except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
-                raise KisApiError("KIS authentication failed; check credentials and environment") from exc
+                raise _safe_kis_request_failure("authentication", exc) from exc
 
     def get_quote(self, market: Market, symbol: str, exchange: Exchange | None = None) -> Quote:
         normalized_symbol = symbol.strip().upper()
@@ -395,17 +404,8 @@ class KisReadOnlyClient:
             payload = response.json()
         except KisApiError:
             raise
-        except httpx.HTTPError as exc:
-            category = _safe_transport_error_category(exc)
-            raise KisApiError(
-                f"KIS quote request failed (transport category: {category}).",
-                transport_error_category=category,
-            ) from exc
-        except (ValueError, TypeError) as exc:
-            raise KisApiError(
-                "KIS quote response was invalid (transport category: invalid_response).",
-                transport_error_category="invalid_response",
-            ) from exc
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise _safe_kis_request_failure("quote", exc) from exc
 
         if payload.get("rt_cd") != "0":
             code = str(payload.get("msg_cd", "unknown"))[:32]
@@ -522,7 +522,7 @@ class KisReadOnlyClient:
         except KisApiError:
             raise
         except (httpx.HTTPError, ValueError, TypeError) as exc:
-            raise KisApiError("KIS candidate ranking request failed") from exc
+            raise _safe_kis_request_failure("candidate ranking", exc) from exc
         if payload.get("rt_cd") != "0":
             code = str(payload.get("msg_cd", "unknown"))[:32]
             raise KisApiError(f"KIS rejected the candidate ranking request (code {code})")
@@ -617,7 +617,7 @@ class KisReadOnlyClient:
         except KisApiError:
             raise
         except (httpx.HTTPError, ValueError, TypeError) as exc:
-            raise KisApiError("KIS minute chart request failed") from exc
+            raise _safe_kis_request_failure("minute chart", exc) from exc
 
         if payload.get("rt_cd") != "0":
             code = str(payload.get("msg_cd", "unknown"))[:32]
@@ -854,7 +854,7 @@ class KisReadOnlyClient:
         except KisApiError:
             raise
         except (httpx.HTTPError, ValueError, TypeError) as exc:
-            raise KisApiError("KIS overseas minute chart request failed") from exc
+            raise _safe_kis_request_failure("overseas minute chart", exc) from exc
 
         if payload.get("rt_cd") != "0":
             code = str(payload.get("msg_cd", "unknown"))[:32]
@@ -943,7 +943,7 @@ class KisReadOnlyClient:
             except KisApiError:
                 raise
             except (httpx.HTTPError, ValueError, TypeError) as exc:
-                raise KisApiError("KIS account balance request failed") from exc
+                raise _safe_kis_request_failure("account balance", exc) from exc
 
             if payload.get("rt_cd") != "0":
                 code = str(payload.get("msg_cd", "unknown"))[:32]
