@@ -89,6 +89,116 @@ def test_http_500_egw00201_maps_to_safe_rate_limit_error() -> None:
     client.close()
 
 
+def test_read_only_get_retries_one_transient_http_502(monkeypatch, caplog) -> None:
+    responses = iter([
+        httpx.Response(502, json={"msg_cd": "EGW00002", "msg1": "private server detail"}),
+        httpx.Response(200, json={"rt_cd": "0", "output": {"value": "ok"}}),
+    ])
+    requests_seen: list[httpx.Request] = []
+    slots: list[bool] = []
+    delays: list[float] = []
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(
+            lambda request: requests_seen.append(request) or next(responses)
+        )),
+    )
+    monkeypatch.setattr(client, "_wait_for_rest_slot", lambda: slots.append(True))
+    monkeypatch.setattr("app.kis.time.sleep", delays.append)
+
+    response = client._get("https://kis.example/read-only", headers={}, params={})
+
+    assert response.status_code == 200
+    assert len(requests_seen) == 2
+    assert len(slots) == 2
+    assert delays == [0.5]
+    assert "private server detail" not in caplog.text
+    client.close()
+
+
+def test_read_only_get_retries_http_200_egw00002_but_not_rate_limit(monkeypatch) -> None:
+    responses = iter([
+        httpx.Response(200, json={"rt_cd": "1", "msg_cd": "EGW00002", "msg1": "private detail"}),
+        httpx.Response(200, json={"rt_cd": "0", "output": {"value": "ok"}}),
+    ])
+    requests_seen: list[httpx.Request] = []
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(
+            lambda request: requests_seen.append(request) or next(responses)
+        )),
+    )
+    monkeypatch.setattr(client, "_wait_for_rest_slot", lambda: None)
+    monkeypatch.setattr("app.kis.time.sleep", lambda _seconds: None)
+
+    response = client._get("https://kis.example/read-only", headers={}, params={})
+    assert response.status_code == 200
+    assert len(requests_seen) == 2
+    client.close()
+
+    rate_limited: list[httpx.Request] = []
+    limited_client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(lambda request: (
+            rate_limited.append(request) or httpx.Response(
+                500, json={"msg_cd": "EGW00201", "msg1": "private quota detail"}
+            )
+        ))),
+    )
+    monkeypatch.setattr(limited_client, "_wait_for_rest_slot", lambda: None)
+
+    limited = limited_client._get("https://kis.example/read-only", headers={}, params={})
+
+    assert limited.status_code == 500
+    assert len(rate_limited) == 1
+    limited_client.close()
+
+
+def test_read_only_get_retries_one_transport_failure(monkeypatch) -> None:
+    requests_seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests_seen.append(request)
+        if len(requests_seen) == 1:
+            raise httpx.ReadTimeout("private transport details", request=request)
+        return httpx.Response(200, json={"ok": True})
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    slots: list[bool] = []
+    monkeypatch.setattr(client, "_wait_for_rest_slot", lambda: slots.append(True))
+    monkeypatch.setattr("app.kis.time.sleep", lambda _seconds: None)
+
+    response = client._get("https://kis.example/read-only", headers={}, params={})
+
+    assert response.status_code == 200
+    assert len(requests_seen) == 2
+    assert len(slots) == 2
+    client.close()
+
+
+def test_read_only_get_stops_after_one_retry_when_server_remains_unavailable(monkeypatch) -> None:
+    requests_seen: list[httpx.Request] = []
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(lambda request: (
+            requests_seen.append(request) or httpx.Response(
+                502, json={"msg_cd": "EGW00002", "msg1": "private server detail"}
+            )
+        ))),
+    )
+    monkeypatch.setattr(client, "_wait_for_rest_slot", lambda: None)
+    monkeypatch.setattr("app.kis.time.sleep", lambda _seconds: None)
+
+    response = client._get("https://kis.example/read-only", headers={}, params={})
+
+    assert response.status_code == 502
+    assert len(requests_seen) == 2
+    client.close()
+
+
 @pytest.mark.parametrize(
     ("headers", "expected_content_type"),
     [

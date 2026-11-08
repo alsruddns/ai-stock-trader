@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import threading
@@ -32,6 +33,12 @@ DOMESTIC_VOLUME_RANK_PATH = "/uapi/domestic-stock/v1/quotations/volume-rank"
 OVERSEAS_TRADE_VALUE_RANK_PATH = "/uapi/overseas-stock/v1/ranking/trade-pbmn"
 KIS_MINUTE_CHART_PAGE_SIZE = 120
 MAX_OVERSEAS_MINUTE_SESSION_PAGES = 20
+READ_ONLY_GET_RETRY_LIMIT = 1
+READ_ONLY_GET_RETRY_DELAY_SECONDS = 0.5
+_RETRYABLE_READ_HTTP_STATUSES = {500, 502, 503, 504}
+_RETRYABLE_BROKER_CODES = {"EGW00001", "EGW00002"}
+_RATE_LIMIT_BROKER_CODES = {"EGW00201"}
+_logger = logging.getLogger(__name__)
 
 
 class KisApiError(RuntimeError):
@@ -325,8 +332,46 @@ class KisReadOnlyClient:
             self._next_rest_slot = slot + self._rest_min_interval
 
     def _get(self, url: str, *, headers: dict[str, str], params: dict[str, str]) -> httpx.Response:
-        self._wait_for_rest_slot()
-        return self._http.get(url, headers=headers, params=params)
+        for attempt in range(READ_ONLY_GET_RETRY_LIMIT + 1):
+            self._wait_for_rest_slot()
+            try:
+                response = self._http.get(url, headers=headers, params=params)
+            except httpx.HTTPError as exc:
+                if attempt >= READ_ONLY_GET_RETRY_LIMIT:
+                    raise
+                _logger.warning(
+                    "KIS read-only GET transport failure; retrying attempt %d/%d (category=%s).",
+                    attempt + 1, READ_ONLY_GET_RETRY_LIMIT + 1, _safe_transport_error_category(exc),
+                )
+                time.sleep(READ_ONLY_GET_RETRY_DELAY_SECONDS)
+                continue
+
+            code = "unknown"
+            try:
+                payload = response.json()
+            except (ValueError, TypeError):
+                payload = None
+            if isinstance(payload, dict):
+                code = _safe_broker_code(payload.get("msg_cd"))
+            retryable = (
+                response.status_code not in {429}
+                and code not in _RATE_LIMIT_BROKER_CODES
+                and (
+                    response.status_code in _RETRYABLE_READ_HTTP_STATUSES
+                    or code in _RETRYABLE_BROKER_CODES
+                )
+            )
+            if not retryable or attempt >= READ_ONLY_GET_RETRY_LIMIT:
+                return response
+
+            _logger.warning(
+                "KIS read-only GET returned a transient response; retrying attempt %d/%d "
+                "(HTTP %d, broker code %s).",
+                attempt + 1, READ_ONLY_GET_RETRY_LIMIT + 1, response.status_code, code,
+            )
+            response.close()
+            time.sleep(READ_ONLY_GET_RETRY_DELAY_SECONDS)
+        raise KisApiError("KIS read-only GET retry loop ended unexpectedly")
 
     def _wait_for_token_slot(self) -> None:
         if self.settings.shared_rate_limit_enabled:
