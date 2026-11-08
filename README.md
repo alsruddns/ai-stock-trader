@@ -37,6 +37,8 @@ Copy-Item .env.example .env_local
 notepad .env_local
 ```
 
+`.env_local`은 Git에서 제외되는 로컬 파일이며 커밋하지 않습니다. 커밋 전 `.\scripts\test-tracked-credentials.ps1`로 추적 중인 파일의 KIS 키·시크릿·계좌번호 설정과 환경 파일 추가 여부를 검사할 수 있습니다. 값은 출력하지 않으며, 같은 검사는 `develop`에 푸시할 때 Windows CI에서도 실행됩니다.
+
 `.env_local`에서 설치된 PostgreSQL `postgres` 사용자의 암호를 입력합니다. 현재 앱 데이터베이스는 `ai_stock_trader`입니다. 이 DB가 아직 없으면 pgAdmin에서 `localhost:5432`에 연결해 Query Tool에서 다음 SQL을 한 번 실행합니다:
 
 ```sql

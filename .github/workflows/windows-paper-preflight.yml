@@ -29,6 +29,8 @@ jobs:
             'scripts/run-us-paper-lifecycle-smoke.ps1',
             'scripts/lib/kis-paper-order-preflight.ps1',
             'scripts/lib/us-paper-lifecycle-smoke.ps1',
+            'scripts/lib/tracked-credential-scan.ps1',
+            'scripts/test-tracked-credentials.ps1',
             'scripts/test-paper-websocket-monitor.ps1',
             'scripts/lib/exchange-session-monitor.ps1',
             'scripts/lib/market-session-scheduler.ps1',
@@ -68,6 +70,13 @@ jobs:
           if ($usPaperSmokeResult.FailedCount -gt 0 -or $usPaperSmokeResult.PassedCount -ne 4) {
             throw "US PAPER lifecycle smoke tests failed: passed=$($usPaperSmokeResult.PassedCount), failed=$($usPaperSmokeResult.FailedCount)."
           }
+
+          $credentialScanResult = Invoke-Pester -Path 'scripts/tests/tracked-credential-scan.Tests.ps1' -PassThru
+          if ($credentialScanResult.FailedCount -gt 0 -or $credentialScanResult.PassedCount -ne 5) {
+            throw "Tracked credential scan tests failed: passed=$($credentialScanResult.PassedCount), failed=$($credentialScanResult.FailedCount)."
+          }
+          & 'scripts/test-tracked-credentials.ps1'
+          if ($LASTEXITCODE -ne 0) { throw 'Tracked KIS credential scan failed.' }
 
           $sessionResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -PassThru
           if ($sessionResult.FailedCount -gt 0 -or $sessionResult.PassedCount -ne 21) {
