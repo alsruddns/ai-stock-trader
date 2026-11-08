@@ -158,6 +158,7 @@ public class KisRealOrderClient {
         String continuation = "";
         String nextSearch = "";
         String nextKey = "";
+        Set<List<String>> seenCursors = new HashSet<>();
         for (int page = 0; page < 10; page++) {
             MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
             params.add("CANO", account.substring(0, 8));
@@ -225,6 +226,7 @@ public class KisRealOrderClient {
         String continuation = "";
         String nextSearch = "";
         String nextKey = "";
+        Set<List<String>> seenCursors = new HashSet<>();
         for (int page = 0; page < 10; page++) {
             MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
             params.add("CANO", account.substring(0, 8));
@@ -272,7 +274,6 @@ public class KisRealOrderClient {
             }
             continuation = query.continuation();
             if (!"M".equalsIgnoreCase(continuation) && !"F".equalsIgnoreCase(continuation)) break;
-            continuation = "N";
             if (intent.getMarket() == Market.KR) {
                 nextSearch = response.path("ctx_area_fk100").asText("");
                 nextKey = response.path("ctx_area_nk100").asText("");
@@ -280,6 +281,13 @@ public class KisRealOrderClient {
                 nextSearch = response.path("ctx_area_fk200").asText("");
                 nextKey = response.path("ctx_area_nk200").asText("");
             }
+            if (nextSearch.isBlank() || nextKey.isBlank()
+                    || !seenCursors.add(List.of(nextSearch, nextKey))) {
+                // A missing or repeated cursor cannot establish the broker's order state.
+                // Keep the intent unresolved instead of re-reading a stale page.
+                return Optional.empty();
+            }
+            continuation = "N";
         }
         return Optional.empty();
     }

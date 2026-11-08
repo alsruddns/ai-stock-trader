@@ -259,6 +259,59 @@ class KisRealOrderClientTest {
     }
 
     @Test
+    void repeatedRealReconciliationCursorReturnsUnknownWithoutAThirdBrokerRequest() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        var repeatedPage = (org.springframework.test.web.client.ResponseCreator) request -> {
+            var response = new MockClientHttpResponse("""
+                    {"rt_cd":"0","ctx_area_fk100":"cursor-a","ctx_area_nk100":"key-a","output1":[]}
+                    """.getBytes(StandardCharsets.UTF_8), HttpStatus.OK);
+            response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+            response.getHeaders().set("tr_cont", "M");
+            return response;
+        };
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_cont", ""))
+                .andRespond(repeatedPage);
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_cont", "N"))
+                .andExpect(queryParam("CTX_AREA_FK100", "cursor-a"))
+                .andExpect(queryParam("CTX_AREA_NK100", "key-a"))
+                .andRespond(repeatedPage);
+
+        assertTrue(new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                .reconcileRealOrder(realIntent(Market.KR, "005930", "7001", "ORG01", null, 1)).isEmpty());
+        server.verify();
+    }
+
+    @Test
+    void missingRealReconciliationCursorReturnsUnknownWithoutRepeatingFirstPage() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_cont", ""))
+                .andRespond(request -> {
+                    var response = new MockClientHttpResponse("""
+                            {"rt_cd":"0","ctx_area_fk100":"","ctx_area_nk100":"","output1":[]}
+                            """.getBytes(StandardCharsets.UTF_8), HttpStatus.OK);
+                    response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                    response.getHeaders().set("tr_cont", "M");
+                    return response;
+                });
+
+        assertTrue(new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                .reconcileRealOrder(realIntent(Market.KR, "005930", "7001", "ORG01", null, 1)).isEmpty());
+        server.verify();
+    }
+
+    @Test
     void realReconciliationReservesSharedRateLimitBeforeHttpGet() throws Exception {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
