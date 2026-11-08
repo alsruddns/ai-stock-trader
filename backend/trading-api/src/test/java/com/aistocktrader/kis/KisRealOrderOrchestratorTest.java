@@ -221,6 +221,25 @@ class KisRealOrderOrchestratorTest {
     }
 
     @Test
+    void concurrentReservationConflictNeverPostsARealOrder() {
+        UUID key = UUID.randomUUID();
+        OrderRequest sell = new OrderRequest(Market.KR, "005930", OrderSide.SELL, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        org.springframework.dao.DataIntegrityViolationException reservationConflict =
+                new org.springframework.dao.DataIntegrityViolationException(
+                        "uq_kis_real_unresolved_order_per_market");
+        when(intents.prepare(eq(key), anyString(), eq(KisEnvironment.REAL), eq(sell), isNull()))
+                .thenThrow(reservationConflict, reservationConflict);
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                org.springframework.dao.DataIntegrityViolationException.class,
+                () -> orchestrator.submit(key, sell, null, realAccount()));
+
+        verify(intents, times(2)).prepare(eq(key), anyString(), eq(KisEnvironment.REAL), eq(sell), isNull());
+        verify(orders, never()).placeRealLimitOrder(any(), anyString(), any(), anyInt(), any(), any(), anyString(), any());
+    }
+
+    @Test
     void missingServerDailyBaselineBlocksBuy() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();
