@@ -10,7 +10,7 @@ from pathlib import Path
 repository = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repository / "services" / "market-ai"))
 
-from app.ai_pipeline import LocalModelRegistry, build_training_samples
+from app.ai_pipeline import LocalModelRegistry
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance, validate_model_training_coverage
 from app.quant import QuantConfig
@@ -41,12 +41,8 @@ def main() -> int:
     except ValueError as exc:
         parser.error(str(exc))
     quant_config = QuantConfig(commission_bps=args.commission_bps, slippage_bps=args.slippage_bps)
-    samples = build_training_samples(
-        sessions, market=args.market, horizon_bars=args.horizon_bars,
-        round_trip_cost_bps=args.round_trip_cost_bps, quant_config=quant_config,
-    )
     results = LocalModelRegistry(args.registry).train_compare(
-        samples, market=args.market, symbol=args.symbol, sessions=sessions, quant_config=quant_config,
+        market=args.market, symbol=args.symbol, sessions=sessions, quant_config=quant_config,
         label_horizon_bars=args.horizon_bars, label_round_trip_cost_bps=args.round_trip_cost_bps,
         dataset_sha256=dataset_sha256, dataset_provenance=provenance,
     )

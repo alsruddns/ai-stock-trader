@@ -892,7 +892,7 @@ class LocalModelRegistry:
             if os.path.exists(temporary):
                 os.unlink(temporary)
 
-    def train_compare(self, samples: list[TrainingSample], *, market: str, symbol: str,
+    def train_compare(self, *, market: str, symbol: str,
                       sessions: dict[date, list[MinuteBar]], quant_config: QuantConfig = QuantConfig(),
                       label_horizon_bars: int, label_round_trip_cost_bps: Decimal,
                       dataset_sha256: str, dataset_provenance: dict[str, Any]) -> list[ModelTrainingResult]:
@@ -911,6 +911,13 @@ class LocalModelRegistry:
             raise ValueError("dataset_sha256 must be a lowercase SHA-256 digest")
         provenance = validate_data_provenance(dataset_provenance, expected_sha256=dataset_sha256,
                                               purpose="model_training")
+        # Derive every training row from the exact session mapping used for the
+        # strategy backtest. Callers cannot pair samples from another dataset
+        # with this dataset's reviewed provenance digest.
+        samples = build_training_samples(
+            sessions, market=market, horizon_bars=label_horizon_bars,
+            round_trip_cost_bps=label_round_trip_cost_bps, quant_config=quant_config,
+        )
         try:
             from lightgbm import LGBMClassifier
             from xgboost import XGBClassifier
