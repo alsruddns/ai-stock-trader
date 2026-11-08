@@ -23,6 +23,8 @@ P3/P4 재현용 비용 가정은 `.env_local`의 시장별 `BACKTEST_*` 키 다�
 
 2026-11-09 확인한 [KIS Open API 목록](https://apiportal.koreainvestment.com/apiservice-summary)과 [공식 샘플 저장소](https://github.com/koreainvestment/open-trading-api)에서는 계좌별 적용 수수료율을 반환하는 조회 API를 찾지 못했습니다. 이는 문서 목록을 기준으로 한 확인 결과이며, API 제공 여부가 바뀔 수 있습니다. 계좌별 우대 수수료는 KIS 앱/홈페이지의 계좌별 수수료 안내 또는 체결 후 손익·비용 명세에서 확인한 뒤 설정해야 합니다. 요율을 확인할 수 없으면 임의의 0이나 일반 요율을 넣지 말고 비용 가정을 미완료로 둡니다.
 
+[KIS 공식 FAQ](https://securities.koreainvestment.com/main/customer/support/_static/TF04fg000000.jsp?mctgr=03&sctgr=%25)는 국내주식 온라인 수수료가 계좌관리점에 따라 달라질 수 있다고 안내합니다. 한국투자앱에서 국내는 `메뉴 > 자산 > 나의 총 자산 > 해당 계좌 우측 점 세 개 > 계좌정보`, 해외는 `메뉴 > 고객지원 > 고객센터 > 수수료 안내 > 온라인매매 수수료 > 영업점 주식 > 해외주식` 경로로 확인합니다. 홈페이지에서는 `뱅킹/청약/대출 > 조회 > 자산현황/잔고 > 자산현황 > 유잔고 > 전체 > 관리점`에서 관리점을 확인하고 `이용안내 > 업무 이용안내 > 수수료안내 > 온라인매매(수수료)`의 요율표와 대조합니다. FAQ는 이벤트 참여 등으로 실제 온라인 수수료가 달라질 수 있으므로 관리점에 확인하라고 안내합니다. 화면명은 앱 버전에 따라 바뀔 수 있습니다.
+
 백테스트 키는 시장별로 `BACKTEST_{KR|US}_BUY_COMMISSION_BPS`, `BACKTEST_{KR|US}_SELL_COMMISSION_BPS`, `BACKTEST_{KR|US}_SELL_TAX_BPS`, `BACKTEST_{KR|US}_SLIPPAGE_BPS`, `BACKTEST_{KR|US}_ROUND_TRIP_COST_BPS`입니다. 1 basis point는 0.01%입니다. 매수·매도 수수료, 매도세, 편도 슬리피지를 입력하고, `ROUND_TRIP_COST_BPS`에는 AI 학습 레이블에 사용할 왕복 총비용을 입력합니다. 왕복 총비용은 매수·매도 수수료와 매도세 및 왕복 슬리피지 합보다 낮을 수 없고, 이 값을 다른 거래비용에 다시 더하지 않습니다. PAPER ledger의 `PAPER_*_BPS` 키와도 별도입니다. 실제 계좌 비용이 확인되기 전에는 비용 포함 손익·모델 성능·실전 준비 판정을 완료로 보지 않습니다.
 
 ### Python 의존성 갱신
