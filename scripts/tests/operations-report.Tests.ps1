@@ -19,8 +19,8 @@ Describe 'Optional operations report endpoint diagnostics' {
         $nextRun = [datetime]'2026-11-09T08:45:00'
         Mock Get-ScheduledTask {
             @(
-                [pscustomobject]@{ TaskName = 'AIStockTrader-KRX-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true } },
-                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $false; StartWhenAvailable = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-KRX-Session-Monitor-20261109'; State = 'Ready'; Principal = [pscustomobject]@{ LogonType = 'Interactive' }; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Session-Monitor-20261109'; State = 'Ready'; Principal = [pscustomobject]@{ LogonType = 'Password' }; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $false; StartWhenAvailable = $true } },
                 [pscustomobject]@{ TaskName = 'Unrelated-Task'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } }
             )
         }
@@ -45,8 +45,12 @@ Describe 'Optional operations report endpoint diagnostics' {
         $summary.tasks[0].lastRunTime | Should Be $null
         $summary.tasks[0].lastTaskResult | Should Be 267011
         $krTask.wakeToRun | Should Be $true
+        $krTask.principalLogonType | Should Be 'Interactive'
+        $krTask.requiresInteractiveLogon | Should Be $true
         $krTask.startWhenAvailable | Should Be $true
         $usTask.wakeToRun | Should Be $false
+        $usTask.principalLogonType | Should Be 'Password'
+        $usTask.requiresInteractiveLogon | Should Be $false
     }
 
     It 'marks missing session monitor schedules as unverified' {
@@ -57,6 +61,39 @@ Describe 'Optional operations report endpoint diagnostics' {
         $summary.state | Should Be 'UNVERIFIED'
         $summary.registeredCount | Should Be 0
         $summary.tasks.Count | Should Be 0
+    }
+
+    It 'reports local stack login dependence and does not expose the task principal identity' {
+        Mock Get-ScheduledTask {
+            return [pscustomobject]@{
+                TaskName = 'AIStockTrader-LocalStack'
+                State = 'Running'
+                Principal = [pscustomobject]@{ UserId = 'PRIVATE\\account'; LogonType = 'Interactive' }
+                Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $false; StartWhenAvailable = $true }
+            }
+        }
+        Mock Get-ScheduledTaskInfo {
+            return [pscustomobject]@{ NextRunTime = [datetime]::MinValue; LastRunTime = [datetime]::Now; LastTaskResult = 0 }
+        }
+
+        $summary = Get-AiTraderLocalStackTaskSummary
+        $json = $summary | ConvertTo-Json -Compress
+
+        $summary.state | Should Be 'Running'
+        $summary.principalLogonType | Should Be 'Interactive'
+        $summary.requiresInteractiveLogon | Should Be $true
+        $summary.enabled | Should Be $true
+        $json | Should Not Match 'PRIVATE'
+    }
+
+    It 'reports an absent local stack task as unverified' {
+        Mock Get-ScheduledTask { return $null }
+
+        $summary = Get-AiTraderLocalStackTaskSummary
+
+        $summary.state | Should Be 'UNVERIFIED'
+        $summary.principalLogonType | Should Be 'UNKNOWN'
+        $summary.requiresInteractiveLogon | Should Be $null
     }
 
     It 'records a safe error class when Task Scheduler cannot be queried' {
@@ -87,6 +124,7 @@ Describe 'Optional operations report endpoint diagnostics' {
 
         $summary.state | Should Be 'PARTIAL'
         @($summary.tasks | Where-Object { $_.state -eq 'UNKNOWN' }).Count | Should Be 1
+        @($summary.tasks | Where-Object { $_.requiresInteractiveLogon -ne $null }).Count | Should Be 0
         $json | Should Not Match 'private status detail'
     }
 
@@ -94,9 +132,9 @@ Describe 'Optional operations report endpoint diagnostics' {
         $nextRun = [datetime]'2026-11-09T23:45:00'
         Mock Get-ScheduledTask {
             @(
-                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Paper-Lifecycle-Smoke-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true } },
-                [pscustomobject]@{ TaskName = 'AIStockTrader-P4-Model-Train-KR-005930-20261128'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true } },
-                [pscustomobject]@{ TaskName = 'AIStockTrader-P4-Model-Holdout-US-AAPL-20261205'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $false; StartWhenAvailable = $false } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Paper-Lifecycle-Smoke-20261109'; State = 'Ready'; Principal = [pscustomobject]@{ LogonType = 'Interactive' }; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-P4-Model-Train-KR-005930-20261128'; State = 'Ready'; Principal = [pscustomobject]@{ LogonType = 'Interactive' }; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-P4-Model-Holdout-US-AAPL-20261205'; State = 'Ready'; Principal = [pscustomobject]@{ LogonType = 'Password' }; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $false; StartWhenAvailable = $false } },
                 [pscustomobject]@{ TaskName = 'AIStockTrader-US-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
                 [pscustomobject]@{ TaskName = 'Unrelated-Task'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } }
             )
@@ -125,6 +163,7 @@ Describe 'Optional operations report endpoint diagnostics' {
         $paperTask.taskDate | Should Be '20261109'
         $paperTask.nextRunTime | Should Be $nextRun.ToString('o')
         $paperTask.wakeToRun | Should Be $true
+        $paperTask.requiresInteractiveLogon | Should Be $true
         $paperTask.startWhenAvailable | Should Be $true
         $trainTask.market | Should Be 'KR'
         $trainTask.symbol | Should Be '005930'
@@ -132,6 +171,7 @@ Describe 'Optional operations report endpoint diagnostics' {
         $holdoutTask.market | Should Be 'US'
         $holdoutTask.symbol | Should Be 'AAPL'
         $holdoutTask.startWhenAvailable | Should Be $false
+        $holdoutTask.requiresInteractiveLogon | Should Be $false
     }
 
     It 'marks missing validation tasks unverified' {
@@ -233,7 +273,7 @@ Describe 'Daily operations report endpoint health summary' {
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
         $archivedReport = Get-Content -LiteralPath $archivePath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 9
+        $report.reportSchemaVersion | Should Be 10
         $archivedReport.generatedAt | Should Be $report.generatedAt
         $archivedReport.tradingMode | Should Be $report.tradingMode
         $report.pythonConnected | Should Be $true
@@ -242,6 +282,9 @@ Describe 'Daily operations report endpoint health summary' {
         $report.marketDataQualitySummary.spreadCoverage | Should Be 'UNVERIFIED'
         $report.endpointStatus.'python.market_data_quality_KR'.state | Should Be 'SKIPPED_NO_SYMBOLS'
         $report.endpointStatus.'local.model_retraining'.state | Should Be 'NO_RUNS'
+        $report.endpointStatus.'local.local_stack_task'.state | Should Be $report.localStackTask.state
+        $report.endpointStatus.'local.local_stack_task'.principalLogonType | Should Be $report.localStackTask.principalLogonType
+        $report.endpointStatus.'local.local_stack_task'.requiresInteractiveLogon | Should Be $report.localStackTask.requiresInteractiveLogon
         $report.endpointStatus.'local.session_monitor_schedule'.state | Should Be $report.sessionMonitorSchedule.state
         $report.endpointStatus.'local.session_monitor_schedule'.registeredCount | Should Be $report.sessionMonitorSchedule.registeredCount
         $report.endpointStatus.'local.session_monitor_schedule'.timeZoneId | Should Be $report.sessionMonitorSchedule.timeZoneId

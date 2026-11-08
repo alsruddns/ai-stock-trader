@@ -58,6 +58,16 @@ $endpointStatus['local.model_retraining'] = [ordered]@{
     failureStage = $modelRetraining.latestRun.failureStage
     errorType = $modelRetraining.latestRun.errorType
 }
+$localStackTask = Get-AiTraderLocalStackTaskSummary
+$endpointStatus['local.local_stack_task'] = [ordered]@{
+    state = $localStackTask.state
+    principalLogonType = $localStackTask.principalLogonType
+    requiresInteractiveLogon = $localStackTask.requiresInteractiveLogon
+    enabled = $localStackTask.enabled
+    wakeToRun = $localStackTask.wakeToRun
+    startWhenAvailable = $localStackTask.startWhenAvailable
+    errorType = $localStackTask.errorType
+}
 $sessionMonitorSchedule = Get-AiTraderSessionMonitorScheduleSummary
 $endpointStatus['local.session_monitor_schedule'] = [ordered]@{
     state = $sessionMonitorSchedule.state
@@ -109,7 +119,7 @@ foreach ($market in @('KR', 'US')) {
     $marketDataQuality[$market] = $qualityResult.data
 }
 
-$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 9 -Force
+$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 10 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
 $endpointStates = @($endpointStatus.Values | ForEach-Object { $_.state })
@@ -126,6 +136,7 @@ $report | Add-Member -MemberType NoteProperty -Name pythonHealth -Value $pythonH
 $report | Add-Member -MemberType NoteProperty -Name paperSession -Value $paperSession -Force
 $report | Add-Member -MemberType NoteProperty -Name aiModels -Value $aiModels -Force
 $report | Add-Member -MemberType NoteProperty -Name modelRetraining -Value $modelRetraining -Force
+$report | Add-Member -MemberType NoteProperty -Name localStackTask -Value $localStackTask -Force
 $report | Add-Member -MemberType NoteProperty -Name sessionMonitorSchedule -Value $sessionMonitorSchedule -Force
 $report | Add-Member -MemberType NoteProperty -Name validationTaskSchedule -Value $validationTaskSchedule -Force
 $report | Add-Member -MemberType NoteProperty -Name marketSessions -Value $marketSessions -Force

@@ -157,6 +157,8 @@ function Get-AiTraderSessionMonitorScheduleSummary {
     $rows = @()
     foreach ($task in $tasks) {
         $market = if ($task.TaskName -like 'AIStockTrader-KRX-*') { 'KR' } else { 'US' }
+        $logonType = if ($task.Principal -and $task.Principal.LogonType) { [string]$task.Principal.LogonType } else { 'UNKNOWN' }
+        $requiresInteractiveLogon = if ($logonType -eq 'UNKNOWN') { $null } else { $logonType -eq 'Interactive' }
         try {
             $info = Get-ScheduledTaskInfo -TaskName $task.TaskName -ErrorAction Stop
             $rows += [ordered]@{
@@ -164,6 +166,8 @@ function Get-AiTraderSessionMonitorScheduleSummary {
                 taskName = $task.TaskName
                 state = [string]$task.State
                 enabled = [bool]$task.Settings.Enabled
+                principalLogonType = $logonType
+                requiresInteractiveLogon = $requiresInteractiveLogon
                 wakeToRun = [bool]$task.Settings.WakeToRun
                 startWhenAvailable = [bool]$task.Settings.StartWhenAvailable
                 nextRunTime = if ($info.NextRunTime -and $info.NextRunTime.Year -gt 2000) { $info.NextRunTime.ToString('o') } else { $null }
@@ -177,6 +181,8 @@ function Get-AiTraderSessionMonitorScheduleSummary {
                 taskName = $task.TaskName
                 state = 'UNKNOWN'
                 enabled = [bool]$task.Settings.Enabled
+                principalLogonType = $logonType
+                requiresInteractiveLogon = $requiresInteractiveLogon
                 wakeToRun = [bool]$task.Settings.WakeToRun
                 startWhenAvailable = [bool]$task.Settings.StartWhenAvailable
                 nextRunTime = $null
@@ -194,6 +200,55 @@ function Get-AiTraderSessionMonitorScheduleSummary {
         krRegisteredCount = @($rows | Where-Object { $_.market -eq 'KR' }).Count
         usRegisteredCount = @($rows | Where-Object { $_.market -eq 'US' }).Count
         tasks = @($rows | Sort-Object market, taskName)
+    }
+}
+
+function Get-AiTraderLocalStackTaskSummary {
+    $taskName = 'AIStockTrader-LocalStack'
+    try {
+        $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+        if (-not $task) {
+            return [ordered]@{
+                state = 'UNVERIFIED'
+                errorType = $null
+                principalLogonType = 'UNKNOWN'
+                requiresInteractiveLogon = $null
+                enabled = $false
+                wakeToRun = $false
+                startWhenAvailable = $false
+                nextRunTime = $null
+                lastRunTime = $null
+                lastTaskResult = $null
+            }
+        }
+        $info = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+        $logonType = if ($task.Principal -and $task.Principal.LogonType) { [string]$task.Principal.LogonType } else { 'UNKNOWN' }
+        return [ordered]@{
+            state = [string]$task.State
+            errorType = $null
+            principalLogonType = $logonType
+            requiresInteractiveLogon = if ($logonType -eq 'UNKNOWN') { $null } else { $logonType -eq 'Interactive' }
+            enabled = [bool]$task.Settings.Enabled
+            wakeToRun = [bool]$task.Settings.WakeToRun
+            startWhenAvailable = [bool]$task.Settings.StartWhenAvailable
+            nextRunTime = if ($info.NextRunTime -and $info.NextRunTime.Year -gt 2000) { $info.NextRunTime.ToString('o') } else { $null }
+            lastRunTime = if ($info.LastRunTime -and $info.LastRunTime.Year -gt 2000) { $info.LastRunTime.ToString('o') } else { $null }
+            lastTaskResult = [int]$info.LastTaskResult
+        }
+    }
+    catch {
+        return [ordered]@{
+            state = 'UNAVAILABLE'
+            errorType = $_.Exception.GetType().Name
+            principalLogonType = 'UNKNOWN'
+            requiresInteractiveLogon = $null
+            enabled = $false
+            wakeToRun = $false
+            startWhenAvailable = $false
+            nextRunTime = $null
+            lastRunTime = $null
+            lastTaskResult = $null
+        }
     }
 }
 
@@ -230,6 +285,7 @@ function Get-AiTraderValidationTaskScheduleSummary {
         $market = $matchedTask.Groups[$definition.MarketGroup].Value
         if ($market -eq 'KRX') { $market = 'KR' }
         if ($kind -eq 'P4_MODEL') { $kind = 'P4_MODEL_' + $matchedTask.Groups[$definition.ModeGroup].Value.ToUpperInvariant() }
+        $logonType = if ($task.Principal -and $task.Principal.LogonType) { [string]$task.Principal.LogonType } else { 'UNKNOWN' }
         $row = [ordered]@{
             kind = $kind
             market = $market
@@ -238,6 +294,8 @@ function Get-AiTraderValidationTaskScheduleSummary {
             taskName = [string]$task.TaskName
             state = [string]$task.State
             enabled = [bool]$task.Settings.Enabled
+            principalLogonType = $logonType
+            requiresInteractiveLogon = if ($logonType -eq 'UNKNOWN') { $null } else { $logonType -eq 'Interactive' }
             wakeToRun = [bool]$task.Settings.WakeToRun
             startWhenAvailable = [bool]$task.Settings.StartWhenAvailable
             nextRunTime = $null
