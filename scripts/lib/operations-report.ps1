@@ -170,6 +170,8 @@ function Get-AiTraderSessionMonitorScheduleSummary {
                 requiresInteractiveLogon = $requiresInteractiveLogon
                 wakeToRun = [bool]$task.Settings.WakeToRun
                 startWhenAvailable = [bool]$task.Settings.StartWhenAvailable
+                restartCount = [int]$task.Settings.RestartCount
+                restartInterval = [string]$task.Settings.RestartInterval
                 nextRunTime = if ($info.NextRunTime -and $info.NextRunTime.Year -gt 2000) { $info.NextRunTime.ToString('o') } else { $null }
                 lastRunTime = if ($info.LastRunTime -and $info.LastRunTime.Year -gt 2000) { $info.LastRunTime.ToString('o') } else { $null }
                 lastTaskResult = [int]$info.LastTaskResult
@@ -185,6 +187,8 @@ function Get-AiTraderSessionMonitorScheduleSummary {
                 requiresInteractiveLogon = $requiresInteractiveLogon
                 wakeToRun = [bool]$task.Settings.WakeToRun
                 startWhenAvailable = [bool]$task.Settings.StartWhenAvailable
+                restartCount = [int]$task.Settings.RestartCount
+                restartInterval = [string]$task.Settings.RestartInterval
                 nextRunTime = $null
                 lastRunTime = $null
                 lastTaskResult = $null

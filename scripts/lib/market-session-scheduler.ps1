@@ -11,6 +11,9 @@ function Test-SessionMonitorTaskDefinition {
         $Task.Principal.RunLevel -ne 'Limited' -or $Task.Principal.LogonType -ne 'Interactive' -or
         -not [bool]$Task.Settings.WakeToRun -or -not [bool]$Task.Settings.StartWhenAvailable -or
         $Task.Settings.MultipleInstances -ne 'IgnoreNew' -or
+        [int]$Task.Settings.RestartCount -ne 4 -or
+        [string]$Task.Settings.RestartInterval -ne 'PT1M' -or
+        [string]$Task.Settings.ExecutionTimeLimit -ne 'PT8H' -or
         @($Task.Actions).Count -ne 1 -or @($Task.Triggers).Count -ne 1) { return $false }
 
     $action = $Task.Actions[0]

@@ -19,8 +19,8 @@ Describe 'Optional operations report endpoint diagnostics' {
         $nextRun = [datetime]'2026-11-09T08:45:00'
         Mock Get-ScheduledTask {
             @(
-                [pscustomobject]@{ TaskName = 'AIStockTrader-KRX-Session-Monitor-20261109'; State = 'Ready'; Principal = [pscustomobject]@{ LogonType = 'Interactive' }; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true } },
-                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Session-Monitor-20261109'; State = 'Ready'; Principal = [pscustomobject]@{ LogonType = 'Password' }; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $false; StartWhenAvailable = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-KRX-Session-Monitor-20261109'; State = 'Ready'; Principal = [pscustomobject]@{ LogonType = 'Interactive' }; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true; RestartCount = 4; RestartInterval = 'PT1M' } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Session-Monitor-20261109'; State = 'Ready'; Principal = [pscustomobject]@{ LogonType = 'Password' }; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $false; StartWhenAvailable = $true; RestartCount = 0; RestartInterval = $null } },
                 [pscustomobject]@{ TaskName = 'Unrelated-Task'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } }
             )
         }
@@ -48,6 +48,8 @@ Describe 'Optional operations report endpoint diagnostics' {
         $krTask.principalLogonType | Should Be 'Interactive'
         $krTask.requiresInteractiveLogon | Should Be $true
         $krTask.startWhenAvailable | Should Be $true
+        $krTask.restartCount | Should Be 4
+        $krTask.restartInterval | Should Be 'PT1M'
         $usTask.wakeToRun | Should Be $false
         $usTask.principalLogonType | Should Be 'Password'
         $usTask.requiresInteractiveLogon | Should Be $false

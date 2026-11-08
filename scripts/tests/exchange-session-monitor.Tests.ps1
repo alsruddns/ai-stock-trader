@@ -239,6 +239,7 @@ function New-TestScheduledTask($State, $Arguments, $TriggerType, $StartBoundary,
         Principal = [pscustomobject]@{ RunLevel = 'Limited'; LogonType = 'Interactive' }
         Settings = [pscustomobject]@{
             WakeToRun = $true; StartWhenAvailable = $true; MultipleInstances = 'IgnoreNew'
+            RestartCount = 4; RestartInterval = 'PT1M'; ExecutionTimeLimit = 'PT8H'
         }
     }
 }
@@ -259,6 +260,14 @@ Describe 'Existing market session task verification' {
         (Test-SessionMonitorTaskDefinition $disabled 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
             ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $false
         (Test-SessionMonitorTaskDefinition $wrongFeed 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
+            ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $false
+    }
+
+    It 'rejects a monitor task without the bounded transient-failure retries' {
+        $task = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -RequireSessionClose' `
+            'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
+        $task.Settings.RestartCount = 0
+        (Test-SessionMonitorTaskDefinition $task 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
             ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $false
     }
 
