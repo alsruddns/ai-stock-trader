@@ -371,15 +371,16 @@ public class KisRealOrderClient {
     }
 
     private static void addSessionExecution(Map<String, KisBrokerSessionExecution> executions, JsonNode row) {
-        String orderNumber = firstText(row, "odno", "ODNO");
-        String symbol = firstText(row, "pdno", "PDNO", "ovrs_pdno", "OVRS_PDNO");
-        String sideCode = firstText(row, "sll_buy_dvsn_cd", "SLL_BUY_DVSN_CD", "sll_buy_dvsn", "SLL_BUY_DVSN");
+        String orderNumber = consistentSessionText(row, "odno", "ODNO");
+        String symbol = consistentSessionText(row, "pdno", "PDNO", "ovrs_pdno", "OVRS_PDNO");
+        String sideCode = consistentSessionText(row, "sll_buy_dvsn_cd", "SLL_BUY_DVSN_CD",
+                "sll_buy_dvsn", "SLL_BUY_DVSN");
         OrderSide side = switch (sideCode.trim().toUpperCase(Locale.ROOT)) {
             case "01", "SELL" -> OrderSide.SELL;
             case "02", "BUY" -> OrderSide.BUY;
             default -> null;
         };
-        String organization = firstText(row, "ord_gno_brno", "ORD_GNO_BRNO",
+        String organization = consistentSessionText(row, "ord_gno_brno", "ORD_GNO_BRNO",
                 "krx_fwdg_ord_orgno", "KRX_FWDG_ORD_ORGNO");
         if (orderNumber.isBlank() || symbol.isBlank() || side == null) {
             throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution row is incomplete.");
@@ -392,6 +393,24 @@ public class KisRealOrderClient {
                     && !previous.organizationNumber().equalsIgnoreCase(value.organizationNumber())))) {
             throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution rows conflict.");
         }
+    }
+
+    private static String consistentSessionText(JsonNode row, String... fields) {
+        String selected = "";
+        for (String field : fields) {
+            JsonNode candidate = row.path(field);
+            if (candidate.isMissingNode() || candidate.isNull()) continue;
+            if (!candidate.isTextual() && !candidate.isNumber()) {
+                throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution row is malformed.");
+            }
+            String value = candidate.asText("").trim();
+            if (value.isBlank()) continue;
+            if (!selected.isBlank() && !selected.equalsIgnoreCase(value)) {
+                throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution row contains conflicting fields.");
+            }
+            selected = value;
+        }
+        return selected;
     }
 
     public record KisBrokerSessionExecution(String orderNumber, String symbol, OrderSide side,
