@@ -145,6 +145,18 @@ Describe 'Sanitized KIS error reporting' {
     It 'does not expose arbitrary error values as broker codes' {
         Get-SafeKisBrokerCode -ErrorDetail '{"detail":"failed token=hidden code password123"}' | Should Be $null
     }
+
+    It 'formats a broker failure using only the HTTP status, safe path, and recognized code' {
+        $message = Format-SafeLocalApiFailure -Status '502' -Path '/api/v1/market/quotes/US/F' `
+            -ErrorDetail '{"detail":"KIS quote request failed (HTTP 502, code EGW00002)."}'
+        $message | Should Be 'Local preflight request failed (HTTP 502, KIS code EGW00002) for /api/v1/market/quotes/US/F; inspect the sanitized service logs.'
+    }
+
+    It 'suppresses response text and rejects unsafe status or path values' {
+        $message = Format-SafeLocalApiFailure -Status '502 token=hidden' -Path '/path?account=hidden' `
+            -ErrorDetail '{"detail":"token=hidden code password123"}'
+        $message | Should Be 'Local preflight request failed (HTTP unavailable) for /unknown; inspect the sanitized service logs.'
+    }
 }
 
 Describe 'KIS PAPER exchange session preflight' {

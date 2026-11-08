@@ -88,18 +88,8 @@ function Get-LocalApi([string]$Url, [int]$TimeoutSec = 15) {
         if ($null -ne $_.Exception.Response -and $null -ne $_.Exception.Response.StatusCode) {
             $status = [string][int]$_.Exception.Response.StatusCode
         }
-        $safeBrokerCode = $null
-        $errorDetail = [string]$_.ErrorDetails.Message
-        if ($errorDetail) {
-            try {
-                $errorPayload = $errorDetail | ConvertFrom-Json -ErrorAction Stop
-                $errorDetail = [string]$errorPayload.detail
-            } catch { }
-            $safeBrokerCode = Get-SafeKisBrokerCode -ErrorDetail $errorDetail
-        }
         $safePath = ([Uri]$Url).AbsolutePath
-        $codeSummary = if ($safeBrokerCode) { ", KIS code $safeBrokerCode" } else { '' }
-        throw "Local preflight request failed (HTTP $status$codeSummary) for $safePath; inspect the sanitized service logs."
+        throw (Format-SafeLocalApiFailure -Status $status -Path $safePath -ErrorDetail ([string]$_.ErrorDetails.Message))
     }
 }
 

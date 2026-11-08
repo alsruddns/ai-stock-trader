@@ -10,6 +10,16 @@ if (-not $ConfirmPaperLifecycleSmoke) {
     throw 'No request was sent. The one-share PAPER lifecycle smoke requires -ConfirmPaperLifecycleSmoke.'
 }
 
+. (Join-Path $PSScriptRoot 'lib/kis-paper-order-preflight.ps1')
+
+function Get-SafeHttpStatus($ErrorRecord) {
+    if ($null -ne $ErrorRecord.Exception.Response -and $null -ne $ErrorRecord.Exception.Response.StatusCode) {
+        $candidate = [string][int]$ErrorRecord.Exception.Response.StatusCode
+        if ($candidate -match '^\d{3}$') { return $candidate }
+    }
+    return 'unavailable'
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $envPath = Join-Path $repoRoot '.env_local'
 if (-not (Test-Path -LiteralPath $envPath)) {
@@ -32,8 +42,13 @@ try {
     }
 
     $quoteUri = "$MarketAiApiBaseUrl/api/v1/market/quotes/US/F?exchange=NASD"
-    $quote = Invoke-RestMethod -Uri $quoteUri -TimeoutSec 10
-    . (Join-Path $PSScriptRoot 'lib/kis-paper-order-preflight.ps1')
+    try {
+        $quote = Invoke-RestMethod -Uri $quoteUri -TimeoutSec 10
+    } catch {
+        $safeFailure = Format-SafeLocalApiFailure -Status (Get-SafeHttpStatus $_) `
+            -Path ([Uri]$quoteUri).AbsolutePath -ErrorDetail ([string]$_.ErrorDetails.Message)
+        throw "$safeFailure No PAPER order was submitted."
+    }
     Assert-KisPaperQuoteFresh -Quote $quote
     if ($quote.market -ne 'US' -or $quote.symbol -ne 'F') {
         throw 'Fresh quote did not match the fixed US PAPER smoke instrument; no order was submitted.'

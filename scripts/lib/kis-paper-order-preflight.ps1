@@ -8,6 +8,27 @@ function Get-SafeKisBrokerCode {
     return $match.Groups[1].Value.ToUpperInvariant()
 }
 
+function Format-SafeLocalApiFailure {
+    [CmdletBinding()]
+    param(
+        [AllowNull()] [string]$Status,
+        [AllowNull()] [string]$Path,
+        [AllowNull()] [string]$ErrorDetail
+    )
+
+    if ($Status -notmatch '^\d{3}$') { $Status = 'unavailable' }
+    if ($Path -notmatch '^/api/v1/[A-Za-z0-9_./-]+$') { $Path = '/unknown' }
+    if ($ErrorDetail) {
+        try {
+            $payload = $ErrorDetail | ConvertFrom-Json -ErrorAction Stop
+            if ($payload.detail -is [string]) { $ErrorDetail = $payload.detail }
+        } catch { }
+    }
+    $brokerCode = Get-SafeKisBrokerCode -ErrorDetail $ErrorDetail
+    $codeSummary = if ($brokerCode) { ", KIS code $brokerCode" } else { '' }
+    return "Local preflight request failed (HTTP $Status$codeSummary) for $Path; inspect the sanitized service logs."
+}
+
 function Assert-KisPaperQuoteFresh {
     [CmdletBinding()]
     param(
