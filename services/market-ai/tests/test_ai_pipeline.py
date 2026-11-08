@@ -272,6 +272,7 @@ def test_chronological_split_keeps_sessions_disjoint_and_ordered() -> None:
 
 @pytest.mark.parametrize(("session_count", "expected_partition_sizes"), [
     (13, (5, 3, 5)),
+    (14, (6, 3, 5)),
     (15, (7, 3, 5)),
     (25, (15, 5, 5)),
 ])
