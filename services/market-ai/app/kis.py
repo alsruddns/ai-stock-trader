@@ -38,6 +38,8 @@ READ_ONLY_GET_RETRY_DELAY_SECONDS = 0.5
 _RETRYABLE_READ_HTTP_STATUSES = {500, 502, 503, 504}
 _RETRYABLE_BROKER_CODES = {"EGW00001", "EGW00002"}
 _RATE_LIMIT_BROKER_CODES = {"EGW00201"}
+_RESPONSE_JSON_CACHE_KEY = "kis_read_only_json_payload"
+_RESPONSE_JSON_CACHE_MISSING = object()
 _logger = logging.getLogger(__name__)
 
 
@@ -108,12 +110,21 @@ def _safe_response_field_names(payload: object) -> tuple[str, ...]:
     )[:16]
 
 
+def _response_json(response: httpx.Response) -> Any:
+    cached = response.extensions.get(_RESPONSE_JSON_CACHE_KEY, _RESPONSE_JSON_CACHE_MISSING)
+    if cached is not _RESPONSE_JSON_CACHE_MISSING:
+        return cached
+    payload = response.json()
+    response.extensions[_RESPONSE_JSON_CACHE_KEY] = payload
+    return payload
+
+
 def _ensure_kis_http_success(response: httpx.Response, operation: str) -> None:
     if response.status_code < 400:
         return
     code = "unknown"
     try:
-        payload = response.json()
+        payload = _response_json(response)
     except (ValueError, TypeError):
         payload = None
     if isinstance(payload, dict):
@@ -351,7 +362,7 @@ class KisReadOnlyClient:
 
             code = "unknown"
             try:
-                payload = response.json()
+                payload = _response_json(response)
             except (ValueError, TypeError):
                 payload = None
             if isinstance(payload, dict):
@@ -412,7 +423,7 @@ class KisReadOnlyClient:
                     headers={"content-type": "application/json"},
                 )
                 _ensure_kis_http_success(response, "authentication")
-                payload = response.json()
+                payload = _response_json(response)
                 token = payload.get("access_token")
                 expiry = payload.get("access_token_token_expired")
                 if not token or not expiry:
@@ -463,7 +474,7 @@ class KisReadOnlyClient:
                 params=params,
             )
             _ensure_kis_http_success(response, "quote")
-            payload = response.json()
+            payload = _response_json(response)
         except KisApiError:
             raise
         except (httpx.HTTPError, ValueError, TypeError) as exc:
@@ -598,7 +609,7 @@ class KisReadOnlyClient:
                 params=params,
             )
             _ensure_kis_http_success(response, "candidate ranking")
-            payload = response.json()
+            payload = _response_json(response)
         except KisApiError:
             raise
         except (httpx.HTTPError, ValueError, TypeError) as exc:
@@ -693,7 +704,7 @@ class KisReadOnlyClient:
                 params=params,
             )
             _ensure_kis_http_success(response, "minute chart")
-            payload = response.json()
+            payload = _response_json(response)
         except KisApiError:
             raise
         except (httpx.HTTPError, ValueError, TypeError) as exc:
@@ -930,7 +941,7 @@ class KisReadOnlyClient:
                 params=params,
             )
             _ensure_kis_http_success(response, "overseas minute chart")
-            payload = response.json()
+            payload = _response_json(response)
         except KisApiError:
             raise
         except (httpx.HTTPError, ValueError, TypeError) as exc:
@@ -1019,7 +1030,7 @@ class KisReadOnlyClient:
             try:
                 response = self._get(f"{self.settings.base_url}{path}", headers=request_headers, params=params)
                 _ensure_kis_http_success(response, "account balance")
-                payload = response.json()
+                payload = _response_json(response)
             except KisApiError:
                 raise
             except (httpx.HTTPError, ValueError, TypeError) as exc:

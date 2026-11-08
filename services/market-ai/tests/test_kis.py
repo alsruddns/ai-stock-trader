@@ -302,17 +302,29 @@ def test_kis_egw00002_auth_error_is_classified_as_broker_server_error() -> None:
 
 def test_domestic_quote_uses_read_only_endpoint_and_reuses_token() -> None:
     requests_seen: list[httpx.Request] = []
+    quote_responses: list[httpx.Response] = []
+
+    class CountingResponse(httpx.Response):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.json_calls = 0
+
+        def json(self, **kwargs):
+            self.json_calls += 1
+            return super().json(**kwargs)
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests_seen.append(request)
         if request.url.path == "/oauth2/tokenP":
             return httpx.Response(200, json=_token_response())
-        return httpx.Response(200, json={
+        response = CountingResponse(200, json={
             "rt_cd": "0",
             "output": {
                 "stck_prpr": "73500", "prdy_vrss": "500", "prdy_ctrt": "0.68", "acml_vol": "12345"
             },
         })
+        quote_responses.append(response)
+        return response
 
     http = httpx.Client(transport=httpx.MockTransport(handler))
     client = KisReadOnlyClient(
@@ -326,6 +338,8 @@ def test_domestic_quote_uses_read_only_endpoint_and_reuses_token() -> None:
     assert first.volume == 12345
     assert first.source == "KIS_REST_SNAPSHOT"
     assert second.price == first.price
+    assert len(quote_responses) == 2
+    assert [response.json_calls for response in quote_responses] == [1, 1]
     assert sum(request.url.path == "/oauth2/tokenP" for request in requests_seen) == 1
     quote_request = requests_seen[1]
     assert quote_request.method == "GET"
