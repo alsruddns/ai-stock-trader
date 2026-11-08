@@ -25,7 +25,7 @@ from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from .paper_ops import exchange_session_window, korean_calendar_compatibility
 from .paper_automation import PaperAutomationReadiness
 from .market_calendar import exchange_continuous_session_window, latest_closed_session_date
-from .paper_runtime import PaperWatch, paper_session_monitor
+from .paper_runtime import PaperWatch, market_cost_assumptions_status, paper_session_monitor
 from .session_quality import audit_minute_bar_session
 
 _KIS_CLIENTS: dict[str, KisReadOnlyClient] = {}
@@ -293,7 +293,7 @@ def _session_quality_report(
 
 
 @app.get("/api/v1/health")
-def health() -> dict[str, str | bool]:
+def health() -> dict[str, object]:
     settings = KisSettings.from_environment()
     monitor_status = paper_session_monitor.status()
     connections = monitor_status.get("stream_connections")
@@ -313,6 +313,9 @@ def health() -> dict[str, str | bool]:
         "kr_calendar_compatibility": korean_calendar_compatibility(),
         "paper_automation_enabled": PaperAutomationReadiness.from_environment().enabled,
         "live_trading_enabled": False,
+        "strategy_cost_assumptions": {
+            market: market_cost_assumptions_status(market) for market in ("KR", "US")
+        },
     }
 
 

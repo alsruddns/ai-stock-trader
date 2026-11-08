@@ -41,13 +41,10 @@ from .paper_risk import baseline_capture_open, daily_loss_percent, paper_equity_
 SUBSCRIPTION_ACK_TIMEOUT_SECONDS = 15
 
 
-def _market_quant_config(market: str) -> QuantConfig | None:
+def _market_quant_config_result(market: str) -> tuple[QuantConfig | None, list[str], list[str]]:
     normalized_market = market.strip().upper()
     if normalized_market not in {"KR", "US"}:
-        return None
-    if os.getenv("PAPER_COST_MODEL_ENABLED", "false").strip().lower() != "true":
-        return None
-    paper_prefix = "PAPER_KR" if normalized_market == "KR" else "PAPER_US"
+        return None, [], ["market"]
     prefix = f"BACKTEST_{normalized_market}"
     fields = {
         "buy_commission_bps": f"{prefix}_BUY_COMMISSION_BPS",
@@ -55,19 +52,60 @@ def _market_quant_config(market: str) -> QuantConfig | None:
         "sell_tax_bps": f"{prefix}_SELL_TAX_BPS",
         "slippage_bps": f"{prefix}_SLIPPAGE_BPS",
     }
+    missing = [key for key in fields.values() if not os.getenv(key, "").strip()]
+    round_trip_key = f"{prefix}_ROUND_TRIP_COST_BPS"
+    if not os.getenv(round_trip_key, "").strip():
+        missing.append(round_trip_key)
+    if missing:
+        return None, missing, []
+    invalid: list[str] = []
+    values: dict[str, Decimal] = {}
+    for name, key in fields.items():
+        try:
+            values[name] = Decimal(os.environ[key])
+        except (ArithmeticError, KeyError, TypeError, ValueError):
+            invalid.append(key)
+    try:
+        round_trip_cost = Decimal(os.environ[round_trip_key])
+    except (ArithmeticError, KeyError, TypeError, ValueError):
+        invalid.append(round_trip_key)
+        round_trip_cost = Decimal("0")
+    invalid.extend(key for name, key in fields.items() if name in values and (
+        not values[name].is_finite() or values[name] < 0 or values[name] > 10000
+    ))
+    if (not round_trip_cost.is_finite() or round_trip_cost <= 0 or round_trip_cost > 40000):
+        invalid.append(round_trip_key)
+    if invalid:
+        return None, [], sorted(set(invalid))
+    config = QuantConfig(commission_bps=Decimal("0"), **values)
+    if round_trip_cost < config.minimum_round_trip_cost_bps:
+        invalid.append(round_trip_key)
+        return None, [], invalid
+    return config, [], []
+
+
+def market_cost_assumptions_status(market: str) -> dict[str, object]:
+    """Expose only whether reviewed local backtest assumptions are usable, never their values."""
+    config, missing, invalid = _market_quant_config_result(market)
+    return {"configured": config is not None, "missing": missing, "invalid": invalid}
+
+
+def _market_quant_config(market: str) -> QuantConfig | None:
+    if os.getenv("PAPER_COST_MODEL_ENABLED", "false").strip().lower() != "true":
+        return None
+    config, _, invalid = _market_quant_config_result(market)
+    if config is None or invalid:
+        return None
+    normalized_market = market.strip().upper()
+    paper_prefix = "PAPER_KR" if normalized_market == "KR" else "PAPER_US"
     try:
         paper_buy_cost = Decimal(os.environ[f"{paper_prefix}_COMMISSION_BPS"])
         paper_sell_cost = Decimal(os.environ[f"{paper_prefix}_SELL_COST_BPS"])
-        values = {name: Decimal(os.environ[key]) for name, key in fields.items()}
-        round_trip_cost = Decimal(os.environ[f"{prefix}_ROUND_TRIP_COST_BPS"])
-        config = QuantConfig(commission_bps=Decimal("0"), **values)
     except (ArithmeticError, KeyError, TypeError, ValueError):
         return None
     if (not paper_buy_cost.is_finite() or not paper_sell_cost.is_finite()
             or paper_buy_cost < 0 or paper_sell_cost < 0 or paper_buy_cost + paper_sell_cost <= 0
-            or not round_trip_cost.is_finite() or round_trip_cost <= 0 or round_trip_cost > 40000
-            or any(value > 10000 for value in values.values())
-            or round_trip_cost < config.minimum_round_trip_cost_bps):
+            or paper_buy_cost > 10000 or paper_sell_cost > 10000):
         return None
     return config
 

@@ -19,6 +19,8 @@ Java 빌드는 Gradle이 아닌 프로젝트 포함 Maven Wrapper를 사용합�
 
 paper ledger 비용 추정은 `PAPER_COST_MODEL_ENABLED=false`가 기본입니다. 실제 적용 요율을 확인한 뒤 KR/US 매수·매도 수수료율을 basis points로 설정하고 `PAPER_COST_MODEL_ENABLED=true`로 켭니다. 한국·미국 계좌별 우대 수수료, 거래소 및 규제 비용은 다를 수 있으므로 예제의 0 값은 실거래 요율을 의미하지 않습니다. 비활성 상태에서는 P&L을 총액으로만 해석합니다.
 
+P3/P4 재현용 비용 가정은 `.env_local`의 시장별 `BACKTEST_*` 키 다섯 개로 별도 관리합니다. `/api/v1/health`와 대시보드는 KR/US별 설정 가능 여부와 누락·범위 오류가 있는 환경변수 이름만 보여 주며 수수료 값이나 비밀정보를 노출하지 않습니다. 표시가 `입력 완료`여도 실제 수수료표를 확인했다는 뜻은 아니므로 사용자가 증권사 계좌에 적용된 요율을 검토해야 합니다.
+
 ### Python 의존성 갱신
 
 `services/market-ai/pyproject.toml` 변경 후에는 시세 감시를 끝내고 로컬 API 작업을 중지한 다음 저장소 루트에서 실행합니다. 한국장 캘린더 호환성을 위해 pandas는 3.1 미만이어야 합니다.

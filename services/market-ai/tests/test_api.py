@@ -23,6 +23,61 @@ def test_health_discloses_read_only_mode() -> None:
     assert response.json()["paper_session_monitor"] == "DISABLED"
 
 
+def test_health_lists_missing_cost_assumption_names_without_values(monkeypatch) -> None:
+    names = [
+        f"BACKTEST_{market}_{suffix}"
+        for market in ("KR", "US")
+        for suffix in (
+            "BUY_COMMISSION_BPS", "SELL_COMMISSION_BPS", "SELL_TAX_BPS",
+            "SLIPPAGE_BPS", "ROUND_TRIP_COST_BPS",
+        )
+    ]
+    for name in names:
+        monkeypatch.delenv(name, raising=False)
+
+    response = client.get("/api/v1/health")
+
+    assert response.status_code == 200
+    readiness = response.json()["strategy_cost_assumptions"]
+    for market in ("KR", "US"):
+        assert readiness[market] == {
+            "configured": False,
+            "missing": [f"BACKTEST_{market}_{suffix}" for suffix in (
+                "BUY_COMMISSION_BPS", "SELL_COMMISSION_BPS", "SELL_TAX_BPS",
+                "SLIPPAGE_BPS", "ROUND_TRIP_COST_BPS",
+            )],
+            "invalid": [],
+        }
+    assert all(set(value) == {"configured", "missing", "invalid"} for value in readiness.values())
+
+
+def test_health_reports_cost_assumptions_ready_only_when_cost_floor_is_valid(monkeypatch) -> None:
+    values = {
+        "BUY_COMMISSION_BPS": "2",
+        "SELL_COMMISSION_BPS": "3",
+        "SELL_TAX_BPS": "4",
+        "SLIPPAGE_BPS": "5",
+        "ROUND_TRIP_COST_BPS": "19",
+    }
+    for market in ("KR", "US"):
+        for suffix, value in values.items():
+            monkeypatch.setenv(f"BACKTEST_{market}_{suffix}", value)
+
+    ready = client.get("/api/v1/health").json()["strategy_cost_assumptions"]
+    assert ready == {
+        "KR": {"configured": True, "missing": [], "invalid": []},
+        "US": {"configured": True, "missing": [], "invalid": []},
+    }
+
+    monkeypatch.setenv("BACKTEST_KR_ROUND_TRIP_COST_BPS", "18")
+    rejected = client.get("/api/v1/health").json()["strategy_cost_assumptions"]
+    assert rejected["KR"] == {
+        "configured": False,
+        "missing": [],
+        "invalid": ["BACKTEST_KR_ROUND_TRIP_COST_BPS"],
+    }
+
+
 def test_health_reports_connected_only_when_all_kis_feeds_are_running(monkeypatch) -> None:
     monkeypatch.setattr(main.paper_session_monitor, "status", lambda: {
         "state": "RUNNING", "enabled": True,
