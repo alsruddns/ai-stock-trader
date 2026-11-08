@@ -12,6 +12,7 @@ from app.ai_pipeline import (
     BACKTEST_VERSION,
     FEATURE_NAMES,
     FEATURE_VERSION,
+    LABEL_VERSION,
     LocalModelRegistry,
     TrainingSample,
     _chronological_partitions,
@@ -150,6 +151,65 @@ def test_training_labels_deduct_observed_entry_and_exit_spread() -> None:
     zero_spread_sample = next(sample for sample in without_spread if sample.session == session and sample.timestamp == timestamp)
 
     assert spread_sample.forward_net_return_bps == pytest.approx(zero_spread_sample.forward_net_return_bps - 5)
+
+
+def test_training_label_uses_next_bar_open_and_entry_exit_spreads() -> None:
+    sessions = _sample_sessions()
+    session = date(2026, 10, 1)
+    bars = sessions[session]
+    signal_index = 20
+    entry_index = signal_index + 1
+    exit_index = signal_index + 5
+    entry = bars[entry_index]
+    entry_open = bars[signal_index].close * Decimal("1.02")
+    bars[entry_index] = MinuteBar(entry.timestamp, entry_open, max(entry.high, entry_open),
+                                  entry.low, entry.close, entry.volume, Decimal("11"))
+    exit_bar = bars[exit_index]
+    bars[exit_index] = MinuteBar(exit_bar.timestamp, exit_bar.open, exit_bar.high, exit_bar.low,
+                                 exit_bar.close, exit_bar.volume, Decimal("13"))
+
+    samples = build_training_samples(sessions, market="KR", horizon_bars=5,
+                                     round_trip_cost_bps=Decimal("20"))
+    sample = next(item for item in samples if item.session == session
+                  and item.timestamp == bars[signal_index].timestamp.isoformat())
+    expected = ((bars[exit_index].close / bars[entry_index].open - Decimal(1))
+                * Decimal(10_000) - Decimal("20") - Decimal("12"))
+    assert sample.forward_net_return_bps == pytest.approx(float(expected))
+    assert sample.label == int(expected > 0)
+
+
+def test_training_label_does_not_charge_signal_bar_spread_as_execution_cost() -> None:
+    sessions = _sample_sessions()
+    session = date(2026, 10, 1)
+    bars = sessions[session]
+    target = bars[20]
+    bars[20] = MinuteBar(target.timestamp, target.open, target.high, target.low,
+                         target.close, target.volume, Decimal("100"))
+
+    samples = build_training_samples(sessions, market="KR", horizon_bars=5,
+                                     round_trip_cost_bps=Decimal("20"))
+    sample = next(item for item in samples if item.session == session
+                  and item.timestamp == bars[20].timestamp.isoformat())
+    baseline = _sample_sessions()[session]
+    baseline_samples = build_training_samples({session: baseline}, market="KR", horizon_bars=5,
+                                              round_trip_cost_bps=Decimal("20"))
+    baseline_sample = next(item for item in baseline_samples if item.timestamp == baseline[20].timestamp.isoformat())
+    assert sample.forward_net_return_bps == pytest.approx(baseline_sample.forward_net_return_bps)
+    assert sample.features[-2] == 100
+
+
+def test_training_skips_sample_when_next_bar_entry_spread_is_missing() -> None:
+    sessions = _sample_sessions()
+    session = date(2026, 10, 1)
+    entry = sessions[session][21]
+    sessions[session][21] = MinuteBar(entry.timestamp, entry.open, entry.high, entry.low,
+                                      entry.close, entry.volume, None)
+
+    samples = build_training_samples(sessions, market="KR", horizon_bars=5,
+                                     round_trip_cost_bps=Decimal("20"))
+    assert not any(sample.session == session
+                   and sample.timestamp == sessions[session][20].timestamp.isoformat()
+                   for sample in samples)
 
 
 def test_training_skips_samples_with_missing_future_spread() -> None:
@@ -346,8 +406,29 @@ def test_legacy_model_with_outdated_feature_schema_cannot_be_approved_or_selecte
     assert registry.active_approved_model("KR", "005930") is None
     listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
     assert listed["feature_compatible"] is False
-    with pytest.raises(ValueError, match="feature schema is outdated"):
+    assert listed["label_compatible"] is True
+    assert listed["model_compatible"] is False
+    with pytest.raises(ValueError, match="feature or label schema is outdated"):
         registry.approve(model_id, approved_by="operator", note="Reviewed for migration but requires retraining first.")
+
+
+def test_model_with_old_execution_label_cannot_be_approved_or_selected(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "d" * 32
+    _write_candidate(registry, model_id)
+    manifest_path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    metadata["training_config"]["label_version"] = LABEL_VERSION - 1
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+    registry._active_path.write_text(json.dumps({"model_id": model_id}), encoding="utf-8")
+
+    assert registry.active_approved_model("KR", "005930") is None
+    listed = next(item for item in registry.list_models() if item["model_id"] == model_id)
+    assert listed["feature_compatible"] is True
+    assert listed["label_compatible"] is False
+    assert listed["model_compatible"] is False
+    with pytest.raises(ValueError, match="feature or label schema is outdated"):
+        registry.approve(model_id, approved_by="operator", note="Execution aligned labels require a newly trained model.")
 
 
 def _record_holdout_audit_event(registry: LocalModelRegistry, metadata: dict) -> None:
@@ -381,7 +462,8 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_hold
         "quant_backtest_test_metrics": {"session_count": 5.0, "trade_count": 5.0, "net_pnl": 5.0},
         "ai_quant_backtest_test_metrics": {"session_count": 5.0, "trade_count": 6.0, "net_pnl": 12.0},
         "training_config": {
-            "symbol": symbol, "label_horizon_bars": 5, "label_round_trip_cost_bps": "20",
+            "symbol": symbol, "label_version": LABEL_VERSION,
+            "label_horizon_bars": 5, "label_round_trip_cost_bps": "20",
             "backtest_quantity_per_session": 1, "backtest_commission_bps": "5",
             "backtest_slippage_bps": "5", "backtest_version": BACKTEST_VERSION,
             "backtest_spread_model": BACKTEST_SPREAD_MODEL,

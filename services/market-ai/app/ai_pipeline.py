@@ -26,6 +26,7 @@ FEATURE_NAMES = (
     "ema20_gap_pct", "atr14_pct", "relative_volume20", "spread_bps", "session_progress",
 )
 FEATURE_VERSION = 2
+LABEL_VERSION = 2
 BACKTEST_VERSION = 2
 BACKTEST_SPREAD_MODEL = "observed_half_spread_entry_exit_v1"
 MIN_MODEL_APPROVAL_TEST_SESSIONS = 5
@@ -87,11 +88,12 @@ def build_training_samples(
     round_trip_cost_bps: Decimal = Decimal("10"), warmup_bars: int = 20,
     quant_config: QuantConfig = QuantConfig(),
 ) -> list[TrainingSample]:
-    """Create samples using features available at t and a label from t+horizon.
+    """Create samples using features available at t and an executable forward label.
 
-    Sessions are processed independently, so labels never cross a close. The label
-    is positive only when forward close-to-close return exceeds estimated round-trip
-    costs. Caller owns data licensing and corporate-action/symbol normalization.
+    A signal at t is entered at the next bar open, matching ``backtest_orb_vwap``.
+    The exit is the close ``horizon_bars`` after t. Sessions are processed
+    independently, so labels never cross a close. Caller owns data licensing and
+    corporate-action/symbol normalization.
     """
     if horizon_bars <= 0 or warmup_bars <= 0 or round_trip_cost_bps < 0:
         raise ValueError("horizon, warmup, and transaction cost settings are invalid")
@@ -116,6 +118,9 @@ def build_training_samples(
             mean_volume = Decimal(sum(item.volume for item in prior)) / len(prior) if prior else Decimal(0)
             volume_ratio = Decimal(current.volume) / mean_volume if mean_volume else Decimal(0)
             if current.spread_bps is None:
+                continue
+            entry = bars[index + 1]
+            if entry.spread_bps is None:
                 continue
             close = current.close
             returns = [
@@ -142,8 +147,8 @@ def build_training_samples(
             future = bars[index + horizon_bars]
             if future.spread_bps is None:
                 continue
-            future_return = future.close / close - Decimal(1)
-            observed_round_trip_spread = (current.spread_bps + future.spread_bps) / Decimal(2)
+            future_return = future.close / entry.open - Decimal(1)
+            observed_round_trip_spread = (entry.spread_bps + future.spread_bps) / Decimal(2)
             forward_net_return_bps = (
                 future_return * Decimal(10_000) - round_trip_cost_bps - observed_round_trip_spread
             )
@@ -320,6 +325,8 @@ class LocalModelRegistry:
                 metadata = self.manifest(manifest_path.stem)
                 data_rights_verified = self._has_verified_data_provenance(metadata)
                 feature_compatible = self._supports_current_features(metadata)
+                label_compatible = self._supports_current_label(metadata)
+                model_compatible = feature_compatible and label_compatible
                 approval_evidence_verified = (
                     self._has_valid_approval_evidence(metadata)
                     and self._has_durable_holdout_evaluation(metadata)
@@ -327,17 +334,20 @@ class LocalModelRegistry:
                 approval_audit_verified = (self._has_durable_approval_event(metadata)
                                             if metadata.get("approved") else None)
                 approved = bool(metadata.get("approved", False) and data_rights_verified
-                                and feature_compatible and approval_evidence_verified
+                                and model_compatible and approval_evidence_verified
                                 and approval_audit_verified)
                 items.append({
                     "model_id": metadata["model_id"], "market": metadata.get("market"), "model_type": metadata["model_type"],
                     "feature_version": metadata.get("feature_version"),
                     "feature_compatible": feature_compatible,
+                    "label_version": metadata.get("training_config", {}).get("label_version"),
+                    "label_compatible": label_compatible,
+                    "model_compatible": model_compatible,
                     "data_rights_verified": data_rights_verified,
                     "approval_evidence_verified": approval_evidence_verified,
                     "approval_audit_verified": approval_audit_verified,
                     "approved": approved,
-                    "active": metadata["model_id"] in active_model_ids and approved and feature_compatible,
+                    "active": metadata["model_id"] in active_model_ids and approved and model_compatible,
                     "artifact_sha256": metadata["artifact_sha256"],
                     "dataset_sha256": metadata.get("dataset_sha256"),
                     "validation_metrics": metadata.get("validation_metrics", {}),
@@ -367,7 +377,7 @@ class LocalModelRegistry:
                 if (item.get("integrity_error") or item.get("approved")
                         or item.get("market") != normalized_market
                         or item.get("data_rights_verified") is not True
-                        or item.get("feature_compatible") is not True):
+                        or item.get("model_compatible") is not True):
                     continue
                 model_id = item.get("model_id")
                 if not isinstance(model_id, str):
@@ -435,7 +445,7 @@ class LocalModelRegistry:
         if (metadata.get("market") != requested_market
                 or str(metadata.get("training_config", {}).get("symbol", "")).strip().upper() != requested_symbol
                 or not metadata.get("approved")
-                or not self._supports_current_features(metadata)
+                or not self._supports_current_model_contract(metadata)
                 or not self._has_verified_data_provenance(metadata)
                 or not self._has_valid_approval_evidence(metadata)
                 or not self._has_durable_holdout_evaluation(metadata)
@@ -574,7 +584,18 @@ class LocalModelRegistry:
 
     @staticmethod
     def _supports_current_features(metadata: dict[str, Any]) -> bool:
-        return metadata.get("feature_version") == FEATURE_VERSION and metadata.get("feature_names") == list(FEATURE_NAMES)
+        return (metadata.get("feature_version") == FEATURE_VERSION
+                and metadata.get("feature_names") == list(FEATURE_NAMES))
+
+    @staticmethod
+    def _supports_current_label(metadata: dict[str, Any]) -> bool:
+        training_config = metadata.get("training_config")
+        return isinstance(training_config, dict) and training_config.get("label_version") == LABEL_VERSION
+
+    @staticmethod
+    def _supports_current_model_contract(metadata: dict[str, Any]) -> bool:
+        return (LocalModelRegistry._supports_current_features(metadata)
+                and LocalModelRegistry._supports_current_label(metadata))
 
     @staticmethod
     def _has_verified_data_provenance(metadata: dict[str, Any]) -> bool:
@@ -685,8 +706,8 @@ class LocalModelRegistry:
             metadata = self.manifest(model_id)
             if metadata.get("market") not in {"KR", "US"}:
                 raise ValueError("market scope must be KR or US before model approval")
-            if not self._supports_current_features(metadata):
-                raise ValueError("model feature schema is outdated and must be retrained")
+            if not self._supports_current_model_contract(metadata):
+                raise ValueError("model feature or label schema is outdated and must be retrained")
             if not self._has_verified_data_provenance(metadata):
                 raise ValueError("model lacks verified data-rights provenance and cannot be approved")
             if not metadata.get("test_sessions") or not metadata.get("test_metrics"):
@@ -767,7 +788,7 @@ class LocalModelRegistry:
             raise ValueError("operator and a change note of at least 20 characters are required")
         with self._governance_lock:
             metadata = self.manifest(model_id)
-            if not self._supports_current_features(metadata):
+            if not self._supports_current_model_contract(metadata):
                 raise ValueError("model feature schema is outdated and cannot be activated")
             if not self._has_verified_data_provenance(metadata):
                 raise ValueError("model lacks verified data-rights provenance and cannot be activated")
@@ -904,6 +925,7 @@ class LocalModelRegistry:
         ])
         training_config = {
             "symbol": normalized_symbol,
+            "label_version": LABEL_VERSION,
             "backtest_version": BACKTEST_VERSION,
             "backtest_spread_model": BACKTEST_SPREAD_MODEL,
             "label_horizon_bars": label_horizon_bars,
@@ -995,7 +1017,7 @@ class LocalModelRegistry:
                 raise ValueError("candidate already has independent holdout evidence and cannot be re-evaluated")
             if metadata.get("market") != market or metadata.get("training_config", {}).get("symbol") != symbol:
                 raise ValueError("evaluation market and symbol must match the candidate")
-            if not self._supports_current_features(metadata):
+            if not self._supports_current_model_contract(metadata):
                 raise ValueError("candidate feature schema is outdated")
             train_dates = set(metadata.get("train_sessions", []))
             validation_dates = set(metadata.get("validation_sessions", []))
@@ -1153,7 +1175,7 @@ class LocalModelRegistry:
         trained_symbol = str(metadata.get("training_config", {}).get("symbol", "")).strip().upper()
         if not requested_symbol or trained_symbol != requested_symbol:
             raise ValueError("model symbol scope does not match the requested symbol")
-        if not self._supports_current_features(metadata):
+        if not self._supports_current_model_contract(metadata):
             raise ValueError("model feature schema is outdated and must be retrained")
         artifact = self.root / metadata["artifact"]
         model = joblib.load(artifact)
