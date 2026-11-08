@@ -3,6 +3,7 @@ package com.aistocktrader.kis;
 import com.aistocktrader.order.OrderRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -142,7 +143,15 @@ public class KisRealOrderOrchestrator {
         try {
             prepared = prepareIntent(idempotencyKey, requestHash, request, exchange, exitStopDistancePerShare);
         } catch (DataIntegrityViolationException duplicateRace) {
-            prepared = prepareIntent(idempotencyKey, requestHash, request, exchange, exitStopDistancePerShare);
+            try {
+                prepared = prepareIntent(idempotencyKey, requestHash, request, exchange, exitStopDistancePerShare);
+            } catch (DataIntegrityViolationException reservationConflict) {
+                if (isRealMarketReservationConflict(reservationConflict)) {
+                    throw new KisApiException(HttpStatus.LOCKED,
+                            "An unresolved REAL order is already reserved for this market.");
+                }
+                throw reservationConflict;
+            }
         }
         if (!prepared.createdNow()) return resolveDuplicate(idempotencyKey, prepared.intent());
 
@@ -269,6 +278,16 @@ public class KisRealOrderOrchestrator {
 
     private static String extractCode(String message) {
         return KisResponseCodes.fromErrorMessage(message, "KIS_REJECTED");
+    }
+
+    private static boolean isRealMarketReservationConflict(DataIntegrityViolationException exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException constraint
+                    && "uq_kis_real_unresolved_order_per_market".equals(constraint.getConstraintName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private KisOrderIntentStore.PreparedIntent prepareIntent(UUID key, String requestHash, OrderRequest request,
