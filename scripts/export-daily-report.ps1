@@ -66,6 +66,15 @@ $endpointStatus['local.session_monitor_schedule'] = [ordered]@{
     usRegisteredCount = $sessionMonitorSchedule.usRegisteredCount
     errorType = $sessionMonitorSchedule.errorType
 }
+$validationTaskSchedule = Get-AiTraderValidationTaskScheduleSummary
+$endpointStatus['local.validation_task_schedule'] = [ordered]@{
+    state = $validationTaskSchedule.state
+    registeredCount = $validationTaskSchedule.registeredCount
+    paperLifecycleCount = $validationTaskSchedule.paperLifecycleCount
+    modelTrainingCount = $validationTaskSchedule.modelTrainingCount
+    modelHoldoutCount = $validationTaskSchedule.modelHoldoutCount
+    errorType = $validationTaskSchedule.errorType
+}
 $marketSessions = @{ KR = $null; US = $null }
 $marketDataQuality = @{ KR = $null; US = $null }
 foreach ($market in @('KR', 'US')) {
@@ -98,7 +107,7 @@ foreach ($market in @('KR', 'US')) {
     $marketDataQuality[$market] = $qualityResult.data
 }
 
-$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 6 -Force
+$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 7 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
 $endpointStates = @($endpointStatus.Values | ForEach-Object { $_.state })
@@ -116,6 +125,7 @@ $report | Add-Member -MemberType NoteProperty -Name paperSession -Value $paperSe
 $report | Add-Member -MemberType NoteProperty -Name aiModels -Value $aiModels -Force
 $report | Add-Member -MemberType NoteProperty -Name modelRetraining -Value $modelRetraining -Force
 $report | Add-Member -MemberType NoteProperty -Name sessionMonitorSchedule -Value $sessionMonitorSchedule -Force
+$report | Add-Member -MemberType NoteProperty -Name validationTaskSchedule -Value $validationTaskSchedule -Force
 $report | Add-Member -MemberType NoteProperty -Name marketSessions -Value $marketSessions -Force
 $report | Add-Member -MemberType NoteProperty -Name marketDataQuality -Value $marketDataQuality -Force
 $report | Add-Member -MemberType NoteProperty -Name marketDataQualitySummary -Value (Get-AiTraderMarketDataQualitySummary -EndpointStatus $endpointStatus -MarketDataQuality $marketDataQuality) -Force

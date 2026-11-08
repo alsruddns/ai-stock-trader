@@ -83,6 +83,85 @@ Describe 'Optional operations report endpoint diagnostics' {
         $json | Should Not Match 'private status detail'
     }
 
+    It 'reports only registered PAPER lifecycle and P4 model validation tasks' {
+        $nextRun = [datetime]'2026-11-09T23:45:00'
+        Mock Get-ScheduledTask {
+            @(
+                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Paper-Lifecycle-Smoke-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-P4-Model-Train-KR-005930-20261128'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-P4-Model-Holdout-US-AAPL-20261205'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
+                [pscustomobject]@{ TaskName = 'Unrelated-Task'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } }
+            )
+        }
+        Mock Get-ScheduledTaskInfo {
+            return [pscustomobject]@{
+                NextRunTime = $nextRun
+                LastRunTime = [datetime]::MinValue
+                LastTaskResult = 267011
+            }
+        }
+
+        $summary = Get-AiTraderValidationTaskScheduleSummary
+        $paperTask = @($summary.tasks | Where-Object { $_.kind -eq 'PAPER_LIFECYCLE' })[0]
+        $trainTask = @($summary.tasks | Where-Object { $_.kind -eq 'P4_MODEL_TRAIN' })[0]
+        $holdoutTask = @($summary.tasks | Where-Object { $_.kind -eq 'P4_MODEL_HOLDOUT' })[0]
+
+        $summary.state | Should Be 'AVAILABLE'
+        $summary.registeredCount | Should Be 3
+        $summary.paperLifecycleCount | Should Be 1
+        $summary.modelTrainingCount | Should Be 1
+        $summary.modelHoldoutCount | Should Be 1
+        $paperTask.market | Should Be 'US'
+        $paperTask.taskDate | Should Be '20261109'
+        $paperTask.nextRunTime | Should Be $nextRun.ToString('o')
+        $trainTask.market | Should Be 'KR'
+        $trainTask.symbol | Should Be '005930'
+        $holdoutTask.market | Should Be 'US'
+        $holdoutTask.symbol | Should Be 'AAPL'
+    }
+
+    It 'marks missing validation tasks unverified' {
+        Mock Get-ScheduledTask { @() }
+
+        $summary = Get-AiTraderValidationTaskScheduleSummary
+
+        $summary.state | Should Be 'UNVERIFIED'
+        $summary.registeredCount | Should Be 0
+        $summary.tasks.Count | Should Be 0
+    }
+
+    It 'marks validation scheduling partial when a task status cannot be read' {
+        Mock Get-ScheduledTask {
+            @(
+                [pscustomobject]@{ TaskName = 'AIStockTrader-US-Paper-Lifecycle-Smoke-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-P4-Model-Train-US-AAPL-20261128'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } }
+            )
+        }
+        Mock Get-ScheduledTaskInfo {
+            if ($TaskName -like '*P4-*') { throw [System.InvalidOperationException]::new('private status detail') }
+            return [pscustomobject]@{ NextRunTime = [datetime]::Now; LastRunTime = [datetime]::MinValue; LastTaskResult = 267011 }
+        }
+
+        $summary = Get-AiTraderValidationTaskScheduleSummary
+        $json = $summary | ConvertTo-Json -Compress
+
+        $summary.state | Should Be 'PARTIAL'
+        @($summary.tasks | Where-Object { $_.state -eq 'UNKNOWN' }).Count | Should Be 1
+        $json | Should Not Match 'private status detail'
+    }
+
+    It 'returns only a safe error type when Task Scheduler cannot be queried' {
+        Mock Get-ScheduledTask { throw [System.InvalidOperationException]::new('private task details') }
+
+        $summary = Get-AiTraderValidationTaskScheduleSummary
+        $json = $summary | ConvertTo-Json -Compress
+
+        $summary.state | Should Be 'UNAVAILABLE'
+        $summary.errorType | Should Be 'InvalidOperationException'
+        $json | Should Not Match 'private task details'
+    }
+
     It 'marks a successful endpoint as available and retains its JSON data' {
         Mock Invoke-RestMethod { return @{ status = 'ok' } }
 
@@ -141,7 +220,7 @@ Describe 'Daily operations report endpoint health summary' {
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
         $archivedReport = Get-Content -LiteralPath $archivePath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 6
+        $report.reportSchemaVersion | Should Be 7
         $archivedReport.generatedAt | Should Be $report.generatedAt
         $archivedReport.tradingMode | Should Be $report.tradingMode
         $report.pythonConnected | Should Be $true
@@ -152,6 +231,8 @@ Describe 'Daily operations report endpoint health summary' {
         $report.endpointStatus.'local.model_retraining'.state | Should Be 'NO_RUNS'
         $report.endpointStatus.'local.session_monitor_schedule'.state | Should Be $report.sessionMonitorSchedule.state
         $report.endpointStatus.'local.session_monitor_schedule'.registeredCount | Should Be $report.sessionMonitorSchedule.registeredCount
+        $report.endpointStatus.'local.validation_task_schedule'.state | Should Be $report.validationTaskSchedule.state
+        $report.endpointStatus.'local.validation_task_schedule'.registeredCount | Should Be $report.validationTaskSchedule.registeredCount
     }
 
     It 'separates available endpoints from incomplete market bars and spread coverage' {

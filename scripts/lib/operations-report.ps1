@@ -190,3 +190,70 @@ function Get-AiTraderSessionMonitorScheduleSummary {
         tasks = @($rows | Sort-Object market, taskName)
     }
 }
+
+function Get-AiTraderValidationTaskScheduleSummary {
+    $taskDefinitions = @(
+        @{ Pattern = '^AIStockTrader-(KRX|US)-Paper-Lifecycle-Smoke-(\d{8})$'; Kind = 'PAPER_LIFECYCLE'; MarketGroup = 1; DateGroup = 2 },
+        @{ Pattern = '^AIStockTrader-P4-Model-(Train|Holdout)-(KR|US)-([A-Z0-9]+)-(\d{8})$'; Kind = 'P4_MODEL'; ModeGroup = 1; MarketGroup = 2; SymbolGroup = 3; DateGroup = 4 }
+    )
+    try {
+        $tasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object {
+            $name = $_.TaskName
+            @($taskDefinitions | Where-Object { $name -match $_.Pattern }).Count -gt 0
+        })
+    }
+    catch {
+        return [ordered]@{
+            state = 'UNAVAILABLE'
+            errorType = $_.Exception.GetType().Name
+            registeredCount = 0
+            paperLifecycleCount = 0
+            modelTrainingCount = 0
+            modelHoldoutCount = 0
+            tasks = @()
+        }
+    }
+
+    $rows = @()
+    foreach ($task in $tasks) {
+        $definition = $taskDefinitions | Where-Object { $task.TaskName -match $_.Pattern } | Select-Object -First 1
+        if ($null -eq $definition) { continue }
+        $matchedTask = [regex]::Match($task.TaskName, $definition.Pattern)
+        $kind = $definition.Kind
+        $market = $matchedTask.Groups[$definition.MarketGroup].Value
+        if ($market -eq 'KRX') { $market = 'KR' }
+        if ($kind -eq 'P4_MODEL') { $kind = 'P4_MODEL_' + $matchedTask.Groups[$definition.ModeGroup].Value.ToUpperInvariant() }
+        $row = [ordered]@{
+            kind = $kind
+            market = $market
+            symbol = if ($definition.SymbolGroup) { $matchedTask.Groups[$definition.SymbolGroup].Value } else { $null }
+            taskDate = $matchedTask.Groups[$definition.DateGroup].Value
+            taskName = [string]$task.TaskName
+            state = [string]$task.State
+            enabled = [bool]$task.Settings.Enabled
+            nextRunTime = $null
+            lastRunTime = $null
+            lastTaskResult = $null
+        }
+        try {
+            $info = Get-ScheduledTaskInfo -TaskName $task.TaskName -ErrorAction Stop
+            $row.nextRunTime = if ($info.NextRunTime -and $info.NextRunTime.Year -gt 2000) { $info.NextRunTime.ToString('o') } else { $null }
+            $row.lastRunTime = if ($info.LastRunTime -and $info.LastRunTime.Year -gt 2000) { $info.LastRunTime.ToString('o') } else { $null }
+            $row.lastTaskResult = [int]$info.LastTaskResult
+        }
+        catch {
+            $row.state = 'UNKNOWN'
+        }
+        $rows += $row
+    }
+
+    return [ordered]@{
+        state = if ($rows.Count -eq 0) { 'UNVERIFIED' } elseif (@($rows | Where-Object { $_.state -eq 'UNKNOWN' }).Count -gt 0) { 'PARTIAL' } else { 'AVAILABLE' }
+        errorType = $null
+        registeredCount = $rows.Count
+        paperLifecycleCount = @($rows | Where-Object { $_.kind -eq 'PAPER_LIFECYCLE' }).Count
+        modelTrainingCount = @($rows | Where-Object { $_.kind -eq 'P4_MODEL_TRAIN' }).Count
+        modelHoldoutCount = @($rows | Where-Object { $_.kind -eq 'P4_MODEL_HOLDOUT' }).Count
+        tasks = @($rows | Sort-Object kind, market, symbol, taskName)
+    }
+}

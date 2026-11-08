@@ -94,7 +94,7 @@ jobs:
           }
 
           $reportResult = Invoke-Pester -Path 'scripts/tests/operations-report.Tests.ps1' -PassThru
-          if ($reportResult.FailedCount -gt 0 -or $reportResult.PassedCount -ne 13) {
+          if ($reportResult.FailedCount -gt 0 -or $reportResult.PassedCount -ne 17) {
             throw "Operations report tests failed: passed=$($reportResult.PassedCount), failed=$($reportResult.FailedCount)."
           }
 
