@@ -168,6 +168,20 @@ Describe 'Sanitized KIS error reporting' {
         $message | Should Be 'Local preflight request failed (HTTP 502, KIS upstream HTTP 502) for /api/v1/market/quotes/US/F; inspect the sanitized service logs.'
     }
 
+    It 'reports only safe fields from a structured quote rejection' {
+        $error = '{"detail":"KIS rejected the quote request (HTTP 200, code unknown, content-type application/json, response-bytes 123, fields rt_cd,msg_cd,msg1)"}'
+        Get-SafeKisUpstreamHttpStatus -ErrorDetail $error | Should Be '200'
+        Get-SafeKisResponseFields -ErrorDetail $error | Should Be 'rt_cd,msg_cd,msg1'
+        $message = Format-SafeLocalApiFailure -Status '502' -Path '/api/v1/market/quotes/US/F' -ErrorDetail $error
+        $message | Should Be 'Local preflight request failed (HTTP 502, KIS upstream HTTP 200, fields rt_cd,msg_cd,msg1) for /api/v1/market/quotes/US/F; inspect the sanitized service logs.'
+        $message | Should Not Match '123|application/json|msg1=.*'
+    }
+
+    It 'rejects unsafe response field names' {
+        $error = '{"detail":"KIS rejected the quote request (HTTP 200, code unknown, content-type application/json, response-bytes 123, fields token=secret)"}'
+        Get-SafeKisResponseFields -ErrorDetail $error | Should Be $null
+    }
+
     It 'marks an unclassified KIS detail while keeping its contents hidden' {
         $message = Format-SafeLocalApiFailure -Status '502' -Path '/api/v1/market/quotes/US/F' `
             -ErrorDetail '{"detail":"KIS error with private content"}'

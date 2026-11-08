@@ -741,12 +741,38 @@ def test_quote_rejection_does_not_echo_unrecognized_broker_code(unsafe_msg_cd: s
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
-    with pytest.raises(KisApiError, match=r"KIS rejected the quote request \(code unknown\)") as captured:
+    with pytest.raises(KisApiError, match=r"KIS rejected the quote request \(HTTP 200, code unknown") as captured:
         client.get_quote("US", "F", "NAS")
 
     assert captured.value.broker_code == "unknown"
+    assert captured.value.http_status == 200
+    assert captured.value.response_content_type == "application/json"
+    assert captured.value.response_fields == ("rt_cd", "msg_cd", "msg1")
+    assert "fields rt_cd,msg_cd,msg1" in str(captured.value)
     assert "token=private" not in str(captured.value)
     assert "private response detail" not in str(captured.value)
+    client.close()
+
+
+@pytest.mark.parametrize("body", [[], "private response body", None])
+def test_quote_rejects_non_object_json_without_echoing_response(body: object) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json=_token_response())
+        if body is None:
+            return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
+        return httpx.Response(200, json=body)
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(KisApiError, match="was not a JSON object") as captured:
+        client.get_quote("US", "F", "NAS")
+
+    assert "private response body" not in str(captured.value)
+    assert "paper-secret" not in str(captured.value)
     client.close()
 
 

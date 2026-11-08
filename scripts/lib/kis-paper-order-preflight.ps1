@@ -23,8 +23,18 @@ function Get-SafeKisUpstreamHttpStatus {
     param([AllowNull()] [string]$ErrorDetail)
 
     if ([string]::IsNullOrWhiteSpace($ErrorDetail)) { return $null }
-    $match = [regex]::Match($ErrorDetail, '(?i)\bKIS [A-Za-z ]+ request failed \(HTTP (\d{3}), code [A-Za-z0-9_-]{1,32}\)')
+    $match = [regex]::Match($ErrorDetail, '(?i)\bKIS (?:[A-Za-z ]+ request failed|rejected the quote request) \(HTTP (\d{3}), code [A-Za-z0-9_-]{1,32}')
     if (-not $match.Success) { return $null }
+    return $match.Groups[1].Value
+}
+
+function Get-SafeKisResponseFields {
+    [CmdletBinding()]
+    param([AllowNull()] [string]$ErrorDetail)
+
+    if ([string]::IsNullOrWhiteSpace($ErrorDetail)) { return $null }
+    $match = [regex]::Match($ErrorDetail, '(?i)\bKIS rejected the quote request \(HTTP \d{3}, code [A-Za-z0-9_-]{1,32}, content-type (?:[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+|unknown), response-bytes \d{1,10}, fields ([A-Za-z_][A-Za-z0-9_]{0,31}(?:,[A-Za-z_][A-Za-z0-9_]{0,31}){0,15}|none)\)')
+    if (-not $match.Success -or $match.Groups[1].Value -eq 'none') { return $null }
     return $match.Groups[1].Value
 }
 
@@ -47,9 +57,12 @@ function Format-SafeLocalApiFailure {
     $brokerCode = Get-SafeKisBrokerCode -ErrorDetail $ErrorDetail
     $transportCategory = Get-SafeKisTransportCategory -ErrorDetail $ErrorDetail
     $upstreamStatus = Get-SafeKisUpstreamHttpStatus -ErrorDetail $ErrorDetail
+    $responseFields = Get-SafeKisResponseFields -ErrorDetail $ErrorDetail
     $diagnostic = if ($brokerCode) { ", KIS code $brokerCode" }
         elseif ($transportCategory) { ", KIS transport $transportCategory" }
+        elseif ($upstreamStatus -and $responseFields) { ", KIS upstream HTTP $upstreamStatus, fields $responseFields" }
         elseif ($upstreamStatus) { ", KIS upstream HTTP $upstreamStatus" }
+        elseif ($responseFields) { ", KIS response fields $responseFields" }
         elseif ($ErrorDetail -match '(?i)\bKIS\b') { ', KIS detail withheld' }
         else { '' }
     return "Local preflight request failed (HTTP $Status$diagnostic) for $Path; inspect the sanitized service logs."

@@ -91,6 +91,16 @@ def _safe_broker_code(value: object) -> str:
     return candidate.upper()
 
 
+def _safe_response_field_names(payload: object) -> tuple[str, ...]:
+    """Return bounded JSON key names without exposing any response values."""
+    if not isinstance(payload, dict):
+        return ()
+    return tuple(
+        key for key in payload
+        if isinstance(key, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,31}", key)
+    )[:16]
+
+
 def _ensure_kis_http_success(response: httpx.Response, operation: str) -> None:
     if response.status_code < 400:
         return
@@ -101,10 +111,7 @@ def _ensure_kis_http_success(response: httpx.Response, operation: str) -> None:
         payload = None
     if isinstance(payload, dict):
         code = _safe_broker_code(payload.get("msg_cd"))
-        response_fields = tuple(
-            key for key in payload
-            if isinstance(key, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,31}", key)
-        )[:16]
+        response_fields = _safe_response_field_names(payload)
     else:
         response_fields = ()
     error_value = next((payload.get(key) for key in ("error_code", "error")
@@ -414,9 +421,23 @@ class KisReadOnlyClient:
         except (httpx.HTTPError, ValueError, TypeError) as exc:
             raise _safe_kis_request_failure("quote", exc) from exc
 
+        if not isinstance(payload, dict):
+            raise KisApiError("KIS quote response was not a JSON object")
         if payload.get("rt_cd") != "0":
             code = _safe_broker_code(payload.get("msg_cd"))
-            raise KisApiError(f"KIS rejected the quote request (code {code})", broker_code=code)
+            fields = _safe_response_field_names(payload)
+            response_fields = ",".join(fields) if fields else "none"
+            content_type = _safe_content_type(response.headers.get("content-type")) or "unknown"
+            raise KisApiError(
+                "KIS rejected the quote request "
+                f"(HTTP {response.status_code}, code {code}, content-type {content_type}, "
+                f"response-bytes {len(response.content)}, fields {response_fields})",
+                http_status=response.status_code,
+                broker_code=code,
+                response_content_type=content_type if content_type != "unknown" else None,
+                response_bytes=len(response.content),
+                response_fields=fields,
+            )
         output = payload.get("output")
         if not isinstance(output, dict):
             raise KisApiError("KIS quote response did not contain an output object")
