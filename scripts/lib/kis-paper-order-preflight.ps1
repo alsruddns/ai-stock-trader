@@ -156,6 +156,10 @@ function Assert-KisPaperSessionOpen {
         [DateTimeOffset]$Now = [DateTimeOffset]::UtcNow
     )
 
+    if ($Session.market -ne $Market -or $Session.is_session -ne $true -or $Session.is_open -ne $true) {
+        throw 'Exchange calendar does not confirm an open session for the requested market.'
+    }
+
     try {
         $evaluatedAt = [DateTimeOffset]::Parse([string]$Session.evaluated_at)
         $closeAt = [DateTimeOffset]::Parse([string]$Session.close_at)
@@ -163,9 +167,6 @@ function Assert-KisPaperSessionOpen {
         throw 'Exchange session response is missing valid timezone-aware timestamps.'
     }
     $ageSeconds = ($Now.ToUniversalTime() - $evaluatedAt.ToUniversalTime()).TotalSeconds
-    if ($Session.market -ne $Market -or $Session.is_session -ne $true -or $Session.is_open -ne $true) {
-        throw 'Exchange calendar does not confirm an open session for the requested market.'
-    }
     if ($ageSeconds -lt -2 -or $ageSeconds -gt 10) {
         throw 'Exchange session confirmation is stale or from the future.'
     }

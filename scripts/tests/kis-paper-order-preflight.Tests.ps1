@@ -231,6 +231,17 @@ Describe 'KIS PAPER exchange session preflight' {
         Test-SessionAssertionThrows -Session $holiday -Market KR -Now $now | Should Be $true
     }
 
+    It 'classifies a closed non-session without requiring open or close timestamps' {
+        $holiday = @{
+            market = 'US'; is_session = $false; is_open = $false
+            evaluated_at = $now.ToString('o'); open_at = $null; close_at = $null
+        }
+        $message = $null
+        try { Assert-KisPaperSessionOpen -Session $holiday -Market US -Now $now }
+        catch { $message = $_.Exception.Message }
+        $message | Should Be 'Exchange calendar does not confirm an open session for the requested market.'
+    }
+
     It 'rejects a closed session' {
         $closed = $openSession.Clone()
         $closed.is_open = $false
