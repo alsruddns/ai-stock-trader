@@ -522,6 +522,53 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    void concurrentDistinctRealOrdersCannotBothReserveTheSameMarket() throws Exception {
+        UUID firstKey = UUID.randomUUID();
+        UUID secondKey = UUID.randomUUID();
+        OrderRequest firstOrder = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        OrderRequest secondOrder = new OrderRequest(Market.KR, "000660", OrderSide.BUY, 1,
+                new BigDecimal("100000"), Currency.KRW);
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var first = pool.submit(() -> reserveRealOrder(firstKey, hash("real-race-1"), firstOrder, ready, start));
+            var second = pool.submit(() -> reserveRealOrder(secondKey, hash("real-race-2"), secondOrder, ready, start));
+            if (!ready.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("Concurrent REAL reservation workers did not become ready.");
+            }
+            start.countDown();
+
+            var firstResult = first.get(10, TimeUnit.SECONDS);
+            var secondResult = second.get(10, TimeUnit.SECONDS);
+            assertEquals(1, (firstResult ? 1 : 0) + (secondResult ? 1 : 0));
+            assertEquals(1L, kisOrderRepository.findAllById(List.of(firstKey, secondKey)).stream()
+                    .filter(intent -> intent.getEnvironment() == KisEnvironment.REAL
+                            && intent.getMarket() == Market.KR
+                            && List.of(KisOrderStatus.SUBMITTING, KisOrderStatus.ACCEPTED,
+                                    KisOrderStatus.PARTIALLY_FILLED, KisOrderStatus.CANCEL_PENDING,
+                                    KisOrderStatus.UNKNOWN).contains(intent.getStatus()))
+                    .count());
+        } finally {
+            kisOrderRepository.deleteAllById(List.of(firstKey, secondKey));
+        }
+    }
+
+    private boolean reserveRealOrder(UUID key, String requestHash, OrderRequest request,
+                                     CountDownLatch ready, CountDownLatch start) throws Exception {
+        ready.countDown();
+        if (!start.await(5, TimeUnit.SECONDS)) {
+            throw new AssertionError("Concurrent REAL reservation start timed out.");
+        }
+        try {
+            return store.prepare(key, requestHash, KisEnvironment.REAL, request, null).createdNow();
+        } catch (DataIntegrityViolationException expectedReservationConflict) {
+            return false;
+        }
+    }
+
+    @Test
     @Transactional
     void realIndeterminateOutcomePersistsUnknownAcrossReloadAndRejectsDuplicateIntent() {
         UUID key = UUID.randomUUID();
