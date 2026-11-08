@@ -738,6 +738,7 @@ def test_real_signal_submission_stays_locked_without_real_rest_evidence_settings
     monkeypatch.setenv("KIS_ENVIRONMENT", "paper")
     monkeypatch.setenv("KIS_MARKET_DATA_ENABLED", "false")
     monkeypatch.setattr("app.paper_runtime.snapshot_store.enabled", lambda: True)
+    monkeypatch.setattr("app.paper_runtime.snapshot_store.load_session_minute_bars", lambda *_args: ())
     for name in (
         "LIVE_TRADING_ENABLED", "KIS_REAL_ORDERS_ENABLED", "KIS_ACCOUNT_READ_ENABLED",
         "KIS_REAL_ACCOUNT_READ_ENABLED", "REAL_PROTECTIVE_EXIT_MANAGER_ENABLED",
