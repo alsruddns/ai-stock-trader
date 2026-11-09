@@ -56,6 +56,8 @@ Python health의 `broker_connected=true`는 모니터가 활성화되어 있고 
 
 같은 응답의 `last_stream_failure_stage`와 `last_stream_error_category`는 마지막 WebSocket 재연결 실패의 구간과 안전한 오류 분류를 제공합니다. 원시 예외 메시지, 프레임 내용, 계좌정보는 반환하지 않으며, 구독 승인이 다시 완료되면 두 필드를 초기화합니다.
 
+운영 대시보드는 이 두 필드를 국내 WebSocket 재연결 상태로 번역해 표시합니다. 새 진단 필드가 없는 구버전 API 응답은 `진단 미지원`으로 구분합니다.
+
 Python health의 `strategy_cost_assumptions`는 KR/US별 백테스트·학습 비용 설정 상태와 누락되거나 유효하지 않은 환경변수 이름만 반환합니다. 비용 숫자와 자격정보는 반환하지 않습니다. 왕복 라벨 비용이 매수·매도 수수료, 매도세금, 양쪽 체결 슬리피지 합보다 작으면 미준비로 표시합니다. 대시보드는 이 상태를 사용해 `.env_local`에서 확인할 항목을 보여주며, 이 진단 자체는 비용을 승인하거나 PAPER/REAL 주문을 활성화하지 않습니다.
 
 `GET /api/v1/market/sessions/{market}`는 `market`이 `KR` 또는 `US`일 때 거래소 캘린더가 확인한 현지 세션 날짜와 UTC 개장·폐장 시각, 조회 시점의 장중 여부를 반환합니다. 휴장일에는 `is_session=false`와 빈 개장·폐장 시각을 돌려줍니다. 캘린더를 검증할 수 없으면 HTTP 503으로 닫습니다. 이 endpoint는 읽기 전용 세션 정보이며 주문 승인이 아닙니다.
