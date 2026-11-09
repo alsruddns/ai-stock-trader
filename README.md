@@ -10,7 +10,7 @@ Windows 로컬에서 실행하는 국내·미국 주식 자동매매 프로젝�
 
 > **안전 범위:** 기본값은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ACCOUNT_READ_ENABLED=false`, `KIS_REAL_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ORDERS_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`, `KIS_REAL_RECONCILIATION_ENABLED=false`, `REAL_PROTECTIVE_EXIT_MANAGER_ENABLED=false`, `KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED=false`, `REAL_SIGNAL_SUBMISSION_ENABLED=false`입니다. 계좌 조회는 전체 허용 스위치와 해당 환경 허용 스위치가 모두 켜져야 합니다. 실계좌 신규 매수는 보호청산 관리기가 검증되기 전까지 별도 잠금 상태이며, 실계좌 주문도 기본 비활성입니다.
 
-> **현재 시장 범위:** 국내·미국 공통 코드 개발은 계속하지만 KIS 연동, 시장 세션 검증, PAPER/REAL 운용, 데이터 백테스트·학습 후보 검증은 국내(KR)만 수행합니다. 미국 경로는 Mock/고정 fixture 단위 테스트만 허용하며 운영 스크립트는 미국 외부 호출·작업 등록을 거부합니다.
+> **현재 시장 범위:** 국내·미국 공통 코드는 계속 개발하지만 실행하는 기능 테스트·KIS 연동·시장 세션 검증·PAPER/REAL 운용·데이터 백테스트 및 학습 검증은 국내(KR)만 대상으로 합니다. 미국 계좌나 미국 세션에 연결하는 검증은 하지 않으며, 운영 스크립트는 미국 외부 호출·작업 등록을 거부합니다.
 
 ## 구성
 

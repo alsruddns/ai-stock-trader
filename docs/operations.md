@@ -1,6 +1,6 @@
 # Windows 운영
 
-> **현재 시장 범위:** 해외 기능 코드는 계속 개발하지만, KIS 계좌·시세 연결, 세션 데이터 검증, PAPER/REAL 실행, 백테스트·학습 후보 운영은 국내(KR)만 대상으로 합니다. 해외 운영 명령은 실행하지 않으며 운영 스크립트가 이를 차단합니다. 해외 경로의 Mock/고정 fixture 단위 테스트만 유지합니다.
+> **현재 시장 범위:** 해외 기능 코드는 계속 개발하지만, 실행하는 기능 테스트와 KIS 계좌·시세 연결, 세션 데이터 검증, PAPER/REAL 실행, 백테스트·학습 후보 운영은 국내(KR)만 대상으로 합니다. 해외 계좌나 시장 세션에 연결하는 테스트·운영 명령은 실행하지 않으며 운영 스크립트가 외부 호출을 차단합니다.
 
 ## 로컬 실행
 
@@ -50,7 +50,7 @@ Set-Location .\services\market-ai
 - KIS REAL 체결 알림 구독은 추가 읽기 전용 기능이며 기본 잠금입니다. 사용하려면 `KIS_REAL_EXECUTION_NOTICES_ENABLED=true`, REAL 계좌조회 두 스위치, `KIS_REAL_HTS_ID` 및 REAL 자격정보가 모두 있어야 합니다. 알림을 받으면 저장된 주문번호와 일치하는 주문만 REST로 다시 조회해 체결 관측을 갱신합니다. 알림 자체로 주문을 내지 않으며, `KIS_REAL_ORDERS_ENABLED`나 `LIVE_TRADING_ENABLED`를 켜지 않습니다. 아직 실시간 KIS 연결 검증은 완료되지 않았습니다.
 - 소유자가 확인한 KIS 데이터 이용 범위는 로컬 저장·백테스트·AI 학습 허용입니다. 이 허용은 매매 성능 검증이나 실계좌 자동주문 승인과 별개입니다.
 - Python 실시간 시세 릴레이는 `KIS_WEBSOCKET_ENABLED=true`를 요구합니다. 국내 paper feed는 PAPER 자격정보를 사용합니다. 미국 시세 구독을 PAPER ledger에 공급하려면 `KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED=true`와 REAL 시세 자격정보가 추가로 필요합니다. 이 별도 REAL 연결은 미국 시세만 읽으며 모든 주문은 로컬 PAPER ledger로만 갑니다. 계좌 조회 및 REAL 주문 스위치와 독립이며 기본값은 `false`입니다.
-- 미국 REAL WebSocket 구현은 유지하지만 현재 운영 검증 범위가 국내로 한정되어 있어 `scripts/probe-kis-real-us-websocket.py`는 실행을 차단합니다. 해외 경로는 Mock/고정 fixture 단위 검증만 허용합니다.
+- 미국 REAL WebSocket 구현은 유지하지만 현재 테스트·운영 검증 범위가 국내로 한정되어 있어 `scripts/probe-kis-real-us-websocket.py`는 실행을 차단합니다. 해외 기능은 코드 개발만 진행하고, 검증 실행은 국내 범위에서 수행합니다.
 - 국내 REAL 체결가 WebSocket 구독 경로도 확인하려면 `scripts/probe-kis-real-kr-websocket.py --symbol 005930`을 사용합니다. KIS 공식 예제 기준 국내 실시간 체결 TR은 실전에서 `H0STCNT0`이며, 동일한 안전 잠금·환경 격리·중복 REAL 소켓 차단을 적용합니다. 기본 모드는 구독 ACK만 확인하고 장중 tick 검증은 `--wait-for-tick-seconds 60`처럼 지정합니다. probe는 REAL 시세 자격정보만 사용하고 REAL/PAPER 주문, 계좌 읽기, 시그널·자동 보호매도 설정을 모두 제거하거나 잠급니다. 네트워크 응답과 원시 시세는 기록하지 않으며, 단독 probe는 관리형 REAL feed가 멈춰 있을 때만 허용됩니다. [KIS 공식 국내 WebSocket 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py)
 - 국내 REAL REST 시세 스냅샷을 별도 확인하려면 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-real-kis-us-market-data.ps1 -EnableReadOnlyGetForThisRun -Market KR`을 사용합니다. 기본 시장은 KR이며 현재 US 또는 ALL 범위는 요청 전에 차단합니다. 이 1회성 opt-in은 현재 프로세스에서만 적용되며, 실행 모드는 PAPER로 고정하고 실주문·모의주문·자동매매·REAL 계좌조회·REAL 주문대조가 모두 false여야 합니다. KIS REAL 앱 키/시크릿 외 계좌번호와 PAPER 키·계좌번호는 자식 프로세스에서 제거하고, PostgreSQL 공유 호출 제한을 사용합니다. 로컬 `.env_local`은 바꾸지 않으며 출력은 성공 여부·종목/거래소·통화·조회시각만 포함하고 실제 가격, 원시 응답, 키, 토큰, 계좌정보는 출력하지 않습니다. 주문 API와 계좌 API는 이 도구에 연결되어 있지 않습니다.
 - REAL 신호 감시기는 `TRADING_MODE=real`, `REAL_SIGNAL_MONITOR_ENABLED=true`, `KIS_WEBSOCKET_ENABLED=true`, `PAPER_WATCHLIST`, REAL 시세 자격정보를 요구합니다. 이때 한국·미국 시세 모두 REAL WebSocket에서 읽고 세션 분봉 저장이 활성화돼야 합니다. Spring이 별도로 확인하는 최신 REST 시세를 위해 `KIS_ENVIRONMENT=real`과 `KIS_MARKET_DATA_ENABLED=true`도 필요합니다. 실제 Spring 신호 POST는 `REAL_SIGNAL_SUBMISSION_ENABLED`와 live 주문·계좌읽기·보호청산·주문대조 게이트가 모두 열려 있을 때만 생성됩니다. 기본값은 false입니다. 전송 결과가 불명확하거나 대기 큐가 넘치면 현재 처리 중인 신호를 제외한 미전송 대기 후보를 버리고 해당 프로세스에서 신규 REAL 신호 전달을 중지합니다. 불명확한 결과는 멱등키를 운영 상태에 남기며 Spring 주문 의도와 증권사 체결 대조 전까지 수동 확인이 필요합니다. UNKNOWN 결과가 남은 상태에서 프로세스를 재시작할 때도 주문 의도를 먼저 대조해야 합니다.
