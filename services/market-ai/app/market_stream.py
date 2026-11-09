@@ -71,7 +71,8 @@ def parse_trade_frame(frame: str, market: str, exchange: str | None = None) -> l
         raise ValueError("KIS frame record count is outside the supported range")
     fields = payload.split("^")
     if market == "KR" and tr_id == "H0STCNT0":
-        width, zone = 46, "Asia/Seoul"
+        # KIS's official 47-column schema places VI_STND_PRC at 45 and MARKET_CLS_CODE at 46.
+        width, zone = 47, "Asia/Seoul"
         get_tick = lambda row: TradeTick(
             market="KR", symbol=row[0], timestamp=_parse_time(row[33], row[1], zone),
             price=_number(row[2], "price"), volume=abs(int(row[12])),  # CNTG_VOL, not ACML_VOL
@@ -93,7 +94,7 @@ def parse_trade_frame(frame: str, market: str, exchange: str | None = None) -> l
     ticks: list[TradeTick] = []
     for index in range(count):
         row = fields[index * width:(index + 1) * width]
-        if market == "KR" and row[45].strip() != "2":
+        if market == "KR" and row[46].strip() != "2":
             # KIS MARKET_CLS_CODE: only regular-session executions enter strategy bars.
             continue
         tick = get_tick(row)

@@ -16,10 +16,10 @@ def _frame(tr_id: str, width: int, values: dict[int, str]) -> str:
 
 
 def test_parse_domestic_trade_frame_extracts_market_only_fields() -> None:
-    frame = _frame("H0STCNT0", 46, {
+    frame = _frame("H0STCNT0", 47, {
         0: "005930", 1: "100101", 2: "73500", 7: "73000", 8: "74000", 9: "72500",
         10: "73510", 11: "73500", 12: "3", 13: "1000", 14: "73500000", 33: "20261105",
-        45: "2",
+        45: "73500", 46: "2",
     })
     tick = parse_trade_frame(frame, "KR")[0]
     assert tick.symbol == "005930"
@@ -35,11 +35,11 @@ def test_parse_domestic_multi_record_frame_uses_trade_volume_not_cumulative_volu
         ("100101", "3", "1000"),
         ("100102", "5", "1005"),
     ):
-        fields = ["0"] * 46
+        fields = ["0"] * 47
         fields[0], fields[1], fields[2] = "005930", time_value, "73500"
         fields[10], fields[11] = "73510", "73500"
         fields[12], fields[13], fields[33] = trade_volume, cumulative_volume, "20261105"
-        fields[45] = "2"
+        fields[45], fields[46] = "73500", "2"
         rows.extend(fields)
     ticks = parse_trade_frame("0|H0STCNT0|2|" + "^".join(rows), "KR")
 
@@ -48,12 +48,31 @@ def test_parse_domestic_multi_record_frame_uses_trade_volume_not_cumulative_volu
 
 @pytest.mark.parametrize("market_class", ["1", "3", "5", ""])
 def test_domestic_trade_parser_excludes_non_regular_market_ticks(market_class: str) -> None:
-    frame = _frame("H0STCNT0", 46, {
+    frame = _frame("H0STCNT0", 47, {
         0: "005930", 1: "160101", 2: "73500", 10: "73510", 11: "73500",
-        12: "3", 33: "20261105", 45: market_class,
+        12: "3", 33: "20261105", 45: "73500", 46: market_class,
     })
 
     assert parse_trade_frame(frame, "KR") == []
+
+
+def test_domestic_trade_parser_uses_market_class_field_after_vi_reference_price() -> None:
+    frame = _frame("H0STCNT0", 47, {
+        0: "005930", 1: "100101", 2: "73500", 10: "73510", 11: "73500",
+        12: "3", 33: "20261105", 45: "2", 46: "2",
+    })
+
+    assert len(parse_trade_frame(frame, "KR")) == 1
+
+
+def test_domestic_trade_parser_rejects_legacy_short_row_without_market_class_field() -> None:
+    frame = _frame("H0STCNT0", 46, {
+        0: "005930", 1: "100101", 2: "73500", 10: "73510", 11: "73500",
+        12: "3", 33: "20261105", 45: "2",
+    })
+
+    with pytest.raises(ValueError, match="all declared records"):
+        parse_trade_frame(frame, "KR")
 
 
 def test_parse_domestic_orderbook_frame_extracts_best_prices_from_official_columns() -> None:
