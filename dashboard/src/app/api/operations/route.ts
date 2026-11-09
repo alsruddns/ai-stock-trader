@@ -244,7 +244,8 @@ export async function GET() {
     ? await usSession.value.json() : null;
   const localOperationsReport = await readLocalOperationsReport();
   const trainingTasks = (localOperationsReport?.validationTaskSchedule?.tasks ?? [])
-    .filter((task) => task.kind === "P4_MODEL_TRAIN" && task.market && task.symbol);
+    .filter((task) => task.kind === "P4_MODEL_TRAIN" && task.market === "KR"
+      && task.enabled && task.symbol);
   const trainingPairs = [...new Map(trainingTasks.map((task) => [`${task.market}:${task.symbol}`, task])).values()];
   const trainingReadinessRows = await Promise.all(trainingPairs.map(async (task) => {
     const key = `${task.market}:${task.symbol}`;
