@@ -204,3 +204,8 @@ function Test-ExchangeSessionCompletion {
     if ($RequiresCompleteSession) { return $StoredSessionQualityVerified }
     return $ObservedCounterBars -ge $MinimumCounterBars
 }
+
+function Get-ExchangeSessionValidationScope([bool]$RequiresCompleteSession) {
+    if ($RequiresCompleteSession) { return 'full_session' }
+    return 'bounded_sample'
+}

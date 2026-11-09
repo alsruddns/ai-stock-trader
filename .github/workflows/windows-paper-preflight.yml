@@ -102,7 +102,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Retired KIS analysis API runtime scan failed.' }
 
           $sessionResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -PassThru
-          if ($sessionResult.FailedCount -gt 0 -or $sessionResult.PassedCount -ne 25) {
+          if ($sessionResult.FailedCount -gt 0 -or $sessionResult.PassedCount -ne 29) {
             throw "Exchange session monitor tests failed: passed=$($sessionResult.PassedCount), failed=$($sessionResult.FailedCount)."
           }
 

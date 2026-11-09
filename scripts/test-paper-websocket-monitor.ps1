@@ -139,11 +139,13 @@ $sessionQualityStatus = 'not_checked'
 $sessionStatusAvailable = $true
 $postCloseWaitSeconds = 0.0
 $monitorStage = 'stream_monitoring'
+$validationScope = Get-ExchangeSessionValidationScope ([bool]$RequireSessionClose)
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($DurationSeconds)
 $latest = $initial
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $nextProgressSeconds = 60
 $initialProgress = [ordered]@{
+    validation_scope = $validationScope
     recorded_at_utc = $startedAtUtc.ToString('o')
     requested_seconds = $DurationSeconds
     selected_feed = if ($Feed) { $Feed } else { 'any' }
@@ -235,6 +237,7 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
     $sessionBarCount = Get-ExchangeSessionBarsDelta $currentBars $initialBars $sessionOpenBarsBaseline
     $sessionBarsDelta = $sessionBarCount.delta
     $progress = [ordered]@{
+        validation_scope = $validationScope
         recorded_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
         requested_seconds = $DurationSeconds
         elapsed_seconds = [int]$stopwatch.Elapsed.TotalSeconds
@@ -262,7 +265,7 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
 
     if ($stopwatch.Elapsed.TotalSeconds -ge $nextProgressSeconds) {
         $tickDelta = $currentTicks - $initialTicks
-        Write-Output "KIS feed monitor running: feed=$(if ($Feed) { $Feed } else { 'any' }) elapsed_seconds=$([int]$stopwatch.Elapsed.TotalSeconds) ticks_delta=$tickDelta bars_delta=$sessionBarsDelta."
+        Write-Output "KIS feed monitor running: scope=$validationScope feed=$(if ($Feed) { $Feed } else { 'any' }) elapsed_seconds=$([int]$stopwatch.Elapsed.TotalSeconds) ticks_delta=$tickDelta bars_delta=$sessionBarsDelta."
         $nextProgressSeconds += 60
     }
 }
@@ -281,6 +284,7 @@ if ($RequireSessionClose) {
             $sessionStatusAvailable = $false
             $sessionQualityStatus = 'unavailable'
             Write-ProgressRecord ([ordered]@{
+                validation_scope = $validationScope
                 recorded_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
                 requested_seconds = $DurationSeconds
                 elapsed_seconds = [int]$stopwatch.Elapsed.TotalSeconds
@@ -330,6 +334,7 @@ if ($RequireSessionClose) {
         $currentBars = if ($Feed) { [int]$status.bars_closed_by_feed.$Feed } else { [int]$status.bars_closed }
         $barCount = Get-ExchangeSessionBarsDelta $currentBars $initialBars $sessionOpenBarsBaseline
         Write-ProgressRecord ([ordered]@{
+            validation_scope = $validationScope
             recorded_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
             requested_seconds = $DurationSeconds
             elapsed_seconds = [int]$stopwatch.Elapsed.TotalSeconds
@@ -401,6 +406,7 @@ if (-not (Test-ExchangeSessionCompletion $barDelta $MinimumBarsDelta ([bool]$Req
     throw "Closed bar count increased by $barDelta, below the required minimum $MinimumBarsDelta."
 }
 $evidence = [ordered]@{
+    validation_scope = $validationScope
     started_at_utc = $startedAtUtc.ToString('o')
     completed_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
     requested_seconds = $DurationSeconds
@@ -436,6 +442,7 @@ $evidence = [ordered]@{
     result = 'passed'
 }
 Write-ProgressRecord ([ordered]@{
+    validation_scope = $evidence.validation_scope
     recorded_at_utc = $evidence.completed_at_utc
     requested_seconds = $DurationSeconds
     elapsed_seconds = $evidence.observed_seconds
@@ -467,7 +474,8 @@ Write-ProgressRecord ([ordered]@{
 [System.IO.File]::AppendAllText($EvidencePath,
     ($evidence | ConvertTo-Json -Compress -Depth 5) + [Environment]::NewLine,
     [System.Text.UTF8Encoding]::new($false))
-Write-Output "Read-only KIS monitor sample passed: feed=$(if ($Feed) { $Feed } else { 'any' }) seconds=$DurationSeconds ticks_delta=$tickDelta bars_delta=$barDelta max_no_tick_seconds=$([Math]::Round($maxObservedNoTickSeconds, 1)) orders=disabled automation=disabled evidence=$EvidencePath."
+$validationLabel = if ($RequireSessionClose) { 'full-session validation' } else { 'bounded sample' }
+Write-Output "Read-only KIS $validationLabel passed: feed=$(if ($Feed) { $Feed } else { 'any' }) seconds=$DurationSeconds ticks_delta=$tickDelta bars_delta=$barDelta max_no_tick_seconds=$([Math]::Round($maxObservedNoTickSeconds, 1)) orders=disabled automation=disabled evidence=$EvidencePath."
 } catch {
     $elapsedSeconds = if ($stopwatch) {
         [int]$stopwatch.Elapsed.TotalSeconds
@@ -475,6 +483,7 @@ Write-Output "Read-only KIS monitor sample passed: feed=$(if ($Feed) { $Feed } e
         [int]([DateTimeOffset]::UtcNow - $monitorRunStartedAtUtc).TotalSeconds
     }
     $failureProgress = [ordered]@{
+        validation_scope = $validationScope
         recorded_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
         started_at_utc = if ($startedAtUtc) { $startedAtUtc.ToString('o') } else { $monitorRunStartedAtUtc.ToString('o') }
         requested_seconds = $DurationSeconds

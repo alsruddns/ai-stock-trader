@@ -336,3 +336,13 @@ Describe 'Existing market session task verification' {
         (Test-SessionMonitorRefreshTaskDefinition $taskWithUS 'C:\repo\scripts\register-market-data-session-horizon.ps1' 10) | Should Be $false
     }
 }
+
+Describe 'Exchange session evidence scope' {
+    It 'labels short monitoring runs as bounded samples' {
+        (Get-ExchangeSessionValidationScope $false) | Should Be 'bounded_sample'
+    }
+
+    It 'labels close-and-quality gated monitoring as full-session validation' {
+        (Get-ExchangeSessionValidationScope $true) | Should Be 'full_session'
+    }
+}
