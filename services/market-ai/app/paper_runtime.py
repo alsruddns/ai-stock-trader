@@ -1182,14 +1182,17 @@ class PaperSessionFeedMonitor:
                         self._feed_by_watch.get(watch.key, self._feed_for_watch(watch)),
                         "orderbook_market_class_filtered", filtered,
                     )
+            subscribed_symbols = {watch.symbol.upper() for watch in expected_watches}
+            frame_symbols = {quote.symbol.upper() for quote in quotes}
+            if not filtered and subscribed_symbols and not frame_symbols.intersection(subscribed_symbols):
+                watch = expected_watches[0]
+                self._increment_market_data_diagnostic(
+                    self._feed_by_watch.get(watch.key, self._feed_for_watch(watch)), "orderbook_symbol_mismatches",
+                )
             for watch in watches:
                 if watch.market != "KR":
                     continue
                 matching_quotes = [quote for quote in quotes if quote.symbol.upper() == watch.symbol.upper()]
-                if not matching_quotes and not filtered:
-                    self._increment_market_data_diagnostic(
-                        self._feed_by_watch.get(watch.key, self._feed_for_watch(watch)), "orderbook_symbol_mismatches",
-                    )
                 for quote in matching_quotes:
                     feed = self._feed_by_watch.get(watch.key, self._feed_for_watch(watch))
                     self._record_watch_market_data(feed, watch, "orderbook", quote.timestamp)
@@ -1225,6 +1228,7 @@ class PaperSessionFeedMonitor:
                         self._status["orderbook_updates_by_feed"] = counts
                         self._status["last_orderbook_received_at_by_feed"] = received
             return
+        mismatch_recorded = False
         for watch in watches:
             expected = "H0STCNT0" if watch.market == "KR" else "HDFSCNT0"
             if transaction_id != expected:
@@ -1240,8 +1244,14 @@ class PaperSessionFeedMonitor:
             if filtered:
                 self._increment_market_data_diagnostic(feed, "trade_market_class_filtered", filtered)
             matching_ticks = [tick for tick in ticks if tick.symbol.upper() == watch.symbol.upper()]
-            if not matching_ticks and not filtered:
-                self._increment_market_data_diagnostic(feed, "trade_symbol_mismatches")
+            if not filtered and not mismatch_recorded:
+                subscribed_symbols = {
+                    candidate.symbol.upper() for candidate in watches if candidate.market == watch.market
+                }
+                frame_symbols = {tick.symbol.upper() for tick in ticks}
+                if subscribed_symbols and not frame_symbols.intersection(subscribed_symbols):
+                    self._increment_market_data_diagnostic(feed, "trade_symbol_mismatches")
+                    mismatch_recorded = True
             for tick in matching_ticks:
                 self._record_watch_market_data(feed, watch, "trade", tick.timestamp)
                 bar = self._aggregators[watch.key].add(tick)

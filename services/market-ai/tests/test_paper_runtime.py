@@ -440,7 +440,7 @@ def test_runtime_reports_market_class_filtered_domestic_frames_without_counting_
 
 def test_runtime_reports_parse_errors_and_symbol_mismatch_for_domestic_trade_frames(monkeypatch) -> None:
     runtime = PaperSessionFeedMonitor()
-    watch = parse_watchlist("KR:005930")[0]
+    watch, second_watch = parse_watchlist("KR:005930;KR:000660")
 
     def malformed(*_args):
         raise ValueError("malformed frame")
@@ -451,11 +451,11 @@ def test_runtime_reports_parse_errors_and_symbol_mismatch_for_domestic_trade_fra
 
     from app.market_stream import TradeTick
     other = TradeTick(
-        "KR", "000660", datetime.fromisoformat("2026-11-05T10:12:00+09:00"), Decimal("100"), 1,
+        "KR", "999999", datetime.fromisoformat("2026-11-05T10:12:00+09:00"), Decimal("100"), 1,
         Decimal("99"), Decimal("101"),
     )
     monkeypatch.setattr("app.paper_runtime.parse_trade_frame_with_diagnostics", lambda *_args: ([other], 0))
-    runtime._consume("0|H0STCNT0|1|payload", (watch,))
+    runtime._consume("0|H0STCNT0|1|payload", (watch, second_watch))
     assert runtime.status()["market_data_diagnostics_by_feed"]["paper"]["trade_symbol_mismatches"] == 1
 
 
@@ -494,6 +494,8 @@ def test_runtime_reports_domestic_market_data_receipts_per_symbol(monkeypatch) -
     assert per_symbol[hynix.key]["usable_orderbook_quotes"] == 1
     assert per_symbol[hynix.key]["last_orderbook_at"] == timestamp.isoformat()
     assert "trade_ticks_received" not in per_symbol[hynix.key]
+    assert status["market_data_diagnostics_by_feed"]["paper"]["trade_symbol_mismatches"] == 0
+    assert status["market_data_diagnostics_by_feed"]["paper"]["orderbook_symbol_mismatches"] == 0
     per_symbol[samsung.key]["trade_ticks_received"] = 999
     assert runtime.status()["market_data_by_watch_by_feed"]["paper"][samsung.key]["trade_ticks_received"] == 1
 
