@@ -50,7 +50,7 @@ def test_parse_domestic_multi_record_frame_uses_trade_volume_not_cumulative_volu
 def test_domestic_trade_parser_excludes_non_regular_market_ticks(market_class: str) -> None:
     frame = _frame("H0STCNT0", 47, {
         0: "005930", 1: "160101", 2: "73500", 10: "73510", 11: "73500",
-        12: "3", 33: "20261105", 45: "73500", 46: market_class,
+        12: "3", 33: "20261105", 45: "2", 46: market_class,
     })
 
     assert parse_trade_frame(frame, "KR") == []
@@ -59,7 +59,7 @@ def test_domestic_trade_parser_excludes_non_regular_market_ticks(market_class: s
 def test_domestic_trade_parser_uses_market_class_field_after_vi_reference_price() -> None:
     frame = _frame("H0STCNT0", 47, {
         0: "005930", 1: "100101", 2: "73500", 10: "73510", 11: "73500",
-        12: "3", 33: "20261105", 45: "2", 46: "2",
+        12: "3", 33: "20261105", 45: "1", 46: "2",
     })
 
     assert len(parse_trade_frame(frame, "KR")) == 1
