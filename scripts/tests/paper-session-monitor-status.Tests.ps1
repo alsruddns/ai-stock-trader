@@ -1,5 +1,16 @@
 . (Join-Path $PSScriptRoot '../paper-session-monitor-status.ps1')
 
+Describe 'Paper session monitor failure codes' {
+    It 'classifies a stalled WebSocket without persisting the raw exception text' {
+        Get-MonitorFailureCode 'No WebSocket ticks arrived for more than 300 seconds.' |
+            Should Be 'WEBSOCKET_NO_TICKS'
+    }
+
+    It 'uses a safe generic code for unknown exception text' {
+        Get-MonitorFailureCode 'account=private-key-value' | Should Be 'MONITOR_FAILED'
+    }
+}
+
 Describe 'Paper session feed quote-quality diagnostics' {
     It 'records the four valid counters independently from frame diagnostics' {
         $status = [pscustomobject]@{

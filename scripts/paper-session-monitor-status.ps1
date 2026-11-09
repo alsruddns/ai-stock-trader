@@ -4,6 +4,19 @@ function Assert-MonitorSafetyLocks($Status) {
     }
 }
 
+function Get-MonitorFailureCode([string]$Message) {
+    if ([string]::IsNullOrWhiteSpace($Message)) { return 'MONITOR_FAILED' }
+    switch -Regex ($Message) {
+        'No WebSocket ticks arrived for more than \d+ seconds' { return 'WEBSOCKET_NO_TICKS' }
+        'Local market-data feed did not become ready' { return 'FEED_NOT_READY' }
+        'Could not read the local paper-session status endpoint' { return 'SESSION_STATUS_UNAVAILABLE' }
+        'Could not verify today.*exchange session' { return 'EXCHANGE_CALENDAR_UNAVAILABLE' }
+        'Stored-session quality did not verify' { return 'STORED_SESSION_QUALITY_INCOMPLETE' }
+        'below the required minimum' { return 'MINIMUM_BAR_COUNT_NOT_MET' }
+        default { return 'MONITOR_FAILED' }
+    }
+}
+
 function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
     $feedNames = if ($SelectedFeed) { @($SelectedFeed.ToLowerInvariant()) } else { @('paper', 'real') }
     $result = [ordered]@{}

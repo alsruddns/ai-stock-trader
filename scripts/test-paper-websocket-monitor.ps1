@@ -403,6 +403,7 @@ Write-Output "Read-only KIS monitor sample passed: feed=$(if ($Feed) { $Feed } e
         orders_enabled = if ($latest) { [bool]$latest.orders_enabled } else { $false }
         automation_state = if ($latest) { $latest.automation_state } else { $null }
         failure_type = $_.Exception.GetType().Name
+        failure_code = Get-MonitorFailureCode ([string]$_.Exception.Message)
         result = 'failed'
     }
     try { Write-ProgressRecord $failureProgress } catch { }
