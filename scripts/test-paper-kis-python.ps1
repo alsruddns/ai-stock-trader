@@ -3,6 +3,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'lib\safe-http-diagnostic.ps1')
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $envPath = Join-Path $repoRoot '.env_local'
@@ -57,7 +58,17 @@ function Invoke-LocalReadOnlyGet {
     try {
         return Invoke-RestMethod -Uri "$ApiBaseUrl$Path" -TimeoutSec 30
     } catch {
-        throw "Read-only Python KIS smoke failed at '$Path'. Inspect the sanitized local service log."
+        $statusCode = $null
+        try {
+            if ($null -ne $_.Exception.Response.StatusCode) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+            }
+        } catch { }
+        $responseBody = [string]$_.ErrorDetails.Message
+        $exceptionType = $_.Exception.GetType().Name
+        $summary = Get-SafeLocalApiFailureSummary -StatusCode $statusCode `
+            -ResponseBody $responseBody -ExceptionType $exceptionType
+        throw "Read-only Python KIS smoke failed at '$Path' ($summary). Response content was suppressed."
     }
 }
 
