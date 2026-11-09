@@ -7,7 +7,10 @@ on:
       - 'scripts/lib/exchange-session-monitor.ps1'
       - 'scripts/lib/market-session-scheduler.ps1'
       - 'scripts/test-paper-websocket-monitor.ps1'
+      - 'scripts/lib/safe-http-diagnostic.ps1'
+      - 'scripts/test-paper-kis-python.ps1'
       - 'scripts/tests/exchange-session-monitor.Tests.ps1'
+      - 'scripts/tests/safe-http-diagnostic.Tests.ps1'
       - '.github/workflows/krx-session-monitor-safety.yml'
   workflow_dispatch:
 
@@ -21,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Check monitor syntax and focused session tests
+      - name: Check domestic PowerShell safety scripts and focused tests
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -35,7 +38,9 @@ jobs:
           foreach ($path in @(
             'scripts/lib/exchange-session-monitor.ps1',
             'scripts/lib/market-session-scheduler.ps1',
-            'scripts/test-paper-websocket-monitor.ps1'
+            'scripts/test-paper-websocket-monitor.ps1',
+            'scripts/lib/safe-http-diagnostic.ps1',
+            'scripts/test-paper-kis-python.ps1'
           )) {
             $tokens = $null
             $errors = $null
@@ -46,4 +51,9 @@ jobs:
           $result = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -PassThru
           if ($result.FailedCount -gt 0 -or $result.PassedCount -ne 29) {
             throw "KRX session monitor tests failed: passed=$($result.PassedCount), failed=$($result.FailedCount)."
+          }
+
+          $diagnosticResult = Invoke-Pester -Path 'scripts/tests/safe-http-diagnostic.Tests.ps1' -PassThru
+          if ($diagnosticResult.FailedCount -gt 0 -or $diagnosticResult.PassedCount -ne 3) {
+            throw "Domestic KIS smoke diagnostic tests failed: passed=$($diagnosticResult.PassedCount), failed=$($diagnosticResult.FailedCount)."
           }
