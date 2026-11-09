@@ -770,15 +770,22 @@ def test_candidate_cannot_be_re_evaluated_on_multiple_holdout_sets(tmp_path) -> 
 def test_holdout_selection_uses_validation_brier_and_one_prior_champion(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)
     candidates = (
-        ("lightgbm-" + "a" * 32, 0.31),
+        ("lightgbm-" + "a" * 32, 0.05),
         ("xgboost-" + "b" * 32, 0.24),
+        ("lightgbm-" + "c" * 32, 0.30),
     )
-    for model_id, brier in candidates:
+    for index, (model_id, brier) in enumerate(candidates):
         _write_candidate(registry, model_id, record_holdout_event=False)
         path = tmp_path / f"{model_id}.json"
         metadata = json.loads(path.read_text(encoding="utf-8"))
         metadata.pop("heldout_evaluation")
         metadata["validation_metrics"]["brier"] = brier
+        if index == 0:
+            metadata["train_sessions"] = [f"2026-09-{day:02d}" for day in range(29, 31)] + [
+                "2026-10-01", "2026-10-02", "2026-10-03",
+            ]
+            metadata["validation_sessions"] = ["2026-10-04", "2026-10-05", "2026-10-06"]
+            metadata["test_sessions"] = ["2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10", "2026-10-11"]
         path.write_text(json.dumps(metadata), encoding="utf-8")
 
     holdout_dates = [date(2026, 10, day) for day in (16, 19, 20, 21, 22)]
@@ -796,6 +803,29 @@ def test_holdout_selection_uses_validation_brier_and_one_prior_champion(tmp_path
             candidates[0][0], {session: [] for session in holdout_dates},
             market="KR", symbol="005930", dataset_sha256="f" * 64,
             dataset_provenance=_provenance("f" * 64),
+        )
+
+
+def test_holdout_selection_rejects_incomparable_latest_training_cohorts(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    candidate_ids = ("lightgbm-" + "1" * 32, "xgboost-" + "2" * 32)
+    for model_id in candidate_ids:
+        _write_candidate(registry, model_id, record_holdout_event=False)
+        path = tmp_path / f"{model_id}.json"
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        metadata.pop("heldout_evaluation")
+        metadata["validation_metrics"]["brier"] = 0.2
+        path.write_text(json.dumps(metadata), encoding="utf-8")
+    conflicting_path = tmp_path / f"{candidate_ids[1]}.json"
+    conflicting = json.loads(conflicting_path.read_text(encoding="utf-8"))
+    conflicting["dataset_sha256"] = "f" * 64
+    conflicting["data_provenance"] = _provenance("f" * 64)
+    conflicting_path.write_text(json.dumps(conflicting), encoding="utf-8")
+
+    holdout_dates = [date(2026, 10, day) for day in (16, 19, 20, 21, 22)]
+    with pytest.raises(ValueError, match="multiple candidate training cohorts"):
+        registry.select_candidate_for_holdout(
+            "KR", "005930", {session: [] for session in holdout_dates},
         )
 
 
