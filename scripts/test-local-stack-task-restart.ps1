@@ -128,8 +128,14 @@ $quoteQualityDiagnosticsAst = $restartAst.Find({
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
         $node.Name -eq 'Test-PaperQuoteQualityDiagnosticsReady'
 }, $true)
+$marketDataDiagnosticsAst = $restartAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Test-PaperMarketDataDiagnosticsReady'
+}, $true)
 if ($null -eq $identityAst -or $null -eq $parentageAst -or $null -eq $paperSessionAst -or
-    $null -eq $tradingLocksAst -or $null -eq $frameDiagnosticsAst -or $null -eq $quoteQualityDiagnosticsAst) {
+    $null -eq $tradingLocksAst -or $null -eq $frameDiagnosticsAst -or $null -eq $quoteQualityDiagnosticsAst -or
+    $null -eq $marketDataDiagnosticsAst) {
     throw 'Process ownership or paper-session restoration checks were not found.'
 }
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -140,6 +146,7 @@ $script:restartScriptDirectory = $PSScriptRoot
 . ([ScriptBlock]::Create($tradingLocksAst.Extent.Text))
 . ([ScriptBlock]::Create($frameDiagnosticsAst.Extent.Text))
 . ([ScriptBlock]::Create($quoteQualityDiagnosticsAst.Extent.Text))
+. ([ScriptBlock]::Create($marketDataDiagnosticsAst.Extent.Text))
 
 $lockedPython = [pscustomobject]@{ status = 'ok'; live_trading_enabled = $false; paper_automation_enabled = $false }
 $lockedSpring = [pscustomobject]@{
@@ -190,6 +197,20 @@ $diagnosticSession = [pscustomobject]@{
         paper = [pscustomobject]@{ usable = 0; empty_or_nonpositive = 0; crossed = 0; stale_rejected = 0 }
         real = [pscustomobject]@{ usable = 0; empty_or_nonpositive = 0; crossed = 0; stale_rejected = 0 }
     }
+    market_data_diagnostics_by_feed = [pscustomobject]@{
+        paper = [pscustomobject]@{
+            trade_market_class_filtered = 0; orderbook_market_class_filtered = 0
+            trade_parse_errors = 0; orderbook_parse_errors = 0
+            trade_symbol_mismatches = 0; orderbook_symbol_mismatches = 0
+            encrypted_market_frames_rejected = 0
+        }
+        real = [pscustomobject]@{
+            trade_market_class_filtered = 0; orderbook_market_class_filtered = 0
+            trade_parse_errors = 0; orderbook_parse_errors = 0
+            trade_symbol_mismatches = 0; orderbook_symbol_mismatches = 0
+            encrypted_market_frames_rejected = 0
+        }
+    }
 }
 if (-not (Test-PaperFrameDiagnosticsReady $diagnosticSession)) {
     throw 'A complete per-feed frame diagnostics payload should pass.'
@@ -197,6 +218,20 @@ if (-not (Test-PaperFrameDiagnosticsReady $diagnosticSession)) {
 if (-not (Test-PaperQuoteQualityDiagnosticsReady $diagnosticSession)) {
     throw 'A complete per-feed quote-quality diagnostics payload should pass.'
 }
+if (-not (Test-PaperMarketDataDiagnosticsReady $diagnosticSession)) {
+    throw 'A complete per-feed market-data processing diagnostics payload should pass.'
+}
+$missingMarketDataDiagnostics = $diagnosticSession.PSObject.Copy()
+$missingMarketDataDiagnostics.market_data_diagnostics_by_feed = $null
+if (Test-PaperMarketDataDiagnosticsReady $missingMarketDataDiagnostics) {
+    throw 'Missing per-feed market-data processing diagnostics must block declaring diagnostics ready.'
+}
+$negativeMarketDataDiagnostics = $diagnosticSession.PSObject.Copy()
+$negativeMarketDataDiagnostics.market_data_diagnostics_by_feed.paper.trade_parse_errors = -1
+if (Test-PaperMarketDataDiagnosticsReady $negativeMarketDataDiagnostics) {
+    throw 'Negative market-data processing counters must be rejected.'
+}
+$diagnosticSession.market_data_diagnostics_by_feed.paper.trade_parse_errors = 0
 $missingQuoteQuality = $diagnosticSession.PSObject.Copy()
 $missingQuoteQuality.orderbook_quote_quality_by_feed = $null
 if (Test-PaperQuoteQualityDiagnosticsReady $missingQuoteQuality) {
@@ -231,7 +266,9 @@ $monitorDiagnostics = Get-MonitorFeedDiagnostics $diagnosticSession 'paper'
 if (-not $monitorDiagnostics.paper.available -or $monitorDiagnostics.paper.frames_received -ne 0 -or
     $monitorDiagnostics.paper.transaction_counts.H0STCNT0 -ne 0 -or
     -not $monitorDiagnostics.paper.quote_quality_available -or
-    $monitorDiagnostics.paper.quote_quality.usable -ne 0) {
+    $monitorDiagnostics.paper.quote_quality.usable -ne 0 -or
+    -not $monitorDiagnostics.paper.processing_diagnostics_available -or
+    $monitorDiagnostics.paper.processing_diagnostics.trade_parse_errors -ne 0) {
     throw 'The WebSocket monitor should record selected-feed frame and transaction counters.'
 }
 $bothMonitorDiagnostics = Get-MonitorFeedDiagnostics $diagnosticSession ''

@@ -4,7 +4,9 @@ from decimal import Decimal
 import pytest
 
 from app.market_stream import (
-    MinuteBarAggregator, OrderBookQuote, TradeTick, parse_domestic_orderbook_frame, parse_trade_frame,
+    MinuteBarAggregator, OrderBookQuote, TradeTick, parse_domestic_orderbook_frame,
+    parse_domestic_orderbook_frame_with_diagnostics, parse_trade_frame,
+    parse_trade_frame_with_diagnostics,
 )
 
 
@@ -56,6 +58,18 @@ def test_domestic_trade_parser_excludes_non_regular_market_ticks(market_class: s
     assert parse_trade_frame(frame, "KR") == []
 
 
+def test_domestic_trade_diagnostics_count_filtered_market_classes() -> None:
+    frame = _frame("H0STCNT0", 47, {
+        0: "005930", 1: "160101", 2: "73500", 10: "73510", 11: "73500",
+        12: "3", 33: "20261105", 45: "2", 46: "3",
+    })
+
+    ticks, filtered = parse_trade_frame_with_diagnostics(frame, "KR")
+
+    assert ticks == []
+    assert filtered == 1
+
+
 def test_domestic_trade_parser_uses_market_class_field_after_vi_reference_price() -> None:
     frame = _frame("H0STCNT0", 47, {
         0: "005930", 1: "100101", 2: "73500", 10: "73510", 11: "73500",
@@ -100,6 +114,17 @@ def test_domestic_orderbook_parser_excludes_non_regular_market_quotes(market_cla
     })
 
     assert parse_domestic_orderbook_frame(frame) == []
+
+
+def test_domestic_orderbook_diagnostics_count_filtered_market_classes() -> None:
+    frame = _frame("H0STASP0", 63, {
+        0: "005930", 1: "160101", 3: "73510", 13: "73500", 62: "3",
+    })
+
+    quotes, filtered = parse_domestic_orderbook_frame_with_diagnostics(frame)
+
+    assert quotes == []
+    assert filtered == 1
 
 
 def test_parse_overseas_trade_frame_uses_exchange_local_timestamp() -> None:

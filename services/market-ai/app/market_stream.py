@@ -54,10 +54,17 @@ def _parse_time(date_value: str, time_value: str, zone: str) -> datetime:
 
 
 def parse_trade_frame(frame: str, market: str, exchange: str | None = None) -> list[TradeTick]:
+    return parse_trade_frame_with_diagnostics(frame, market, exchange)[0]
+
+
+def parse_trade_frame_with_diagnostics(
+    frame: str, market: str, exchange: str | None = None,
+) -> tuple[list[TradeTick], int]:
     """Parse official KIS H0STCNT0 or HDFSCNT0 pipe/caret market-data frames.
 
     Account notices and encrypted frames are rejected. Only market price, volume,
-    timestamps and best bid/ask fields are returned.
+    timestamps and best bid/ask fields are returned. The second result counts
+    domestic records excluded because their market-class code is not regular trading.
     """
     parts = frame.split("|", 3)
     if len(parts) != 4 or parts[0] != "0":
@@ -92,21 +99,29 @@ def parse_trade_frame(frame: str, market: str, exchange: str | None = None) -> l
     if len(fields) < width * count:
         raise ValueError("KIS frame did not contain all declared records")
     ticks: list[TradeTick] = []
+    non_regular_records = 0
     for index in range(count):
         row = fields[index * width:(index + 1) * width]
         if market == "KR" and row[46].strip() != "2":
             # KIS MARKET_CLS_CODE: only regular-session executions enter strategy bars.
+            non_regular_records += 1
             continue
         tick = get_tick(row)
         if tick.price <= 0:
             raise ValueError("KIS trade price must be positive")
         ticks.append(tick)
-    return ticks
+    return ticks, non_regular_records
 
 
 def parse_domestic_orderbook_frame(
     frame: str, *, received_at: datetime | None = None,
 ) -> list[OrderBookQuote]:
+    return parse_domestic_orderbook_frame_with_diagnostics(frame, received_at=received_at)[0]
+
+
+def parse_domestic_orderbook_frame_with_diagnostics(
+    frame: str, *, received_at: datetime | None = None,
+) -> tuple[list[OrderBookQuote], int]:
     """Parse best bid/ask from official domestic KIS H0STASP0 frames."""
     parts = frame.split("|", 3)
     if len(parts) != 4 or parts[0] != "0" or parts[1] != "H0STASP0":
@@ -127,10 +142,12 @@ def parse_domestic_orderbook_frame(
         raise ValueError("KIS orderbook receive time must include a timezone")
     reference = reference.astimezone(zone)
     quotes: list[OrderBookQuote] = []
+    non_regular_records = 0
     for index in range(count):
         row = fields[index * width:(index + 1) * width]
         if row[62].strip() != "2":
             # Do not reuse pre/after-market or auction quotes for regular-session bars.
+            non_regular_records += 1
             continue
         try:
             clock = datetime.strptime(row[1], "%H%M%S").time()
@@ -146,7 +163,7 @@ def parse_domestic_orderbook_frame(
             bid_value if bid_value > 0 else None,
             ask_value if ask_value > 0 else None,
         ))
-    return quotes
+    return quotes, non_regular_records
 
 
 class MinuteBarAggregator:

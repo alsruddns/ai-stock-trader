@@ -161,6 +161,34 @@ function Test-PaperQuoteQualityDiagnosticsReady($Session) {
     return $true
 }
 
+function Test-PaperMarketDataDiagnosticsReady($Session) {
+    if (-not $Session -or
+        $null -eq $Session.PSObject.Properties['market_data_diagnostics_by_feed']) {
+        return $false
+    }
+    $diagnostics = $Session.market_data_diagnostics_by_feed
+    if (-not $diagnostics) { return $false }
+    $counterNames = @(
+        'trade_market_class_filtered', 'orderbook_market_class_filtered',
+        'trade_parse_errors', 'orderbook_parse_errors',
+        'trade_symbol_mismatches', 'orderbook_symbol_mismatches',
+        'encrypted_market_frames_rejected'
+    )
+    foreach ($feed in @('paper', 'real')) {
+        $feedProperty = $diagnostics.PSObject.Properties[$feed]
+        if ($null -eq $feedProperty) { return $false }
+        foreach ($counterName in $counterNames) {
+            $counterProperty = $feedProperty.Value.PSObject.Properties[$counterName]
+            $count = 0L
+            if ($null -eq $counterProperty -or
+                -not [long]::TryParse([string]$counterProperty.Value, [ref]$count) -or $count -lt 0) {
+                return $false
+            }
+        }
+    }
+    return $true
+}
+
 function Stop-TrackedProcessTree($Process) {
     if ($null -eq $Process) { return }
     $current = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$Process.ProcessId)" -ErrorAction SilentlyContinue
@@ -279,5 +307,8 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
     if (-not (Test-PaperQuoteQualityDiagnosticsReady $paperSession)) {
         throw 'The restarted Python API did not expose the expected per-feed quote-quality diagnostics.'
     }
-    Write-Output 'Local APIs restarted after both exchanges closed; frame/quote diagnostics and monitor/storage were restored and all trading locks remain enabled.'
+    if (-not (Test-PaperMarketDataDiagnosticsReady $paperSession)) {
+        throw 'The restarted Python API did not expose the expected market-data processing diagnostics.'
+    }
+    Write-Output 'Local APIs restarted after both exchanges closed; frame/quote/processing diagnostics and monitor/storage were restored and all trading locks remain enabled.'
 }

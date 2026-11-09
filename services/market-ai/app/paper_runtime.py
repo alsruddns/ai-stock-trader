@@ -27,7 +27,10 @@ from .kis_stream import (
     SubscriptionAcknowledgementTimeoutError, approval_key,
     normalize_stream_frame, reply_to_pingpong, subscription_message, subscription_messages,
 )
-from .market_stream import MinuteBarAggregator, parse_domestic_orderbook_frame, parse_trade_frame
+from .market_stream import (
+    MinuteBarAggregator, parse_domestic_orderbook_frame_with_diagnostics,
+    parse_trade_frame_with_diagnostics,
+)
 from .quant import MinuteBar, QuantConfig, _atr, exchange_session_date, orb_vwap_entry_candidate
 from .paper_automation import PaperAutomationReadiness, PaperAutoTrader, PaperEntryDecision
 from .paper_broker import PaperBrokerError, SpringPaperBrokerClient
@@ -193,6 +196,15 @@ class PaperSessionFeedMonitor:
                 feed: {"usable": 0, "empty_or_nonpositive": 0, "crossed": 0, "stale_rejected": 0}
                 for feed in ("paper", "real")
             },
+            "market_data_diagnostics_by_feed": {
+                feed: {
+                    "trade_market_class_filtered": 0, "orderbook_market_class_filtered": 0,
+                    "trade_parse_errors": 0, "orderbook_parse_errors": 0,
+                    "trade_symbol_mismatches": 0, "orderbook_symbol_mismatches": 0,
+                    "encrypted_market_frames_rejected": 0,
+                }
+                for feed in ("paper", "real")
+            },
             "last_orderbook_received_at_by_feed": {"paper": None, "real": None},
             "bars_closed_by_feed": {"paper": 0, "real": 0},
             "last_error": None, "orders_enabled": False,
@@ -240,6 +252,10 @@ class PaperSessionFeedMonitor:
                 feed: dict(counts)
                 for feed, counts in self._status["orderbook_quote_quality_by_feed"].items()
             }
+            result["market_data_diagnostics_by_feed"] = {
+                feed: dict(counts)
+                for feed, counts in self._status["market_data_diagnostics_by_feed"].items()
+            }
             result["bars_closed_by_feed"] = dict(self._status["bars_closed_by_feed"])
             result["candidate_refresh_by_market"] = {
                 key: dict(value) for key, value in self._status["candidate_refresh_by_market"].items()
@@ -285,6 +301,17 @@ class PaperSessionFeedMonitor:
                 counts[counter_key] = int(counts.get(counter_key, 0)) + 1
                 by_feed[environment] = counts
                 self._status["frame_transaction_counts_by_feed"] = by_feed
+
+    def _increment_market_data_diagnostic(self, feed: str, key: str, amount: int = 1) -> None:
+        if feed not in {"paper", "real"} or amount <= 0:
+            return
+        with self._lock:
+            by_feed = {
+                name: dict(counts)
+                for name, counts in self._status["market_data_diagnostics_by_feed"].items()
+            }
+            by_feed[feed][key] = int(by_feed[feed].get(key, 0)) + amount
+            self._status["market_data_diagnostics_by_feed"] = by_feed
 
     def decisions(self) -> dict[str, dict[str, object]]:
         """Return latest advisory quant decisions; none are executable orders."""
@@ -1022,23 +1049,48 @@ class PaperSessionFeedMonitor:
         if isinstance(frame, bytes):
             frame = frame.decode("utf-8", errors="replace")
         normalized = normalize_stream_frame(frame)
-        if normalized.get("kind") != "data" or normalized.get("encrypted") != "0":
+        if normalized.get("kind") != "data":
             return
         transaction_id = normalized.get("transaction_id", "")
+        expected_watches = tuple(
+            watch for watch in watches
+            if transaction_id == ("H0STASP0" if watch.market == "KR" else "HDFSCNT0")
+            or transaction_id == ("H0STCNT0" if watch.market == "KR" else "HDFSCNT0")
+        )
+        if normalized.get("encrypted") != "0":
+            for watch in expected_watches:
+                self._increment_market_data_diagnostic(
+                    self._feed_by_watch.get(watch.key, self._feed_for_watch(watch)),
+                    "encrypted_market_frames_rejected",
+                )
+            return
         payload = "|".join(("0", transaction_id, normalized.get("count", "1"), normalized.get("payload", "")))
         if transaction_id == "H0STASP0":
             try:
-                quotes = parse_domestic_orderbook_frame(
+                quotes, filtered = parse_domestic_orderbook_frame_with_diagnostics(
                     payload, received_at=datetime.now(ZoneInfo("Asia/Seoul")),
                 )
             except ValueError:
+                for watch in expected_watches:
+                    self._increment_market_data_diagnostic(
+                        self._feed_by_watch.get(watch.key, self._feed_for_watch(watch)), "orderbook_parse_errors",
+                    )
                 return
+            if filtered:
+                for watch in expected_watches:
+                    self._increment_market_data_diagnostic(
+                        self._feed_by_watch.get(watch.key, self._feed_for_watch(watch)),
+                        "orderbook_market_class_filtered", filtered,
+                    )
             for watch in watches:
                 if watch.market != "KR":
                     continue
-                for quote in quotes:
-                    if quote.symbol.upper() != watch.symbol.upper():
-                        continue
+                matching_quotes = [quote for quote in quotes if quote.symbol.upper() == watch.symbol.upper()]
+                if not matching_quotes and not filtered:
+                    self._increment_market_data_diagnostic(
+                        self._feed_by_watch.get(watch.key, self._feed_for_watch(watch)), "orderbook_symbol_mismatches",
+                    )
+                for quote in matching_quotes:
                     feed = self._feed_by_watch.get(watch.key, self._feed_for_watch(watch))
                     valid_quote = (
                         quote.bid is not None and quote.ask is not None
@@ -1076,15 +1128,21 @@ class PaperSessionFeedMonitor:
             if transaction_id != expected:
                 continue
             try:
-                ticks = parse_trade_frame(payload, watch.market, watch.exchange)
+                ticks, filtered = parse_trade_frame_with_diagnostics(payload, watch.market, watch.exchange)
             except ValueError:
+                self._increment_market_data_diagnostic(
+                    self._feed_by_watch.get(watch.key, self._feed_for_watch(watch)), "trade_parse_errors",
+                )
                 continue
-            for tick in ticks:
-                if tick.symbol.upper() != watch.symbol.upper():
-                    continue
+            feed = self._feed_by_watch.get(watch.key, self._feed_for_watch(watch))
+            if filtered:
+                self._increment_market_data_diagnostic(feed, "trade_market_class_filtered", filtered)
+            matching_ticks = [tick for tick in ticks if tick.symbol.upper() == watch.symbol.upper()]
+            if not matching_ticks and not filtered:
+                self._increment_market_data_diagnostic(feed, "trade_symbol_mismatches")
+            for tick in matching_ticks:
                 bar = self._aggregators[watch.key].add(tick)
                 with self._lock:
-                    feed = self._feed_by_watch.get(watch.key, self._feed_for_watch(watch))
                     received_at = datetime.now().astimezone().isoformat()
                     feed_ticks = dict(self._status["ticks_received_by_feed"])
                     feed_ticks[feed] = int(feed_ticks.get(feed, 0)) + 1

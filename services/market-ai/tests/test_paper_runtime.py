@@ -404,7 +404,7 @@ def test_collector_persists_bars_when_paper_order_worker_is_disabled(
         "app.paper_runtime.normalize_stream_frame",
         lambda _frame: {"kind": "data", "encrypted": "0", "transaction_id": transaction_id, "count": "1", "payload": "tick"},
     )
-    monkeypatch.setattr("app.paper_runtime.parse_trade_frame", lambda *_args: [tick])
+    monkeypatch.setattr("app.paper_runtime.parse_trade_frame_with_diagnostics", lambda *_args: ([tick], 0))
 
     runtime._consume("fixture", (watch,))
 
@@ -423,6 +423,40 @@ def test_collector_persists_bars_when_paper_order_worker_is_disabled(
     assert status["last_tick_received_at_by_feed"][other_feed] is None
     assert status["bars_closed_by_feed"][feed] == 1
     assert status["bars_closed_by_feed"][other_feed] == 0
+
+
+def test_runtime_reports_market_class_filtered_domestic_frames_without_counting_ticks(monkeypatch) -> None:
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    monkeypatch.setattr("app.paper_runtime.parse_trade_frame_with_diagnostics", lambda *_args: ([], 1))
+
+    runtime._consume("0|H0STCNT0|1|payload", (watch,))
+
+    status = runtime.status()
+    assert status["ticks_received_by_feed"]["paper"] == 0
+    assert status["market_data_diagnostics_by_feed"]["paper"]["trade_market_class_filtered"] == 1
+    assert status["market_data_diagnostics_by_feed"]["paper"]["trade_parse_errors"] == 0
+
+
+def test_runtime_reports_parse_errors_and_symbol_mismatch_for_domestic_trade_frames(monkeypatch) -> None:
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+
+    def malformed(*_args):
+        raise ValueError("malformed frame")
+
+    monkeypatch.setattr("app.paper_runtime.parse_trade_frame_with_diagnostics", malformed)
+    runtime._consume("0|H0STCNT0|1|payload", (watch,))
+    assert runtime.status()["market_data_diagnostics_by_feed"]["paper"]["trade_parse_errors"] == 1
+
+    from app.market_stream import TradeTick
+    other = TradeTick(
+        "KR", "000660", datetime.fromisoformat("2026-11-05T10:12:00+09:00"), Decimal("100"), 1,
+        Decimal("99"), Decimal("101"),
+    )
+    monkeypatch.setattr("app.paper_runtime.parse_trade_frame_with_diagnostics", lambda *_args: ([other], 0))
+    runtime._consume("0|H0STCNT0|1|payload", (watch,))
+    assert runtime.status()["market_data_diagnostics_by_feed"]["paper"]["trade_symbol_mismatches"] == 1
 
 
 def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch) -> None:
@@ -619,7 +653,10 @@ def test_runtime_routes_domestic_orderbook_updates_to_matching_symbol_aggregator
     quote = OrderBookQuote("KR", "005930", datetime(2026, 11, 6, 10, 1, 30, tzinfo=zone),
                            Decimal("99"), Decimal("101"))
     parsed_quotes = [quote]
-    monkeypatch.setattr("app.paper_runtime.parse_domestic_orderbook_frame", lambda *_args, **_kwargs: parsed_quotes)
+    monkeypatch.setattr(
+        "app.paper_runtime.parse_domestic_orderbook_frame_with_diagnostics",
+        lambda *_args, **_kwargs: (parsed_quotes, 0),
+    )
 
     runtime._consume("0|H0STASP0|1|quote", (watch,))
 
