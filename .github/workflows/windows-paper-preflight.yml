@@ -96,6 +96,11 @@ jobs:
             throw "Domestic KRX session monitor tests failed: passed=$($sessionResult.PassedCount), failed=$($sessionResult.FailedCount)."
           }
 
+          $monitorReportResult = Invoke-Pester -Path 'scripts/tests/domestic-session-monitor-report.Tests.ps1' -PassThru
+          if ($monitorReportResult.FailedCount -gt 0 -or $monitorReportResult.PassedCount -ne 3) {
+            throw "Domestic session monitor report tests failed: passed=$($monitorReportResult.PassedCount), failed=$($monitorReportResult.FailedCount)."
+          }
+
           $modelSafetyResult = Invoke-Pester -Path 'scripts/tests/paper-safety.Tests.ps1' -PassThru
           if ($modelSafetyResult.FailedCount -gt 0 -or $modelSafetyResult.PassedCount -ne 4) {
             throw "Scheduled model safety tests failed: passed=$($modelSafetyResult.PassedCount), failed=$($modelSafetyResult.FailedCount)."

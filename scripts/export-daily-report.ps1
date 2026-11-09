@@ -5,7 +5,8 @@ param(
     [ValidateRange(1, 300)] [int]$RetryIntervalSeconds = 10,
     [string]$OutputPath,
     [string]$ArchiveOutputPath,
-    [string]$ModelRetrainingReportDirectory
+    [string]$ModelRetrainingReportDirectory,
+    [string]$DomesticSessionEvidencePath
 )
 
 $ErrorActionPreference = "Stop"
@@ -77,6 +78,21 @@ $endpointStatus['local.session_monitor_schedule'] = [ordered]@{
     usRegisteredCount = $sessionMonitorSchedule.usRegisteredCount
     errorType = $sessionMonitorSchedule.errorType
 }
+$domesticSessionEvidence = if ([string]::IsNullOrWhiteSpace($DomesticSessionEvidencePath)) {
+    Join-Path $repoRoot '.local\validation\paper-websocket-samples.progress.jsonl'
+} elseif ([IO.Path]::IsPathRooted($DomesticSessionEvidencePath)) {
+    $DomesticSessionEvidencePath
+} else {
+    Join-Path $repoRoot $DomesticSessionEvidencePath
+}
+$domesticSessionMonitor = Get-AiTraderDomesticSessionMonitorSummary -Path $domesticSessionEvidence
+$endpointStatus['local.domestic_session_monitor'] = [ordered]@{
+    state = if ($domesticSessionMonitor.state -eq 'UNVERIFIED') { 'UNVERIFIED' } else { 'AVAILABLE' }
+    runState = $domesticSessionMonitor.state
+    sessionDate = $domesticSessionMonitor.sessionDate
+    validationScope = $domesticSessionMonitor.validationScope
+    failureCode = $domesticSessionMonitor.failureCode
+}
 $validationTaskSchedule = Get-AiTraderValidationTaskScheduleSummary
 $endpointStatus['local.validation_task_schedule'] = [ordered]@{
     state = $validationTaskSchedule.state
@@ -119,7 +135,7 @@ foreach ($market in @('KR', 'US')) {
     $marketDataQuality[$market] = $qualityResult.data
 }
 
-$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 10 -Force
+$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 11 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
 $endpointStates = @($endpointStatus.GetEnumerator() |
@@ -140,6 +156,7 @@ $report | Add-Member -MemberType NoteProperty -Name aiModels -Value $aiModels -F
 $report | Add-Member -MemberType NoteProperty -Name modelRetraining -Value $modelRetraining -Force
 $report | Add-Member -MemberType NoteProperty -Name localStackTask -Value $localStackTask -Force
 $report | Add-Member -MemberType NoteProperty -Name sessionMonitorSchedule -Value $sessionMonitorSchedule -Force
+$report | Add-Member -MemberType NoteProperty -Name domesticSessionMonitor -Value $domesticSessionMonitor -Force
 $report | Add-Member -MemberType NoteProperty -Name validationTaskSchedule -Value $validationTaskSchedule -Force
 $report | Add-Member -MemberType NoteProperty -Name marketSessions -Value $marketSessions -Force
 $report | Add-Member -MemberType NoteProperty -Name marketDataQuality -Value $marketDataQuality -Force

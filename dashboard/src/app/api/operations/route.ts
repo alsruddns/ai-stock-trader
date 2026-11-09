@@ -40,6 +40,19 @@ type LocalOperationsReport = {
     usRegisteredCount: number;
     tasks: ScheduledTask[];
   } | null;
+  domesticSessionMonitor: {
+    state: string;
+    recordedAt: string | null;
+    sessionDate: string | null;
+    validationScope: string | null;
+    sessionCloseReached: boolean | null;
+    sessionQualityStatus: string | null;
+    ticksDelta: number | null;
+    barsDelta: number | null;
+    maxNoTickSeconds: number | null;
+    failureStage: string | null;
+    failureCode: string | null;
+  } | null;
   validationTaskSchedule: {
     state: string;
     registeredCount: number;
@@ -176,12 +189,27 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
       lastRunTime: optionalString(stack.lastRunTime),
       lastTaskResult: optionalNumber(stack.lastTaskResult),
     } : null;
+    const rawMonitor = asObject(raw.domesticSessionMonitor);
+    const domesticSessionMonitor = rawMonitor && typeof rawMonitor.state === "string" ? {
+      state: rawMonitor.state,
+      recordedAt: optionalString(rawMonitor.recordedAt),
+      sessionDate: optionalString(rawMonitor.sessionDate),
+      validationScope: optionalString(rawMonitor.validationScope),
+      sessionCloseReached: optionalBoolean(rawMonitor.sessionCloseReached),
+      sessionQualityStatus: optionalString(rawMonitor.sessionQualityStatus),
+      ticksDelta: optionalNumber(rawMonitor.ticksDelta),
+      barsDelta: optionalNumber(rawMonitor.barsDelta),
+      maxNoTickSeconds: optionalNumber(rawMonitor.maxNoTickSeconds),
+      failureStage: optionalString(rawMonitor.failureStage),
+      failureCode: optionalString(rawMonitor.failureCode),
+    } : null;
 
     return {
       generatedAt: raw.generatedAt,
       reportSchemaVersion: schema,
       localStackTask,
       sessionMonitorSchedule: schedule(raw.sessionMonitorSchedule, ["krRegisteredCount", "usRegisteredCount"]) as LocalOperationsReport["sessionMonitorSchedule"],
+      domesticSessionMonitor,
       validationTaskSchedule: schedule(raw.validationTaskSchedule, ["paperLifecycleCount", "modelTrainingCount", "modelHoldoutCount"]) as LocalOperationsReport["validationTaskSchedule"],
     };
   } catch {

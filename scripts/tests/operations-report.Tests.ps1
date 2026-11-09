@@ -271,11 +271,11 @@ Describe 'Daily operations report endpoint health summary' {
         & (Join-Path $PSScriptRoot '..\export-daily-report.ps1') `
             -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath `
             -ArchiveOutputPath $archivePath `
-            -ModelRetrainingReportDirectory $retrainingDirectory | Out-Null
+            -ModelRetrainingReportDirectory $retrainingDirectory -DomesticSessionEvidencePath (Join-Path $TestDrive 'no-monitor-progress.jsonl') | Out-Null
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
         $archivedReport = Get-Content -LiteralPath $archivePath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 10
+        $report.reportSchemaVersion | Should Be 11
         $archivedReport.generatedAt | Should Be $report.generatedAt
         $archivedReport.tradingMode | Should Be $report.tradingMode
         $report.pythonConnected | Should Be $true
@@ -317,7 +317,7 @@ Describe 'Daily operations report endpoint health summary' {
         $retrainingDirectory = Join-Path $TestDrive 'no-retraining-runs'
         & (Join-Path $PSScriptRoot '..\export-daily-report.ps1') `
             -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath `
-            -ModelRetrainingReportDirectory $retrainingDirectory | Out-Null
+            -ModelRetrainingReportDirectory $retrainingDirectory -DomesticSessionEvidencePath (Join-Path $TestDrive 'no-monitor-progress.jsonl') | Out-Null
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
 
         $report.optionalDataStatus | Should Be 'INCOMPLETE'
@@ -359,7 +359,7 @@ Describe 'Daily operations report endpoint health summary' {
         $retrainingDirectory = Join-Path $TestDrive 'no-retraining-runs'
         & (Join-Path $PSScriptRoot '..\export-daily-report.ps1') `
             -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath `
-            -ModelRetrainingReportDirectory $retrainingDirectory | Out-Null
+            -ModelRetrainingReportDirectory $retrainingDirectory -DomesticSessionEvidencePath (Join-Path $TestDrive 'no-monitor-progress.jsonl') | Out-Null
         $json = Get-Content -LiteralPath $outputPath -Raw
         $report = $json | ConvertFrom-Json
 
@@ -389,7 +389,7 @@ Describe 'Daily operations report endpoint health summary' {
             -DatasetPath 'data/model-candidates/test.csv' -Exception ([System.ArgumentException]::new('private diagnostic'))
         & (Join-Path $PSScriptRoot '..\export-daily-report.ps1') `
             -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath `
-            -ModelRetrainingReportDirectory $retrainingDirectory | Out-Null
+            -ModelRetrainingReportDirectory $retrainingDirectory -DomesticSessionEvidencePath (Join-Path $TestDrive 'no-monitor-progress.jsonl') | Out-Null
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
 
         $report.modelRetraining.latestRun.status | Should Be 'training_failed'

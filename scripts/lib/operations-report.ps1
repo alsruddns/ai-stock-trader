@@ -207,6 +207,60 @@ function Get-AiTraderSessionMonitorScheduleSummary {
     }
 }
 
+function Get-AiTraderDomesticSessionMonitorSummary {
+    param([Parameter(Mandatory)][string]$Path)
+
+    $unverified = [ordered]@{
+        state = 'UNVERIFIED'; recordedAt = $null; sessionDate = $null; validationScope = $null
+        sessionCloseReached = $null; sessionQualityStatus = $null; ticksDelta = $null; barsDelta = $null
+        maxNoTickSeconds = $null; failureStage = $null; failureCode = $null
+    }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $unverified }
+    try { $lines = @(Get-Content -LiteralPath $Path -Tail 1 -ErrorAction Stop) }
+    catch { return $unverified }
+
+    $knownFailureCodes = @(
+        'WEBSOCKET_NO_TICKS', 'NO_TICKS_IN_SAMPLE_WINDOW', 'EXCHANGE_SESSION_CLOSE_NOT_REACHED',
+        'SESSION_FINALIZATION_TIMEOUT', 'FEED_TIMESTAMP_UNAVAILABLE', 'BAR_COUNTER_RESET',
+        'FEED_NOT_READY', 'SESSION_STATUS_UNAVAILABLE', 'EXCHANGE_CALENDAR_UNAVAILABLE',
+        'SAFETY_LOCK_VIOLATION', 'STORED_SESSION_QUALITY_INCOMPLETE',
+        'MINIMUM_BAR_COUNT_NOT_MET', 'MONITOR_FAILED'
+    )
+    $knownStages = @('startup_readiness', 'exchange_calendar', 'stream_monitoring', 'session_finalization', 'completion_validation')
+    if ($lines.Count -ne 1) { return $unverified }
+    try { $record = $lines[0] | ConvertFrom-Json -ErrorAction Stop }
+    catch { return $unverified }
+    if (-not $record -or $record.market_session -ne 'KR' -or $record.selected_feed -ne 'paper' -or
+        $record.result -notin @('running', 'passed', 'failed')) { return $unverified }
+    $recordedAt = $null
+    try { $recordedAt = [DateTimeOffset]::Parse([string]$record.recorded_at_utc).ToString('o') }
+    catch { return $unverified }
+    $sessionDate = [string]$record.market_session_date
+    if ($sessionDate -notmatch '^\d{4}-\d{2}-\d{2}$') { return $unverified }
+
+    $ticks = 0
+    $hasTicks = [int]::TryParse([string]$record.ticks_delta, [ref]$ticks) -and $ticks -ge 0
+    $bars = 0
+    $hasBars = [int]::TryParse([string]$record.bars_delta, [ref]$bars) -and $bars -ge 0
+    $maxNoTick = 0.0
+    $hasMaxNoTick = [double]::TryParse([string]$record.max_observed_no_tick_seconds,
+        [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$maxNoTick) -and
+        $maxNoTick -ge 0
+    return [ordered]@{
+        state = ([string]$record.result).ToUpperInvariant()
+        recordedAt = $recordedAt
+        sessionDate = $sessionDate
+        validationScope = if ($record.validation_scope -in @('full_session', 'bounded_sample')) { [string]$record.validation_scope } else { $null }
+        sessionCloseReached = if ($record.session_close_reached -is [bool]) { [bool]$record.session_close_reached } else { $null }
+        sessionQualityStatus = if ($record.session_quality_status -in @('verified', 'incomplete', 'not_checked')) { [string]$record.session_quality_status } else { $null }
+        ticksDelta = if ($hasTicks) { $ticks } else { $null }
+        barsDelta = if ($hasBars) { $bars } else { $null }
+        maxNoTickSeconds = if ($hasMaxNoTick) { [Math]::Round($maxNoTick, 1) } else { $null }
+        failureStage = if ($record.failure_stage -in $knownStages) { [string]$record.failure_stage } else { $null }
+        failureCode = if ($record.failure_code -in $knownFailureCodes) { [string]$record.failure_code } else { $null }
+    }
+}
+
 function Get-AiTraderLocalStackTaskSummary {
     $taskName = 'AIStockTrader-LocalStack'
     try {
