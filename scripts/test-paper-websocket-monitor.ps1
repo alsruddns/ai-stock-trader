@@ -134,6 +134,7 @@ $closingAuctionSilenceSeconds = 0.0
 $sessionCloseReached = $false
 $sessionQualityEvidence = @()
 $sessionQualityDiagnostics = @()
+$sessionQualityDiagnosticsRecordedAtUtc = $null
 $sessionQualityStatus = 'not_checked'
 $sessionStatusAvailable = $true
 $postCloseWaitSeconds = 0.0
@@ -291,6 +292,7 @@ if ($RequireSessionClose) {
                 session_quality_ready = $false
                 session_quality_status = $sessionQualityStatus
                 session_quality_diagnostics = $sessionQualityDiagnostics
+                session_quality_diagnostics_recorded_at_utc = $sessionQualityDiagnosticsRecordedAtUtc
                 feeds = if ($status) { $status.stream_connections } else { $null }
                 feed_diagnostics = if ($status) { Get-MonitorFeedDiagnostics $status $Feed } else { $null }
                 feed_diagnostics_delta = if ($status) { Get-MonitorFeedDiagnosticsDelta $initial $status $Feed } else { $null }
@@ -304,6 +306,7 @@ if ($RequireSessionClose) {
                 status_available = $false
                 quality = @()
                 quality_diagnostics = $sessionQualityDiagnostics
+                quality_diagnostics_recorded_at_utc = $sessionQualityDiagnosticsRecordedAtUtc
                 quality_status = $sessionQualityStatus
             }
         }
@@ -317,6 +320,7 @@ if ($RequireSessionClose) {
             $qualityDiagnostics = @($qualitySnapshot.diagnostics)
             $qualityStatus = [string]$qualitySnapshot.validation_status
             $sessionQualityDiagnostics = $qualityDiagnostics
+            $sessionQualityDiagnosticsRecordedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
             $sessionQualityStatus = $qualityStatus
         } catch {
             # The final minute and storage-quality view can settle just after the exchange close.
@@ -338,6 +342,7 @@ if ($RequireSessionClose) {
             session_quality_ready = ($qualityEvidence.Count -gt 0)
             session_quality_status = $qualityStatus
             session_quality_diagnostics = $qualityDiagnostics
+            session_quality_diagnostics_recorded_at_utc = $sessionQualityDiagnosticsRecordedAtUtc
             feeds = $status.stream_connections
             feed_diagnostics = Get-MonitorFeedDiagnostics $status $Feed
             feed_diagnostics_delta = Get-MonitorFeedDiagnosticsDelta $initial $status $Feed
@@ -351,6 +356,7 @@ if ($RequireSessionClose) {
             status_available = $true
             quality = $qualityEvidence
             quality_diagnostics = $qualityDiagnostics
+            quality_diagnostics_recorded_at_utc = $sessionQualityDiagnosticsRecordedAtUtc
             quality_status = $qualityStatus
         }
     }.GetNewClosure()
@@ -361,6 +367,7 @@ if ($RequireSessionClose) {
     $sessionStatusAvailable = [bool]$finalization.result.status_available
     $sessionQualityEvidence = @($finalization.result.quality)
     $sessionQualityDiagnostics = @($finalization.result.quality_diagnostics)
+    $sessionQualityDiagnosticsRecordedAtUtc = $finalization.result.quality_diagnostics_recorded_at_utc
     $sessionQualityStatus = [string]$finalization.result.quality_status
     if (-not $finalization.ready) {
         if (-not $sessionStatusAvailable) {
@@ -419,6 +426,7 @@ $evidence = [ordered]@{
     stored_session_bars_verified = $verifiedSessionBars
     session_quality_status = $sessionQualityStatus
     session_quality_diagnostics = $sessionQualityDiagnostics
+    session_quality_diagnostics_recorded_at_utc = $sessionQualityDiagnosticsRecordedAtUtc
     session_quality = $sessionQualityEvidence
     feeds = $latest.stream_connections
     feed_diagnostics = Get-MonitorFeedDiagnostics $latest $Feed
@@ -437,6 +445,7 @@ Write-ProgressRecord ([ordered]@{
     minimum_bars_delta = $MinimumBarsDelta
     session_quality_status = $sessionQualityStatus
     session_quality_diagnostics = $sessionQualityDiagnostics
+    session_quality_diagnostics_recorded_at_utc = $sessionQualityDiagnosticsRecordedAtUtc
     session_quality = $sessionQualityEvidence
     max_observed_no_tick_seconds = $evidence.max_observed_no_tick_seconds
     preopen_silence_seconds = $evidence.preopen_silence_seconds
@@ -482,6 +491,7 @@ Write-Output "Read-only KIS monitor sample passed: feed=$(if ($Feed) { $Feed } e
         session_status_available = $sessionStatusAvailable
         session_quality_status = $sessionQualityStatus
         session_quality_diagnostics = $sessionQualityDiagnostics
+        session_quality_diagnostics_recorded_at_utc = $sessionQualityDiagnosticsRecordedAtUtc
         closing_auction_silence_seconds = if ($closingAuctionSilenceSeconds) { [Math]::Round($closingAuctionSilenceSeconds, 1) } else { 0.0 }
         feeds = if ($latest) { $latest.stream_connections } else { $null }
         feed_diagnostics = if ($latest) { Get-MonitorFeedDiagnostics $latest $Feed } else { $null }
