@@ -782,13 +782,21 @@ def get_domestic_minute_session_bars(
 ) -> HistoricalMinuteBarsResponse:
     """Fetch a bounded, exchange-local KRX session prefix using paged read-only KIS requests."""
     try:
-        bars = client.get_domestic_minute_session_bars(symbol, session_date, end_time)
+        history: HistoricalMinuteSession = client.get_domestic_minute_session_snapshot(
+            symbol, session_date, end_time,
+        )
+        bars = history.bars
         _persist_snapshot(lambda: snapshot_store.store_minute_bars(
             "KR", symbol, bars, source="KIS_REST_MINUTE_SESSION",
         ))
         return HistoricalMinuteBarsResponse(
             market="KR", symbol=symbol, session_date=session_date, source="KIS_REST_MINUTE_SESSION",
             spread_bps_available=False,
+            source_pages_fetched=history.pages_fetched,
+            source_records_seen=history.source_record_count,
+            source_first_bar_at=history.first_source_timestamp,
+            source_last_bar_at=history.last_source_timestamp,
+            source_continuation_states=history.continuation_states,
             bars=[QuantBarRequest(
                 timestamp=bar.timestamp, open=bar.open, high=bar.high, low=bar.low, close=bar.close,
                 volume=bar.volume, spread_bps=None,

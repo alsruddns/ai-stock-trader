@@ -598,13 +598,21 @@ def test_domestic_session_chart_walks_backward_windows_and_sorts_the_full_sessio
     )
     from datetime import date
 
-    bars = client.get_domestic_minute_session_bars("005930", date(2026, 11, 5))
+    history = client.get_domestic_minute_session_snapshot("005930", date(2026, 11, 5))
+    bars = history.bars
 
     assert [request.url.params["FID_INPUT_HOUR_1"] for request in requests_seen] == list(pages)
+    assert history.pages_fetched == 4
+    assert history.source_record_count == 8
+    assert history.first_source_timestamp.isoformat() == "2026-11-05T09:00:00+09:00"
+    assert history.last_source_timestamp.isoformat() == "2026-11-05T15:30:00+09:00"
+    assert history.continuation_states == []
     assert [bar.timestamp.strftime("%H%M%S") for bar in bars] == [
         "090000", "092000", "092100", "112000", "112100", "132000", "132100",
     ]
     assert all(bar.spread_bps is None for bar in bars)
+    assert client.get_domestic_minute_session_bars("005930", date(2026, 11, 5)) == bars
+    assert len(requests_seen) == 8
     client.close()
 
 

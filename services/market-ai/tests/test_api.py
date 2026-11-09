@@ -935,14 +935,21 @@ def test_domestic_minute_bars_route_exposes_missing_spread_explicitly() -> None:
 
 def test_domestic_full_session_bars_route_uses_distinct_source_and_never_invents_spread() -> None:
     class FakeKisClient:
-        def get_domestic_minute_session_bars(self, symbol, session_date, end_time):
+        def get_domestic_minute_session_snapshot(self, symbol, session_date, end_time):
             assert symbol == "005930"
             assert session_date == date(2026, 11, 5)
             assert end_time == "153000"
-            return [MinuteBar(
-                timestamp=datetime.fromisoformat("2026-11-05T09:00:00+09:00"), open=Decimal("100"),
-                high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
-            )]
+            return HistoricalMinuteSession(
+                bars=[MinuteBar(
+                    timestamp=datetime.fromisoformat("2026-11-05T09:00:00+09:00"), open=Decimal("100"),
+                    high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
+                )],
+                pages_fetched=2,
+                source_record_count=121,
+                first_source_timestamp=datetime.fromisoformat("2026-11-05T09:00:00+09:00"),
+                last_source_timestamp=datetime.fromisoformat("2026-11-05T15:30:00+09:00"),
+                continuation_states=[],
+            )
 
     app.dependency_overrides[get_kis_client] = lambda: FakeKisClient()
     try:
@@ -953,6 +960,11 @@ def test_domestic_full_session_bars_route_uses_distinct_source_and_never_invents
         body = response.json()
         assert body["source"] == "KIS_REST_MINUTE_SESSION"
         assert body["spread_bps_available"] is False
+        assert body["source_pages_fetched"] == 2
+        assert body["source_records_seen"] == 121
+        assert body["source_first_bar_at"] == "2026-11-05T09:00:00+09:00"
+        assert body["source_last_bar_at"] == "2026-11-05T15:30:00+09:00"
+        assert body["source_continuation_states"] == []
         assert body["bars"][0]["spread_bps"] is None
     finally:
         app.dependency_overrides.clear()

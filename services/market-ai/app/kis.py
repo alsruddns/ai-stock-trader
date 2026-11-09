@@ -753,10 +753,19 @@ class KisReadOnlyClient:
     def get_domestic_minute_session_bars(
         self, symbol: str, session_date: date, end_time: str = "153000", *, max_pages: int = 6,
     ) -> list["MinuteBar"]:
+        """Fetch a bounded historical KRX session and return only its bars."""
+        return self.get_domestic_minute_session_snapshot(
+            symbol, session_date, end_time, max_pages=max_pages,
+        ).bars
+
+    def get_domestic_minute_session_snapshot(
+        self, symbol: str, session_date: date, end_time: str = "153000", *, max_pages: int = 6,
+    ) -> HistoricalMinuteSession:
         """Walk bounded KIS time windows backward and return one complete KRX session prefix.
 
         Each request returns at most 120 bars. The next request ends one minute before
         the earliest returned bar; overlapping bars are accepted only when identical.
+        Preserve source page counts and timestamps so callers can audit completeness.
         """
         from .quant import MinuteBar
         from .market_calendar import exchange_continuous_session_window
@@ -774,12 +783,18 @@ class KisReadOnlyClient:
             "KR", datetime.combine(session_date, datetime_time(12), tzinfo=ZoneInfo("Asia/Seoul")),
         )
         if session_window is None:
-            return []
+            return HistoricalMinuteSession([], 0, 0, None, None, [])
         session_open, session_close = session_window
         bars_by_timestamp: dict[datetime, MinuteBar] = {}
+        source_timestamps: list[datetime] = []
+        source_record_count = 0
+        pages_fetched = 0
         cursor = end_time
         for page_number in range(max_pages):
             page = self.get_domestic_minute_bars(symbol, session_date, cursor)
+            pages_fetched += 1
+            source_record_count += len(page)
+            source_timestamps.extend(bar.timestamp for bar in page)
             for bar in page:
                 timestamp_utc = bar.timestamp.astimezone(timezone.utc)
                 if not (session_open <= timestamp_utc < session_close):
@@ -800,7 +815,15 @@ class KisReadOnlyClient:
                 raise KisApiError("KIS minute chart pagination did not move backward")
             cursor = next_cursor
 
-        return [bars_by_timestamp[timestamp] for timestamp in sorted(bars_by_timestamp)]
+        return HistoricalMinuteSession(
+            bars=[bars_by_timestamp[timestamp] for timestamp in sorted(bars_by_timestamp)],
+            pages_fetched=pages_fetched,
+            source_record_count=source_record_count,
+            first_source_timestamp=min(source_timestamps) if source_timestamps else None,
+            last_source_timestamp=max(source_timestamps) if source_timestamps else None,
+            # This endpoint paginates with an explicit time parameter, not KIS tr_cont.
+            continuation_states=[],
+        )
 
     def get_overseas_minute_bars(
         self, symbol: str, exchange: Exchange, session_date: date | None = None,
