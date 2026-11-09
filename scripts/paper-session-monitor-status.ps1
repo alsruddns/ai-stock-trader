@@ -9,9 +9,14 @@ function Get-MonitorFailureCode([string]$Message) {
     switch -Regex ($Message) {
         'No WebSocket ticks arrived for more than \d+ seconds' { return 'WEBSOCKET_NO_TICKS' }
         'No increase in WebSocket ticks was observed during the selected sample window' { return 'NO_TICKS_IN_SAMPLE_WINDOW' }
+        'The monitored exchange session did not reach its calendar-confirmed close' { return 'EXCHANGE_SESSION_CLOSE_NOT_REACHED' }
+        'The final stored session did not reach complete bars, spread, and source verification within the post-close grace period' { return 'SESSION_FINALIZATION_TIMEOUT' }
+        'The running market-data service does not expose a tick receive timestamp' { return 'FEED_TIMESTAMP_UNAVAILABLE' }
+        'The closed bar counter moved backwards during the sample' { return 'BAR_COUNTER_RESET' }
         'Local market-data feed did not become ready' { return 'FEED_NOT_READY' }
         'Could not read the local paper-session status endpoint' { return 'SESSION_STATUS_UNAVAILABLE' }
         'Could not verify today.*exchange session' { return 'EXCHANGE_CALENDAR_UNAVAILABLE' }
+        'Paper-session monitor is not running in read-only, automation-disabled mode' { return 'SAFETY_LOCK_VIOLATION' }
         'Stored-session quality did not verify' { return 'STORED_SESSION_QUALITY_INCOMPLETE' }
         'below the required minimum' { return 'MINIMUM_BAR_COUNT_NOT_MET' }
         default { return 'MONITOR_FAILED' }

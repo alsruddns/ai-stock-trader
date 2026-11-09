@@ -11,6 +11,22 @@ Describe 'Paper session monitor failure codes' {
             Should Be 'NO_TICKS_IN_SAMPLE_WINDOW'
     }
 
+    It 'classifies exchange close and finalization timeouts separately' {
+        Get-MonitorFailureCode 'The monitored exchange session did not reach its calendar-confirmed close.' |
+            Should Be 'EXCHANGE_SESSION_CLOSE_NOT_REACHED'
+        Get-MonitorFailureCode 'The final stored session did not reach complete bars, spread, and source verification within the post-close grace period.' |
+            Should Be 'SESSION_FINALIZATION_TIMEOUT'
+    }
+
+    It 'classifies missing timestamps, reset counters, and safety lock failures' {
+        Get-MonitorFailureCode 'The running market-data service does not expose a tick receive timestamp; restart it with the current code before monitoring.' |
+            Should Be 'FEED_TIMESTAMP_UNAVAILABLE'
+        Get-MonitorFailureCode 'The closed bar counter moved backwards during the sample.' |
+            Should Be 'BAR_COUNTER_RESET'
+        Get-MonitorFailureCode 'Paper-session monitor is not running in read-only, automation-disabled mode.' |
+            Should Be 'SAFETY_LOCK_VIOLATION'
+    }
+
     It 'uses a safe generic code for unknown exception text' {
         Get-MonitorFailureCode 'account=private-key-value' | Should Be 'MONITOR_FAILED'
     }
