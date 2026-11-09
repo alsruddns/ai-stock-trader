@@ -63,4 +63,4 @@ jobs:
           cache-dependency-path: backend/trading-api/pom.xml
       - name: Run domestic-only scheduled baseline scope test
         working-directory: backend/trading-api
-        run: ./mvnw --batch-mode -Dtest=KisRealDailyRiskBaselineServiceTest#domesticOnlyScopeSkipsOutOfScopeScheduledBaselineBeforeExternalAccess test
+        run: bash ./mvnw --batch-mode -Dtest=KisRealDailyRiskBaselineServiceTest#domesticOnlyScopeSkipsOutOfScopeScheduledBaselineBeforeExternalAccess test
