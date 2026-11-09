@@ -56,9 +56,11 @@ function Format-SafeLocalApiFailure {
     }
     $brokerCode = Get-SafeKisBrokerCode -ErrorDetail $ErrorDetail
     $transportCategory = Get-SafeKisTransportCategory -ErrorDetail $ErrorDetail
+    $rateLimitReached = $ErrorDetail -match '(?i)\bKIS rate limit reached\b'
     $upstreamStatus = Get-SafeKisUpstreamHttpStatus -ErrorDetail $ErrorDetail
     $responseFields = Get-SafeKisResponseFields -ErrorDetail $ErrorDetail
     $diagnostic = if ($brokerCode) { ", KIS code $brokerCode" }
+        elseif ($rateLimitReached) { ', KIS rate limit' }
         elseif ($transportCategory) { ", KIS transport $transportCategory" }
         elseif ($upstreamStatus -and $responseFields) { ", KIS upstream HTTP $upstreamStatus, fields $responseFields" }
         elseif ($upstreamStatus) { ", KIS upstream HTTP $upstreamStatus" }

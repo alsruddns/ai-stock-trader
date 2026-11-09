@@ -201,6 +201,13 @@ Describe 'Sanitized KIS error reporting' {
         $message | Should Be 'Local preflight request failed (HTTP 502, KIS transport timeout) for /api/v1/market/quotes/US/F; inspect the sanitized service logs.'
     }
 
+    It 'reports the KIS rate-limit category without exposing the broker response' {
+        $message = Format-SafeLocalApiFailure -Status '429' -Path '/api/v1/kis/accounts/paper/KR/balance' `
+            -ErrorDetail '{"detail":"KIS rate limit reached; wait before requesting again."}'
+        $message | Should Be 'Local preflight request failed (HTTP 429, KIS rate limit) for /api/v1/kis/accounts/paper/KR/balance; inspect the sanitized service logs.'
+        $message | Should Not Match 'wait before requesting'
+    }
+
     It 'extracts an upstream HTTP status from a KIS-only error signature' {
         Get-SafeKisUpstreamHttpStatus -ErrorDetail '{"detail":"KIS quote request failed (HTTP 502, code unknown)."}' | Should Be '502'
     }
