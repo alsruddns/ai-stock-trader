@@ -107,6 +107,36 @@ function Test-LocalTradingLocks($PythonHealth, $SpringSummary) {
         $SpringSummary.kisRealProtectiveExitAutomationEnabled -eq $false
 }
 
+function Test-PaperFrameDiagnosticsReady($Session) {
+    if (-not $Session -or
+        $null -eq $Session.PSObject.Properties['frames_received_by_feed'] -or
+        $null -eq $Session.PSObject.Properties['frame_transaction_counts_by_feed']) {
+        return $false
+    }
+    $frames = $Session.frames_received_by_feed
+    $transactions = $Session.frame_transaction_counts_by_feed
+    if (-not $frames -or -not $transactions) { return $false }
+    foreach ($feed in @('paper', 'real')) {
+        $frameProperty = $frames.PSObject.Properties[$feed]
+        $transactionProperty = $transactions.PSObject.Properties[$feed]
+        if ($null -eq $frameProperty -or $null -eq $transactionProperty) { return $false }
+        $parsedCount = 0L
+        if (-not [long]::TryParse([string]$frameProperty.Value, [ref]$parsedCount) -or $parsedCount -lt 0) {
+            return $false
+        }
+        $feedTransactions = $transactionProperty.Value
+        foreach ($transactionId in @('H0STCNT0', 'H0STASP0', 'HDFSCNT0', 'OTHER')) {
+            $countProperty = $feedTransactions.PSObject.Properties[$transactionId]
+            if ($null -eq $countProperty -or
+                -not [long]::TryParse([string]$countProperty.Value, [ref]$parsedCount) -or
+                $parsedCount -lt 0) {
+                return $false
+            }
+        }
+    }
+    return $true
+}
+
 function Stop-TrackedProcessTree($Process) {
     if ($null -eq $Process) { return }
     $current = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$Process.ProcessId)" -ErrorAction SilentlyContinue
@@ -219,5 +249,8 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
     if (-not (Test-PaperSessionRestored $paperSession $previousPaperSession)) {
         throw 'The paper session monitor or bar storage did not recover to its prior enabled state.'
     }
-    Write-Output 'Local Spring Boot and Python APIs restarted after both exchanges closed; monitor/storage state was restored and live trading remains disabled.'
+    if (-not (Test-PaperFrameDiagnosticsReady $paperSession)) {
+        throw 'The restarted Python API did not expose the expected per-feed frame diagnostics.'
+    }
+    Write-Output 'Local APIs restarted after both exchanges closed; feed diagnostics and monitor/storage were restored and all trading locks remain enabled.'
 }

@@ -118,7 +118,13 @@ $tradingLocksAst = $restartAst.Find({
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
         $node.Name -eq 'Test-LocalTradingLocks'
 }, $true)
-if ($null -eq $identityAst -or $null -eq $parentageAst -or $null -eq $paperSessionAst -or $null -eq $tradingLocksAst) {
+$frameDiagnosticsAst = $restartAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Test-PaperFrameDiagnosticsReady'
+}, $true)
+if ($null -eq $identityAst -or $null -eq $parentageAst -or $null -eq $paperSessionAst -or
+    $null -eq $tradingLocksAst -or $null -eq $frameDiagnosticsAst) {
     throw 'Process ownership or paper-session restoration checks were not found.'
 }
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -127,6 +133,7 @@ $script:restartScriptDirectory = $PSScriptRoot
 . ([ScriptBlock]::Create($parentageAst.Extent.Text))
 . ([ScriptBlock]::Create($paperSessionAst.Extent.Text))
 . ([ScriptBlock]::Create($tradingLocksAst.Extent.Text))
+. ([ScriptBlock]::Create($frameDiagnosticsAst.Extent.Text))
 
 $lockedPython = [pscustomobject]@{ status = 'ok'; live_trading_enabled = $false; paper_automation_enabled = $false }
 $lockedSpring = [pscustomobject]@{
@@ -166,6 +173,28 @@ $unhealthyPython = $lockedPython.PSObject.Copy()
 $unhealthyPython.status = 'error'
 if (Test-LocalTradingLocks $unhealthyPython $lockedSpring) {
     throw 'The restart safety gate accepted unhealthy Python API status.'
+}
+$diagnosticSession = [pscustomobject]@{
+    frames_received_by_feed = [pscustomobject]@{ paper = 0; real = 0 }
+    frame_transaction_counts_by_feed = [pscustomobject]@{
+        paper = [pscustomobject]@{ H0STCNT0 = 0; H0STASP0 = 0; HDFSCNT0 = 0; OTHER = 0 }
+        real = [pscustomobject]@{ H0STCNT0 = 0; H0STASP0 = 0; HDFSCNT0 = 0; OTHER = 0 }
+    }
+}
+if (-not (Test-PaperFrameDiagnosticsReady $diagnosticSession)) {
+    throw 'A complete per-feed frame diagnostics payload should pass.'
+}
+$missingFrameCounts = $diagnosticSession.PSObject.Copy()
+$missingFrameCounts.frames_received_by_feed = $null
+if (Test-PaperFrameDiagnosticsReady $missingFrameCounts) {
+    throw 'Missing per-feed frame counts must block declaring diagnostics ready.'
+}
+$missingTransactionId = $diagnosticSession.PSObject.Copy()
+$missingTransactionId.frame_transaction_counts_by_feed.paper = [pscustomobject]@{
+    H0STCNT0 = 0; H0STASP0 = 0; HDFSCNT0 = 0
+}
+if (Test-PaperFrameDiagnosticsReady $missingTransactionId) {
+    throw 'Missing transaction counters must block declaring diagnostics ready.'
 }
 
 $now = [DateTimeOffset]::UtcNow
