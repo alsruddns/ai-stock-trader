@@ -29,12 +29,8 @@ public final class MarketOperationalScope {
         }
     }
 
-    private MarketOperationalScope(Set<Market> allowedMarkets) {
-        this.allowedMarkets = Set.copyOf(allowedMarkets);
-    }
-
     public static MarketOperationalScope domesticOnly() {
-        return new MarketOperationalScope(Set.of(Market.KR));
+        return new MarketOperationalScope("KR");
     }
 
     public void require(Market market, String operation) {
