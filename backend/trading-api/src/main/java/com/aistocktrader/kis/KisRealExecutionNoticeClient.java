@@ -2,6 +2,7 @@ package com.aistocktrader.kis;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.aistocktrader.order.Market;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +18,8 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -38,6 +41,7 @@ public class KisRealExecutionNoticeClient {
     private final boolean enabled;
     private final String htsId;
     private final KisProperties properties;
+    private final MarketOperationalScope marketScope;
     private final KisOrderIntentRepository intents;
     private final KisMarketSessionClient sessions;
     private final KisRealOrderOrchestrator orders;
@@ -60,13 +64,15 @@ public class KisRealExecutionNoticeClient {
     public KisRealExecutionNoticeClient(
             @Value("${kis.real-execution-notices-enabled:false}") boolean enabled,
             @Value("${kis.real-hts-id:}") String htsId,
-            KisProperties properties, KisOrderIntentRepository intents,
+            KisProperties properties, MarketOperationalScope marketScope,
+            KisOrderIntentRepository intents,
             KisMarketSessionClient sessions,
             KisRealOrderOrchestrator orders, KisRestRateLimiter rateLimiter,
             RestClient.Builder restClientBuilder, ObjectMapper mapper) {
         this.enabled = enabled;
         this.htsId = htsId == null ? "" : htsId.trim();
         this.properties = properties;
+        this.marketScope = marketScope;
         this.intents = intents;
         this.sessions = sessions;
         this.orders = orders;
@@ -127,11 +133,25 @@ public class KisRealExecutionNoticeClient {
         }
     }
 
+    List<String> subscriptionTransactionIds() {
+        List<String> transactionIds = new ArrayList<>(2);
+        if (marketScope.allowedMarkets().contains(Market.KR)) transactionIds.add(DOMESTIC_NOTICE);
+        if (marketScope.allowedMarkets().contains(Market.US)) transactionIds.add(OVERSEAS_NOTICE);
+        return List.copyOf(transactionIds);
+    }
+
+    private Market marketForNotice(String transactionId) {
+        if (DOMESTIC_NOTICE.equals(transactionId)) return Market.KR;
+        if (OVERSEAS_NOTICE.equals(transactionId)) return Market.US;
+        return null;
+    }
+
     private void acceptControl(JsonNode message) {
         JsonNode header = message.path("header");
         JsonNode body = message.path("body");
         String transactionId = header.path("tr_id").asText("");
-        if (!DOMESTIC_NOTICE.equals(transactionId) && !OVERSEAS_NOTICE.equals(transactionId)) return;
+        Market market = marketForNotice(transactionId);
+        if (market == null || !marketScope.allowedMarkets().contains(market)) return;
         JsonNode output = body.path("output");
         String key = output.path("key").asText("");
         String iv = output.path("iv").asText("");
@@ -141,6 +161,8 @@ public class KisRealExecutionNoticeClient {
     private void acceptFrame(String frame) {
         String[] parts = frame.split("\\|", 4);
         if (parts.length != 4 || !"1".equals(parts[0])) return;
+        Market market = marketForNotice(parts[1]);
+        if (market == null || !marketScope.allowedMarkets().contains(market)) return;
         CryptoKeys keys = cryptoKeys.get(parts[1]);
         if (keys == null) return;
         KisExecutionNoticeParser.parseReal(parts[1], parts[3], keys.key(), keys.iv(), htsId,
@@ -148,6 +170,7 @@ public class KisRealExecutionNoticeClient {
     }
 
     private void queueReconciliation(KisExecutionNoticeParser.ExecutionNotice notice) {
+        if (!marketScope.allowedMarkets().contains(notice.market())) return;
         intents.findByEnvironmentAndMarketAndBrokerOrderNumber(KisEnvironment.REAL, notice.market(),
                         notice.brokerOrderNumber())
                 .filter(intent -> intent.getSymbol().equalsIgnoreCase(notice.symbol())
@@ -205,8 +228,9 @@ public class KisRealExecutionNoticeClient {
         void attach(WebSocket webSocket, String key) {
             activeSocket = webSocket;
             approvalKey = key;
-            webSocket.sendText(subscription(key, DOMESTIC_NOTICE), true);
-            webSocket.sendText(subscription(key, OVERSEAS_NOTICE), true);
+            for (String transactionId : subscriptionTransactionIds()) {
+                webSocket.sendText(subscription(key, transactionId), true);
+            }
             webSocket.request(1);
         }
 

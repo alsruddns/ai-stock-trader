@@ -5,7 +5,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
+import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.*;
 
 class KisRealExecutionNoticeClientTest {
@@ -23,11 +25,31 @@ class KisRealExecutionNoticeClientTest {
                 Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ofSeconds(1));
 
         KisRealExecutionNoticeClient client = new KisRealExecutionNoticeClient(false, "", properties,
+                MarketOperationalScope.domesticOnly(),
                 intents, sessions, orders, rateLimiter, builder, new ObjectMapper());
         try {
             client.connectWhenEnabled();
             verify(builder).build();
             verifyNoInteractions(restClient, rateLimiter, intents, orders, sessions);
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
+    void domesticOperationalScopeSubscribesOnlyToDomesticExecutionNotices() {
+        RestClient.Builder builder = mock(RestClient.Builder.class);
+        when(builder.build()).thenReturn(mock(RestClient.class));
+        KisProperties properties = new KisProperties(false, false, false, false,
+                new KisProperties.Account("", "", ""), new KisProperties.Account("", "", ""),
+                Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ofSeconds(1));
+        KisRealExecutionNoticeClient client = new KisRealExecutionNoticeClient(false, "", properties,
+                MarketOperationalScope.domesticOnly(), mock(KisOrderIntentRepository.class),
+                mock(KisMarketSessionClient.class), mock(KisRealOrderOrchestrator.class),
+                mock(KisRestRateLimiter.class), builder, new ObjectMapper());
+
+        try {
+            assertEquals(List.of("H0STCNI0"), client.subscriptionTransactionIds());
         } finally {
             client.close();
         }

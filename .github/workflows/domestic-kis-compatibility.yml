@@ -6,6 +6,7 @@ on:
     paths:
       - 'backend/trading-api/src/main/java/**'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealDailyRiskBaselineServiceTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealExecutionNoticeClientTest.java'
       - 'services/market-ai/app/**'
       - 'scripts/lib/retired-kis-analysis-scan.ps1'
       - 'scripts/tests/retired-kis-analysis-scan.Tests.ps1'
@@ -64,3 +65,6 @@ jobs:
       - name: Run domestic-only scheduled baseline scope test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=KisRealDailyRiskBaselineServiceTest#domesticOnlyScopeSkipsOutOfScopeScheduledBaselineBeforeExternalAccess test
+      - name: Run domestic-only execution notice subscription scope test
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode -Dtest=KisRealExecutionNoticeClientTest#domesticOperationalScopeSubscribesOnlyToDomesticExecutionNotices test
