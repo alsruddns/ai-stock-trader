@@ -618,14 +618,37 @@ def test_runtime_routes_domestic_orderbook_updates_to_matching_symbol_aggregator
     aggregate.add(first_tick)
     quote = OrderBookQuote("KR", "005930", datetime(2026, 11, 6, 10, 1, 30, tzinfo=zone),
                            Decimal("99"), Decimal("101"))
-    monkeypatch.setattr("app.paper_runtime.parse_domestic_orderbook_frame", lambda *_args, **_kwargs: [quote])
+    parsed_quotes = [quote]
+    monkeypatch.setattr("app.paper_runtime.parse_domestic_orderbook_frame", lambda *_args, **_kwargs: parsed_quotes)
 
+    runtime._consume("0|H0STASP0|1|quote", (watch,))
+
+    parsed_quotes[:] = [OrderBookQuote(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 40, tzinfo=zone),
+        Decimal("102"), Decimal("101"),
+    )]
     runtime._consume("0|H0STASP0|1|quote", (watch,))
 
     completed = aggregate.add(next_tick)
     assert completed is not None
+
+    parsed_quotes[:] = [OrderBookQuote(
+        "KR", "005930", datetime(2026, 11, 6, 10, 2, 0, tzinfo=zone), None, Decimal("101"),
+    )]
+    runtime._consume("0|H0STASP0|1|quote", (watch,))
+
+    parsed_quotes[:] = [OrderBookQuote(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 50, tzinfo=zone),
+        Decimal("99"), Decimal("101"),
+    )]
+    runtime._consume("0|H0STASP0|1|quote", (watch,))
+
     assert completed.spread_bps == Decimal("200")
-    assert runtime.status()["orderbook_updates_by_feed"]["paper"] == 1
+    status = runtime.status()
+    assert status["orderbook_updates_by_feed"]["paper"] == 2
+    assert status["orderbook_quote_quality_by_feed"]["paper"] == {
+        "usable": 2, "empty_or_nonpositive": 1, "crossed": 1, "stale_rejected": 1,
+    }
 
 
 def test_websocket_subscription_ack_timeout_keeps_feed_unavailable(monkeypatch) -> None:

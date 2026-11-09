@@ -162,13 +162,19 @@ class MinuteBarAggregator:
         self._quote_minute: datetime | None = None
         self._last_tick: datetime | None = None
 
+    def quote_is_stale(self, quote: OrderBookQuote) -> bool:
+        if quote.timestamp.tzinfo is None or quote.timestamp.utcoffset() is None:
+            raise ValueError("orderbook timestamp must include a timezone")
+        minute = quote.timestamp.replace(second=0, microsecond=0)
+        return self._minute is not None and minute < self._minute
+
     def update_quote(self, quote: OrderBookQuote) -> bool:
         if quote.timestamp.tzinfo is None or quote.timestamp.utcoffset() is None:
             raise ValueError("orderbook timestamp must include a timezone")
         if self._symbol is not None and quote.symbol != self._symbol:
             raise ValueError("an aggregator instance accepts one symbol at a time")
         minute = quote.timestamp.replace(second=0, microsecond=0)
-        if self._minute is not None and minute < self._minute:
+        if self.quote_is_stale(quote):
             return False
         valid_quote = (
             quote.bid is not None and quote.ask is not None

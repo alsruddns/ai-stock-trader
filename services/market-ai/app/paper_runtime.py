@@ -189,6 +189,10 @@ class PaperSessionFeedMonitor:
             "last_frame_transaction_id_by_feed": {"paper": None, "real": None},
             "last_frame_received_at_by_feed": {"paper": None, "real": None},
             "orderbook_updates_by_feed": {"paper": 0, "real": 0},
+            "orderbook_quote_quality_by_feed": {
+                feed: {"usable": 0, "empty_or_nonpositive": 0, "crossed": 0, "stale_rejected": 0}
+                for feed in ("paper", "real")
+            },
             "last_orderbook_received_at_by_feed": {"paper": None, "real": None},
             "bars_closed_by_feed": {"paper": 0, "real": 0},
             "last_error": None, "orders_enabled": False,
@@ -231,6 +235,11 @@ class PaperSessionFeedMonitor:
             result["last_frame_kind_by_feed"] = dict(self._status["last_frame_kind_by_feed"])
             result["last_frame_transaction_id_by_feed"] = dict(self._status["last_frame_transaction_id_by_feed"])
             result["last_frame_received_at_by_feed"] = dict(self._status["last_frame_received_at_by_feed"])
+            result["orderbook_updates_by_feed"] = dict(self._status["orderbook_updates_by_feed"])
+            result["orderbook_quote_quality_by_feed"] = {
+                feed: dict(counts)
+                for feed, counts in self._status["orderbook_quote_quality_by_feed"].items()
+            }
             result["bars_closed_by_feed"] = dict(self._status["bars_closed_by_feed"])
             result["candidate_refresh_by_market"] = {
                 key: dict(value) for key, value in self._status["candidate_refresh_by_market"].items()
@@ -1030,9 +1039,30 @@ class PaperSessionFeedMonitor:
                 for quote in quotes:
                     if quote.symbol.upper() != watch.symbol.upper():
                         continue
-                    if not self._aggregators[watch.key].update_quote(quote):
-                        continue
                     feed = self._feed_by_watch.get(watch.key, self._feed_for_watch(watch))
+                    valid_quote = (
+                        quote.bid is not None and quote.ask is not None
+                        and quote.bid > 0 and quote.ask > 0
+                    )
+                    quote_class = (
+                        "empty_or_nonpositive" if not valid_quote
+                        else "crossed" if quote.ask < quote.bid
+                        else "usable"
+                    )
+                    aggregator = self._aggregators[watch.key]
+                    stale = aggregator.quote_is_stale(quote)
+                    accepted = aggregator.update_quote(quote)
+                    with self._lock:
+                        quality = {
+                            key: dict(value)
+                            for key, value in self._status["orderbook_quote_quality_by_feed"].items()
+                        }
+                        quality[feed][quote_class] = int(quality[feed].get(quote_class, 0)) + 1
+                        if stale:
+                            quality[feed]["stale_rejected"] = int(quality[feed].get("stale_rejected", 0)) + 1
+                        self._status["orderbook_quote_quality_by_feed"] = quality
+                    if not accepted:
+                        continue
                     with self._lock:
                         counts = dict(self._status["orderbook_updates_by_feed"])
                         counts[feed] = int(counts.get(feed, 0)) + 1
