@@ -47,17 +47,28 @@ public class KisOrderController {
 
     @GetMapping("/{idempotencyKey}")
     public KisOrderIntentResponse get(@PathVariable UUID idempotencyKey) {
-        return KisOrderIntentResponse.from(intents.get(idempotencyKey));
+        return KisOrderIntentResponse.from(paperIntent(idempotencyKey));
     }
 
     @PostMapping("/{idempotencyKey}/reconcile")
     public ResponseEntity<KisOrderIntentResponse> reconcile(@PathVariable UUID idempotencyKey) {
+        paperIntent(idempotencyKey);
         return ResponseEntity.ok(orders.reconcilePaperOrder(idempotencyKey));
     }
 
     @PostMapping("/{idempotencyKey}/cancel")
     public ResponseEntity<KisOrderIntentResponse> cancel(@PathVariable UUID idempotencyKey,
                                                          @RequestParam(required = false) String exchange) {
+        paperIntent(idempotencyKey);
         return ResponseEntity.accepted().body(orders.cancelPaperOrder(idempotencyKey, exchange));
+    }
+
+    private KisOrderIntent paperIntent(UUID idempotencyKey) {
+        KisOrderIntent intent = intents.get(idempotencyKey);
+        if (intent.getEnvironment() != KisEnvironment.PAPER) {
+            throw new KisApiException(HttpStatus.NOT_FOUND, "PAPER KIS order intent was not found.");
+        }
+        marketScope.require(intent.getMarket(), "KIS PAPER order intent access");
+        return intent;
     }
 }

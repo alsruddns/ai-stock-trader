@@ -153,6 +153,7 @@ public class KisRealOrderController {
         if (intent.getEnvironment() != KisEnvironment.REAL) {
             throw new KisApiException(HttpStatus.NOT_FOUND, "REAL KIS order intent was not found.");
         }
+        marketScope.require(intent.getMarket(), "KIS REAL order intent access");
         return intent;
     }
 

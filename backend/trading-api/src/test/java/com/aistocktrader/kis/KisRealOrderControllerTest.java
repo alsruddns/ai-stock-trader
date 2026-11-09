@@ -94,6 +94,27 @@ class KisRealOrderControllerTest {
     }
 
     @Test
+    void domesticScopeBlocksOutOfScopeRealIntentReadReconciliationAndCancellationBeforeBrokerAccess() {
+        TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true, true,
+                BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100));
+        KisRealOrderController controller = controller(safety, properties(true, true));
+        UUID key = UUID.randomUUID();
+        OrderRequest overseas = new OrderRequest(Market.US, "AAPL", OrderSide.BUY,
+                1, BigDecimal.ONE, Currency.USD);
+        when(intents.get(key)).thenReturn(new KisOrderIntent(key, "hash", KisEnvironment.REAL,
+                overseas, "NASD"));
+
+        assertEquals(HttpStatus.LOCKED, assertThrows(KisApiException.class,
+                () -> controller.get(key)).status());
+        assertEquals(HttpStatus.LOCKED, assertThrows(KisApiException.class,
+                () -> controller.reconcile(key)).status());
+        assertEquals(HttpStatus.LOCKED, assertThrows(KisApiException.class,
+                () -> controller.cancel(key)).status());
+
+        verifyNoInteractions(accounts, orders, marketAiEvidence);
+    }
+
+    @Test
     void everyRealPathRequiresGlobalAccountReadSwitchEvenInRealMode() {
         KisRealOrderController controller = controller(
                 new TradingSafetyProperties("real", true, true, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),

@@ -9,6 +9,8 @@ on:
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealExecutionNoticeClientTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealOrderReconciliationJobTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealProtectiveExitMonitorTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealOrderControllerTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisOrderControllerMarketScopeTest.java'
       - 'services/market-ai/app/**'
       - 'scripts/lib/retired-kis-analysis-scan.ps1'
       - 'scripts/tests/retired-kis-analysis-scan.Tests.ps1'
@@ -76,3 +78,9 @@ jobs:
       - name: Run domestic-only protective exit scope test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=KisRealProtectiveExitMonitorTest#domesticOnlyScopeSkipsOutOfScopeProtectiveExitBeforeSessionOrAccountAccess test
+      - name: Run domestic-only PAPER order intent scope test
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode -Dtest=KisOrderControllerMarketScopeTest#blocksOutOfScopePaperIntentReadReconciliationAndCancellationBeforeBrokerAccess test
+      - name: Run domestic-only REAL order intent scope test
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode -Dtest=KisRealOrderControllerTest#domesticScopeBlocksOutOfScopeRealIntentReadReconciliationAndCancellationBeforeBrokerAccess test
