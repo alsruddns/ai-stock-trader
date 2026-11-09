@@ -500,6 +500,27 @@ def test_runtime_reports_domestic_market_data_receipts_per_symbol(monkeypatch) -
     assert runtime.status()["market_data_by_watch_by_feed"]["paper"][samsung.key]["trade_ticks_received"] == 1
 
 
+def test_runtime_preinitializes_domestic_watch_market_data_before_first_event() -> None:
+    runtime = PaperSessionFeedMonitor()
+    samsung, hynix = parse_watchlist("KR:005930;KR:000660")
+
+    for watch in (samsung, hynix):
+        runtime._initialize_watch_market_data("paper", watch)
+
+    per_symbol = runtime.status()["market_data_by_watch_by_feed"]["paper"]
+    assert set(per_symbol) == {samsung.key, hynix.key}
+    for watch in (samsung, hynix):
+        row = per_symbol[watch.key]
+        assert row["market"] == "KR"
+        assert row["symbol"] == watch.symbol
+        assert row["trade_ticks_received"] == 0
+        assert row["bars_closed"] == 0
+        assert row["orderbook_quotes_received"] == 0
+        assert row["usable_orderbook_quotes"] == 0
+        assert "last_trade_at" not in row
+        assert "last_orderbook_at" not in row
+
+
 def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch) -> None:
     from app import snapshot_store
 

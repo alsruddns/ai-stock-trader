@@ -356,6 +356,19 @@ class PaperSessionFeedMonitor:
                 values[received_time_field] = datetime.now().astimezone().isoformat()
             values.update({"market": watch.market, "symbol": watch.symbol, "exchange": watch.exchange})
 
+    def _initialize_watch_market_data(self, feed: str, watch: PaperWatch) -> None:
+        """Expose zero-count diagnostics as soon as a watch is accepted for streaming."""
+        if feed not in {"paper", "real"}:
+            return
+        with self._lock:
+            by_feed = self._status["market_data_by_watch_by_feed"]
+            values = by_feed[feed].setdefault(watch.key, {})
+            values.update({"market": watch.market, "symbol": watch.symbol, "exchange": watch.exchange})
+            for field in (
+                "trade_ticks_received", "bars_closed", "orderbook_quotes_received", "usable_orderbook_quotes",
+            ):
+                values.setdefault(field, 0)
+
     def decisions(self) -> dict[str, dict[str, object]]:
         """Return latest advisory quant decisions; none are executable orders."""
         with self._lock:
@@ -428,6 +441,9 @@ class PaperSessionFeedMonitor:
             for environment, group_watches in self._watches_by_feed.items()
             for watch in group_watches
         }
+        for environment, group_watches in self._watches_by_feed.items():
+            for watch in group_watches:
+                self._initialize_watch_market_data(environment, watch)
         self._subscription_update_queues = {
             environment: asyncio.Queue()
             for environment in feed_groups
