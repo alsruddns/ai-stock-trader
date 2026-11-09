@@ -1084,6 +1084,24 @@ def _model_registry() -> LocalModelRegistry:
     return LocalModelRegistry(os.getenv("AI_MODEL_REGISTRY_PATH", ".local/models"))
 
 
+def _scoped_model_registry(model_id: str, operation: str) -> LocalModelRegistry:
+    registry = _model_registry()
+    try:
+        metadata = registry.manifest(model_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Model metadata was not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Model metadata could not be validated") from exc
+    market = metadata.get("market")
+    if not isinstance(market, str):
+        raise HTTPException(status_code=422, detail="Model market scope is invalid")
+    market = market.strip().upper()
+    if market not in {"KR", "US"}:
+        raise HTTPException(status_code=422, detail="Model market scope is invalid")
+    require_operational_market(market, operation)
+    return registry
+
+
 def _require_model_governance_token(token: str | None = Header(default=None, alias="X-Model-Governance-Token")) -> None:
     expected = os.getenv("MODEL_GOVERNANCE_TOKEN", "")
     if len(expected) < 32:
@@ -1107,7 +1125,8 @@ def list_ai_models() -> dict[str, object]:
 def approve_ai_model(model_id: str, request: ModelApprovalRequest,
                      _authorized: None = Depends(_require_model_governance_token)) -> dict[str, object]:
     try:
-        metadata = _model_registry().approve(model_id, approved_by=request.approved_by, note=request.note)
+        registry = _scoped_model_registry(model_id, "model approval")
+        metadata = registry.approve(model_id, approved_by=request.approved_by, note=request.note)
         return {"model_id": model_id, "approved": bool(metadata.get("approved")), "executable": False,
                 "approval": metadata.get("approval")}
     except FileNotFoundError as exc:
@@ -1120,7 +1139,8 @@ def approve_ai_model(model_id: str, request: ModelApprovalRequest,
 def activate_ai_model(model_id: str, request: ModelChangeRequest,
                       _authorized: None = Depends(_require_model_governance_token)) -> dict[str, object]:
     try:
-        event = _model_registry().activate(model_id, changed_by=request.changed_by, note=request.note)
+        registry = _scoped_model_registry(model_id, "model activation")
+        event = registry.activate(model_id, changed_by=request.changed_by, note=request.note)
         return {**event, "executable": False}
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -1132,7 +1152,8 @@ def activate_ai_model(model_id: str, request: ModelChangeRequest,
 def rollback_ai_model(model_id: str, request: ModelChangeRequest,
                       _authorized: None = Depends(_require_model_governance_token)) -> dict[str, object]:
     try:
-        event = _model_registry().activate(model_id, changed_by=request.changed_by, note=request.note, action="rollback")
+        registry = _scoped_model_registry(model_id, "model rollback")
+        event = registry.activate(model_id, changed_by=request.changed_by, note=request.note, action="rollback")
         return {**event, "executable": False}
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -583,6 +583,35 @@ def test_model_approval_route_reaches_registry_with_local_governance_token(monke
     assert response.status_code == 404
 
 
+def test_domestic_scope_blocks_out_of_scope_model_governance_mutations(monkeypatch) -> None:
+    monkeypatch.setenv("MARKET_OPERATIONAL_SCOPE", "KR")
+    monkeypatch.setenv("MODEL_GOVERNANCE_TOKEN", "g" * 40)
+
+    class OutOfScopeRegistry:
+        def manifest(self, _model_id):
+            return {"market": "US"}
+
+        def approve(self, *_args, **_kwargs):
+            raise AssertionError("out-of-scope model approval must be blocked before mutation")
+
+        def activate(self, *_args, **_kwargs):
+            raise AssertionError("out-of-scope model activation or rollback must be blocked before mutation")
+
+    monkeypatch.setattr(main, "_model_registry", OutOfScopeRegistry)
+    headers = {"X-Model-Governance-Token": "g" * 40}
+    model_id = "lightgbm-" + "a" * 32
+    approval = {"approved_by": "local-operator", "note": "Reviewed this model for advisory scope only."}
+    change = {"changed_by": "local-operator", "note": "Reviewed this model for advisory scope only."}
+
+    responses = [
+        client.post(f"/api/v1/ai/models/{model_id}/approve", headers=headers, json=approval),
+        client.post(f"/api/v1/ai/models/{model_id}/activate", headers=headers, json=change),
+        client.post(f"/api/v1/ai/models/{model_id}/rollback", headers=headers, json=change),
+    ]
+
+    assert [response.status_code for response in responses] == [423, 423, 423]
+
+
 def test_live_mode_never_enables_python_paper_automation(monkeypatch) -> None:
     monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "true")
     monkeypatch.setenv("TRADING_MODE", "live")

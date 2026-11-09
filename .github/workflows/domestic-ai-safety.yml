@@ -86,6 +86,11 @@ jobs:
         env:
           MARKET_OPERATIONAL_SCOPE: KR
         run: python -m pytest -q tests/test_api.py::test_domestic_scope_rejects_non_domestic_websocket_before_kis_approval_key
+      - name: Verify domestic scope blocks out-of-scope model governance changes
+        working-directory: services/market-ai
+        env:
+          MARKET_OPERATIONAL_SCOPE: KR
+        run: python -m pytest -q tests/test_api.py::test_domestic_scope_blocks_out_of_scope_model_governance_mutations
       - name: Verify PAPER monitor obeys domestic market scope
         working-directory: services/market-ai
         env:

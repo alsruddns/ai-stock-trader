@@ -66,6 +66,8 @@ Next.js `GET /api/operations`는 이 endpoint를 KR·US 각각 조회해 `market
 
 모델 `approve`, `activate`, `rollback` 변경 요청은 `.env`에 설정한 `MODEL_GOVERNANCE_TOKEN`을 `X-Model-Governance-Token` 헤더로 전달해야 합니다. 토큰 미설정 시 `503`, 불일치 시 `403`을 반환합니다. 토큰은 응답과 감사 기록에 저장되지 않습니다.
 
+모델 승인·활성화·롤백은 manifest의 시장을 확인해 `MARKET_OPERATIONAL_SCOPE` 밖이면 `423`으로 거부합니다. 국내 전용 운영 중에는 해외 모델 거버넌스 변경을 수행할 수 없습니다.
+
 DB 접근 또는 트랜잭션 커밋 실패는 HTTP `503`과 일반 오류 메시지를 반환합니다. 응답에는 DB 드라이버 세부 내용이나 비밀값을 포함하지 않습니다. 클라이언트는 주문 완료로 간주하지 말고 idempotency key로 결과를 조회해야 합니다.
 
 PAPER 장부 주문 정정은 동일 주문의 `Idempotency-Key`별로 한 번만 적용됩니다. 주문이 `PENDING` 또는 `PARTIALLY_FILLED`이고 새 수량이 기존 체결량보다 많으며 변경 후 주문금액이 시장별 한도 이하여야 합니다. 이전/변경 수량·가격은 `paper_order_amendment`에 보존됩니다. 이 API는 KIS 주문을 전송하지 않습니다.
