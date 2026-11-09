@@ -124,6 +124,40 @@ function Assert-ExchangeSessionQuality($Quality, [string]$Market, [string]$Sessi
     return @($verified)
 }
 
+function Get-SessionQualityDiagnostics($Quality) {
+    $reports = if ($Quality) { @($Quality.sessions) } else { @() }
+    $diagnostics = foreach ($row in $reports) {
+        $sourceCounts = [ordered]@{}
+        if ($row.source_counts) {
+            foreach ($property in $row.source_counts.PSObject.Properties) {
+                $count = 0
+                if ($property.Name -match '^KIS_[A-Z0-9_]+$' -and
+                    [int]::TryParse([string]$property.Value, [ref]$count) -and $count -ge 0) {
+                    $sourceCounts[$property.Name] = $count
+                }
+            }
+        }
+        [ordered]@{
+            market = [string]$row.market
+            session_date = [string]$row.session_date
+            symbol = ([string]$row.symbol).Trim().ToUpperInvariant()
+            status = [string]$row.status
+            full_session_complete = [bool]$row.full_session_complete
+            expected_bars = $row.expected_bars
+            observed_bars = $row.observed_bars
+            completed_minutes = $row.completed_minutes
+            observed_completed_bars = $row.observed_completed_bars
+            missing_bars = $row.missing_bars
+            off_grid_bars = $row.off_grid_bars
+            duplicate_bars = $row.duplicate_bars
+            spread_bars = $row.spread_bars
+            spread_coverage_percent = $row.spread_coverage_percent
+            source_counts = $sourceCounts
+        }
+    }
+    return @($diagnostics)
+}
+
 function Get-ExchangeSessionBarsDelta([int]$CurrentBars, [int]$InitialBars, $SessionOpenBarsBaseline) {
     $baseline = if ($null -ne $SessionOpenBarsBaseline) { [int]$SessionOpenBarsBaseline } else { $InitialBars }
     if ($CurrentBars -lt $baseline) {

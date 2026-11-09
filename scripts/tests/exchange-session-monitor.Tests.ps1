@@ -116,6 +116,27 @@ Describe 'Exchange session monitor calendar boundaries' {
         $verified[0].source_counts.KIS_REAL_US_WEBSOCKET | Should Be 390
     }
 
+    It 'returns only sanitized completeness, spread, and KIS source counts for failed sessions' {
+        $quality = @{ market='KR'; session_date='2026-11-09'; sessions=@(@{
+            market='KR'; symbol='005930'; session_date='2026-11-09'; status='COMPLETE'
+            full_session_complete=$true; expected_bars=380; completed_minutes=380
+            observed_bars=380; observed_completed_bars=380; missing_bars=0
+            off_grid_bars=0; duplicate_bars=0; spread_bars=52; spread_coverage_percent=13.68
+            source_counts=[pscustomobject]@{ KIS_PAPER_WEBSOCKET = 52; KIS_REST_MINUTE_SESSION = 328; PRIVATE_SOURCE = 5 }
+            close='private-price'; account_number='private-account'; raw='private-payload'
+        }) }
+
+        $diagnostics = @(Get-SessionQualityDiagnostics $quality)
+        $json = $diagnostics | ConvertTo-Json -Compress -Depth 5
+
+        $diagnostics.Count | Should Be 1
+        $diagnostics[0].spread_bars | Should Be 52
+        $diagnostics[0].spread_coverage_percent | Should Be 13.68
+        $diagnostics[0].source_counts.KIS_PAPER_WEBSOCKET | Should Be 52
+        $diagnostics[0].source_counts.KIS_REST_MINUTE_SESSION | Should Be 328
+        $json | Should Not Match 'private-price|private-account|private-payload|PRIVATE_SOURCE'
+    }
+
     It 'rejects a complete row whose identity does not match the requested session' {
         $quality = @{
             market='US'; session_date='2026-11-06'; sessions=@(@{
