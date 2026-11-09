@@ -1,6 +1,26 @@
 . (Join-Path $PSScriptRoot '..\lib\model-retraining-report.ps1')
 
 Describe 'Model retraining failure reports' {
+    It 'records missing cost configuration as a sanitized preflight failure' {
+        $directory = Join-Path $TestDrive 'configuration-failure'
+        New-Item -ItemType Directory -Path $directory | Out-Null
+        $path = Join-Path $directory 'run.json'
+
+        Write-AiTraderModelRetrainingFailureReport -Path $path -RunId 'us-aapl-20261109-aaaaaaaaaaaa' `
+            -FailureStage 'configuration' -Market 'US' -Symbol 'AAPL' `
+            -FromDate '2026-11-09' -ToDate '2026-11-27' -DatasetPath 'data/model-candidates/test.csv' `
+            -FailureCode 'market_cost_assumptions_missing_or_invalid' `
+            -Exception ([System.InvalidOperationException]::new('secret-bearing .env_local value'))
+
+        $json = Get-Content -LiteralPath $path -Raw
+        $report = $json | ConvertFrom-Json
+        $report.status | Should Be 'configuration_failed'
+        $report.failure_stage | Should Be 'configuration'
+        $report.failure_code | Should Be 'market_cost_assumptions_missing_or_invalid'
+        $report.candidate_models_created | Should Be $false
+        $json | Should Not Match 'secret-bearing|\.env_local value'
+    }
+
     It 'writes export failures without storing exception text' {
         $directory = Join-Path $TestDrive 'export-failure'
         New-Item -ItemType Directory -Path $directory | Out-Null
@@ -85,6 +105,23 @@ Describe 'Model retraining failure reports' {
 }
 
 Describe 'Model retraining operations summary' {
+    It 'exposes configuration failure without including local configuration values' {
+        $directory = Join-Path $TestDrive 'configuration-summary'
+        New-Item -ItemType Directory -Path $directory | Out-Null
+        $path = Join-Path $directory 'latest.json'
+        Write-AiTraderModelRetrainingFailureReport -Path $path -RunId 'us-aapl-20261109-aaaaaaaaaaaa' `
+            -FailureStage 'configuration' -Market 'US' -Symbol 'AAPL' `
+            -FromDate '2026-11-09' -ToDate '2026-11-27' -DatasetPath 'data/model-candidates/test.csv' `
+            -FailureCode 'market_cost_assumptions_missing_or_invalid'
+
+        $summary = Get-AiTraderModelRetrainingSummary -Directory $directory
+        $summary.state | Should Be 'AVAILABLE'
+        $summary.latestRun.status | Should Be 'configuration_failed'
+        $summary.latestRun.failureStage | Should Be 'configuration'
+        $summary.latestRun.failureCode | Should Be 'market_cost_assumptions_missing_or_invalid'
+        $summary.latestRun.candidateModelCount | Should Be 0
+    }
+
     It 'reports no prior runs without treating it as a failed run' {
         $directory = Join-Path $TestDrive 'no-retraining-runs'
 

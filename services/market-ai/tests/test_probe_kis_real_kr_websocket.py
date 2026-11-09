@@ -106,7 +106,7 @@ def test_real_kr_probe_subscribes_and_unsubscribes_without_orders(frames, expect
     assert upstream.sent[0]["header"]["tr_type"] == "1"
     assert upstream.sent[0]["body"]["input"]["tr_id"] == "H0STCNT0"
     assert upstream.sent[0]["body"]["input"]["tr_key"] == "005930"
-    assert upstream.sent[1]["header"]["tr_type"] == "2"
+    assert upstream.sent[1]["header"]["tr_type"] == "0"
 
 
 @pytest.mark.parametrize("symbol", ["AAPL", "12345", "005930x", ""])

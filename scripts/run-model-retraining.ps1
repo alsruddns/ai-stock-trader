@@ -34,41 +34,6 @@ if ([string]::IsNullOrWhiteSpace($PythonPath)) {
 . (Join-Path $PSScriptRoot 'lib\model-retraining-report.ps1')
 $localSettings = Read-AiTraderLocalSafetySettings -RepositoryRoot $repoRoot
 Assert-AiTraderPaperSafetyLocks -Settings $localSettings
-$providedCostParameters = $PSBoundParameters
-
-$envSettings = @{}
-foreach ($line in Get-Content -LiteralPath (Join-Path $repoRoot '.env_local')) {
-    if ($line -match '^\s*([^#=]+)=(.*)$') {
-        $envSettings[$matches[1].Trim()] = $matches[2].Trim().Trim('"').Trim("'")
-    }
-}
-function Resolve-CostAssumption([string]$ParameterName, [string]$EnvironmentName, [decimal]$Value) {
-    $maximum = if ($ParameterName -eq 'RoundTripCostBps') { 40000 } else { 10000 }
-    if ($providedCostParameters.ContainsKey($ParameterName)) {
-        if ($Value -lt 0 -or $Value -gt $maximum) { throw "Cost assumption '$ParameterName' is out of range." }
-        return $Value
-    }
-    $raw = $envSettings[$EnvironmentName]
-    $parsed = [decimal]0
-    if ([string]::IsNullOrWhiteSpace($raw) -or
-        -not [decimal]::TryParse($raw, [Globalization.NumberStyles]::Number,
-            [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed) -or $parsed -lt 0 -or $parsed -gt $maximum) {
-        throw "Required market backtest cost assumption '$EnvironmentName' is missing or invalid."
-    }
-    return $parsed
-}
-$marketCostPrefix = "BACKTEST_$Market"
-$BuyCommissionBps = Resolve-CostAssumption 'BuyCommissionBps' "${marketCostPrefix}_BUY_COMMISSION_BPS" $BuyCommissionBps
-$SellCommissionBps = Resolve-CostAssumption 'SellCommissionBps' "${marketCostPrefix}_SELL_COMMISSION_BPS" $SellCommissionBps
-$SellTaxBps = Resolve-CostAssumption 'SellTaxBps' "${marketCostPrefix}_SELL_TAX_BPS" $SellTaxBps
-$SlippageBps = Resolve-CostAssumption 'SlippageBps' "${marketCostPrefix}_SLIPPAGE_BPS" $SlippageBps
-$RoundTripCostBps = Resolve-CostAssumption 'RoundTripCostBps' "${marketCostPrefix}_ROUND_TRIP_COST_BPS" $RoundTripCostBps
-if ($BuyCommissionBps + $SellCommissionBps + $SellTaxBps + 2 * $SlippageBps -le 0 -or
-    $BuyCommissionBps -gt 10000 -or $SellCommissionBps -gt 10000 -or $SellTaxBps -gt 10000 -or
-    $SlippageBps -gt 10000 -or
-    $RoundTripCostBps -lt ($BuyCommissionBps + $SellCommissionBps + $SellTaxBps + 2 * $SlippageBps)) {
-    throw 'Market backtest cost assumptions are invalid or the label round-trip cost is too low.'
-}
 
 $symbolValue = $Symbol.Trim().ToUpperInvariant()
 if ($Market -eq 'KR' -and $symbolValue -notmatch '^\d{6}$') {
@@ -93,13 +58,69 @@ $csvPath = Join-Path $dataDirectory "$runId.csv"
 $reportPath = Join-Path $reportDirectory "$runId.json"
 $exportRelativePath = "data/model-candidates/$runId.csv"
 $modelDirectory = Join-Path $repoRoot '.local\models'
-$existingManifestNames = @()
-$existingArtifactNames = @()
-$stage = 'data_export'
+
+$providedCostParameters = $PSBoundParameters
+$envSettings = @{}
+function Resolve-CostAssumption([string]$ParameterName, [string]$EnvironmentName, [decimal]$Value) {
+    $maximum = if ($ParameterName -eq 'RoundTripCostBps') { 40000 } else { 10000 }
+    if ($providedCostParameters.ContainsKey($ParameterName)) {
+        if ($Value -lt 0 -or $Value -gt $maximum) { throw "Cost assumption '$ParameterName' is out of range." }
+        return $Value
+    }
+    $raw = $envSettings[$EnvironmentName]
+    $parsed = [decimal]0
+    if ([string]::IsNullOrWhiteSpace($raw) -or
+        -not [decimal]::TryParse($raw, [Globalization.NumberStyles]::Number,
+            [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed) -or $parsed -lt 0 -or $parsed -gt $maximum) {
+        throw "Required market backtest cost assumption '$EnvironmentName' is missing or invalid."
+    }
+    return $parsed
+}
+$stage = 'configuration'
 $stageExitCode = $null
 $datasetSha256 = $null
 $candidateModelIds = @()
 $orphanCandidateArtifacts = @()
+try {
+    $envFile = Join-Path $repoRoot '.env_local'
+    if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
+        throw 'The ignored .env_local file is required.'
+    }
+    foreach ($line in Get-Content -LiteralPath $envFile) {
+        if ($line -match '^\s*([^#=]+)=(.*)$') {
+            $envSettings[$matches[1].Trim()] = $matches[2].Trim().Trim('"').Trim("'")
+        }
+    }
+    $marketCostPrefix = "BACKTEST_$Market"
+    $BuyCommissionBps = Resolve-CostAssumption 'BuyCommissionBps' "${marketCostPrefix}_BUY_COMMISSION_BPS" $BuyCommissionBps
+    $SellCommissionBps = Resolve-CostAssumption 'SellCommissionBps' "${marketCostPrefix}_SELL_COMMISSION_BPS" $SellCommissionBps
+    $SellTaxBps = Resolve-CostAssumption 'SellTaxBps' "${marketCostPrefix}_SELL_TAX_BPS" $SellTaxBps
+    $SlippageBps = Resolve-CostAssumption 'SlippageBps' "${marketCostPrefix}_SLIPPAGE_BPS" $SlippageBps
+    $RoundTripCostBps = Resolve-CostAssumption 'RoundTripCostBps' "${marketCostPrefix}_ROUND_TRIP_COST_BPS" $RoundTripCostBps
+    if ($BuyCommissionBps + $SellCommissionBps + $SellTaxBps + 2 * $SlippageBps -le 0 -or
+        $BuyCommissionBps -gt 10000 -or $SellCommissionBps -gt 10000 -or $SellTaxBps -gt 10000 -or
+        $SlippageBps -gt 10000 -or
+        $RoundTripCostBps -lt ($BuyCommissionBps + $SellCommissionBps + $SellTaxBps + 2 * $SlippageBps)) {
+        throw 'Market backtest cost assumptions are invalid or the label round-trip cost is too low.'
+    }
+} catch {
+    $failureCode = if ($_.Exception.Message -match "\.env_local file is required") {
+        'local_configuration_missing'
+    } elseif ($_.Exception.Message -match 'missing or invalid') {
+        'market_cost_assumptions_missing_or_invalid'
+    } else {
+        'market_cost_assumptions_inconsistent'
+    }
+    Write-AiTraderModelRetrainingFailureReport -Path $reportPath -RunId $runId `
+        -FailureStage 'configuration' -Market $Market -Symbol $symbolValue `
+        -FromDate $FromDate.ToString('yyyy-MM-dd') -ToDate $ToDate.ToString('yyyy-MM-dd') `
+        -DatasetPath $exportRelativePath -FailureCode $failureCode
+    throw "Model retraining stopped during configuration; a sanitized report is available at $reportPath."
+}
+
+$existingManifestNames = @()
+$existingArtifactNames = @()
+$stage = 'data_export'
 $exportArgs = @(
     (Join-Path $repoRoot 'scripts\export-market-data.py'),
     '--market', $Market,

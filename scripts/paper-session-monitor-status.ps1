@@ -4,6 +4,37 @@ function Assert-MonitorSafetyLocks($Status) {
     }
 }
 
+function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
+    $feedNames = if ($SelectedFeed) { @($SelectedFeed.ToLowerInvariant()) } else { @('paper', 'real') }
+    $result = [ordered]@{}
+    $framesProperty = if ($Status) { $Status.PSObject.Properties['frames_received_by_feed'] } else { $null }
+    $transactionsProperty = if ($Status) { $Status.PSObject.Properties['frame_transaction_counts_by_feed'] } else { $null }
+    foreach ($feed in $feedNames) {
+        $frameValue = if ($framesProperty) { $framesProperty.Value.PSObject.Properties[$feed] } else { $null }
+        $transactionValue = if ($transactionsProperty) { $transactionsProperty.Value.PSObject.Properties[$feed] } else { $null }
+        $frameCount = 0L
+        $valid = $null -ne $frameValue -and $null -ne $transactionValue -and
+            [long]::TryParse([string]$frameValue.Value, [ref]$frameCount) -and $frameCount -ge 0
+        $transactionCounts = [ordered]@{}
+        foreach ($transactionId in @('H0STCNT0', 'H0STASP0', 'HDFSCNT0', 'OTHER')) {
+            $countProperty = if ($transactionValue) { $transactionValue.Value.PSObject.Properties[$transactionId] } else { $null }
+            $count = 0L
+            if ($null -eq $countProperty -or
+                -not [long]::TryParse([string]$countProperty.Value, [ref]$count) -or $count -lt 0) {
+                $valid = $false
+            } else {
+                $transactionCounts[$transactionId] = $count
+            }
+        }
+        $result[$feed] = [ordered]@{
+            available = [bool]$valid
+            frames_received = if ($valid) { $frameCount } else { $null }
+            transaction_counts = if ($valid) { $transactionCounts } else { $null }
+        }
+    }
+    return $result
+}
+
 function Test-MonitorFeedReady($Status, [string]$SelectedFeed, [bool]$BothFeeds) {
     $connections = $Status.stream_connections
     if ($BothFeeds) {

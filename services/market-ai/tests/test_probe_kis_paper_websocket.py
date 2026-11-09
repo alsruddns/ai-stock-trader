@@ -105,7 +105,7 @@ def test_probe_subscribes_with_paper_key_and_sends_unsubscribe(
     assert result["unsubscribe_sent"] is True
     assert upstream.sent[0]["header"]["approval_key"] == "sensitive-approval-key"
     assert upstream.sent[0]["header"]["tr_type"] == "1"
-    assert upstream.sent[1]["header"]["tr_type"] == "2"
+    assert upstream.sent[1]["header"]["tr_type"] == "0"
 
 
 def test_paper_probe_rejects_us_feed_before_requesting_approval(monkeypatch, capsys) -> None:

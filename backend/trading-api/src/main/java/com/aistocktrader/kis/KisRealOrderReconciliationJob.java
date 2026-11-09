@@ -13,7 +13,8 @@ import java.util.List;
 public class KisRealOrderReconciliationJob {
     private static final Logger log = LoggerFactory.getLogger(KisRealOrderReconciliationJob.class);
     private static final List<KisOrderStatus> POLLABLE_STATUSES =
-            List.of(KisOrderStatus.ACCEPTED, KisOrderStatus.PARTIALLY_FILLED, KisOrderStatus.CANCEL_PENDING);
+            List.of(KisOrderStatus.ACCEPTED, KisOrderStatus.PARTIALLY_FILLED,
+                    KisOrderStatus.CANCEL_PENDING, KisOrderStatus.UNKNOWN);
 
     private final boolean enabled;
     private final KisProperties properties;

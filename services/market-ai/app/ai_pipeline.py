@@ -388,7 +388,7 @@ class LocalModelRegistry:
         if normalized_market not in _MARKETS or not normalized_symbol or not holdout_sessions:
             raise ValueError("market, symbol, and independent holdout sessions are required")
         holdout_start = min(holdout_sessions)
-        eligible: list[tuple[float, str, int]] = []
+        eligible: list[tuple[float, str, int, str, str]] = []
         with self._governance_lock:
             for item in self.list_models():
                 if (item.get("integrity_error") or item.get("approved")
@@ -426,20 +426,40 @@ class LocalModelRegistry:
                     if (isinstance(brier, bool) or not isinstance(brier, (int, float))
                             or not math.isfinite(float(brier)) or not 0 <= float(brier) <= 1):
                         continue
-                    eligible.append((float(brier), model_id, len(validation_sessions)))
+                    cohort = json.dumps({
+                        "dataset_sha256": metadata.get("dataset_sha256"),
+                        "training_config": metadata.get("training_config"),
+                        "train_sessions": sorted(value.isoformat() for value in train_sessions),
+                        "validation_sessions": sorted(value.isoformat() for value in validation_sessions),
+                        "test_sessions": sorted(value.isoformat() for value in prior_test_sessions),
+                    }, sort_keys=True, separators=(",", ":"))
+                    cohort_sha256 = hashlib.sha256(cohort.encode("utf-8")).hexdigest()
+                    latest_training_session = max(prior_test_sessions).isoformat()
+                    eligible.append((float(brier), model_id, len(validation_sessions),
+                                     latest_training_session, cohort_sha256))
                 except (FileNotFoundError, OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
                     continue
         if not eligible:
             raise ValueError(
                 "no unapproved candidate has three distinct prior validation sessions and a valid Brier score"
             )
-        brier, model_id, validation_session_count = min(eligible, key=lambda value: (value[0], value[1]))
+        latest_training_session = max(value[3] for value in eligible)
+        latest_candidates = [value for value in eligible if value[3] == latest_training_session]
+        latest_cohorts = {value[4] for value in latest_candidates}
+        if len(latest_cohorts) != 1:
+            raise ValueError(
+                "multiple candidate training cohorts share the latest test session; refusing incomparable selection"
+            )
+        comparable_candidates = [value for value in latest_candidates if value[4] in latest_cohorts]
+        brier, model_id, validation_session_count, _, _ = min(
+            comparable_candidates, key=lambda value: (value[0], value[1])
+        )
         return {
             "model_id": model_id,
             "selection_method": "lowest_validation_brier",
             "validation_brier": brier,
             "validation_session_count": validation_session_count,
-            "eligible_candidate_count": len(eligible),
+            "eligible_candidate_count": len(comparable_candidates),
         }
 
     def active_approved_model(self, market: str, symbol: str) -> dict[str, Any] | None:

@@ -197,6 +197,31 @@ if (Test-PaperFrameDiagnosticsReady $missingTransactionId) {
     throw 'Missing transaction counters must block declaring diagnostics ready.'
 }
 
+. (Join-Path $PSScriptRoot 'paper-session-monitor-status.ps1')
+$diagnosticSession.frame_transaction_counts_by_feed.paper = [pscustomobject]@{
+    H0STCNT0 = 0; H0STASP0 = 0; HDFSCNT0 = 0; OTHER = 0
+}
+$monitorDiagnostics = Get-MonitorFeedDiagnostics $diagnosticSession 'paper'
+if (-not $monitorDiagnostics.paper.available -or $monitorDiagnostics.paper.frames_received -ne 0 -or
+    $monitorDiagnostics.paper.transaction_counts.H0STCNT0 -ne 0) {
+    throw 'The WebSocket monitor should record selected-feed frame and transaction counters.'
+}
+$bothMonitorDiagnostics = Get-MonitorFeedDiagnostics $diagnosticSession ''
+if (-not $bothMonitorDiagnostics.paper.available -or -not $bothMonitorDiagnostics.real.available) {
+    throw 'The WebSocket monitor should record diagnostics for both feeds when no feed is selected.'
+}
+$staleMonitorDiagnostics = Get-MonitorFeedDiagnostics ([pscustomobject]@{}) 'paper'
+if ($staleMonitorDiagnostics.paper.available -or $null -ne $staleMonitorDiagnostics.paper.frames_received) {
+    throw 'A stale runtime without frame counters must be reported as unavailable, not zero.'
+}
+$invalidMonitorDiagnostics = [pscustomobject]@{
+    frames_received_by_feed = [pscustomobject]@{ paper = -1; real = 0 }
+    frame_transaction_counts_by_feed = $diagnosticSession.frame_transaction_counts_by_feed
+}
+if ((Get-MonitorFeedDiagnostics $invalidMonitorDiagnostics 'paper').paper.available) {
+    throw 'Negative WebSocket diagnostic counters must be rejected.'
+}
+
 $now = [DateTimeOffset]::UtcNow
 $closedSessions = @(
     [pscustomobject]@{ market = 'KR'; is_open = $false; evaluated_at = $now.ToString('o') }
