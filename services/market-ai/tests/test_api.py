@@ -209,6 +209,39 @@ def test_latest_closed_session_endpoint_returns_last_verified_exchange_session(m
     assert datetime.fromisoformat(body["evaluated_at"]).tzinfo is not None
 
 
+def test_domestic_latest_closed_session_endpoint_returns_last_verified_session(monkeypatch) -> None:
+    from datetime import timedelta
+
+    session_day = date(2026, 11, 9)
+    opened = datetime(2026, 11, 9, 0, 0, tzinfo=timezone.utc)
+    closed = opened + timedelta(hours=6, minutes=30)
+    observed = {}
+    monkeypatch.setattr(main, "latest_closed_session_date", lambda market, now: session_day)
+
+    def session_window(market, at):
+        observed["market"] = market
+        observed["date"] = at.date().isoformat()
+        return opened, closed
+
+    monkeypatch.setattr(main, "exchange_session_window", session_window)
+    continuous = (opened, closed - timedelta(minutes=10))
+    monkeypatch.setattr(main, "exchange_continuous_session_window", lambda _market, _at: continuous)
+    response = client.get("/api/v1/market/sessions/KR/latest-closed")
+
+    assert response.status_code == 200
+    assert observed == {"market": "KR", "date": session_day.isoformat()}
+    body = response.json()
+    assert body["market"] == "KR"
+    assert body["session_date"] == session_day.isoformat()
+    assert body["is_session"] is True
+    assert body["is_open"] is False
+    assert body["open_at"] == opened.isoformat()
+    assert body["close_at"] == closed.isoformat()
+    assert body["continuous_open_at"] == continuous[0].isoformat()
+    assert body["continuous_close_at"] == continuous[1].isoformat()
+    assert datetime.fromisoformat(body["evaluated_at"]).tzinfo is not None
+
+
 def test_latest_closed_session_endpoint_fails_closed_without_verified_session(monkeypatch) -> None:
     def unavailable(_market, _now):
         raise RuntimeError("calendar unavailable")
