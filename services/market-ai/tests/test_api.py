@@ -23,6 +23,29 @@ def test_health_discloses_read_only_mode() -> None:
     assert response.json()["paper_session_monitor"] == "DISABLED"
 
 
+def test_domestic_scope_rejects_non_domestic_websocket_before_kis_approval_key(monkeypatch) -> None:
+    class StreamSettings:
+        enabled = True
+
+        class kis:
+            app_key = "test-key"
+            app_secret = "test-secret"
+
+    monkeypatch.setenv("MARKET_OPERATIONAL_SCOPE", "KR")
+    monkeypatch.setattr(main.kis_stream.StreamSettings, "from_environment", lambda: StreamSettings())
+    monkeypatch.setattr(
+        main.kis_stream, "approval_key",
+        lambda _settings: pytest.fail("out-of-scope subscription must not request a KIS approval key"),
+    )
+
+    with client.websocket_connect("/api/v1/market/stream") as websocket:
+        websocket.send_json({"market": "US", "symbol": "AAPL", "exchange": "NAS"})
+        response = websocket.receive_json()
+
+    assert response["kind"] == "error"
+    assert "disabled for US" in response["message"]
+
+
 def test_health_lists_missing_cost_assumption_names_without_values(monkeypatch) -> None:
     names = [
         f"BACKTEST_{market}_{suffix}"

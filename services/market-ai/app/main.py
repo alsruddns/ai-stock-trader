@@ -924,6 +924,7 @@ async def stream_market_data(websocket: WebSocket) -> None:
         exchange = request.get("exchange")
         if not isinstance(symbol, str) or not isinstance(market, str) or (exchange is not None and not isinstance(exchange, str)):
             raise ValueError("market, symbol, and optional exchange must be strings")
+        require_operational_market(market, "KIS WebSocket market-data subscription")
         message = kis_stream.subscription_message("pending", market, symbol, exchange)
         key = await asyncio.to_thread(kis_stream.approval_key, settings.kis)
         message["header"]["approval_key"] = key
@@ -945,6 +946,9 @@ async def stream_market_data(websocket: WebSocket) -> None:
     except ValueError as exc:
         await websocket.send_json({"kind": "error", "message": str(exc)})
         await websocket.close(code=4400)
+    except HTTPException as exc:
+        await websocket.send_json({"kind": "error", "message": str(exc.detail)})
+        await websocket.close(code=4423)
     except Exception:
         # Upstream protocol details and credential-bearing data are intentionally not returned.
         try:
