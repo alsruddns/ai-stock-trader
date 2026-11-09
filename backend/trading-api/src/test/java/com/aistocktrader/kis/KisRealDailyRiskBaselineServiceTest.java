@@ -19,9 +19,27 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import org.mockito.ArgumentCaptor;
 
 class KisRealDailyRiskBaselineServiceTest {
+    @Test
+    void domesticOnlyScopeSkipsOutOfScopeScheduledBaselineBeforeExternalAccess() {
+        KisMarketSessionClient sessions = mock(KisMarketSessionClient.class);
+        KisAccountClient accounts = mock(KisAccountClient.class);
+        KisRealDailyRiskBaselineStore baselines = mock(KisRealDailyRiskBaselineStore.class);
+        KisRealSessionPositionBaselineStore positionBaselines = mock(KisRealSessionPositionBaselineStore.class);
+        KisProperties properties = new KisProperties(true, true, true, false,
+                new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
+                new KisProperties.Account("real-key", "test-secret", "8765432101"), null, null, null);
+        KisRealDailyRiskBaselineService service = new KisRealDailyRiskBaselineService(properties,
+                MarketOperationalScope.domesticOnly(), accounts, sessions, baselines, positionBaselines);
+
+        service.captureUsSessionPositionBaseline();
+
+        verifyNoInteractions(sessions, accounts, baselines, positionBaselines);
+    }
+
     @Test
     void computesNonnegativeLossFromFreshKisEquityAndImmutableSessionBaseline() {
         KisMarketSessionClient sessions = mock(KisMarketSessionClient.class);
@@ -126,7 +144,8 @@ class KisRealDailyRiskBaselineServiceTest {
         KisProperties properties = new KisProperties(true, true, true, false,
                 new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
                 new KisProperties.Account("real-key", "test-secret", "8765432101"), null, null, null);
-        KisRealDailyRiskBaselineService service = new KisRealDailyRiskBaselineService(properties, accounts,
+        KisRealDailyRiskBaselineService service = new KisRealDailyRiskBaselineService(properties,
+                new MarketOperationalScope("KR,US"), accounts,
                 sessions, baselines, positionBaselines);
 
         service.captureUsSessionPositionBaseline();
@@ -148,6 +167,7 @@ class KisRealDailyRiskBaselineServiceTest {
                 new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
                 new KisProperties.Account("real-key", "test-secret", "8765432101"), null, null, null);
         KisRealDailyRiskBaselineService service = new KisRealDailyRiskBaselineService(properties,
+                new MarketOperationalScope("KR,US"),
                 mock(KisAccountClient.class), sessions, baselines, positionBaselines);
 
         service.captureUsSessionPositionBaseline();
@@ -162,7 +182,8 @@ class KisRealDailyRiskBaselineServiceTest {
                 new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
                 new KisProperties.Account("real-key", "test-secret", "8765432101"),
                 null, null, null);
-        return new KisRealDailyRiskBaselineService(properties, mock(KisAccountClient.class), sessions, store,
+        return new KisRealDailyRiskBaselineService(properties, MarketOperationalScope.domesticOnly(),
+                mock(KisAccountClient.class), sessions, store,
                 mock(KisRealSessionPositionBaselineStore.class));
     }
 

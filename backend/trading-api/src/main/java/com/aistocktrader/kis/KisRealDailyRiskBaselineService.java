@@ -25,17 +25,20 @@ public class KisRealDailyRiskBaselineService {
     private static final Duration MAX_SESSION_EVIDENCE_AGE = Duration.ofSeconds(15);
     private static final Duration MAX_ACCOUNT_SNAPSHOT_AGE = Duration.ofSeconds(5);
     private final KisProperties properties;
+    private final MarketOperationalScope operationalScope;
     private final KisAccountClient accounts;
     private final KisMarketSessionClient sessions;
     private final KisRealDailyRiskBaselineStore baselines;
     private final KisRealSessionPositionBaselineStore positionBaselines;
 
     @Autowired
-    public KisRealDailyRiskBaselineService(KisProperties properties, KisAccountClient accounts,
+    public KisRealDailyRiskBaselineService(KisProperties properties, MarketOperationalScope operationalScope,
+                                           KisAccountClient accounts,
                                            KisMarketSessionClient sessions,
                                            KisRealDailyRiskBaselineStore baselines,
                                            KisRealSessionPositionBaselineStore positionBaselines) {
         this.properties = properties;
+        this.operationalScope = operationalScope;
         this.accounts = accounts;
         this.sessions = sessions;
         this.baselines = baselines;
@@ -72,7 +75,8 @@ public class KisRealDailyRiskBaselineService {
     /** Captures the KIS-reported opening inventory for US sessions; this is read-only and immutable per session. */
     @Scheduled(fixedDelayString = "${kis.real-risk-baseline-poll-ms:30000}")
     public void captureUsSessionPositionBaseline() {
-        if (!properties.accountReadEnabled() || !properties.realAccountReadEnabled()
+        if (!operationalScope.allowedMarkets().contains(Market.US)
+                || !properties.accountReadEnabled() || !properties.realAccountReadEnabled()
                 || !properties.credentials(KisEnvironment.REAL).configured()) return;
         try {
             KisMarketSessionClient.MarketSession session = sessions.session(Market.US);
