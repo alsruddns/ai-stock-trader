@@ -6,10 +6,12 @@ on:
     paths:
       - 'scripts/lib/exchange-session-monitor.ps1'
       - 'scripts/lib/market-session-scheduler.ps1'
+      - 'scripts/paper-session-monitor-status.ps1'
       - 'scripts/test-paper-websocket-monitor.ps1'
       - 'scripts/lib/safe-http-diagnostic.ps1'
       - 'scripts/test-paper-kis-python.ps1'
       - 'scripts/tests/exchange-session-monitor.Tests.ps1'
+      - 'scripts/tests/paper-session-monitor-status.Tests.ps1'
       - 'scripts/tests/krx-session-monitor-domestic.Tests.ps1'
       - 'scripts/tests/local-stack-restart-domestic.Tests.ps1'
       - 'scripts/tests/safe-http-diagnostic.Tests.ps1'
@@ -41,9 +43,10 @@ jobs:
           foreach ($path in @(
             'scripts/lib/exchange-session-monitor.ps1',
             'scripts/lib/market-session-scheduler.ps1',
+            'scripts/paper-session-monitor-status.ps1',
             'scripts/test-paper-websocket-monitor.ps1',
             'scripts/lib/safe-http-diagnostic.ps1',
-            'scripts/test-paper-kis-python.ps1'
+            'scripts/test-paper-kis-python.ps1',
             'scripts/restart-local-stack-task.ps1'
           )) {
             $tokens = $null
@@ -55,6 +58,16 @@ jobs:
           $result = Invoke-Pester -Path 'scripts/tests/krx-session-monitor-domestic.Tests.ps1' -PassThru
           if ($result.FailedCount -gt 0 -or $result.PassedCount -ne 4) {
             throw "Domestic KRX session monitor tests failed: passed=$($result.PassedCount), failed=$($result.FailedCount)."
+          }
+
+          $continuityResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -TestName 'Domestic full-session feed continuity gate' -PassThru
+          if ($continuityResult.FailedCount -gt 0 -or $continuityResult.PassedCount -ne 1) {
+            throw "Domestic full-session continuity test failed: passed=$($continuityResult.PassedCount), failed=$($continuityResult.FailedCount)."
+          }
+
+          $reconnectResult = Invoke-Pester -Path 'scripts/tests/paper-session-monitor-status.Tests.ps1' -TestName 'Domestic PAPER monitor reconnect tolerance' -PassThru
+          if ($reconnectResult.FailedCount -gt 0 -or $reconnectResult.PassedCount -ne 2) {
+            throw "Domestic PAPER reconnect tolerance tests failed: passed=$($reconnectResult.PassedCount), failed=$($reconnectResult.FailedCount)."
           }
 
           $restartResult = Invoke-Pester -Path 'scripts/tests/local-stack-restart-domestic.Tests.ps1' -PassThru
