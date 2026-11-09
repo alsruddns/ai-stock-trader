@@ -838,6 +838,7 @@ def test_real_signal_monitor_requires_its_own_opt_in(monkeypatch) -> None:
 
 
 def test_real_signal_monitor_uses_real_feed_for_both_markets_without_order_gates(monkeypatch) -> None:
+    monkeypatch.setenv("MARKET_OPERATIONAL_SCOPE", "KR,US")
     monkeypatch.setenv("TRADING_MODE", "real")
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
     monkeypatch.setenv("REAL_SIGNAL_MONITOR_ENABLED", "true")
@@ -1198,7 +1199,39 @@ def test_paper_unknown_order_blocks_later_entries_and_preserves_reconciliation_k
     assert runtime.status()["last_automation_result"]["reason"] == "PAPER_ORDER_RECONCILIATION_REQUIRED"
 
 
+def test_session_monitor_blocks_watchlist_outside_domestic_scope_before_opening_feeds(monkeypatch) -> None:
+    monkeypatch.setenv("MARKET_OPERATIONAL_SCOPE", "KR")
+    monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-key")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-secret")
+    monkeypatch.setenv("KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setenv("KIS_REAL_APP_KEY", "real-key")
+    monkeypatch.setenv("KIS_REAL_APP_SECRET", "real-secret")
+    monkeypatch.setenv("PAPER_WATCHLIST", "KR:005930;US:AAPL:NAS")
+    runtime = PaperSessionFeedMonitor()
+    started_feeds = []
+
+    async def record_feed(watches, settings):
+        started_feeds.append((tuple(watches), settings.kis.environment))
+
+    monkeypatch.setattr(runtime, "_run", record_feed)
+
+    asyncio.run(runtime.start())
+
+    status = runtime.status()
+    assert status["state"] == "BLOCKED"
+    assert status["enabled"] is False
+    assert status["last_error"] == "WATCHLIST_OUTSIDE_OPERATIONAL_SCOPE"
+    assert status["orders_enabled"] is False
+    assert started_feeds == []
+    assert runtime._stream_tasks == []
+
+
 def test_us_paper_watchlist_requires_separate_read_only_real_market_data_switch(monkeypatch) -> None:
+    monkeypatch.setenv("MARKET_OPERATIONAL_SCOPE", "KR,US")
     monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
     monkeypatch.setenv("TRADING_MODE", "paper")
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
@@ -1219,6 +1252,7 @@ def test_us_paper_watchlist_requires_separate_read_only_real_market_data_switch(
 
 
 def test_us_paper_watchlist_requires_real_market_data_credentials(monkeypatch) -> None:
+    monkeypatch.setenv("MARKET_OPERATIONAL_SCOPE", "KR,US")
     monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
     monkeypatch.setenv("TRADING_MODE", "paper")
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
@@ -1238,6 +1272,7 @@ def test_us_paper_watchlist_requires_real_market_data_credentials(monkeypatch) -
 
 
 def test_mixed_paper_watchlist_uses_paper_kr_and_real_read_only_us_feeds(monkeypatch) -> None:
+    monkeypatch.setenv("MARKET_OPERATIONAL_SCOPE", "KR,US")
     monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
     monkeypatch.setenv("TRADING_MODE", "paper")
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")

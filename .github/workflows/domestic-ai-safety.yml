@@ -81,3 +81,8 @@ jobs:
       - name: Verify domestic latest-closed session calendar API
         working-directory: services/market-ai
         run: python -m pytest -q tests/test_api.py::test_domestic_latest_closed_session_endpoint_returns_last_verified_session
+      - name: Verify PAPER monitor obeys domestic market scope
+        working-directory: services/market-ai
+        env:
+          MARKET_OPERATIONAL_SCOPE: KR
+        run: python -m pytest -q tests/test_paper_runtime.py::test_session_monitor_blocks_watchlist_outside_domestic_scope_before_opening_feeds

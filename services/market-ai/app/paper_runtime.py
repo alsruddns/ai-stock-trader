@@ -20,6 +20,8 @@ from decimal import Decimal
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from fastapi import HTTPException
+
 from . import snapshot_store
 from .ai_pipeline import LocalModelRegistry
 from .kis_stream import (
@@ -38,6 +40,7 @@ from .real_signal_orders import (RealSignalOrderError, RealSignalOrderOutcomeUnk
                                  SpringRealSignalOrderClient, real_signal_idempotency_key,
                                  real_signal_submission_enabled)
 from .market_calendar import exchange_continuous_session_window
+from .market_scope import allowed_operational_markets
 from .paper_ops import PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate, exchange_session_window, size_paper_order
 from .paper_risk import baseline_capture_open, daily_loss_percent, paper_equity_snapshot
 
@@ -349,6 +352,14 @@ class PaperSessionFeedMonitor:
             return
         if not watches:
             self._set_status(state="BLOCKED", enabled=False, last_error="PAPER_WATCHLIST_EMPTY")
+            return
+        try:
+            operational_markets = allowed_operational_markets()
+        except HTTPException:
+            self._set_status(state="BLOCKED", enabled=False, last_error="MARKET_OPERATIONAL_SCOPE_INVALID")
+            return
+        if any(watch.market not in operational_markets for watch in watches):
+            self._set_status(state="BLOCKED", enabled=False, last_error="WATCHLIST_OUTSIDE_OPERATIONAL_SCOPE")
             return
         feed_groups: dict[str, tuple[tuple[PaperWatch, ...], StreamSettings]] = {}
         kr_watches = tuple(watch for watch in watches if watch.market == "KR")
