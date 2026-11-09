@@ -9,9 +9,11 @@ function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
     $result = [ordered]@{}
     $framesProperty = if ($Status) { $Status.PSObject.Properties['frames_received_by_feed'] } else { $null }
     $transactionsProperty = if ($Status) { $Status.PSObject.Properties['frame_transaction_counts_by_feed'] } else { $null }
+    $quoteQualityProperty = if ($Status) { $Status.PSObject.Properties['orderbook_quote_quality_by_feed'] } else { $null }
     foreach ($feed in $feedNames) {
         $frameValue = if ($framesProperty) { $framesProperty.Value.PSObject.Properties[$feed] } else { $null }
         $transactionValue = if ($transactionsProperty) { $transactionsProperty.Value.PSObject.Properties[$feed] } else { $null }
+        $quoteQualityValue = if ($quoteQualityProperty) { $quoteQualityProperty.Value.PSObject.Properties[$feed] } else { $null }
         $frameCount = 0L
         $valid = $null -ne $frameValue -and $null -ne $transactionValue -and
             [long]::TryParse([string]$frameValue.Value, [ref]$frameCount) -and $frameCount -ge 0
@@ -26,10 +28,24 @@ function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
                 $transactionCounts[$transactionId] = $count
             }
         }
+        $quoteQualityCounts = [ordered]@{}
+        $quoteQualityValid = $null -ne $quoteQualityValue
+        foreach ($counterName in @('usable', 'empty_or_nonpositive', 'crossed', 'stale_rejected')) {
+            $counterProperty = if ($quoteQualityValue) { $quoteQualityValue.Value.PSObject.Properties[$counterName] } else { $null }
+            $count = 0L
+            if ($null -eq $counterProperty -or
+                -not [long]::TryParse([string]$counterProperty.Value, [ref]$count) -or $count -lt 0) {
+                $quoteQualityValid = $false
+            } else {
+                $quoteQualityCounts[$counterName] = $count
+            }
+        }
         $result[$feed] = [ordered]@{
             available = [bool]$valid
             frames_received = if ($valid) { $frameCount } else { $null }
             transaction_counts = if ($valid) { $transactionCounts } else { $null }
+            quote_quality_available = [bool]$quoteQualityValid
+            quote_quality = if ($quoteQualityValid) { $quoteQualityCounts } else { $null }
         }
     }
     return $result
