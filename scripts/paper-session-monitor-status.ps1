@@ -85,6 +85,82 @@ function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
     return $result
 }
 
+function Get-MonitorCounterDeltas(
+    [bool]$InitialAvailable, $InitialCounts,
+    [bool]$CurrentAvailable, $CurrentCounts,
+    [string[]]$CounterNames
+) {
+    $values = [ordered]@{}
+    $available = $InitialAvailable -and $CurrentAvailable -and $null -ne $InitialCounts -and $null -ne $CurrentCounts
+    foreach ($name in $CounterNames) {
+        $initialProperty = if ($InitialCounts) { $InitialCounts.PSObject.Properties[$name] } else { $null }
+        $currentProperty = if ($CurrentCounts) { $CurrentCounts.PSObject.Properties[$name] } else { $null }
+        if ($null -eq $initialProperty -and $InitialCounts -is [System.Collections.IDictionary] -and $InitialCounts.Contains($name)) {
+            $initialValue = $InitialCounts[$name]
+            $hasInitial = $true
+        } else {
+            $initialValue = if ($initialProperty) { $initialProperty.Value } else { $null }
+            $hasInitial = $null -ne $initialProperty
+        }
+        if ($null -eq $currentProperty -and $CurrentCounts -is [System.Collections.IDictionary] -and $CurrentCounts.Contains($name)) {
+            $currentValue = $CurrentCounts[$name]
+            $hasCurrent = $true
+        } else {
+            $currentValue = if ($currentProperty) { $currentProperty.Value } else { $null }
+            $hasCurrent = $null -ne $currentProperty
+        }
+        $initialCount = 0L
+        $currentCount = 0L
+        if (-not $hasInitial -or -not $hasCurrent -or
+            -not [long]::TryParse([string]$initialValue, [ref]$initialCount) -or
+            -not [long]::TryParse([string]$currentValue, [ref]$currentCount) -or
+            $initialCount -lt 0 -or $currentCount -lt $initialCount) {
+            $available = $false
+            break
+        }
+        $values[$name] = $currentCount - $initialCount
+    }
+    return [ordered]@{
+        available = [bool]$available
+        counts = if ($available) { $values } else { $null }
+    }
+}
+
+function Get-MonitorFeedDiagnosticsDelta($InitialStatus, $CurrentStatus, [string]$SelectedFeed) {
+    $initial = Get-MonitorFeedDiagnostics $InitialStatus $SelectedFeed
+    $current = Get-MonitorFeedDiagnostics $CurrentStatus $SelectedFeed
+    $result = [ordered]@{}
+    foreach ($feed in $initial.Keys) {
+        $start = $initial[$feed]
+        $end = $current[$feed]
+        $frameDelta = Get-MonitorCounterDeltas $start.available `
+            ([ordered]@{ frames_received = $start.frames_received }) `
+            $end.available ([ordered]@{ frames_received = $end.frames_received }) @('frames_received')
+        $transactionDelta = Get-MonitorCounterDeltas $start.available $start.transaction_counts `
+            $end.available $end.transaction_counts @('H0STCNT0', 'H0STASP0', 'HDFSCNT0', 'OTHER')
+        $quoteDelta = Get-MonitorCounterDeltas $start.quote_quality_available $start.quote_quality `
+            $end.quote_quality_available $end.quote_quality @('usable', 'empty_or_nonpositive', 'crossed', 'stale_rejected')
+        $processingDelta = Get-MonitorCounterDeltas $start.processing_diagnostics_available $start.processing_diagnostics `
+            $end.processing_diagnostics_available $end.processing_diagnostics @(
+                'trade_market_class_filtered', 'orderbook_market_class_filtered',
+                'trade_parse_errors', 'orderbook_parse_errors',
+                'trade_symbol_mismatches', 'orderbook_symbol_mismatches',
+                'encrypted_market_frames_rejected'
+            )
+        $result[$feed] = [ordered]@{
+            frames_available = $frameDelta.available
+            frames_received = if ($frameDelta.available) { $frameDelta.counts.frames_received } else { $null }
+            transaction_counts_available = $transactionDelta.available
+            transaction_counts = $transactionDelta.counts
+            quote_quality_available = $quoteDelta.available
+            quote_quality = $quoteDelta.counts
+            processing_diagnostics_available = $processingDelta.available
+            processing_diagnostics = $processingDelta.counts
+        }
+    }
+    return $result
+}
+
 function Test-MonitorFeedReady($Status, [string]$SelectedFeed, [bool]$BothFeeds) {
     $connections = $Status.stream_connections
     if ($BothFeeds) {

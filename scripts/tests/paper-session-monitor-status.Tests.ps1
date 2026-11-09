@@ -88,3 +88,77 @@ Describe 'Paper session feed quote-quality diagnostics' {
         $diagnostics.paper.quote_quality | Should Be $null
     }
 }
+
+Describe 'Paper session feed diagnostics deltas' {
+    It 'reports per-monitor increases for frame, quote, and processing counters' {
+        $initial = [pscustomobject]@{
+            frames_received_by_feed = [pscustomobject]@{ paper = 100 }
+            frame_transaction_counts_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{ H0STCNT0 = 20; H0STASP0 = 70; HDFSCNT0 = 0; OTHER = 10 }
+            }
+            orderbook_quote_quality_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{ usable = 50; empty_or_nonpositive = 3; crossed = 2; stale_rejected = 1 }
+            }
+            market_data_diagnostics_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{
+                    trade_market_class_filtered = 5; orderbook_market_class_filtered = 8
+                    trade_parse_errors = 0; orderbook_parse_errors = 1
+                    trade_symbol_mismatches = 2; orderbook_symbol_mismatches = 0
+                    encrypted_market_frames_rejected = 0
+                }
+            }
+        }
+        $current = [pscustomobject]@{
+            frames_received_by_feed = [pscustomobject]@{ paper = 145 }
+            frame_transaction_counts_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{ H0STCNT0 = 35; H0STASP0 = 100; HDFSCNT0 = 0; OTHER = 10 }
+            }
+            orderbook_quote_quality_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{ usable = 75; empty_or_nonpositive = 4; crossed = 2; stale_rejected = 2 }
+            }
+            market_data_diagnostics_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{
+                    trade_market_class_filtered = 9; orderbook_market_class_filtered = 14
+                    trade_parse_errors = 0; orderbook_parse_errors = 1
+                    trade_symbol_mismatches = 2; orderbook_symbol_mismatches = 1
+                    encrypted_market_frames_rejected = 0
+                }
+            }
+        }
+
+        $delta = Get-MonitorFeedDiagnosticsDelta $initial $current 'paper'
+
+        $delta.paper.frames_available | Should Be $true
+        $delta.paper.frames_received | Should Be 45
+        $delta.paper.transaction_counts.H0STCNT0 | Should Be 15
+        $delta.paper.transaction_counts.H0STASP0 | Should Be 30
+        $delta.paper.quote_quality.usable | Should Be 25
+        $delta.paper.quote_quality.stale_rejected | Should Be 1
+        $delta.paper.processing_diagnostics.trade_market_class_filtered | Should Be 4
+        $delta.paper.processing_diagnostics.orderbook_symbol_mismatches | Should Be 1
+    }
+
+    It 'marks a reset counter unavailable instead of reporting a negative delta' {
+        $initial = [pscustomobject]@{
+            frames_received_by_feed = [pscustomobject]@{ paper = 100 }
+            frame_transaction_counts_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{ H0STCNT0 = 20; H0STASP0 = 70; HDFSCNT0 = 0; OTHER = 10 }
+            }
+        }
+        $current = [pscustomobject]@{
+            frames_received_by_feed = [pscustomobject]@{ paper = 5 }
+            frame_transaction_counts_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{ H0STCNT0 = 2; H0STASP0 = 2; HDFSCNT0 = 0; OTHER = 1 }
+            }
+        }
+
+        $delta = Get-MonitorFeedDiagnosticsDelta $initial $current 'paper'
+
+        $delta.paper.frames_available | Should Be $false
+        $delta.paper.frames_received | Should Be $null
+        $delta.paper.transaction_counts_available | Should Be $false
+        $delta.paper.transaction_counts | Should Be $null
+        $delta.paper.quote_quality_available | Should Be $false
+        $delta.paper.processing_diagnostics_available | Should Be $false
+    }
+}
