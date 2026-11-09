@@ -8,6 +8,7 @@ import com.aistocktrader.kis.KisOrderStatus;
 import com.aistocktrader.kis.KisProperties;
 import com.aistocktrader.kis.KisRealExitStatus;
 import com.aistocktrader.kis.KisRealTradingCostProperties;
+import com.aistocktrader.kis.MarketOperationalScope;
 import com.aistocktrader.order.OrderRecord;
 import com.aistocktrader.order.OrderRepository;
 import com.aistocktrader.order.OrderStatus;
@@ -57,6 +58,26 @@ public class OperationsController {
     private final boolean kisRealCredentialsConfigured;
     private final boolean kisRealKrCostsConfigured;
     private final boolean kisRealUsCostsConfigured;
+    private final MarketOperationalScope marketOperationalScope;
+
+    public OperationsController(OrderRepository orders, PaperPositionRepository positions,
+                                PaperCashRepository cash, PaperFillRepository fills,
+                                TradingSafetyProperties safety,
+                                KisOrderIntentRepository kisIntents,
+                                KisProperties kisProperties,
+                                KisRealTradingCostProperties realTradingCosts,
+                                @Value("${kis.account-read-enabled:false}") boolean kisAccountReadsEnabled,
+                                @Value("${kis.paper-account-read-enabled:false}") boolean kisPaperAccountReadsEnabled,
+                                @Value("${kis.orders.paper-enabled:false}") boolean kisPaperOrdersEnabled,
+                                @Value("${kis.real-account-read-enabled:false}") boolean kisRealAccountReadsEnabled,
+                                @Value("${kis.real-reconciliation-enabled:false}") boolean kisRealReconciliationEnabled,
+                                @Value("${kis.real-protective-exit-automation-enabled:false}") boolean kisRealProtectiveExitAutomationEnabled,
+                                @Value("${paper.costs.enabled:false}") boolean paperCostModelEnabled) {
+        this(orders, positions, cash, fills, safety, kisIntents, kisProperties, realTradingCosts,
+                kisAccountReadsEnabled, kisPaperAccountReadsEnabled, kisPaperOrdersEnabled,
+                kisRealAccountReadsEnabled, kisRealReconciliationEnabled,
+                kisRealProtectiveExitAutomationEnabled, paperCostModelEnabled, MarketOperationalScope.domesticOnly());
+    }
 
     @Autowired
     public OperationsController(OrderRepository orders, PaperPositionRepository positions,
@@ -71,7 +92,8 @@ public class OperationsController {
                                 @Value("${kis.real-account-read-enabled:false}") boolean kisRealAccountReadsEnabled,
                                 @Value("${kis.real-reconciliation-enabled:false}") boolean kisRealReconciliationEnabled,
                                 @Value("${kis.real-protective-exit-automation-enabled:false}") boolean kisRealProtectiveExitAutomationEnabled,
-                                @Value("${paper.costs.enabled:false}") boolean paperCostModelEnabled) {
+                                @Value("${paper.costs.enabled:false}") boolean paperCostModelEnabled,
+                                MarketOperationalScope marketOperationalScope) {
         this.orders = orders;
         this.positions = positions;
         this.cash = cash;
@@ -89,6 +111,7 @@ public class OperationsController {
         this.kisRealCredentialsConfigured = kisProperties.credentials(KisEnvironment.REAL).configured();
         this.kisRealKrCostsConfigured = realTradingCosts.configuredFor(com.aistocktrader.order.Market.KR);
         this.kisRealUsCostsConfigured = realTradingCosts.configuredFor(com.aistocktrader.order.Market.US);
+        this.marketOperationalScope = marketOperationalScope;
     }
 
     public OperationsController(OrderRepository orders, PaperPositionRepository positions,
@@ -158,7 +181,8 @@ public class OperationsController {
                 cashBalances, openPositions, costBasis, realizedPnlToday, recentOrders,
                 new PaperPerformanceAnalyzer().analyze(fills.findAllWithTradeDetails()),
                 kisPaperCredentialsConfigured, kisRealCredentialsConfigured, kisRealKrCostsConfigured,
-                kisRealUsCostsConfigured);
+                kisRealUsCostsConfigured,
+                marketOperationalScope.allowedMarkets().stream().map(Enum::name).sorted().toList());
     }
 
     private int consecutiveLosingTrades() {
@@ -292,7 +316,8 @@ public class OperationsController {
                                     List<OrderView> recentOrders,
                                     List<PaperPerformanceAnalyzer.InstrumentPerformance> paperPerformanceByInstrument,
                                     boolean kisPaperCredentialsConfigured, boolean kisRealCredentialsConfigured,
-                                    boolean kisRealKrCostsConfigured, boolean kisRealUsCostsConfigured) { }
+                                    boolean kisRealKrCostsConfigured, boolean kisRealUsCostsConfigured,
+                                    List<String> operationalMarkets) { }
 
     public record BrokerOrderView(String market, String symbol, String side, int quantity, Integer filledQuantity,
                                   Integer remainingQuantity, String currency, KisOrderStatus status,
