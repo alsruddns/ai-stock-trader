@@ -174,7 +174,7 @@ $report | Add-Member -MemberType NoteProperty -Name domesticSessionMonitor -Valu
 $report | Add-Member -MemberType NoteProperty -Name validationTaskSchedule -Value $validationTaskSchedule -Force
 $report | Add-Member -MemberType NoteProperty -Name marketSessions -Value $marketSessions -Force
 $report | Add-Member -MemberType NoteProperty -Name marketDataQuality -Value $marketDataQuality -Force
-$report | Add-Member -MemberType NoteProperty -Name marketDataQualitySummary -Value (Get-AiTraderMarketDataQualitySummary -EndpointStatus $endpointStatus -MarketDataQuality $marketDataQuality) -Force
+$report | Add-Member -MemberType NoteProperty -Name marketDataQualitySummary -Value (Get-AiTraderMarketDataQualitySummary -EndpointStatus $endpointStatus -MarketDataQuality $marketDataQuality -OperationalMarkets $operationalMarkets) -Force
 
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $reportName = "operations-{0}.json" -f (Get-Date -Format "yyyy-MM-dd")

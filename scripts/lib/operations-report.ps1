@@ -74,10 +74,15 @@ function New-AiTraderOperationsReportRunPath {
 function Get-AiTraderMarketDataQualitySummary {
     param(
         [Parameter(Mandatory)]$EndpointStatus,
-        [Parameter(Mandatory)]$MarketDataQuality
+        [Parameter(Mandatory)]$MarketDataQuality,
+        [string[]]$OperationalMarkets = @('KR')
     )
 
-    $qualityEndpointStates = @('KR', 'US') | ForEach-Object {
+    $markets = @($OperationalMarkets | ForEach-Object { ([string]$_).Trim().ToUpperInvariant() } | Select-Object -Unique)
+    if ($markets.Count -eq 0 -or @($markets | Where-Object { $_ -notin @('KR', 'US') }).Count -gt 0) {
+        $markets = @('KR')
+    }
+    $qualityEndpointStates = $markets | ForEach-Object {
         $EndpointStatus["python.market_data_quality_$_"].state
     }
     if (@($qualityEndpointStates | Where-Object { $_ -in @('HTTP_ERROR', 'UNREACHABLE') }).Count -gt 0) {
@@ -99,10 +104,14 @@ function Get-AiTraderMarketDataQualitySummary {
         }
     }
 
-    $sessions = @('KR', 'US') | ForEach-Object {
-        $marketData = $MarketDataQuality[$_]
-        if ($marketData -and $marketData.sessions) { @($marketData.sessions) }
+    $sessionList = [System.Collections.Generic.List[object]]::new()
+    foreach ($market in $markets) {
+        $marketData = $MarketDataQuality[$market]
+        if ($marketData -and $marketData.sessions) {
+            foreach ($session in @($marketData.sessions)) { $sessionList.Add($session) }
+        }
     }
+    $sessions = $sessionList.ToArray()
     if ($sessions.Count -eq 0) {
         return [ordered]@{
             sessionCompleteness = 'UNVERIFIED'
