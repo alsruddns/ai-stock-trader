@@ -50,7 +50,7 @@ jobs:
             'scripts/test-paper-websocket-monitor.ps1',
             'scripts/lib/safe-http-diagnostic.ps1',
             'scripts/test-paper-kis-python.ps1',
-            'scripts/restart-local-stack-task.ps1'
+            'scripts/restart-local-stack-task.ps1',
             'scripts/run-local-stack-task.ps1',
             'scripts/test-local-stack-env-reload.ps1',
             'scripts/lib/local-stack-activation.ps1'
