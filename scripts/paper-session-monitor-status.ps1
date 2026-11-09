@@ -8,6 +8,7 @@ function Get-MonitorFailureCode([string]$Message) {
     if ([string]::IsNullOrWhiteSpace($Message)) { return 'MONITOR_FAILED' }
     switch -Regex ($Message) {
         'No WebSocket ticks arrived for more than \d+ seconds' { return 'WEBSOCKET_NO_TICKS' }
+        'No increase in WebSocket ticks was observed during the selected sample window' { return 'NO_TICKS_IN_SAMPLE_WINDOW' }
         'Local market-data feed did not become ready' { return 'FEED_NOT_READY' }
         'Could not read the local paper-session status endpoint' { return 'SESSION_STATUS_UNAVAILABLE' }
         'Could not verify today.*exchange session' { return 'EXCHANGE_CALENDAR_UNAVAILABLE' }

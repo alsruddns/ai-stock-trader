@@ -6,6 +6,11 @@ Describe 'Paper session monitor failure codes' {
             Should Be 'WEBSOCKET_NO_TICKS'
     }
 
+    It 'classifies a completed sample with no ticks separately from a stalled connection' {
+        Get-MonitorFailureCode 'No increase in WebSocket ticks was observed during the selected sample window.' |
+            Should Be 'NO_TICKS_IN_SAMPLE_WINDOW'
+    }
+
     It 'uses a safe generic code for unknown exception text' {
         Get-MonitorFailureCode 'account=private-key-value' | Should Be 'MONITOR_FAILED'
     }
