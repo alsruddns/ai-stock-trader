@@ -33,7 +33,7 @@ type CandidateRefresh = { state: string; reason?: string; session_open?: string;
 type ScheduledTask = { kind: string; market: string | null; symbol: string | null; taskDate: string; state: string; enabled: boolean; principalLogonType: string; requiresInteractiveLogon: boolean | null; wakeToRun: boolean; startWhenAvailable: boolean; nextRunTime: string | null; lastRunTime: string | null; lastTaskResult: number | null };
 type LocalSchedule = { state: string; registeredCount: number; krRegisteredCount?: number; usRegisteredCount?: number; paperLifecycleCount?: number; modelTrainingCount?: number; modelHoldoutCount?: number; tasks: ScheduledTask[] };
 type LocalOperationsReport = { generatedAt: string; reportSchemaVersion: number; localStackTask: { state: string; principalLogonType: string; requiresInteractiveLogon: boolean | null; enabled: boolean | null; nextRunTime: string | null; lastRunTime: string | null; lastTaskResult: number | null } | null; sessionMonitorSchedule: LocalSchedule | null; validationTaskSchedule: LocalSchedule | null };
-type TrainingReadiness = { market: string; symbol: string; from_date: string; to_date: string; minimum_required_sessions: number; eligible_sessions: number; additional_sessions_needed: number; minimum_met: boolean };
+type TrainingReadiness = { market: string; symbol: string; from_date: string; to_date: string; minimum_required_sessions: number; eligible_sessions: number; additional_sessions_needed: number; minimum_met: boolean; sessions?: { ineligibility_reasons?: string[] }[] };
 type Payload = { generatedAt: string; springConnected: boolean; pythonConnected: boolean; operations: Ops | null; marketAi: MarketAiHealth | null; paperSession: { state: string; enabled: boolean; subscriptions: number; ticks_received: number; ticks_received_by_feed?: Record<string, number>; bars_closed: number; orderbook_updates_by_feed?: Record<string, number>; orderbook_quote_quality_by_feed?: Record<string, { usable: number; empty_or_nonpositive: number; crossed: number; stale_rejected: number }>; last_orderbook_received_at_by_feed?: Record<string, string | null>; frames_received_by_feed?: Record<string, number>; frame_transaction_counts_by_feed?: Record<string, Record<string, number>>; orders_enabled: false; mode?: string; real_signal_state?: string; real_signal_error?: string | null; last_real_signal?: { market: string; symbol: string; order_status?: string; idempotency_key?: string; submitted_at?: string; executable: false } | null; paper_reconciliation_required?: boolean; paper_unknown_idempotency_key?: string | null; kr_calendar_compatibility?: string; stream_connections?: Record<string, string>; subscription_acknowledgements_by_feed?: Record<string, { accepted_count: number; required_count: number; complete: boolean }>; last_subscription_error_code?: string | null; automation_state?: string; automation_error?: string | null; daily_baseline?: { state?: string; currency?: string; equity?: string; reason?: string } | null; candidate_refresh_by_market?: Record<string, CandidateRefresh>; decisions?: Record<string, Decision> } | null; marketSessions?: { KR: MarketSession | null; US: MarketSession | null }; marketDataQuality?: { KR: SessionQualityBatch | null; US: SessionQualityBatch | null }; localOperationsReport?: LocalOperationsReport | null; localOperationsReportFresh?: boolean; trainingReadiness?: Record<string, TrainingReadiness | null>; aiModels: { models: Model[]; governance_events: Record<string, string>[]; governance_audit?: { integrity_verified: boolean; event_count: number }; executable: false } | null };
 
 const money = (value: string | number, currency: string) => new Intl.NumberFormat("ko-KR", { style: "currency", currency, maximumFractionDigits: currency === "KRW" ? 0 : 2 }).format(Number(value));
@@ -93,7 +93,19 @@ export default function Dashboard() {
     ? trainingReadiness.map((item) => `${item.market} ${item.symbol} ${item.eligible_sessions}/${item.minimum_required_sessions}`).join(" · ")
     : "학습 데이터를 확인할 수 없음";
   const trainingReadinessDetail = trainingReadiness.length
-    ? `${trainingReadiness.map((item) => `${item.market} ${item.symbol}: ${item.additional_sessions_needed > 0 ? `완전한 호가 포함 세션 ${item.additional_sessions_needed}개 더 필요` : "학습 최소 세션 충족"} · ${item.from_date}~${item.to_date}`).join(" / ")} · 학습 기준 충족 후에도 이후 거래일의 독립 홀드아웃 세션 5개 이상이 별도로 필요합니다.`
+    ? `${trainingReadiness.map((item) => {
+      const reasonLabels: Record<string, string> = {
+        incomplete_session: "분봉 누락",
+        incomplete_spread_coverage: "호가 스프레드 누락",
+        unapproved_data_source: "승인된 시세 출처 아님",
+      };
+      const reasonDetails = Object.entries(reasonLabels).flatMap(([reason, label]) => {
+        const count = (item.sessions ?? []).filter((session) => session.ineligibility_reasons?.includes(reason)).length;
+        return count > 0 ? [`${label} ${count}개 세션`] : [];
+      });
+      const reasonText = reasonDetails.length ? ` · 제외 원인: ${reasonDetails.join(", ")}` : "";
+      return `${item.market} ${item.symbol}: ${item.additional_sessions_needed > 0 ? `완전한 호가 포함 세션 ${item.additional_sessions_needed}개 더 필요` : "학습 최소 세션 충족"}${reasonText} · ${item.from_date}~${item.to_date}`;
+    }).join(" / ")} · 학습 기준 충족 후에도 이후 거래일의 독립 홀드아웃 세션 5개 이상이 별도로 필요합니다.`
     : "P4 재학습 작업 또는 저장 데이터 상태를 확인하세요.";
   const interactiveTasks = scheduledTasks.filter((task) => task.requiresInteractiveLogon === true).length
     + (localReport?.localStackTask?.requiresInteractiveLogon === true ? 1 : 0);

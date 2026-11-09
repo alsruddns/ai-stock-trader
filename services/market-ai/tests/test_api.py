@@ -415,7 +415,35 @@ def test_training_readiness_counts_only_complete_approved_websocket_sessions(mon
     assert body["additional_sessions_needed"] == 12
     assert body["minimum_met"] is False
     assert [row["eligible_for_training"] for row in body["sessions"]] == [True, False]
+    assert [row["ineligibility_reasons"] for row in body["sessions"]] == [[], ["unapproved_data_source"]]
     assert calls == [("KR", "005930", date(2026, 11, 5), date(2026, 11, 6))]
+
+
+def test_kr_training_readiness_reports_incomplete_session_and_spread_reasons(monkeypatch) -> None:
+    from datetime import time as datetime_time
+
+    zone = ZoneInfo("Asia/Seoul")
+    session_date = date(2026, 11, 6)
+    opened = datetime.combine(session_date, datetime_time(9, 0), tzinfo=zone)
+    bars = [MinuteBar(
+        timestamp=opened + timedelta(minutes=index),
+        open=Decimal("100"), high=Decimal("101"), low=Decimal("99"), close=Decimal("100"),
+        volume=1000, spread_bps=None if index == 12 else Decimal("5"),
+    ) for index in range(379)]
+    monkeypatch.setattr(main.snapshot_store, "enabled", lambda: True)
+    monkeypatch.setattr(main.snapshot_store, "load_minute_bar_training_history", lambda *args: {
+        session_date: {"bars": bars, "source_counts": {"KIS_PAPER_WEBSOCKET": len(bars)}}
+    })
+
+    response = client.get(
+        "/api/v1/market/training-readiness/KR/005930"
+        "?from_date=2026-11-06&to_date=2026-11-06",
+    )
+
+    assert response.status_code == 200
+    session = response.json()["sessions"][0]
+    assert session["eligible_for_training"] is False
+    assert session["ineligibility_reasons"] == ["incomplete_session", "incomplete_spread_coverage"]
 
 
 def test_training_readiness_rejects_oversized_ranges_and_wrong_symbols(monkeypatch) -> None:

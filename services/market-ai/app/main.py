@@ -525,11 +525,14 @@ async def market_training_readiness(
             normalized_market, normalized_symbol, session_date, bars, evaluated_at,
         )
         expected_bars = int(quality["expected_bars"])
-        eligible = (
-            quality["full_session_complete"] is True
-            and int(quality["spread_bars"]) == expected_bars
-            and source_counts == {expected_source: expected_bars}
-        )
+        ineligibility_reasons = []
+        if quality["full_session_complete"] is not True:
+            ineligibility_reasons.append("incomplete_session")
+        if int(quality["spread_bars"]) != expected_bars:
+            ineligibility_reasons.append("incomplete_spread_coverage")
+        if source_counts != {expected_source: len(bars)}:
+            ineligibility_reasons.append("unapproved_data_source")
+        eligible = not ineligibility_reasons
         eligible_sessions += int(eligible)
         reports.append({
             "session_date": session_date.isoformat(),
@@ -540,6 +543,7 @@ async def market_training_readiness(
             "spread_coverage_percent": quality["spread_coverage_percent"],
             "source_counts": source_counts,
             "eligible_for_training": eligible,
+            "ineligibility_reasons": ineligibility_reasons,
         })
 
     return {
