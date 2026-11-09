@@ -23,6 +23,22 @@ class PaperAutomationSafetyTest {
     }
 
     @Test
+    void blocksPaperAutomationWhenDomesticCommissionIsZero() {
+        PaperCostProperties costs = new PaperCostProperties(true, BigDecimal.ZERO, new BigDecimal("20"),
+                new BigDecimal("25"), new BigDecimal("0.206"));
+
+        assertThrows(IllegalStateException.class, () -> new PaperAutomationSafety(true, costs));
+    }
+
+    @Test
+    void blocksPaperAutomationWhenDomesticSellCostIsZero() {
+        PaperCostProperties costs = new PaperCostProperties(true, new BigDecimal("14.7"), BigDecimal.ZERO,
+                new BigDecimal("25"), new BigDecimal("0.206"));
+
+        assertThrows(IllegalStateException.class, () -> new PaperAutomationSafety(true, costs));
+    }
+
+    @Test
     void keepsManualPaperModeAvailableWhenAutomationIsDisabled() {
         PaperCostProperties costs = costs(false);
 
