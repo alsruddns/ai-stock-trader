@@ -1,0 +1,50 @@
+name: Domestic AI pipeline safety
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'services/market-ai/app/ai_pipeline.py'
+      - 'services/market-ai/tests/test_ai_pipeline.py'
+      - 'services/market-ai/scripts/validate_domestic_ai_pipeline_selection.py'
+      - '.github/workflows/domestic-ai-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  domestic-ai-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TRADING_MODE: paper
+      LIVE_TRADING_ENABLED: "false"
+      PAPER_AUTOTRADING_ENABLED: "false"
+      KIS_PAPER_ORDERS_ENABLED: "false"
+      KIS_REAL_ORDERS_ENABLED: "false"
+      KIS_ACCOUNT_READ_ENABLED: "false"
+      KIS_PAPER_ACCOUNT_READ_ENABLED: "false"
+      KIS_REAL_ACCOUNT_READ_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/market-ai/pyproject.toml
+      - name: Install AI pipeline test dependencies
+        working-directory: services/market-ai
+        run: python -m pip install -e ".[dev,ai,ops]"
+      - name: Verify the selected test set is domestic only
+        working-directory: services/market-ai
+        run: python scripts/validate_domestic_ai_pipeline_selection.py
+      - name: Run domestic AI pipeline tests only
+        working-directory: services/market-ai
+        run: >-
+          python -m pytest -q tests/test_ai_pipeline.py
+          -k "not test_us_training_and_inference_accept_one_new_york_session_crossing_korea_midnight
+          and not test_session_progress_uses_market_open_and_exchange_timezone
+          and not test_model_training_compares_both_models_and_keeps_them_unapproved
+          and not test_model_governance_requires_review_and_records_rollback
+          and not test_active_model_registry_keeps_market_and_symbol_selections_independent"
