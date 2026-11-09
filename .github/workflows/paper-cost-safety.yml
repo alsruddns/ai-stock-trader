@@ -4,11 +4,9 @@ on:
   push:
     branches: [develop]
     paths:
-      - 'backend/trading-api/src/main/java/com/aistocktrader/order/PaperAutomationSafety.java'
-      - 'backend/trading-api/src/main/java/com/aistocktrader/order/PaperCostProperties.java'
+      - 'backend/trading-api/src/main/java/com/aistocktrader/order/OrderService.java'
       - 'backend/trading-api/src/main/java/com/aistocktrader/order/PaperTransactionCostCalculator.java'
       - 'backend/trading-api/src/main/resources/application.yml'
-      - 'backend/trading-api/src/test/java/com/aistocktrader/order/PaperAutomationSafetyTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/order/OrderServiceTest.java'
       - '.github/workflows/paper-cost-safety.yml'
   workflow_dispatch:
@@ -39,4 +37,4 @@ jobs:
       - name: Run focused PAPER cost safety tests
         working-directory: backend/trading-api
         shell: powershell
-        run: .\mvnw.cmd --batch-mode '-Dtest=PaperAutomationSafetyTest,OrderServiceTest' test
+        run: .\mvnw.cmd --batch-mode '-Dtest=OrderServiceTest' test

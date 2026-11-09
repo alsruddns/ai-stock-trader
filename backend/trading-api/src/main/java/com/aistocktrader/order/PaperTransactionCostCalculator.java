@@ -31,4 +31,11 @@ public class PaperTransactionCostCalculator {
     }
 
     public boolean enabled() { return properties.enabled(); }
+
+    public boolean automationAssumptionsReady(Market market) {
+        if (!properties.enabled() || market == null) return false;
+        return market == Market.KR
+                ? properties.krCommissionBps().signum() > 0 && properties.krSellCostBps().signum() > 0
+                : properties.usCommissionBps().signum() > 0 && properties.usSellCostBps().signum() > 0;
+    }
 }

@@ -2,6 +2,7 @@ package com.aistocktrader.order;
 
 import com.aistocktrader.config.TradingSafetyProperties;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
@@ -21,34 +22,37 @@ public class OrderService {
     private final PaperStrategyRiskRepository strategyRisks;
     private final PaperTransactionCostCalculator costs;
     private final PaperOrderAmendmentRepository amendments;
+    private final boolean paperAutomationEnabled;
     @Autowired
     public OrderService(OrderRepository orders, TradingSafetyProperties safety,
                         PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances,
                         PaperStrategyRiskRepository strategyRisks, PaperTransactionCostCalculator costs,
-                        PaperOrderAmendmentRepository amendments) {
+                        PaperOrderAmendmentRepository amendments,
+                        @Value("${paper.automation-enabled:false}") boolean paperAutomationEnabled) {
         this.orders = orders; this.safety = safety; this.fills = fills;
         this.positions = positions; this.cashBalances = cashBalances;
         this.strategyRisks = strategyRisks; this.costs = costs; this.amendments = amendments;
+        this.paperAutomationEnabled = paperAutomationEnabled;
     }
     public OrderService(OrderRepository orders, TradingSafetyProperties safety,
                         PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances,
                         PaperStrategyRiskRepository strategyRisks) {
-        this(orders, safety, fills, positions, cashBalances, strategyRisks, disabledCosts(), null);
+        this(orders, safety, fills, positions, cashBalances, strategyRisks, disabledCosts(), null, false);
     }
     public OrderService(OrderRepository orders, TradingSafetyProperties safety,
                         PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances,
                         PaperStrategyRiskRepository strategyRisks, PaperOrderAmendmentRepository amendments) {
-        this(orders, safety, fills, positions, cashBalances, strategyRisks, disabledCosts(), amendments);
+        this(orders, safety, fills, positions, cashBalances, strategyRisks, disabledCosts(), amendments, false);
     }
     public OrderService(OrderRepository orders, TradingSafetyProperties safety,
                         PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances) {
-        this(orders, safety, fills, positions, cashBalances, null, disabledCosts(), null);
+        this(orders, safety, fills, positions, cashBalances, null, disabledCosts(), null, false);
     }
 
     public OrderService(OrderRepository orders, TradingSafetyProperties safety,
                         PaperFillRepository fills, PaperPositionRepository positions, PaperCashRepository cashBalances,
                         PaperStrategyRiskRepository strategyRisks, PaperTransactionCostCalculator costs) {
-        this(orders, safety, fills, positions, cashBalances, strategyRisks, costs, null);
+        this(orders, safety, fills, positions, cashBalances, strategyRisks, costs, null, false);
     }
 
     public OrderRecord submit(OrderRequest request, UUID idempotencyKey) {
@@ -77,6 +81,7 @@ public class OrderService {
         if (notional.compareTo(limit) > 0) {
             throw new IllegalArgumentException("Order exceeds the configured paper-trading notional limit.");
         }
+        requireReadyCostsForAutomatedBuy(request.market(), request.side());
         orders.insertIfIdempotencyKeyAbsent(request.market().name(), request.symbol().trim().toUpperCase(Locale.ROOT),
                 request.side().name(), request.quantity(), request.limitPrice(), request.currency().name(),
                 request.strategyId(), request.modelId(), idempotencyKey);
@@ -103,6 +108,7 @@ public class OrderService {
             validatePaperFillIdempotency(orderId, request, racedFill.get());
             return order;
         }
+        requireReadyCostsForAutomatedBuy(order.getMarket(), order.getSide());
         validateStrategyRisk(order, request);
         PaperCashBalance cash = cashBalances.findByCurrencyForUpdate(order.getCurrency())
                 .orElseThrow(() -> new IllegalStateException("Paper cash account is not initialized."));
@@ -286,6 +292,12 @@ public class OrderService {
     private void requirePaperMode() {
         if (safety.liveTradingEnabled() || !"paper".equalsIgnoreCase(safety.mode())) {
             throw new IllegalStateException("Paper broker operations are disabled outside paper mode.");
+        }
+    }
+
+    private void requireReadyCostsForAutomatedBuy(Market market, OrderSide side) {
+        if (paperAutomationEnabled && side == OrderSide.BUY && !costs.automationAssumptionsReady(market)) {
+            throw new IllegalStateException("Automated PAPER buys require enabled market-specific transaction cost assumptions.");
         }
     }
 

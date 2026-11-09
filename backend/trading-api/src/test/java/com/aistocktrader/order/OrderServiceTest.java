@@ -129,6 +129,61 @@ class OrderServiceTest {
     }
 
     @Test
+    void automatedBuySubmissionIsBlockedWhenDomesticPaperCostsAreUnavailable() {
+        PaperTransactionCostCalculator calculator = new PaperTransactionCostCalculator(
+                new PaperCostProperties(false, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+        when(orders.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalStateException.class, () -> serviceWithAutomation(calculator, true)
+                .submit(request(new BigDecimal("70000"), 1), idempotencyKey));
+
+        verify(orders, never()).insertIfIdempotencyKeyAbsent(any(), any(), any(), anyInt(), any(), any(),
+                any(), any(), any());
+    }
+
+    @Test
+    void automatedBuyFillIsBlockedWhenDomesticPaperCostsAreUnavailable() {
+        OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 1), idempotencyKey);
+        ReflectionTestUtils.setField(order, "id", 31L);
+        when(fills.findByFillKey(any())).thenReturn(Optional.empty());
+        when(orders.findByIdForUpdate(31L)).thenReturn(Optional.of(order));
+        PaperTransactionCostCalculator calculator = new PaperTransactionCostCalculator(
+                new PaperCostProperties(true, BigDecimal.ZERO, new BigDecimal("20"), BigDecimal.ZERO, BigDecimal.ZERO));
+
+        assertThrows(IllegalStateException.class, () -> serviceWithAutomation(calculator, true)
+                .recordPaperFill(31L, new PaperFillRequest(UUID.randomUUID(), 1, new BigDecimal("70000"))));
+
+        verify(fills, never()).insertIfFillKeyAbsent(any(), any(), anyInt(), any(), any(), any(), any(), any());
+        verify(cashBalances, never()).findByCurrencyForUpdate(any());
+    }
+
+    @Test
+    void paperSellFillRemainsAvailableForExitWhenDomesticPaperCostsAreUnavailable() {
+        OrderRequest sellRequest = new OrderRequest(Market.KR, "005930", OrderSide.SELL, 1,
+                new BigDecimal("71000"), Currency.KRW);
+        OrderRecord order = new OrderRecord(sellRequest, idempotencyKey);
+        ReflectionTestUtils.setField(order, "id", 32L);
+        PaperPosition position = new PaperPosition(Market.KR, "005930", Currency.KRW);
+        position.apply(OrderSide.BUY, 1, new BigDecimal("70000"));
+        when(fills.findByFillKey(any())).thenReturn(Optional.empty());
+        when(orders.findByIdForUpdate(32L)).thenReturn(Optional.of(order));
+        when(positions.findInstrumentForUpdate(Market.KR, "005930", Currency.KRW)).thenReturn(Optional.of(position));
+        when(positions.save(any(PaperPosition.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(cashBalances.findByCurrencyForUpdate(Currency.KRW))
+                .thenReturn(Optional.of(new PaperCashBalance(Currency.KRW, new BigDecimal("100000"))));
+        when(cashBalances.save(any(PaperCashBalance.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orders.save(any(OrderRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        PaperTransactionCostCalculator calculator = new PaperTransactionCostCalculator(
+                new PaperCostProperties(false, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+
+        OrderRecord result = serviceWithAutomation(calculator, true).recordPaperFill(32L,
+                new PaperFillRequest(UUID.randomUUID(), 1, new BigDecimal("71000")));
+
+        assertEquals(OrderStatus.FILLED, result.getStatus());
+        assertEquals(0, position.getQuantity());
+    }
+
+    @Test
     void paperFillsAdvanceOrderStateAndUpdatePositionAtWeightedAverageCost() {
         OrderRecord order = new OrderRecord(request(new BigDecimal("70000"), 3), idempotencyKey);
         ReflectionTestUtils.setField(order, "id", 11L);
@@ -475,6 +530,11 @@ class OrderServiceTest {
     private OrderService serviceWithAmendments() {
         allowFillInsert();
         return new OrderService(orders, safeConfig(), fills, positions, cashBalances, strategyRisks, amendments);
+    }
+    private OrderService serviceWithAutomation(PaperTransactionCostCalculator calculator, boolean enabled) {
+        allowFillInsert();
+        return new OrderService(orders, safeConfig(), fills, positions, cashBalances, strategyRisks,
+                calculator, amendments, enabled);
     }
     private void allowFillInsert() {
         lenient().when(fills.insertIfFillKeyAbsent(any(), any(), anyInt(), any(), any(), any(), any(), any()))
