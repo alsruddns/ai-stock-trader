@@ -1,6 +1,6 @@
 # Windows 운영
 
-> **현재 시장 범위:** 해외 기능 코드는 계속 개발하지만, 실행하는 기능 테스트와 KIS 계좌·시세 연결, 세션 데이터 검증, PAPER/REAL 실행, 백테스트·학습 후보 운영은 국내(KR)만 대상으로 합니다. 해외 계좌나 시장 세션에 연결하는 테스트·운영 명령은 실행하지 않으며 운영 스크립트가 외부 호출을 차단합니다.
+> **현재 시장 범위:** 해외 기능 코드는 계속 개발하지만, 실행하는 기능 테스트와 KIS 계좌·시세 연결, 세션 데이터 검증, PAPER/REAL 실행, 백테스트·학습 후보 운영은 국내(KR)만 대상으로 합니다. 해외 계좌나 시장 세션에 연결하는 테스트·운영 명령은 실행하지 않습니다. 국내 전용 운영 probe와 작업 등록 가드가 적용되어 있으며, 일반 US API 경로도 현재 호출하지 않습니다.
 
 ## 로컬 실행
 
@@ -49,7 +49,7 @@ Set-Location .\services\market-ai
 - Spring과 Python KIS 계좌조회는 전체 스위치 `KIS_ACCOUNT_READ_ENABLED=true`와 대상별 스위치가 모두 필요합니다. PAPER는 `KIS_PAPER_ACCOUNT_READ_ENABLED=true`, REAL은 `KIS_REAL_ACCOUNT_READ_ENABLED=true`입니다. REAL 스위치는 기본 false입니다.
 - KIS REAL 체결 알림 구독은 추가 읽기 전용 기능이며 기본 잠금입니다. 사용하려면 `KIS_REAL_EXECUTION_NOTICES_ENABLED=true`, REAL 계좌조회 두 스위치, `KIS_REAL_HTS_ID` 및 REAL 자격정보가 모두 있어야 합니다. 알림을 받으면 저장된 주문번호와 일치하는 주문만 REST로 다시 조회해 체결 관측을 갱신합니다. 알림 자체로 주문을 내지 않으며, `KIS_REAL_ORDERS_ENABLED`나 `LIVE_TRADING_ENABLED`를 켜지 않습니다. 아직 실시간 KIS 연결 검증은 완료되지 않았습니다.
 - 소유자가 확인한 KIS 데이터 이용 범위는 로컬 저장·백테스트·AI 학습 허용입니다. 이 허용은 매매 성능 검증이나 실계좌 자동주문 승인과 별개입니다.
-- Python 실시간 시세 릴레이는 `KIS_WEBSOCKET_ENABLED=true`를 요구합니다. 국내 paper feed는 PAPER 자격정보를 사용합니다. 미국 시세 구독을 PAPER ledger에 공급하려면 `KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED=true`와 REAL 시세 자격정보가 추가로 필요합니다. 이 별도 REAL 연결은 미국 시세만 읽으며 모든 주문은 로컬 PAPER ledger로만 갑니다. 계좌 조회 및 REAL 주문 스위치와 독립이며 기본값은 `false`입니다.
+- Python 실시간 시세 릴레이는 `KIS_WEBSOCKET_ENABLED=true`를 요구합니다. 국내 paper feed는 PAPER 자격정보를 사용합니다. 미국 시세 feed 구현은 유지하지만 현 운영 범위에서 미국 REST/WebSocket을 활성화하거나 PAPER ledger에 연결하지 않습니다. 관련 환경변수는 기본 `false`로 둡니다.
 - 미국 REAL WebSocket 구현은 유지하지만 현재 테스트·운영 검증 범위가 국내로 한정되어 있어 `scripts/probe-kis-real-us-websocket.py`는 실행을 차단합니다. 해외 기능은 코드 개발만 진행하고, 검증 실행은 국내 범위에서 수행합니다.
 - 국내 REAL 체결가 WebSocket 구독 경로도 확인하려면 `scripts/probe-kis-real-kr-websocket.py --symbol 005930`을 사용합니다. KIS 공식 예제 기준 국내 실시간 체결 TR은 실전에서 `H0STCNT0`이며, 동일한 안전 잠금·환경 격리·중복 REAL 소켓 차단을 적용합니다. 기본 모드는 구독 ACK만 확인하고 장중 tick 검증은 `--wait-for-tick-seconds 60`처럼 지정합니다. probe는 REAL 시세 자격정보만 사용하고 REAL/PAPER 주문, 계좌 읽기, 시그널·자동 보호매도 설정을 모두 제거하거나 잠급니다. 네트워크 응답과 원시 시세는 기록하지 않으며, 단독 probe는 관리형 REAL feed가 멈춰 있을 때만 허용됩니다. [KIS 공식 국내 WebSocket 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py)
 - 국내 REAL REST 시세 스냅샷을 별도 확인하려면 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-real-kis-us-market-data.ps1 -EnableReadOnlyGetForThisRun -Market KR`을 사용합니다. 기본 시장은 KR이며 현재 US 또는 ALL 범위는 요청 전에 차단합니다. 이 1회성 opt-in은 현재 프로세스에서만 적용되며, 실행 모드는 PAPER로 고정하고 실주문·모의주문·자동매매·REAL 계좌조회·REAL 주문대조가 모두 false여야 합니다. KIS REAL 앱 키/시크릿 외 계좌번호와 PAPER 키·계좌번호는 자식 프로세스에서 제거하고, PostgreSQL 공유 호출 제한을 사용합니다. 로컬 `.env_local`은 바꾸지 않으며 출력은 성공 여부·종목/거래소·통화·조회시각만 포함하고 실제 가격, 원시 응답, 키, 토큰, 계좌정보는 출력하지 않습니다. 주문 API와 계좌 API는 이 도구에 연결되어 있지 않습니다.
@@ -62,7 +62,7 @@ Set-Location .\services\market-ai
 - 모델 승인·활성화·롤백에는 `.env_local`의 `MODEL_GOVERNANCE_TOKEN`에 32자 이상의 무작위 값을 설정하고 요청의 `X-Model-Governance-Token` 헤더로 전달해야 합니다. PowerShell에서는 `[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))`로 64자리 값을 생성할 수 있습니다. 값이 비어 있거나 32자보다 짧으면 변경 API는 잠긴 상태입니다.
 - 모의 계좌 연결 테스트는 의도적으로 네트워크를 호출하는 별도 작업입니다: `.\scripts\test-paper-kis.ps1`. 이 스크립트는 paper 자격증명과 전체 및 PAPER 계좌 읽기 스위치를 확인한 뒤 Spring 애플리케이션 컨텍스트와 PostgreSQL 호출 제한기를 사용해 기본적으로 국내 잔고 GET만 실행합니다. 해외 계좌 조회는 현재 운영 범위에서 차단됩니다. 테스트 전 모의/실전 주문, 실전 자동매매, 실전 주문 대조가 모두 잠겼는지 확인합니다. DB 연결이나 슬롯 예약에 실패하면 KIS 요청도 차단합니다.
 - Python KIS 읽기 전용 스모크는 `.\scripts\test-paper-kis-python.ps1`로 실행합니다. PAPER 키·시장 시세 스위치·전체/PAPER 계좌 읽기 게이트를 검사한 뒤 기본적으로 국내 REST 시세 및 계좌 GET 두 건만 요청하며, 응답에 키·시크릿·계좌번호가 없는지도 확인합니다. 해외 REST 조회는 현재 운영 범위에서 차단됩니다. 주문·자동매매 잠금이 꺼져 있으면 요청하지 않습니다.
-- 실계좌 잔고의 읽기 전용 확인은 `.\scripts\test-real-kis-account-readonly.ps1 -EnableReadOnlyGetForThisRun`으로 별도 실행할 수 있습니다. 이 옵션은 전체/REAL 계좌 읽기 허용을 테스트 실행 중에만 설정하고, 종료 때 호출 셸의 환경변수를 원래 상태로 복원하며 `.env_local`은 변경하지 않습니다. 스크립트는 PostgreSQL, 계좌번호 형식, `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, PAPER/REAL 주문 잠금, `KIS_REAL_RECONCILIATION_ENABLED=false`를 검사하고 국내·미국 잔고 GET만 요청합니다. 자격정보 값은 출력하지 않습니다. `.env_local`의 read switches를 직접 켜도 되지만, API 실행 프로세스에서 REAL 읽기가 열릴 수 있으므로 검증 후 기본 잠금으로 되돌리세요.
+- 실계좌 잔고의 읽기 전용 확인은 별도 opt-in 스크립트로 구현돼 있습니다. 현재 범위에서 실행할 경우 국내 잔고 GET만 사용하며 미국 REAL 계좌 조회는 끕니다. 이 검사는 주문을 전송하지 않고 `.env_local`이나 기본 잠금을 바꾸지 않습니다.
 
 ### PAPER WebSocket 연결 사전점검
 
@@ -76,15 +76,15 @@ Set-Location .\services\market-ai
 
 ### P3 종목 후보 발굴
 
-읽기 전용 후보 순위는 거래소 정규 연속매매 중에 `GET /api/v1/market/candidates/KR?minimum_turnover=1` 또는 `GET /api/v1/market/candidates/US?exchange=NAS&minimum_turnover=1`으로 조회합니다. 국내는 KIS 거래대금순 정렬, 미국은 거래대금순 API를 사용합니다. 후보마다 현재가·거래량·거래대금·호가 스프레드를 확인하며, 호가가 없거나 매수·매도 가격이 교차하면 필터 통과로 표시하지 않습니다. 예시의 1은 호출 형식만 보여 주는 값이며 권장 투자 기준이 아닙니다. `minimum_turnover`는 KRW 또는 USD 단위로 반드시 지정해야 합니다.
+현재 후보 순위 조회는 국내 정규 연속매매 중 `GET /api/v1/market/candidates/KR?minimum_turnover=1`만 대상으로 합니다. 미국 후보 API 구현은 유지하지만 호출·연결 검증은 현재 범위에 없으므로 US 경로를 실행하지 않습니다. 국내 후보마다 현재가·거래량·거래대금·호가 스프레드를 확인하고, 호가가 없거나 매수·매도 가격이 교차하면 필터 통과로 표시하지 않습니다. 예시의 1은 호출 형식만 보여 주는 값이며 권장 투자 기준이 아닙니다. `minimum_turnover`는 KRW 단위로 지정합니다.
 
-미국 후보 조회는 `.env_local`의 `KIS_REAL_MARKET_DATA_ENABLED=true`와 REAL 시세 자격정보가 필요하며, REAL 계좌 조회 스위치와는 별개입니다. 이 설정은 기본 `false`입니다. `freshness_verified`는 항상 `false`이며 `passes_market_filter`는 거래대금·스프레드 1차 조건만 뜻합니다. `executable`도 항상 `false`입니다. 종목 구독·AI 신호·주문을 생성하지 않으며, 후보 발굴 API의 실제 KIS 환경 지원은 PAPER/REAL별 읽기 전용 확인이 별도로 필요합니다. KRX 종가 단일가 구간과 거래소 휴장 중에는 조회를 거부합니다.
+국내 후보 API에서 `freshness_verified`와 `executable`은 항상 `false`입니다. 거래대금·스프레드는 1차 필터 정보이며, 종목 구독·AI 신호·주문을 생성하지 않습니다. KRX 종가 단일가 구간과 거래소 휴장 중에는 조회를 거부합니다. 미국 후보 구현에 필요한 REAL 시세 설정은 현재 활성화하지 않습니다.
 
-실행 중인 PAPER 시세 감시기에 필터 통과 종목을 추가하려면 별도 잠금 `PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED=true`를 `.env_local`에서 설정한 뒤 `POST /api/v1/market/candidates/KR/subscribe?minimum_turnover=1000000000` 또는 `POST /api/v1/market/candidates/US/subscribe?exchange=NAS&minimum_turnover=1000000`을 사용합니다. 모니터와 해당 시장 WebSocket이 연결된 연속매매 시간에만 동작하며 PAPER 모드와 실전 거래 비활성도 다시 검사합니다. 기존 종목은 제거하지 않고, 감시기 전체 최대 40개로 제한합니다. 응답은 로컬 WebSocket 등록 요청이 전송됐음을 뜻하며 KIS의 등록 승인이나 신호·주문 가능성을 보증하지 않습니다. 감시기 추가는 실시간 시세 취득만 수행하며 `PAPER_AUTOTRADING_ENABLED`와 주문 안전 게이트를 따릅니다. 기본 잠금은 `false`이고, 현재 운영 `.env_local`은 변경하지 않았습니다.
+실행 중인 PAPER 시세 감시기에 국내 필터 통과 종목을 추가하는 구현 경로는 `POST /api/v1/market/candidates/KR/subscribe?minimum_turnover=1000000000`입니다. 현재 설정과 사용자 범위를 고려해 별도 잠금 `PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED`를 켜지 않았으며, 미국 구독 경로는 실행하지 않습니다. 모니터와 국내 WebSocket이 연결된 연속매매 시간에만 동작하며 PAPER 모드와 실전 거래 비활성도 다시 검사합니다. 등록 요청은 KIS 승인이나 신호·주문 가능성을 보증하지 않습니다. 감시기 추가는 실시간 시세 취득만 수행하고 기본 잠금은 `false`입니다.
 
-거래일마다 장 시작 5분 전에 후보 감시 구독을 자동 교체하려면 `PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED=true`와 `PAPER_CANDIDATE_AUTO_REFRESH_ENABLED=true`를 모두 설정합니다. KR은 `PAPER_CANDIDATE_MIN_TURNOVER_KRW`, US는 `PAPER_CANDIDATE_MIN_TURNOVER_USD`에 양수 거래대금 기준을 반드시 입력해야 합니다. US 사용 시 `PAPER_CANDIDATE_US_EXCHANGE=NAS|NYS|AMS`도 필수이며 조회 거래소를 하나로 한정합니다. `PAPER_CANDIDATE_LIMIT`은 1~20이며 기본 10입니다. 자동 갱신은 `PAPER_WATCHLIST`로 해당 시장의 모니터 feed가 준비되어 있어야 실행됩니다. 앱이 장 시작 뒤 켜졌거나 장 전에 feed가 연결되지 않으면 해당 세션은 건너뜁니다. PAPER 자동매매가 켜져 있거나 PAPER 모드·실거래 잠금 조건이 어긋나면 갱신하지 않습니다. 순위는 감시 종목 선택에만 쓰며, 장전 스프레드가 없더라도 양수 가격·거래량과 거래대금 기준으로 구독할 수 있습니다. 실제 PAPER 매수 후보 생성에는 별도의 장중 신선 시세·스프레드·전략·승인 모델·위험 검사가 계속 적용됩니다. 모든 자동 갱신 설정은 예제에서 기본 꺼짐이며 운영 `.env_local`에는 적용하지 않았습니다.
+후보 자동 갱신 코드는 두 시장을 지원하지만 현재 자동 구독·갱신은 국내만 개발·검증 대상으로 남겨 두고 실제 스위치는 끕니다. 미국 feed나 `PAPER_CANDIDATE_US_EXCHANGE`를 활성화하지 않습니다. `PAPER_CANDIDATE_LIMIT`은 1~20이며 기본 10입니다. 앱이 국내 장 시작 뒤 켜졌거나 장 전에 feed가 연결되지 않으면 해당 세션은 건너뜁니다. PAPER 자동매매가 켜져 있거나 PAPER 모드·실거래 잠금 조건이 어긋나면 갱신하지 않습니다. 순위는 감시 종목 선택에만 쓰며, 장전 스프레드가 없더라도 양수 가격·거래량과 거래대금 기준으로 구독할 수 있습니다. 실제 PAPER 매수 후보 생성에는 별도의 장중 신선 시세·스프레드·전략·승인 모델·위험 검사가 계속 적용됩니다.
 
-후보 목록을 교체하려면 `POST /api/v1/market/candidates/KR/refresh-subscriptions?minimum_turnover=1000000000` 또는 `POST /api/v1/market/candidates/US/refresh-subscriptions?exchange=NAS&minimum_turnover=1000000`을 사용합니다. 이 작업은 `PAPER_AUTOTRADING_ENABLED=false`일 때만 허용하고 Spring PAPER 운영 요약의 보유 종목·미체결 주문을 먼저 확인합니다. 보유 종목 구독은 유지하고, 미체결 주문이 하나라도 있으면 이전 후보 구독 전체를 보존합니다. Spring 응답 누락·오류·형식 불일치는 교체 작업을 중단합니다. 제거 대상은 이 API로 추가된 후보 구독으로 한정하며 `.env_local`의 수동 `PAPER_WATCHLIST` 종목은 유지합니다. 실시간 해제 요청을 보낸 뒤에도 KIS 승인 응답은 아직 검증되지 않았습니다.
+국내 후보 목록 교체 구현은 `POST /api/v1/market/candidates/KR/refresh-subscriptions?minimum_turnover=1000000000`입니다. 미국 경로는 현재 실행하지 않습니다. 교체 전 Spring PAPER 운영 요약의 보유 종목·미체결 주문을 확인합니다. 보유 종목 구독은 유지하고, 미체결 주문이 하나라도 있으면 이전 후보 구독 전체를 보존합니다. Spring 응답 누락·오류·형식 불일치는 교체 작업을 중단합니다. 제거 대상은 이 API로 추가된 후보 구독으로 한정하며 `.env_local`의 수동 `PAPER_WATCHLIST` 종목은 유지합니다. 실시간 해제 요청의 KIS 승인 응답은 아직 검증되지 않았습니다.
 
 ### 국내 PAPER 취소 사전조회 점검
 
@@ -104,7 +104,7 @@ KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는
 
 국내와 미국 feed를 각각 검증할 때는 장이 열린 시간에 `-Feed paper` 또는 `-Feed real`을 지정합니다. 이 모드는 선택한 feed의 tick·완료 분봉 누적량과 마지막 수신시각을 별도로 확인하므로, 비선택 feed의 연결 상태·tick·분봉이 선택 feed의 관측을 대신하지 않습니다. `-RequireBothFeeds`는 두 연결 상태를 함께 검사할 때 사용합니다. 미국 장 관측 중에도 `real` feed는 읽기 전용 시세 용도이며, 주문·자동매매 잠금이 꺼진 상태에서는 감시가 거부됩니다.
 
-`.\scripts\test-paper-websocket-monitor.ps1`은 기본 60초, 최대 10시간 동안 로컬 feed를 읽기 전용으로 점검합니다. 감시 프로세스는 개장 전 준비를 포함해 08:45 KST에 시작하고 15:30 KST에 끝나도록 24,300초 실행하지만, 수집·전략 데이터 지원 범위는 KRX 정규장입니다. 개장 전 08:45~09:00과 종가 동시호가 15:20~15:30의 무수신은 장애 한도에서 제외합니다. 국내 세션은 `-DurationSeconds 24300 -PollIntervalSeconds 15 -MaxNoTickSeconds 300 -Feed paper -MinimumBarsDelta 380`, 미국 세션은 `-Feed real -MinimumBarsDelta 390 -RequireSessionClose`를 사용합니다. `register-market-data-session-monitor.ps1 -Feed paper|real -SessionDate YYYY-MM-DD`는 프로젝트 거래소 캘린더로 해당 날짜의 정규 세션을 확인한 뒤 KRX 09:00 시작 15분 전 또는 NYSE 09:30 시작 5분 전에 일회성 작업을 등록합니다. 미국 시작 시각은 공식 세션 개장 UTC를 KST로 변환하므로 서머타임을 반영합니다. Windows 시간대는 `Korea Standard Time`이어야 합니다. 앞으로 각 시장 10개 거래일의 감시 일정을 보충하려면 `scripts/register-market-data-session-horizon.ps1 -SessionCount 10`을 실행합니다. `-InstallDailyRefresh`를 추가하면 로그인 사용자의 제한 권한으로 매일 00:05 KST에 다음 10개 세션을 보충하는 작업을 등록합니다. 기존 일회성 작업은 경로·feed·예약 시각·제한 권한·깨우기 설정이 기대값과 일치할 때만 유지 대상으로 인정하며, 다르거나 비활성화된 같은 이름의 작업은 교체하지 않고 오류로 중단합니다. 등록기는 시세·계좌 API를 호출하거나 주문을 보내지 않습니다. 해당 Windows 사용자가 로그인해 있고 로컬 API가 실행 중이어야 합니다. monitor는 종료 시각·틱 신선도·전체 세션 분봉(국내 380, 미국 390) 및 주문/자동매매 잠금을 확인하며, 주문을 전송하지 않습니다. 선택 feed의 틱 수신 시각이 5분 넘게 갱신되지 않거나 프로세스가 재시작되어 누적 tick 수가 초기화되거나 완료 분봉 수가 지정한 최소치에 못 미치면 실패합니다. 성공한 표본은 민감정보 없이 `.local/validation/paper-websocket-samples.jsonl` 또는 `.local/validation/us-websocket-samples.jsonl`에 쌓이며 `.local/`은 Git에서 제외됩니다. 이 감시는 실제 KIS 시세를 받으므로 해당 시장의 거래 시간에 실행하고, 종목 거래정지·시장휴장 시 `MaxNoTickSeconds`를 무리하게 낮추지 마세요.
+`.\scripts\test-paper-websocket-monitor.ps1`은 기본 60초, 최대 10시간 동안 국내 로컬 PAPER feed를 읽기 전용으로 점검합니다. 전체 KRX 세션 확인은 개장 전 준비를 포함해 08:45 KST에 시작하고 15:30 KST에 끝나도록 24,300초 실행하며, 개장 전 08:45~09:00과 종가 동시호가 15:20~15:30의 무수신은 장애 한도에서 제외합니다. 국내 전체 세션은 `-DurationSeconds 24300 -PollIntervalSeconds 15 -MaxNoTickSeconds 300 -Feed paper -MinimumBarsDelta 380 -RequireSessionClose` 기준으로 확인합니다. 미국 감시 스크립트와 세션 등록 코드는 남아 있지만 현재 실행하지 않습니다. 모든 미국 세션 감시 예약은 `Disabled` 상태로 유지하며, 미국 feed·작업을 등록하는 명령은 사용하지 마세요. 국내 일회성 일정은 `register-market-data-session-monitor.ps1 -Feed paper -SessionDate YYYY-MM-DD`로 등록할 수 있고, 등록기는 거래소 캘린더를 확인하되 KIS 계좌·시세 API를 호출하거나 주문을 보내지 않습니다. 감시 실행에는 Windows 사용자가 로그인해 있고 로컬 API가 실행 중이어야 합니다. monitor는 종료 시각·틱 신선도·전체 국내 세션 380분봉 및 주문/자동매매 잠금을 확인하며 주문을 전송하지 않습니다. 틱 수신이 5분 넘게 끊기거나 완료 분봉 수가 최소치에 못 미치면 실패합니다. 결과는 민감정보 없이 `.local/validation/paper-websocket-samples.jsonl`에 저장되며 `.local/`은 Git에서 제외됩니다.
 
 `-Feed paper` 또는 `-Feed real`을 지정한 표본은 해당 feed의 연결과 틱만 통과 조건으로 봅니다. 다른 feed가 재연결 중이면 API의 집계 상태에 `KIS_STREAM_UNAVAILABLE`가 표시될 수 있으나, 선택한 feed가 `RUNNING`인 동안에는 선택 feed 표본을 계속할 수 있습니다. `-RequireBothFeeds` 또는 feed 미지정 표본은 집계 상태와 모든 요구 feed가 정상이어야 합니다. 주문 잠금 또는 자동매매 비활성 조건은 모든 모드에서 계속 검사합니다.
 
@@ -112,19 +112,19 @@ KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는
 
 ### KIS PAPER 주문 수명주기 통합 확인
 
-KIS PAPER 주문·취소 통합 확인은 `scripts/test-kis-paper-order-lifecycle-isolated.ps1`을 사용합니다. 이 스크립트는 `.env_local`의 PAPER/REAL 주문 및 자동매매 잠금이 모두 `false`인 것을 확인하고, 별도 loopback 포트(기본 18081)에 임시 Spring Boot 프로세스를 시작합니다. PAPER 주문만 그 프로세스에서 허용하고 REAL 키·계좌번호는 빈 값으로 덮어씁니다. 테스트 종료 시 임시 프로세스를 끄고 호출 PowerShell 환경을 복원하며 `.env_local`을 수정하지 않습니다. 우선 `-PreflightOnly`로 확인합니다. 현재 국내 PAPER 취소 가능수량 조회용 모의 TR 지원이 확인되지 않아 `KR -ConfirmPaperOrderAndCancel`은 두 스크립트에서 네트워크 요청 전에 거부됩니다. 미국은 주문가능 USD가 충분한 경우에만 장중 `-ConfirmPaperOrderAndCancel`을 실행할 수 있습니다. 두 모드는 상호 배타적입니다.
+KIS PAPER 주문·취소 lifecycle 스크립트는 구현되어 있지만, 현재 허용된 브로커 검증은 국내 읽기 전용 GET뿐입니다. 국내 취소 가능수량 조회의 PAPER 지원이 확인되지 않아 `KR -ConfirmPaperOrderAndCancel`은 네트워크 요청 전에 거부됩니다. 미국 주문·취소 검증은 현재 수행하지 않습니다. `-PreflightOnly`도 사용자가 별도 국내 확인을 요청한 경우에만 읽기 전용으로 실행합니다.
 
-주문 제출 모드는 Python의 `/api/v1/market/sessions/{market}` (`market=KR` 또는 `US`)에서 받은 최근 거래소 캘린더 확인을 요구합니다. 휴장일·장외·캘린더 오류·5분 이내 폐장·오래된 세션 응답이면 주문 전에 중단합니다. 읽기 전용 `-PreflightOnly`는 장외에서도 실행할 수 있습니다.
+주문 제출 모드는 Python 거래소 캘린더를 확인하지만, 현재 KIS PAPER lifecycle 검증 범위에서는 주문 제출을 실행하지 않습니다. 읽기 전용 국내 `-PreflightOnly`는 장외에서도 실행할 수 있습니다.
 
 ```powershell
 .\scripts\test-kis-paper-order-lifecycle-isolated.ps1 -Market KR -Symbol 069500 -LimitPrice 75000 -PreflightOnly
 ```
 
-지원 확인된 시장의 모의 주문·취소는 같은 인수에 `-PreflightOnly` 대신 `-ConfirmPaperOrderAndCancel`을 지정합니다. 국내 모의 주문은 취소까지 안전하게 확인할 수 있게 될 때까지 사용하지 마세요.
+미국 PAPER lifecycle 예약 작업 `AIStockTrader-US-Paper-Lifecycle-Smoke-20261109`은 2026-11-09에 `Disabled` 상태로 확인했으며 실행된 적이 없습니다. 미국 세션 감시와 P4 작업도 모두 `Disabled`입니다. 이 작업을 다시 등록하거나 실행하지 마세요. 이후 단계에서 해외 운영 검증 범위가 바뀌면 별도 계획과 승인에 따라 재검토합니다.
 
-예약된 미국 1주 PAPER 수명주기 검증은 `AIStockTrader-US-Paper-Lifecycle-Smoke-20261109` 작업으로 2026-11-09 23:45 KST에 한 번 실행하도록 등록했습니다. 현재 US `F` 시세에서 최소 5% 낮은 지정가를 계산하고, 격리 Spring 프로세스에서만 PAPER 주문 스위치를 켭니다. 최신 시세, 장중 여부, USD 주문가능액 또는 취소 대조 조건이 충족되지 않으면 주문 없이 종료합니다. 작업은 현재 사용자 로그인 세션이 필요하고, 절전 해제와 지연 실행 설정을 적용합니다. 지연 실행 시 장이 이미 닫혔으면 세션 사전검사가 주문을 차단합니다. 결과는 `.local/logs/us-paper-lifecycle-smoke-*.log`에 남습니다. 결과가 불명확하거나 취소되지 않은 주문이 남으면 같은 테스트를 자동 재전송하지 않습니다.
+PAPER lifecycle 스크립트의 1주 제한·가격 신선도·주문가능액 검사는 구현상 안전장치일 뿐 현재 테스트 허용을 뜻하지 않습니다. 실제 KIS PAPER 주문은 현 단계에서 전송하지 않습니다.
 
-1주 매수 지정가만 허용하며 KIS 시세와 종목별 주문가능금액의 `retrieved_at`이 현재 시각 기준 60초 이내이고, 최근 시세보다 5% 이상 낮은 가격, 설정 한도와 별도 PAPER 테스트 한도(국내 10만원/미국 100달러) 안에서만 진행합니다. 시세·계좌 조회가 누락되거나 오래됐거나 잔액이 부족하면 주문 전에 중단합니다. Spring은 POST 직전 주문가능금액을 다시 조회합니다. 응답이 끊기면 새 주문을 보내지 않고 같은 멱등 키를 조회하며, 즉시 취소 후 상태를 대조합니다. PAPER 주문은 모의 계좌 상태를 바꾸므로 체결되면 모의 포지션을 정리하세요. 시험 로그는 `.local/logs`에 보관됩니다.
+해당 lifecycle 구현은 1주 수량·가격 신선도·주문가능액·멱등 대조·취소를 검사하지만, 이 장벽을 우회해 주문 테스트를 실행하지 않습니다. 실제 KIS PAPER 주문은 현 단계에서 전송하지 않습니다.
 
 주문을 보내지 않고 현재 PAPER 시세와 종목별 주문가능금액만 읽기 전용으로 확인하려면 `.env_local`의 주문 잠금을 그대로 둔 채 `scripts/test-kis-paper-order-lifecycle.ps1`에 `-PreflightOnly`를 전달합니다. 예: `-Market KR -Symbol 069500 -LimitPrice 75000 -PreflightOnly`. 이 모드는 주문 잠금이 꺼져 있는 Spring 설정만 허용하고, 시세와 계좌 확인이 모두 최신·충분할 때만 통과합니다.
 
@@ -170,7 +170,7 @@ PostgreSQL 프로세스 장애를 격리된 임시 인스턴스로 점검하려�
 
 ## 과거 데이터 백테스트와 학습
 
-데이터 권한을 확인한 1분봉 CSV는 다음 열을 사용합니다: `timestamp,open,high,low,close,volume,spread_bps,symbol`. `timestamp`는 `2026-11-05T09:00:00+09:00`처럼 시간대 오프셋을 포함해야 합니다. `--market KR|US` 값에 따라 서울 또는 뉴욕 거래소 날짜로 세션을 묶으므로, 원본 시각이 한국 시간이어도 미국 세션의 날짜가 잘못 나뉘지 않습니다. 한 CSV에는 한 종목만 넣고 세션 안에서 시간순으로 정렬합니다. `spread_bps`는 bid-ask 전체 스프레드 기준입니다. 백테스트는 다음 봉의 스프레드 절반을 매수 체결가에, 청산 봉의 스프레드 절반을 매도 체결가에 반영합니다. 다음 봉 스프레드가 없거나 상한보다 크면 진입 체결을 만들지 않고, 청산 봉 스프레드가 없으면 설정된 스프레드 상한을 비용으로 사용합니다. 학습 레이블은 현재·미래 봉의 관측 스프레드 비용도 차감하며, 미래 스프레드가 없으면 해당 표본을 제외합니다. `symbol` 열을 넣으면 요청한 값과 일치하는지도 확인합니다.
+데이터 권한을 확인한 국내 1분봉 CSV만 현재 백테스트·학습 검증에 사용합니다. CSV 열은 `timestamp,open,high,low,close,volume,spread_bps,symbol`이며 `timestamp`는 `2026-11-05T09:00:00+09:00`처럼 시간대 오프셋을 포함합니다. 해외 날짜 분할 코드는 유지하지만 현재 해외 CSV를 처리하지 않습니다. 한 CSV에는 한 종목만 넣고 세션 안에서 시간순으로 정렬합니다. `spread_bps`는 bid-ask 전체 스프레드 기준입니다. 백테스트는 다음 봉의 스프레드 절반을 매수 체결가에, 청산 봉의 스프레드 절반을 매도 체결가에 반영합니다. 다음 봉 스프레드가 없거나 상한보다 크면 진입 체결을 만들지 않고, 청산 봉 스프레드가 없으면 설정된 스프레드 상한을 비용으로 사용합니다. 학습 레이블은 현재·미래 봉의 관측 스프레드 비용도 차감하며, 미래 스프레드가 없으면 해당 표본을 제외합니다. `symbol` 열을 넣으면 요청한 값과 일치하는지도 확인합니다.
 
 스프레드 체결 모델은 백테스트 버전 2입니다. 버전 1 기준으로 승인된 구형 모델은 새 비용 가정에서 성과를 재검증하기 전까지 승인·활성 모델로 선택되지 않습니다. 왕복 비용 설정은 여전히 사용자의 실제 계좌 수수료·세금·거래소 비용 확인을 대신하지 않습니다.
 
@@ -178,7 +178,7 @@ PostgreSQL 프로세스 장애를 격리된 임시 인스턴스로 점검하려�
 
 KIS에서 국내 정규 연속매매 분봉을 읽기 전용으로 확인할 때는 `GET /api/v1/market/sessions/KR/{symbol}/bars?session_date=YYYY-MM-DD`를 사용합니다. 단일 120개 페이지를 최대 6회까지 거슬러 조회하며, 한국거래소 연속매매 구간(09:00~15:20)만 반환합니다. 종가 단일가 시각(15:20~15:30)에 해당하는 체결봉은 전략 데이터에서 제외하고, 장중 거래정지로 인한 공백은 보정하지 않고 백테스트·학습에서 거부합니다. API 분봉에는 과거 호가 스프레드가 없어 해당 값은 비어 있으며, 전략은 스프레드 필터가 있는 진입을 생성하지 않습니다. 로컬 연동 확인은 저장·주문 없이 `python scripts/test-paper-kis-session.py --session-date YYYY-MM-DD`로 실행할 수 있습니다. [KIS Developers API 서비스 소개](https://apiportal.koreainvestment.com/about-open-api)는 개인 고객의 시세 정보 이용을 자기 자산 투자 목적으로 한정하고 제3자 제공을 금지하므로, 데이터와 파생 파일은 로컬 개인 용도에 한정합니다.
 
-PostgreSQL에 저장된 특정 거래일 분봉의 완전성과 스프레드 포함률은 읽기 전용 감사기로 확인합니다. 예를 들어 미국 AAPL 2026-11-06 세션은 `.\services\market-ai\.venv\Scripts\python.exe .\scripts\audit-market-session.py --market US --symbol AAPL --session-date 2026-11-06`을 실행합니다. 국내는 `--market KR --symbol 005930`으로 지정합니다. `PRE_OPEN`/`COLLECTING`은 아직 정규장이 끝나지 않은 상태이며, 폐장 후 `COMPLETE`만 예상 연속매매 분(미국 390분, 국내 380분)이 중복·누락·시간 격자 이탈 없이 저장됐다는 뜻입니다. `--require-complete`를 붙이면 완전한 전체 세션이 아닐 때 종료 코드 2를 반환합니다. 스프레드 기준이 필요한 분석은 `--minimum-spread-coverage-percent 95`처럼 최소 포함률을 지정할 수 있으며, 기준 미달 또는 확인할 자료가 없으면 같은 종료 코드 2로 닫힙니다. 이 도구는 조회만 하며 누락 봉을 보정하거나 DB를 수정하지 않습니다. 완전성은 백테스트·학습 적격성의 한 조건일 뿐이며, 임계치는 사용할 전략의 비용 가정에 맞춰 선택한 뒤 CSV export와 rights manifest 검토 절차를 진행합니다.
+PostgreSQL 저장 분봉의 현재 감사·백테스트·학습 검증은 국내 종목만 대상으로 합니다. 미국 AAPL 2026-11-06 예시는 과거 기록이며 재실행하지 않습니다. 국내 삼성전자 감사 명령은 `.\services\market-ai\.venv\Scripts\python.exe .\scripts\audit-market-session.py --market KR --symbol 005930 --session-date YYYY-MM-DD`입니다. `PRE_OPEN`/`COLLECTING`은 아직 정규장이 끝나지 않은 상태이며, 폐장 후 `COMPLETE`는 예상 국내 연속매매 380분이 중복·누락·시간 격자 이탈 없이 저장됐다는 뜻입니다. `--require-complete`를 붙이면 완전한 전체 세션이 아닐 때 종료 코드 2를 반환합니다. 스프레드 기준 분석은 `--minimum-spread-coverage-percent 95`처럼 최소 포함률을 지정할 수 있으며 기준 미달이면 닫힙니다. 이 도구는 조회만 하며 누락 봉을 보정하거나 DB를 수정하지 않습니다.
 
 같은 감사 결과는 Python API `GET /api/v1/market/session-quality/{market}/{symbol}?session_date=YYYY-MM-DD`에서도 조회할 수 있습니다. 이 경로는 PostgreSQL의 읽기 전용 분봉만 확인하며, 저장 기능이 꺼져 있으면 `503`으로 닫힙니다. 거래소 비영업일은 DB를 조회하지 않고 `NON_SESSION`으로 반환합니다.
 

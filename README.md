@@ -10,7 +10,7 @@ Windows 로컬에서 실행하는 국내·미국 주식 자동매매 프로젝�
 
 > **안전 범위:** 기본값은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ACCOUNT_READ_ENABLED=false`, `KIS_REAL_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ORDERS_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`, `KIS_REAL_RECONCILIATION_ENABLED=false`, `REAL_PROTECTIVE_EXIT_MANAGER_ENABLED=false`, `KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED=false`, `REAL_SIGNAL_SUBMISSION_ENABLED=false`입니다. 계좌 조회는 전체 허용 스위치와 해당 환경 허용 스위치가 모두 켜져야 합니다. 실계좌 신규 매수는 보호청산 관리기가 검증되기 전까지 별도 잠금 상태이며, 실계좌 주문도 기본 비활성입니다.
 
-> **현재 시장 범위:** 국내·미국 공통 코드는 계속 개발하지만 실행하는 기능 테스트·KIS 연동·시장 세션 검증·PAPER/REAL 운용·데이터 백테스트 및 학습 검증은 국내(KR)만 대상으로 합니다. 미국 계좌나 미국 세션에 연결하는 검증은 하지 않으며, 운영 스크립트는 미국 외부 호출·작업 등록을 거부합니다.
+> **현재 시장 범위:** 국내·미국 공통 코드는 계속 개발하지만 실행하는 기능 테스트·KIS 연동·시장 세션 검증·PAPER/REAL 운용·데이터 백테스트 및 학습 검증은 국내(KR)만 대상으로 합니다. 미국 계좌나 미국 세션에 연결하는 검증은 하지 않습니다. 국내 전용 운영 probe와 작업 등록 가드가 적용되어 있으며, 일반 US API 경로도 현재 호출하지 않습니다.
 
 ## 구성
 
@@ -21,7 +21,7 @@ backend/.../db/migration Flyway PostgreSQL 스키마 변경
 frontend/dashboard/      Next.js 조회 전용 운영 대시보드
 ```
 
-Python은 국내·미국 KIS 시세·계좌 읽기 기반을 제공하고, Spring은 KIS 계좌조회와 paper 주문·위험 관리 API를 제공합니다. PAPER KIS 국내·미국 현재가 읽기는 통과했습니다. 2026-11-06 재등록한 PAPER 설정으로 국내·미국 잔고 GET 통합 테스트가 모두 통과했습니다. REST 현재가 조회는 실시간 WebSocket 스트림이 아니며 응답 시각은 조회 시각입니다.
+Python은 국내·미국 KIS 시세·계좌 읽기 기반을 제공하고, Spring은 KIS 계좌조회와 paper 주문·위험 관리 API를 제공합니다. 2026-11-06의 국내·미국 PAPER 시세·잔고 결과는 당시의 이력입니다. 2026-11-09 이후 새 KIS 연동·시장·매매 검증은 국내만 수행합니다. REST 현재가 조회는 실시간 WebSocket 스트림이 아니며 응답 시각은 조회 시각입니다.
 
 ## 준비
 
@@ -79,7 +79,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 18000 --env-file ../../.en
 
 KIS 조회를 쓸 때는 `.env_local`의 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET`, `KIS_PAPER_ACCOUNT_NUMBER`에 모의계좌 값을 넣습니다. 실전 값은 별도 `KIS_REAL_*` 항목에만 저장합니다. PAPER REST 시세는 `KIS_MARKET_DATA_ENABLED=true`가 필요합니다. REAL 미국 REST 시세·분봉용 코드와 설정은 유지하지만 현재 국내 전용 검증 범위에서는 활성화하지 않습니다. WebSocket 시세는 `KIS_WEBSOCKET_ENABLED=true`가 필요합니다. Spring PAPER 계좌조회는 전체 잠금 `KIS_ACCOUNT_READ_ENABLED=true`와 `KIS_PAPER_ACCOUNT_READ_ENABLED=true`를 모두 요구합니다. REAL 조회는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`도 별도로 요구합니다. 계좌번호는 8자리 계좌번호와 2자리 상품코드를 붙인 총 10자리입니다. 일반 이름 `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ACCOUNT_NUMBER`는 호환 설정이 아니므로 쓰지 않습니다. 인증정보는 Git에 추가하지 마세요. 계좌 조회는 읽기 전용이며 실주문 스위치는 계속 꺼둡니다.
 
-국내 KIS 분봉 이력은 `GET /api/v1/market/bars/KR/{종목코드}?session_date=YYYY-MM-DD&end_time=HHMMSS`로 한 번에 최대 120개, 전체 KRX 세션은 `GET /api/v1/market/sessions/KR/{종목코드}/bars?session_date=YYYY-MM-DD`로 제한된 페이지 범위에서 조회할 수 있습니다. 미국 최신 분봉은 `GET /api/v1/market/bars/US/{종목코드}?exchange=NAS|NYS|AMS`로 한 번에 최대 120개 조회하고, 과거 세션은 `GET /api/v1/market/sessions/US/{종목코드}/bars?exchange=NAS|NYS|AMS&session_date=YYYY-MM-DD`로 최대 20페이지까지 조회합니다. KIS 해외 분봉의 `PINC`, `NEXT`, `KEYB` 커서를 사용하며, 응답에 continuation header가 없더라도 120행이 찬 페이지는 커서로 이어 읽습니다. 응답에는 페이지 수·원본 행 수·조회 원본 시간 범위·continuation 상태를 포함합니다. API 보관자료·페이지 한도 때문에 반환 봉이 세션 전체라는 보장은 없습니다. 해외 분봉은 모의투자를 지원하지 않으므로 REAL REST 요청은 `KIS_REAL_MARKET_DATA_ENABLED=true`와 REAL 앱키·시크릿을 별도로 요구합니다. 이 설정은 계좌 조회나 주문 권한을 열지 않습니다. [KIS 공식 해외 분봉 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/overseas_stock/inquire_time_itemchartprice/inquire_time_itemchartprice.py)
+국내 KIS 분봉 이력은 `GET /api/v1/market/bars/KR/{종목코드}?session_date=YYYY-MM-DD&end_time=HHMMSS`로 한 번에 최대 120개, 전체 KRX 세션은 `GET /api/v1/market/sessions/KR/{종목코드}/bars?session_date=YYYY-MM-DD`로 제한된 페이지 범위에서 조회할 수 있습니다. 미국 분봉 endpoint와 페이지네이션 구현도 코드에 있지만 현재 조회·세션·데이터 검증 범위는 국내만입니다. 미국 endpoint는 현 단계에서 호출하지 마세요. 해외 분봉은 KIS 모의투자를 지원하지 않으며 구현은 향후 개발용으로 보존합니다. [KIS 공식 해외 분봉 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/overseas_stock/inquire_time_itemchartprice/inquire_time_itemchartprice.py)
 
 두 시장의 REST 분봉은 과거 호가 스프레드를 제공하지 않아 `spread_bps`를 null로 저장합니다. 따라서 이 봉만으로 스프레드 필터가 필요한 전략·학습 자료의 적격성을 증명하지 않습니다. `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`이면 정규장 내 REST 이력과 WebSocket 집계 분봉을 출처와 함께 `market_minute_bar`에 저장합니다. 기존 WebSocket 봉에 스프레드가 있으면 REST 보충 과정에서 그 값을 덮어쓰지 않습니다. WebSocket 집계봉은 당시 호가 스프레드를 포함하며, PostgreSQL 쓰기 오류는 상태에 표시하고 PAPER 자동주문을 차단합니다. 동일 시각 재수집은 출처별 품질 규칙에 따라 저장합니다. 기본 저장값은 `false`입니다.
 
@@ -113,7 +113,7 @@ P4 모델 학습은 왕복 레이블 비용과 매수·매도 수수료, 매도�
 
 PostgreSQL에 저장된 분봉은 로컬 CSV로 내보낼 수 있습니다. 예: `.\services\market-ai\.venv\Scripts\python.exe .\scripts\export-market-data.py --market KR --symbol 005930 --from-date 2026-11-01 --to-date 2026-11-06 --output .\data\exports\005930.csv`. 날짜 범위는 거래소 현지 날짜 기준으로 양 끝을 포함합니다. 먼저 `--dry-run`을 추가하면 파일을 만들지 않고 전체 행·출처와 세션별 기대 봉 수, 봉 완전성, 스프레드 완전성을 확인합니다. 실제 내보내기 조회도 DB 읽기 전용이며 `data/`는 Git에서 제외됩니다. 모든 행 출처가 KIS Open API인 경우 sidecar는 사용자가 확인한 로컬 저장·백테스트·본인 계좌용 학습 권한과 개인 운용 제한을 SHA-256에 묶어 기록합니다. 타사 또는 혼합 출처가 포함되면 모든 권한을 `false`로 유지해 해당 제공자의 별도 검토를 요구합니다.
 
-한국과 미국 데이터는 각각 `--market KR` 또는 `--market US`로 별도 학습합니다. 모델 파일과 메타데이터는 `.local/models`에만 저장됩니다. 생성된 모델은 자동 승인되지 않으며, 승인된 활성 모델도 예측 API는 `executable=false`를 반환합니다.
+해외 모델 학습 코드는 `--market US`도 지원하지만 현재 실행하는 학습·검증은 `--market KR`만 대상으로 합니다. 모델 파일과 메타데이터는 `.local/models`에만 저장됩니다. 생성된 모델은 자동 승인되지 않으며, 승인된 활성 모델도 예측 API는 `executable=false`를 반환합니다.
 
 국내·미국 거래소 영업일 판정과 모의 운영 가드 테스트에는 `python -m pip install -e ".[dev,ai,ops]"`의 선택 `ops` 의존성이 필요합니다. 해외 시장 지원 코드는 유지하지만 현재 KIS 연결 검증, 모의매매, 실전 검증은 국내주식만 대상으로 합니다. `PAPER_AUTOTRADING_ENABLED=false`가 기본값이며, 시세 지연·모델/브로커 상태·일일 손실·연속 손실·보유 종목 수·장 마감 구간의 조건 중 하나라도 실패하면 신규 진입을 차단합니다. 자동매매를 켤 때는 당일 전략 분봉의 재시작 복구를 위해 `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`도 필수입니다. 분봉 저장/복원 설정이 없으면 PAPER 자동매매 monitor가 시작되지 않습니다. 미국 paper 감시에는 KIS의 REAL WebSocket 시세 연결을 별도 `KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED=true`로 명시해야 합니다. 이 연결은 읽기 전용 미국 시세만 받아 paper 장부에 기록하며 REAL 주문 기능은 사용하지 않습니다.
 
@@ -121,27 +121,28 @@ KIS 모의 현재가 조회 예시 (선택 기능):
 
 ```powershell
 Invoke-RestMethod http://localhost:18000/api/v1/market/quotes/KR/005930
-Invoke-RestMethod 'http://localhost:18000/api/v1/market/quotes/US/AAPL?exchange=NAS'
 ```
+
+미국 경로도 코드에 있지만 현재 KIS 조회·테스트는 국내 종목만 대상으로 합니다. 미국 URL은 지금 호출하지 마세요.
 
 계좌 조회는 명시적으로 활성화한 후 환경과 시장을 URL에 지정합니다. 계좌번호는 KIS가 요구하는 8자리+2자리 총 10자리 형식으로 `.env_local`에 저장하세요. 조회 결과에는 계좌번호가 포함되지 않습니다.
 
 ```powershell
 Invoke-RestMethod http://localhost:18000/api/v1/accounts/paper/KR/balance
-Invoke-RestMethod 'http://localhost:18000/api/v1/accounts/real/US/balance?exchange=NASD'
 ```
 
-실전 계좌 경로는 읽기 전용 잔고 GET만 합니다. 실주문은 계속 잠겨 있으며 이 경로는 주문을 전송하지 않습니다.
+실전 계좌 경로도 현재 국내 잔고 GET만 검증합니다. 이 조회는 읽기 전용이며 실주문은 계속 잠겨 있습니다.
 
 Spring KIS 계좌 API 예시:
 
 ```powershell
 Invoke-RestMethod http://localhost:18080/api/v1/kis/accounts/paper/KR/balance
-Invoke-RestMethod 'http://localhost:18080/api/v1/kis/accounts/paper/US/balance?exchange=NASD'
 Invoke-RestMethod 'http://localhost:18080/api/v1/kis/accounts/paper/KR/balance?symbol=005930&unitPrice=71000'
 ```
 
-P1-001 구현이 완료되면 계좌 스냅샷은 `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`일 때만 PostgreSQL에 저장합니다. Spring 계좌 잔고 스모크는 `.\scripts\test-paper-kis.ps1`, Python FastAPI 시세·잔고 스모크는 `.\scripts\test-paper-kis-python.ps1`로 실행합니다. 두 스크립트는 현재 국내(KR)만 조회합니다. 해외 조회는 `-IncludeUS`를 명시했을 때만 추가되며 현 운영 범위에서는 사용하지 않습니다. PAPER 키와 읽기 전용 스위치를 확인하며 주문 스위치가 켜져 있으면 중단합니다, 주문 스위치가 켜져 있으면 중단합니다. 기본 테스트에서는 외부 KIS에 연결하지 않습니다. API·DB·운영 상세는 [docs](docs/README.md)를 참고하세요.
+미국 API 경로는 해외 기능 개발용으로 보존하며, 현재 호출·연동 검증 범위에는 포함하지 않습니다.
+
+P1-001 계좌 스냅샷은 `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`일 때만 PostgreSQL에 저장합니다. Spring 계좌 스모크 `.\scripts\test-paper-kis.ps1`은 국내 PAPER 잔고·주문가능액 GET을, Python 스모크 `.\scripts\test-paper-kis-python.ps1`은 국내 PAPER REST 시세·잔고 GET을 실제 KIS에 요청합니다. 두 스크립트 모두 `.env_local`의 자격정보와 읽기 전용 스위치를 요구하며 주문 또는 자동매매 잠금이 해제된 설정이면 중단합니다. 현재 두 스크립트에 `-IncludeUS` 옵션은 없고, 명시적으로 실행하지 않으면 외부 KIS 요청도 하지 않습니다. API·DB·운영 상세는 [docs](docs/README.md)를 참고하세요.
 
 Paper 주문 미리보기:
 
@@ -154,7 +155,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:18080/api/v1/orders/paper `
 
 주문은 `PENDING` 상태로 PostgreSQL에 기록됩니다. 모의 체결은 별도 paper 전용 API로 직접 기록하며, 주문 수량보다 많이 체결시키거나 보유 수량보다 많이 매도하지 못합니다. 주문 요청은 같은 `Idempotency-Key`, 체결 이벤트는 같은 `fillKey`로 재전송 중복을 막습니다. Spring과 Python은 기본적으로 `127.0.0.1`에만 바인딩되며, 인증이 없는 로컬 개발용 API이므로 외부 네트워크에 노출하지 마세요.
 
-한국투자증권 PAPER 주문·취소를 실제 모의 계좌에서 확인할 때는 `scripts/test-kis-paper-order-lifecycle-isolated.ps1`을 사용하세요. 이 스크립트는 `.env_local`의 주문 잠금을 변경하지 않고 임시 Spring 프로세스에서 PAPER만 허용합니다. 먼저 `-PreflightOnly`로 읽기 전용 확인을 하세요. 국내 모의 취소 가능수량 조회의 KIS 지원이 확인되지 않아 국내 `-ConfirmPaperOrderAndCancel`은 주문 전 차단됩니다. 미국은 주문가능 USD가 충분할 때만 장중 주문·취소 확인이 가능합니다. 지원되는 모의 주문도 PAPER 계좌 상태를 바꾸며 시세 급변 시 체결될 수 있으므로 체결된 가상 포지션을 정리하세요. 세부 조건은 [Windows 운영 문서](docs/operations.md)를 참고하세요.
+KIS PAPER 주문·취소 lifecycle 스크립트는 구현되어 있지만 현재 국내 전용 운영 범위에서는 실제 브로커 주문을 실행하지 않습니다. 국내 PAPER 취소 가능수량 조회 지원이 확인되지 않아 `-ConfirmPaperOrderAndCancel`은 국내 주문 전 차단되며, 미국 주문·취소 검증은 현 단계에서 실행하지 않습니다. 세부 조건은 [Windows 운영 문서](docs/operations.md)를 참고하세요.
 
 수동 paper 체결과 가상 포지션 조회 예시:
 
@@ -199,7 +200,7 @@ Docker를 선호하면 기존 PostgreSQL 대신 컨테이너 DB도 선택할 수
 
 ## 단계별 개발 순서
 
-**현재 운영 범위(2026-11-09):** 국내 모의투자 검증을 먼저 진행합니다. 해외 API·전략·모델 코드는 계속 개발하되, 로컬 `.env_local`에서는 watchlist를 `KR:005930`으로 제한하고 미국 REST/WebSocket feed를 끕니다. 세션 감시 예약은 기본적으로 KRX만 등록하며, 해외 세션 수집이 준비되면 `register-market-data-session-horizon.ps1 -IncludeUS`로 해외 세션 예약을 추가할 수 있습니다. 미국 PAPER 주문과 미국 P4 실행 예약은 현 단계에서 비활성화합니다. 실전 주문과 PAPER 자동매매도 계속 잠금 상태입니다.
+**현재 운영 범위(2026-11-09):** 해외 API·전략·모델 코드는 계속 개발하지만 현재 실행하는 테스트·KIS 연동·모의투자·실전 검증은 국내만 대상으로 합니다. `.env_local`의 watchlist는 `KR:005930`이며 미국 REST/WebSocket feed 및 미국 세션·PAPER·P4 예약 작업은 비활성입니다. 해외 세션 등록 명령과 미국 계좌·시세 API 경로는 현재 사용하지 마세요. 아래 단계별 항목의 과거 미국 검증 결과는 기록 보존용이며 현재 검증 근거가 아닙니다. 실전 주문과 PAPER 자동매매도 계속 잠금 상태입니다.
 
 - **P1 — 기반·KIS 읽기 전용 연결:** Spring 계좌 조회와 Python REST/WebSocket 시세·Mock 검증이 구현되어 있습니다. 2026-11-09 운영 스냅샷에서 Spring/FastAPI가 `127.0.0.1:18080`/`:18000`에 연결되고 PostgreSQL 16.4는 localhost:5432 loopback, Flyway 스키마 v25입니다. PAPER Spring 계좌 GET 4건과 FastAPI 국내·미국 시세·잔고 GET 4건이 통과했습니다. process-only 검사에서 KIS REAL 국내·미국 잔고, 실현손익 명세, 최근 체결 GET 6건도 통과했으며 주문·정정·취소는 보내지 않았습니다. REAL 계좌 읽기·실주문·PAPER 주문·자동매매는 관리형 서비스에서 비활성입니다. 11월 9일 KRX WebSocket 감시는 장중 연속매매에서 300.4초 동안 틱을 받지 못해 실패했습니다. 저장 세션은 379/380봉(14:21 1봉 누락), 중복·격자 이탈 0, 호가 스프레드 포함 52/379봉(13.72%)이며 출처는 WebSocket 88봉·REST 291봉입니다. 이로써 P1 정의 범위인 실계좌 읽기 전용·국내/미국 시세·WebSocket 연결은 통과했습니다(11월 9일 REAL 잔고·손익 명세·체결 GET 6건, KR/US 시세 응답, 구독 승인 및 단기 틱·분봉 검증; 주문 비활성). 다만 11월 9일 full-session KRX 품질은 불완전해 이 데이터 검증은 P3/P4/P5 실적 검증 항목으로 계속 관리합니다. 국내 감시는 11월 10일 08:45 KST에 예약되어 있습니다. 해외 감시 및 PAPER 주문·모델 작업은 국내 우선 운영 범위에 따라 비활성 상태입니다.
 - **P2 — 주문·리스크 엔진:** PostgreSQL PAPER 주문, 부분체결, 중복 체결 방지, 현금·포지션 정산, 정정·취소·만료와 재시작 복구가 있습니다. 정정 내역은 별도 이력 테이블에 저장하며 같은 키의 반복 적용을 차단합니다. 로컬 PostgreSQL 통합 및 DB 장애 복구 검증을 통과했습니다. KIS 주문 없이 paper ledger에서 확인한 결과입니다.
