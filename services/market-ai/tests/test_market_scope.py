@@ -30,7 +30,9 @@ def test_overseas_quote_and_training_validation_are_blocked_before_external_or_d
     monkeypatch.setenv("MARKET_OPERATIONAL_SCOPE", "KR")
 
     quote = client.get("/api/v1/market/quotes/US/AAPL?exchange=NAS")
+    session = client.get("/api/v1/market/sessions/US")
     readiness = client.get("/api/v1/market/training-readiness/US/AAPL")
 
     assert quote.status_code == 423
+    assert session.status_code == 423
     assert readiness.status_code == 423

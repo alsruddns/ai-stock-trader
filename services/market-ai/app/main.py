@@ -334,6 +334,7 @@ def paper_session_status() -> dict[str, object]:
 @app.get("/api/v1/market/sessions/{market}")
 def market_session_status(market: Market = Path()) -> dict[str, object]:
     """Return exchange-calendar verified session times for local order preflight."""
+    require_operational_market(market, "market-session validation")
     now = datetime.now(timezone.utc)
     zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
     try:
