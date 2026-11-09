@@ -96,7 +96,9 @@ def audit_minute_bar_session(
         if timestamp < opened + timedelta(minutes=completed_minutes) and timestamp not in timestamps_with_spread
     ]
     duplicate_bars = sum(max(0, count - 1) for count in counts.values())
-    spread_count = len(timestamps_with_spread)
+    completed_end = opened + timedelta(minutes=completed_minutes)
+    completed_observed_minutes = [timestamp for timestamp in counts if timestamp < completed_end]
+    spread_count = sum(1 for timestamp in timestamps_with_spread if timestamp < completed_end)
     fully_observed = (
         session_closed and completed_minutes == expected_bars
         and missing_bars == 0 and duplicate_bars == 0 and off_grid_count == 0
@@ -109,9 +111,8 @@ def audit_minute_bar_session(
         status = "COMPLETE" if fully_observed else "INCOMPLETE"
 
     ordered_timestamps = sorted(timestamps)
-    spread_percent = (
-        round(100 * spread_count / len(counts), 2) if counts else None
-    )
+    spread_percent = round(100 * spread_count / len(completed_observed_minutes), 2) \
+        if completed_observed_minutes else None
     return {
         "market": normalized_market,
         "symbol": normalized_symbol,

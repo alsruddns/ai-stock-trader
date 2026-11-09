@@ -112,7 +112,11 @@ def test_duplicate_rows_do_not_inflate_spread_bar_count_or_coverage() -> None:
 
 def test_open_session_only_counts_elapsed_closed_minutes() -> None:
     session_date = date(2026, 11, 6)
-    bars = _bars("US", session_date, count=3)
+    bars = _bars("US", session_date, count=4)
+    bars[3] = MinuteBar(
+        timestamp=bars[3].timestamp, open=bars[3].open, high=bars[3].high,
+        low=bars[3].low, close=bars[3].close, volume=bars[3].volume, spread_bps=None,
+    )
     report = audit_minute_bar_session(
         "US", "AAPL", session_date, bars,
         evaluated_at=datetime(2026, 11, 6, 9, 33, 30, tzinfo=ZoneInfo("America/New_York")),
@@ -120,7 +124,10 @@ def test_open_session_only_counts_elapsed_closed_minutes() -> None:
 
     assert report["status"] == "COLLECTING"
     assert report["completed_minutes"] == 3
+    assert report["observed_bars"] == 4
     assert report["observed_completed_bars"] == 3
+    assert report["spread_bars"] == 3
+    assert report["spread_coverage_percent"] == 100
     assert report["full_session_complete"] is False
 
 
