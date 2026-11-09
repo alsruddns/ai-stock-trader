@@ -36,6 +36,14 @@ $reloadDecisionFunction = $runnerAst.Find({
 if ($null -eq $sessionGateFunction -or $null -eq $reloadDecisionFunction) {
     throw 'The environment reload session gate was not found.'
 }
+$operationalMarketsFunction = $runnerAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Get-OperationalMarketsFromEnvironment'
+}, $true)
+if ($null -eq $operationalMarketsFunction) {
+    throw 'The operational market selection function was not found.'
+}
 
 $fixturePath = Join-Path ([IO.Path]::GetTempPath()) ("ai-stock-trader-env-reload-{0}.env" -f [Guid]::NewGuid())
 $utf8 = [Text.UTF8Encoding]::new($false)
@@ -48,27 +56,30 @@ try {
     . ([ScriptBlock]::Create($restorePythonPathFunction.Extent.Text))
     . ([ScriptBlock]::Create($sessionGateFunction.Extent.Text))
     . ([ScriptBlock]::Create($reloadDecisionFunction.Extent.Text))
+    . ([ScriptBlock]::Create($operationalMarketsFunction.Extent.Text))
 
     $nowUtc = [DateTimeOffset]::UtcNow
-    $closedSessions = @(
-        [pscustomobject]@{ market = 'KR'; is_open = $false; evaluated_at = $nowUtc.ToString('o') }
-        [pscustomobject]@{ market = 'US'; is_open = $false; evaluated_at = $nowUtc.ToString('o') }
-    )
-    $openSessions = @($closedSessions[0], [pscustomobject]@{
-        market = 'US'; is_open = $true; evaluated_at = $nowUtc.ToString('o')
+    $closedSessions = @([pscustomobject]@{
+        market = 'KR'; is_open = $false; evaluated_at = $nowUtc.ToString('o')
     })
-    $staleSessions = @($closedSessions[0], [pscustomobject]@{
-        market = 'US'; is_open = $false; evaluated_at = $nowUtc.AddSeconds(-31).ToString('o')
+    $openSessions = @([pscustomobject]@{
+        market = 'KR'; is_open = $true; evaluated_at = $nowUtc.ToString('o')
     })
-    if (-not (Test-LocalSessionsFreshAndClosed $closedSessions $nowUtc) -or
-        (Test-LocalSessionsFreshAndClosed $openSessions $nowUtc) -or
-        (Test-LocalSessionsFreshAndClosed $staleSessions $nowUtc)) {
-        throw 'The environment reload gate did not require fresh closed sessions for both exchanges.'
+    $staleSessions = @([pscustomobject]@{
+        market = 'KR'; is_open = $false; evaluated_at = $nowUtc.AddSeconds(-31).ToString('o')
+    })
+    if (-not (Test-LocalSessionsFreshAndClosed $closedSessions $nowUtc @('KR')) -or
+        (Test-LocalSessionsFreshAndClosed $openSessions $nowUtc @('KR')) -or
+        (Test-LocalSessionsFreshAndClosed $staleSessions $nowUtc @('KR'))) {
+        throw 'The environment reload gate did not require a fresh closed domestic session.'
+    }
+    if ((@(Get-OperationalMarketsFromEnvironment @{ MARKET_OPERATIONAL_SCOPE = 'KR' }) -join ',') -ne 'KR') {
+        throw 'The active domestic operational scope was not selected.'
     }
     if ((Get-EnvironmentReloadDecision $true $false) -ne 'DEFER' -or
         (Get-EnvironmentReloadDecision $true $true) -ne 'RESTART' -or
         (Get-EnvironmentReloadDecision $false $true) -ne 'NONE') {
-        throw 'The environment reload decision did not defer until both exchanges close.'
+        throw 'The environment reload decision did not defer until configured markets close.'
     }
 
     [IO.File]::WriteAllLines($fixturePath, @(

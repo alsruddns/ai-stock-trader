@@ -13,6 +13,7 @@ $marketAiStderr = Join-Path $logDirectory 'market-ai.stderr.log'
 $backendProcess = $null
 $marketAiProcess = $null
 $loadedEnvironmentNames = @()
+. (Join-Path $PSScriptRoot 'lib\local-stack-activation.ps1')
 $originalPythonPath = [Environment]::GetEnvironmentVariable('PYTHONPATH', 'Process')
 $originalPythonPathWasSet = $null -ne $originalPythonPath
 
@@ -43,9 +44,21 @@ function Write-ProcessState {
     Move-Item -LiteralPath $temporaryState -Destination $runtimeState -Force
 }
 
-function Test-LocalSessionsFreshAndClosed($Sessions, [DateTimeOffset]$NowUtc) {
-    if (@($Sessions).Count -ne 2) { return $false }
-    foreach ($market in @('KR', 'US')) {
+function Get-OperationalMarketsFromEnvironment([hashtable]$Environment) {
+    $scope = [string]$Environment.MARKET_OPERATIONAL_SCOPE
+    if ([string]::IsNullOrWhiteSpace($scope)) { $scope = 'KR' }
+    $markets = @($scope.Split(',') | ForEach-Object { $_.Trim().ToUpperInvariant() } |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)
+    if ($markets.Count -eq 0 -or @($markets | Where-Object { $_ -notin @('KR', 'US') }).Count -gt 0) {
+        throw 'Operational market scope is invalid.'
+    }
+    return $markets
+}
+
+function Test-LocalSessionsFreshAndClosed($Sessions, [DateTimeOffset]$NowUtc,
+                                          [string[]]$Markets = @('KR')) {
+    if (@($Sessions).Count -ne $Markets.Count) { return $false }
+    foreach ($market in $Markets) {
         $session = @($Sessions | Where-Object { [string]$_.market -eq $market }) | Select-Object -First 1
         if (-not $session -or $null -eq $session.PSObject.Properties['is_open'] -or
             $null -eq $session.PSObject.Properties['evaluated_at']) { return $false }
@@ -66,10 +79,14 @@ function Get-EnvironmentReloadDecision([bool]$EnvironmentChanged, [bool]$Exchang
 function Test-LocalExchangesClosedForEnvironmentReload {
     $nowUtc = [DateTimeOffset]::UtcNow
     try {
-        $sessions = foreach ($market in @('KR', 'US')) {
+        $loadedMarkets = @(Get-OperationalMarketsFromEnvironment @{ MARKET_OPERATIONAL_SCOPE = $env:MARKET_OPERATIONAL_SCOPE })
+        $pendingEnvironment = Get-LocalStackEnvironment -Path $envPath
+        $pendingMarkets = @(Get-OperationalMarketsFromEnvironment $pendingEnvironment)
+        if (($loadedMarkets -join ',') -ne ($pendingMarkets -join ',')) { return $false }
+        $sessions = foreach ($market in $pendingMarkets) {
             Invoke-RestMethod -Uri "http://127.0.0.1:18000/api/v1/market/sessions/$market" -TimeoutSec 3
         }
-        return Test-LocalSessionsFreshAndClosed $sessions $nowUtc
+        return Test-LocalSessionsFreshAndClosed $sessions $nowUtc $pendingMarkets
     } catch {
         return $false
     }
@@ -212,14 +229,14 @@ try {
                     if ($currentEnvironmentHash -ne $pendingEnvironmentHash) {
                         $pendingEnvironmentHash = $currentEnvironmentHash
                         $nextEnvironmentReloadCheckUtc = [DateTimeOffset]::MinValue
-                        Write-TaskLog 'Local environment file changed; reload is deferred until both exchanges are confirmed closed.'
+                        Write-TaskLog 'Local environment file changed; reload is deferred until all configured operational markets are confirmed closed.'
                     }
                     $nowUtc = [DateTimeOffset]::UtcNow
                     if ($nowUtc -ge $nextEnvironmentReloadCheckUtc) {
                         $exchangesClosed = Test-LocalExchangesClosedForEnvironmentReload
                         $decision = Get-EnvironmentReloadDecision $true $exchangesClosed
                         if ($decision -eq 'RESTART') {
-                            Write-TaskLog 'Both exchanges are confirmed closed; restarting APIs to load the pending environment.'
+                            Write-TaskLog 'Configured operational markets are confirmed closed; restarting APIs to load the pending environment.'
                             throw 'Local environment file changed.'
                         }
                         $nextEnvironmentReloadCheckUtc = $nowUtc.AddSeconds(30)
