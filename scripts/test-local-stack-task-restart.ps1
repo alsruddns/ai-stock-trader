@@ -113,7 +113,12 @@ $paperSessionAst = $restartAst.Find({
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
         $node.Name -eq 'Test-PaperSessionRestored'
 }, $true)
-if ($null -eq $identityAst -or $null -eq $parentageAst -or $null -eq $paperSessionAst) {
+$tradingLocksAst = $restartAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Test-LocalTradingLocks'
+}, $true)
+if ($null -eq $identityAst -or $null -eq $parentageAst -or $null -eq $paperSessionAst -or $null -eq $tradingLocksAst) {
     throw 'Process ownership or paper-session restoration checks were not found.'
 }
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -121,6 +126,47 @@ $script:restartScriptDirectory = $PSScriptRoot
 . ([ScriptBlock]::Create($identityAst.Extent.Text))
 . ([ScriptBlock]::Create($parentageAst.Extent.Text))
 . ([ScriptBlock]::Create($paperSessionAst.Extent.Text))
+. ([ScriptBlock]::Create($tradingLocksAst.Extent.Text))
+
+$lockedPython = [pscustomobject]@{ status = 'ok'; live_trading_enabled = $false; paper_automation_enabled = $false }
+$lockedSpring = [pscustomobject]@{
+    tradingMode = 'paper'; liveTrading = 'disabled'; paperAutomationEnabled = $false
+    kisPaperOrdersEnabled = $false; kisRealOrdersEnabled = $false
+    kisRealAccountReadsEnabled = $false; kisRealReconciliationEnabled = $false
+    realProtectiveExitManagerEnabled = $false; kisRealProtectiveExitAutomationEnabled = $false
+}
+if (-not (Test-LocalTradingLocks $lockedPython $lockedSpring)) {
+    throw 'The fully locked local configuration should permit a guarded restart.'
+}
+$unsafeSpringFields = @(
+    'tradingMode', 'liveTrading', 'paperAutomationEnabled', 'kisPaperOrdersEnabled', 'kisRealOrdersEnabled',
+    'kisRealAccountReadsEnabled', 'kisRealReconciliationEnabled',
+    'realProtectiveExitManagerEnabled', 'kisRealProtectiveExitAutomationEnabled'
+)
+foreach ($field in $unsafeSpringFields) {
+    $unsafeSpring = $lockedSpring.PSObject.Copy()
+    if ($field -eq 'tradingMode') { $unsafeSpring.$field = 'real' }
+    elseif ($field -eq 'liveTrading') { $unsafeSpring.$field = 'enabled' }
+    else { $unsafeSpring.$field = $true }
+    if (Test-LocalTradingLocks $lockedPython $unsafeSpring) {
+        throw "The restart safety gate accepted an enabled Spring setting: $field."
+    }
+}
+$unsafePython = $lockedPython.PSObject.Copy()
+$unsafePython.live_trading_enabled = $true
+if (Test-LocalTradingLocks $unsafePython $lockedSpring) {
+    throw 'The restart safety gate accepted Python live trading enabled.'
+}
+$unsafePython = $lockedPython.PSObject.Copy()
+$unsafePython.paper_automation_enabled = $true
+if (Test-LocalTradingLocks $unsafePython $lockedSpring) {
+    throw 'The restart safety gate accepted Python PAPER automation enabled.'
+}
+$unhealthyPython = $lockedPython.PSObject.Copy()
+$unhealthyPython.status = 'error'
+if (Test-LocalTradingLocks $unhealthyPython $lockedSpring) {
+    throw 'The restart safety gate accepted unhealthy Python API status.'
+}
 
 $now = [DateTimeOffset]::UtcNow
 $closedSessions = @(

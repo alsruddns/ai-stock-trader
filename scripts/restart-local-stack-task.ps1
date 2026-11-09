@@ -91,6 +91,22 @@ function Test-PaperSessionRestored($Session, $PreviousSession) {
     return $true
 }
 
+function Test-LocalTradingLocks($PythonHealth, $SpringSummary) {
+    if (-not $PythonHealth -or -not $SpringSummary) { return $false }
+    return $PythonHealth.status -eq 'ok' -and
+        $PythonHealth.live_trading_enabled -eq $false -and
+        $PythonHealth.paper_automation_enabled -eq $false -and
+        $SpringSummary.tradingMode -eq 'paper' -and
+        $SpringSummary.liveTrading -eq 'disabled' -and
+        $SpringSummary.paperAutomationEnabled -eq $false -and
+        $SpringSummary.kisPaperOrdersEnabled -eq $false -and
+        $SpringSummary.kisRealOrdersEnabled -eq $false -and
+        $SpringSummary.kisRealAccountReadsEnabled -eq $false -and
+        $SpringSummary.kisRealReconciliationEnabled -eq $false -and
+        $SpringSummary.realProtectiveExitManagerEnabled -eq $false -and
+        $SpringSummary.kisRealProtectiveExitAutomationEnabled -eq $false
+}
+
 function Stop-TrackedProcessTree($Process) {
     if ($null -eq $Process) { return }
     $current = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$Process.ProcessId)" -ErrorAction SilentlyContinue
@@ -125,6 +141,11 @@ $postgresListenerAddresses = @(Get-NetTCPConnection -State Listen -LocalPort 543
 Assert-PostgresLoopbackForRestart -ListenerAddresses $postgresListenerAddresses
 
 Get-ConfirmedClosedSessions
+$pythonHealthBefore = Invoke-RestMethod -Uri $pythonHealthUrl -TimeoutSec 5
+$springSummaryBefore = Invoke-RestMethod -Uri $springSummaryUrl -TimeoutSec 5
+if (-not (Test-LocalTradingLocks $pythonHealthBefore $springSummaryBefore)) {
+    throw 'Current APIs do not report all required PAPER and REAL trading locks; restart was not attempted.'
+}
 $previousPaperSession = Invoke-RestMethod -Uri $pythonPaperSessionUrl -TimeoutSec 5
 if ($null -eq $previousPaperSession.enabled -or $null -eq $previousPaperSession.orders_enabled -or
         [string]::IsNullOrWhiteSpace([string]$previousPaperSession.automation_state)) {
@@ -192,9 +213,7 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
     if ($null -eq $pythonOpenApi.paths.PSObject.Properties['/api/v1/market/session-quality/{market}/{symbol}']) {
         throw 'The restarted Python API is missing the expected session-quality route.'
     }
-    if ($pythonHealth.status -ne 'ok' -or $pythonHealth.live_trading_enabled -or $pythonHealth.paper_automation_enabled -or
-        $springSummary.tradingMode -ne 'paper' -or $springSummary.liveTrading -ne 'disabled' -or
-        $springSummary.paperAutomationEnabled -ne $false -or $springSummary.kisRealOrdersEnabled -ne $false) {
+    if (-not (Test-LocalTradingLocks $pythonHealth $springSummary)) {
         throw 'The restarted APIs did not report the required trading locks.'
     }
     if (-not (Test-PaperSessionRestored $paperSession $previousPaperSession)) {
