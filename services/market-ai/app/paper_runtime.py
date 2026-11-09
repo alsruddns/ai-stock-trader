@@ -207,7 +207,8 @@ class PaperSessionFeedMonitor:
             },
             "last_orderbook_received_at_by_feed": {"paper": None, "real": None},
             "bars_closed_by_feed": {"paper": 0, "real": 0},
-            "last_error": None, "orders_enabled": False,
+            "last_error": None, "last_stream_failure_stage": None,
+            "last_stream_error_category": None, "orders_enabled": False,
             "subscription_acknowledgements_by_feed": {}, "last_subscription_error_code": None,
             "automation_state": "DISABLED", "automation_error": None,
             "bar_storage_state": "DISABLED", "bar_storage_error": None,
@@ -833,10 +834,12 @@ class PaperSessionFeedMonitor:
         while True:
             connected_at: float | None = None
             subscription_tracker: SubscriptionAckTracker | None = None
+            failure_stage = "approval_key"
             try:
                 key = await asyncio.to_thread(approval_key, settings.kis)
                 import websockets
 
+                failure_stage = "websocket_connect"
                 async with websockets.connect(settings.websocket_url, ping_interval=30, close_timeout=3) as upstream:
                     connected_at = asyncio.get_running_loop().time()
                     active_watches = self._watches_by_feed.get(environment, list(watches))
@@ -852,6 +855,7 @@ class PaperSessionFeedMonitor:
                     self._set_connection_state(environment, "SUBSCRIBING")
                     self._set_subscription_ack_status(environment, subscription_tracker.status)
                     sent_keys: set[str] = set()
+                    failure_stage = "subscription_send"
                     for watch in tuple(active_watches):
                         for message in self._subscription_jsons(key, watch):
                             await upstream.send(message)
@@ -865,6 +869,7 @@ class PaperSessionFeedMonitor:
                         acknowledgement_deadline: float | None = None
                         while True:
                             if subscription_tracker.complete:
+                                failure_stage = "websocket_receive"
                                 acknowledgement_deadline = None
                                 receive_task = asyncio.create_task(upstream.recv())
                                 changed_task = asyncio.create_task(acknowledgement_changed.wait())
@@ -897,6 +902,7 @@ class PaperSessionFeedMonitor:
                                         )
                                     continue
                             else:
+                                failure_stage = "subscription_acknowledgement"
                                 if acknowledgement_deadline is None:
                                     acknowledgement_deadline = (
                                         asyncio.get_running_loop().time() + SUBSCRIPTION_ACK_TIMEOUT_SECONDS
@@ -926,6 +932,11 @@ class PaperSessionFeedMonitor:
                                 if acknowledged:
                                     self._set_status(last_subscription_error_code=None)
                                     self._set_connection_state(environment, "RUNNING")
+                                    self._set_status(
+                                        last_stream_failure_stage=None,
+                                        last_stream_error_category=None,
+                                    )
+                                    failure_stage = "websocket_receive"
                             self._record_frame_metadata(environment, frame)
                             self._consume(frame, tuple(self._watches_by_feed.get(environment, watches)))
                     finally:
@@ -941,21 +952,47 @@ class PaperSessionFeedMonitor:
                                      if connected_at is not None else 0)
                 delay = self._next_reconnect_delay(delay, connected_seconds)
                 self._set_connection_state(environment, "RECONNECTING")
-                self._set_status(last_error="KIS_SUBSCRIPTION_REJECTED")
+                self._set_status(
+                    last_error="KIS_SUBSCRIPTION_REJECTED",
+                    last_stream_failure_stage=failure_stage,
+                    last_stream_error_category="SUBSCRIPTION_REJECTED",
+                )
                 await asyncio.sleep(delay)
             except SubscriptionAcknowledgementTimeoutError:
                 connected_seconds = (asyncio.get_running_loop().time() - connected_at
                                      if connected_at is not None else 0)
                 delay = self._next_reconnect_delay(delay, connected_seconds)
                 self._set_connection_state(environment, "RECONNECTING")
-                self._set_status(last_error="KIS_SUBSCRIPTION_ACK_TIMEOUT")
+                self._set_status(
+                    last_error="KIS_SUBSCRIPTION_ACK_TIMEOUT",
+                    last_stream_failure_stage=failure_stage,
+                    last_stream_error_category="SUBSCRIPTION_TIMEOUT",
+                )
                 await asyncio.sleep(delay)
-            except Exception:
+            except Exception as exc:
                 connected_seconds = (asyncio.get_running_loop().time() - connected_at
                                      if connected_at is not None else 0)
                 delay = self._next_reconnect_delay(delay, connected_seconds)
                 self._set_connection_state(environment, "RECONNECTING")
+                self._set_status(
+                    last_stream_failure_stage=failure_stage,
+                    last_stream_error_category=self._stream_error_category(exc),
+                )
                 await asyncio.sleep(delay)
+
+    @staticmethod
+    def _stream_error_category(error: Exception) -> str:
+        """Return a low-detail, secret-safe category for reconnect diagnostics."""
+        error_name = type(error).__name__
+        if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
+            return "TIMEOUT"
+        if isinstance(error, (ConnectionError, OSError)) or error_name.startswith("ConnectionClosed"):
+            return "NETWORK_DISCONNECT"
+        if error_name in {"InvalidStatus", "InvalidHandshake", "WebSocketException"}:
+            return "WEBSOCKET_PROTOCOL"
+        if error_name == "KisApiError":
+            return "KIS_APPROVAL_OR_AUTH"
+        return "UNCLASSIFIED"
 
     def _set_subscription_ack_status(self, environment: str, status: dict[str, int | bool]) -> None:
         current = self.status().get("subscription_acknowledgements_by_feed", {})

@@ -507,6 +507,18 @@ def test_websocket_reconnect_backoff_survives_short_lived_connections() -> None:
     assert PaperSessionFeedMonitor._next_reconnect_delay(30, connected_seconds=60) == 1
 
 
+def test_websocket_failure_diagnostics_use_secret_safe_categories() -> None:
+    runtime = PaperSessionFeedMonitor()
+    private_detail = "credential-bearing-transport-detail"
+
+    assert runtime.status()["last_stream_failure_stage"] is None
+    assert runtime.status()["last_stream_error_category"] is None
+    assert PaperSessionFeedMonitor._stream_error_category(ConnectionResetError(private_detail)) == "NETWORK_DISCONNECT"
+    assert PaperSessionFeedMonitor._stream_error_category(TimeoutError(private_detail)) == "TIMEOUT"
+    assert PaperSessionFeedMonitor._stream_error_category(RuntimeError(private_detail)) == "UNCLASSIFIED"
+    assert private_detail not in str(runtime.status())
+
+
 def test_websocket_frame_diagnostics_count_only_bounded_metadata() -> None:
     runtime = PaperSessionFeedMonitor()
     marker = "PRIVATE-MARKET-PAYLOAD"
