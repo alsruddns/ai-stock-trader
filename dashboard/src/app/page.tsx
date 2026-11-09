@@ -75,6 +75,10 @@ export default function Dashboard() {
   }, []);
   useEffect(() => { const initial = window.setTimeout(() => void load(), 0); const timer = window.setInterval(load, 30000); return () => { window.clearTimeout(initial); window.clearInterval(timer); }; }, [load]);
   const ops = data?.operations;
+  const configuredOperationalMarkets = ops?.operationalMarkets.filter(
+    (market): market is "KR" | "US" => market === "KR" || market === "US",
+  ) ?? [];
+  const activeOperationalMarkets: ("KR" | "US")[] = configuredOperationalMarkets.length > 0 ? configuredOperationalMarkets : ["KR"];
   const realEntryGatesOpen = Boolean(ops && ops.tradingMode === "real" && ops.liveTrading === "enabled"
     && ops.kisRealOrdersEnabled && ops.kisAccountReadsEnabled && ops.kisRealAccountReadsEnabled
     && ops.kisRealReconciliationEnabled && ops.realProtectiveExitManagerEnabled
@@ -166,7 +170,7 @@ export default function Dashboard() {
     <section className="status-grid">
       <StatusCard title="주문·리스크 API" good={connected} value={connected ? "정상 연결" : "연결 안 됨"} detail="Spring Boot · localhost:18080" />
       <StatusCard title="시세·AI API" good={pythonConnected} value={pythonConnected ? "정상 연결" : "연결 안 됨"} detail="FastAPI · localhost:18000" />
-      <StatusCard title="P5 KR·US 거래 세션" good={Boolean(data?.marketSessions?.KR && data?.marketSessions?.US)} value={`KR ${marketSessionLabel(data?.marketSessions?.KR)} · US ${marketSessionLabel(data?.marketSessions?.US)}`} detail={`거래일 ${data?.marketSessions?.KR?.session_date ?? "미확인"} · XKRX 캘린더 ${calendarLabel(data?.paperSession?.kr_calendar_compatibility)} · 판정 불가 시 진입 차단`} />
+      <StatusCard title={`P5 ${activeOperationalMarkets.join("·")} 거래 세션`} good={activeOperationalMarkets.every((market) => Boolean(data?.marketSessions?.[market]))} value={`KR ${activeOperationalMarkets.includes("KR") ? marketSessionLabel(data?.marketSessions?.KR) : "운영 제외"} · US ${activeOperationalMarkets.includes("US") ? marketSessionLabel(data?.marketSessions?.US) : "운영 제외"}`} detail={`운영시장 ${activeOperationalMarkets.join("·")} · 거래일 ${data?.marketSessions?.KR?.session_date ?? "미확인"} · XKRX 캘린더 ${calendarLabel(data?.paperSession?.kr_calendar_compatibility)} · 판정 불가 시 진입 차단`} />
       <StatusCard title="P3 저장 분봉 품질" good={qualitySessions.length > 0 && completeQualityCount === qualitySessions.length} value={qualitySummary} detail={qualityDetails || "정규장 세션 날짜에 대한 PostgreSQL 자료가 필요합니다."} />
       <StatusCard title="P4 모델 학습 데이터" good={trainingReadiness.length > 0 && trainingReadiness.every((item) => item.minimum_met)} value={trainingReadinessSummary} detail={trainingReadinessDetail} />
       <StatusCard title="P7 Windows 예약작업" good={Boolean(localReportFresh && localReport?.localStackTask?.state === "Running" && localReport.sessionMonitorSchedule?.state === "AVAILABLE" && localReport.validationTaskSchedule?.state === "AVAILABLE")} value={localReport ? `감시 활성 KR ${marketMonitorEnabled(localReport.sessionMonitorSchedule, "KR")} / US ${marketMonitorEnabled(localReport.sessionMonitorSchedule, "US")} · 검증 활성 ${enabledTaskCount(localReport.validationTaskSchedule)}` : "상태 확인 불가"} detail={localReport ? `등록 감시 ${localReport.sessionMonitorSchedule?.registeredCount ?? 0}개 · 검증 ${localReport.validationTaskSchedule?.registeredCount ?? 0}개 · 보고서 ${time(localReport.generatedAt)}${localReportFresh ? " · 최신" : " · 오래된 보고서"}` : "최신 Windows 운영 보고서가 없습니다."} />
