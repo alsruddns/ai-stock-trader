@@ -83,6 +83,25 @@ Describe 'Exchange session monitor calendar boundaries' {
         $probeState.calls | Should Be 3
     }
 
+    It 'retries a temporary status endpoint failure during post-close finalization' {
+        $probeState = [pscustomobject]@{ calls = 0 }
+        $probe = {
+            $probeState.calls++
+            if ($probeState.calls -eq 1) {
+                [pscustomobject]@{ ready = $false; status_available = $false }
+            } else {
+                [pscustomobject]@{ ready = $true; status_available = $true }
+            }
+        }.GetNewClosure()
+        $noSleep = { param([int]$Seconds) }
+
+        $result = Wait-ForExchangeSessionFinalization 10 1 $probe $noSleep
+
+        $result.ready | Should Be $true
+        $result.result.status_available | Should Be $true
+        $probeState.calls | Should Be 2
+    }
+
     It 'keeps a 389-bar session incomplete instead of accepting it at close' {
         $probe = { [pscustomobject]@{ ready = $false; bars_delta = 389 } }
 

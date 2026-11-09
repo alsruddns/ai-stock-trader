@@ -135,6 +135,7 @@ $sessionCloseReached = $false
 $sessionQualityEvidence = @()
 $sessionQualityDiagnostics = @()
 $sessionQualityStatus = 'not_checked'
+$sessionStatusAvailable = $true
 $postCloseWaitSeconds = 0.0
 $monitorStage = 'stream_monitoring'
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($DurationSeconds)
@@ -271,18 +272,56 @@ if ($RequireSessionClose -and -not $sessionCloseReached) {
 if ($RequireSessionClose) {
     $monitorStage = 'post_close_validation'
     $sessionQualityProbe = {
-        $status = Get-SessionStatus
+        $status = $latest
+        try {
+            $status = Get-SessionStatus
+            $sessionStatusAvailable = $true
+        } catch {
+            $sessionStatusAvailable = $false
+            $sessionQualityStatus = 'unavailable'
+            Write-ProgressRecord ([ordered]@{
+                recorded_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+                requested_seconds = $DurationSeconds
+                elapsed_seconds = [int]$stopwatch.Elapsed.TotalSeconds
+                selected_feed = if ($Feed) { $Feed } else { 'any' }
+                session_phase = 'CLOSED'
+                market_session = $exchangeSession.market
+                market_session_date = $exchangeSession.session_date
+                session_status_available = $false
+                session_quality_ready = $false
+                session_quality_status = $sessionQualityStatus
+                session_quality_diagnostics = $sessionQualityDiagnostics
+                feeds = if ($status) { $status.stream_connections } else { $null }
+                feed_diagnostics = if ($status) { Get-MonitorFeedDiagnostics $status $Feed } else { $null }
+                feed_diagnostics_delta = if ($status) { Get-MonitorFeedDiagnosticsDelta $initial $status $Feed } else { $null }
+                orders_enabled = if ($status) { [bool]$status.orders_enabled } else { $false }
+                automation_state = if ($status) { $status.automation_state } else { $null }
+                result = 'session_status_unavailable'
+            })
+            return [pscustomobject]@{
+                ready = $false
+                status = $status
+                status_available = $false
+                quality = @()
+                quality_diagnostics = $sessionQualityDiagnostics
+                quality_status = $sessionQualityStatus
+            }
+        }
         Assert-SafeRunningStatus $status $Feed ([bool]$RequireBothFeeds)
         $qualityEvidence = @()
-        $qualityDiagnostics = @()
-        $qualityStatus = 'unavailable'
+        $qualityDiagnostics = $sessionQualityDiagnostics
+        $qualityStatus = $sessionQualityStatus
         try {
             $qualitySnapshot = Get-SessionQualityEvidence $status $exchangeSession $ApiBaseUrl $Feed $MinimumBarsDelta
             $qualityEvidence = @($qualitySnapshot.verified)
             $qualityDiagnostics = @($qualitySnapshot.diagnostics)
             $qualityStatus = [string]$qualitySnapshot.validation_status
+            $sessionQualityDiagnostics = $qualityDiagnostics
+            $sessionQualityStatus = $qualityStatus
         } catch {
             # The final minute and storage-quality view can settle just after the exchange close.
+            $qualityStatus = 'unavailable'
+            $sessionQualityStatus = $qualityStatus
         }
         $currentBars = if ($Feed) { [int]$status.bars_closed_by_feed.$Feed } else { [int]$status.bars_closed }
         $barCount = Get-ExchangeSessionBarsDelta $currentBars $initialBars $sessionOpenBarsBaseline
@@ -295,6 +334,7 @@ if ($RequireSessionClose) {
             market_session = $exchangeSession.market
             market_session_date = $exchangeSession.session_date
             bars_delta = $barCount.delta
+            session_status_available = $true
             session_quality_ready = ($qualityEvidence.Count -gt 0)
             session_quality_status = $qualityStatus
             session_quality_diagnostics = $qualityDiagnostics
@@ -308,6 +348,7 @@ if ($RequireSessionClose) {
         return [pscustomobject]@{
             ready = ($qualityEvidence.Count -gt 0)
             status = $status
+            status_available = $true
             quality = $qualityEvidence
             quality_diagnostics = $qualityDiagnostics
             quality_status = $qualityStatus
@@ -317,10 +358,14 @@ if ($RequireSessionClose) {
         $PostCloseGraceSeconds $PollIntervalSeconds $sessionQualityProbe
     $postCloseWaitSeconds = $finalization.elapsed_seconds
     $latest = $finalization.result.status
+    $sessionStatusAvailable = [bool]$finalization.result.status_available
     $sessionQualityEvidence = @($finalization.result.quality)
     $sessionQualityDiagnostics = @($finalization.result.quality_diagnostics)
     $sessionQualityStatus = [string]$finalization.result.quality_status
     if (-not $finalization.ready) {
+        if (-not $sessionStatusAvailable) {
+            throw 'Could not read the local paper-session status endpoint.'
+        }
         throw 'The final stored session did not reach complete bars, spread, and source verification within the post-close grace period.'
     }
 }
@@ -364,6 +409,7 @@ $evidence = [ordered]@{
     market_session_open_utc = if ($exchangeSession) { $exchangeSession.open_utc.ToString('o') } else { $null }
     market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
     session_close_reached = $sessionCloseReached
+    session_status_available = $sessionStatusAvailable
     session_bars_baseline = $sessionBarCount.baseline
     selected_feed = if ($Feed) { $Feed } else { 'any' }
     ticks_delta = $tickDelta
@@ -400,6 +446,7 @@ Write-ProgressRecord ([ordered]@{
     market_session_open_utc = $evidence.market_session_open_utc
     market_session_close_utc = $evidence.market_session_close_utc
     session_close_reached = $evidence.session_close_reached
+    session_status_available = $sessionStatusAvailable
     session_bars_baseline = $evidence.session_bars_baseline
     feeds = $latest.stream_connections
     feed_diagnostics = Get-MonitorFeedDiagnostics $latest $Feed
@@ -432,6 +479,7 @@ Write-Output "Read-only KIS monitor sample passed: feed=$(if ($Feed) { $Feed } e
         market_session_date = if ($exchangeSession) { $exchangeSession.session_date } else { $null }
         market_session_open_utc = if ($exchangeSession) { $exchangeSession.open_utc.ToString('o') } else { $null }
         market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
+        session_status_available = $sessionStatusAvailable
         session_quality_status = $sessionQualityStatus
         session_quality_diagnostics = $sessionQualityDiagnostics
         closing_auction_silence_seconds = if ($closingAuctionSilenceSeconds) { [Math]::Round($closingAuctionSilenceSeconds, 1) } else { 0.0 }
