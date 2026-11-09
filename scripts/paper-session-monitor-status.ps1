@@ -30,6 +30,20 @@ function Get-MonitorStreamFailureDiagnostic($Status) {
     $categoryProperty = if ($Status) { $Status.PSObject.Properties['last_stream_error_category'] } else { $null }
     $recordedAtProperty = if ($Status) { $Status.PSObject.Properties['last_stream_failure_at'] } else { $null }
     $environmentProperty = if ($Status) { $Status.PSObject.Properties['last_stream_failure_environment'] } else { $null }
+    $failureCountsProperty = if ($Status) { $Status.PSObject.Properties['stream_failures_by_feed'] } else { $null }
+    $failureEnvironment = if ($environmentProperty -and $environmentProperty.Value -in @('paper', 'real')) {
+        [string]$environmentProperty.Value
+    } else { $null }
+    $failureCount = $null
+    $failureCountAvailable = $false
+    if ($failureEnvironment -and $failureCountsProperty -and $failureCountsProperty.Value) {
+        $countProperty = $failureCountsProperty.Value.PSObject.Properties[$failureEnvironment]
+        $parsedCount = 0L
+        if ($countProperty -and [long]::TryParse([string]$countProperty.Value, [ref]$parsedCount) -and $parsedCount -ge 0) {
+            $failureCount = $parsedCount
+            $failureCountAvailable = $true
+        }
+    }
     $recordedAt = $null
     if ($recordedAtProperty -and $recordedAtProperty.Value) {
         $parsedAt = [DateTimeOffset]::MinValue
@@ -42,7 +56,9 @@ function Get-MonitorStreamFailureDiagnostic($Status) {
         stream_failure_stage = if ($stageProperty -and $stageProperty.Value -in $allowedStages) { [string]$stageProperty.Value } else { $null }
         stream_error_category = if ($categoryProperty -and $categoryProperty.Value -in $allowedCategories) { [string]$categoryProperty.Value } else { $null }
         stream_failure_at = $recordedAt
-        stream_failure_environment = if ($environmentProperty -and $environmentProperty.Value -in @('paper', 'real')) { [string]$environmentProperty.Value } else { $null }
+        stream_failure_environment = $failureEnvironment
+        stream_failure_count_available = $failureCountAvailable
+        stream_failure_count = $failureCount
     }
 }
 

@@ -519,6 +519,31 @@ def test_websocket_failure_diagnostics_use_secret_safe_categories() -> None:
     assert private_detail not in str(runtime.status())
 
 
+def test_domestic_websocket_failure_count_is_per_feed_and_keeps_only_safe_fields() -> None:
+    runtime = PaperSessionFeedMonitor()
+    private_detail = "account=private-secret"
+
+    runtime._set_connection_state("paper", "RECONNECTING")
+    runtime._record_stream_failure("paper", "websocket_receive", "NETWORK_DISCONNECT")
+    runtime._record_stream_failure("paper", "websocket_receive", "NETWORK_DISCONNECT")
+
+    status = runtime.status()
+    assert status["stream_failures_by_feed"] == {"paper": 2, "real": 0}
+    assert status["last_stream_failure_stage"] == "websocket_receive"
+    assert status["last_stream_error_category"] == "NETWORK_DISCONNECT"
+    assert status["last_error"] == "KIS_STREAM_UNAVAILABLE"
+    assert private_detail not in str(status)
+
+
+def test_domestic_websocket_failure_count_ignores_unknown_feed_name() -> None:
+    runtime = PaperSessionFeedMonitor()
+
+    runtime._record_stream_failure("other", "websocket_receive", "NETWORK_DISCONNECT")
+
+    assert runtime.status()["stream_failures_by_feed"] == {"paper": 0, "real": 0}
+    assert runtime.status()["last_stream_failure_stage"] is None
+
+
 def test_websocket_frame_diagnostics_count_only_bounded_metadata() -> None:
     runtime = PaperSessionFeedMonitor()
     marker = "PRIVATE-MARKET-PAYLOAD"

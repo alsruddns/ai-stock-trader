@@ -207,6 +207,7 @@ class PaperSessionFeedMonitor:
             },
             "last_orderbook_received_at_by_feed": {"paper": None, "real": None},
             "bars_closed_by_feed": {"paper": 0, "real": 0},
+            "stream_failures_by_feed": {"paper": 0, "real": 0},
             "last_error": None, "last_stream_failure_stage": None,
             "last_stream_error_category": None, "last_stream_failure_at": None,
             "last_stream_failure_environment": None,
@@ -260,6 +261,7 @@ class PaperSessionFeedMonitor:
                 for feed, counts in self._status["market_data_diagnostics_by_feed"].items()
             }
             result["bars_closed_by_feed"] = dict(self._status["bars_closed_by_feed"])
+            result["stream_failures_by_feed"] = dict(self._status["stream_failures_by_feed"])
             result["candidate_refresh_by_market"] = {
                 key: dict(value) for key, value in self._status["candidate_refresh_by_market"].items()
             }
@@ -950,12 +952,9 @@ class PaperSessionFeedMonitor:
                                      if connected_at is not None else 0)
                 delay = self._next_reconnect_delay(delay, connected_seconds)
                 self._set_connection_state(environment, "RECONNECTING")
-                self._set_status(
+                self._record_stream_failure(
+                    environment, failure_stage, "SUBSCRIPTION_REJECTED",
                     last_error="KIS_SUBSCRIPTION_REJECTED",
-                    last_stream_failure_stage=failure_stage,
-                    last_stream_error_category="SUBSCRIPTION_REJECTED",
-                    last_stream_failure_at=datetime.now(timezone.utc).isoformat(),
-                    last_stream_failure_environment=environment,
                 )
                 await asyncio.sleep(delay)
             except SubscriptionAcknowledgementTimeoutError:
@@ -963,12 +962,9 @@ class PaperSessionFeedMonitor:
                                      if connected_at is not None else 0)
                 delay = self._next_reconnect_delay(delay, connected_seconds)
                 self._set_connection_state(environment, "RECONNECTING")
-                self._set_status(
+                self._record_stream_failure(
+                    environment, failure_stage, "SUBSCRIPTION_TIMEOUT",
                     last_error="KIS_SUBSCRIPTION_ACK_TIMEOUT",
-                    last_stream_failure_stage=failure_stage,
-                    last_stream_error_category="SUBSCRIPTION_TIMEOUT",
-                    last_stream_failure_at=datetime.now(timezone.utc).isoformat(),
-                    last_stream_failure_environment=environment,
                 )
                 await asyncio.sleep(delay)
             except Exception as exc:
@@ -976,13 +972,30 @@ class PaperSessionFeedMonitor:
                                      if connected_at is not None else 0)
                 delay = self._next_reconnect_delay(delay, connected_seconds)
                 self._set_connection_state(environment, "RECONNECTING")
-                self._set_status(
-                    last_stream_failure_stage=failure_stage,
-                    last_stream_error_category=self._stream_error_category(exc),
-                    last_stream_failure_at=datetime.now(timezone.utc).isoformat(),
-                    last_stream_failure_environment=environment,
+                self._record_stream_failure(
+                    environment, failure_stage, self._stream_error_category(exc),
                 )
                 await asyncio.sleep(delay)
+
+    def _record_stream_failure(
+        self, environment: str, stage: str, category: str, *, last_error: str | None = None,
+    ) -> None:
+        """Count reconnect failures per feed while retaining only safe diagnostic metadata."""
+        if environment not in {"paper", "real"}:
+            return
+        with self._lock:
+            counts = dict(self._status["stream_failures_by_feed"])
+            counts[environment] = int(counts.get(environment, 0)) + 1
+            self._status["stream_failures_by_feed"] = counts
+            values: dict[str, object] = {
+                "last_stream_failure_stage": stage,
+                "last_stream_error_category": category,
+                "last_stream_failure_at": datetime.now(timezone.utc).isoformat(),
+                "last_stream_failure_environment": environment,
+            }
+            if last_error is not None:
+                values["last_error"] = last_error
+            self._status.update(values)
 
     @staticmethod
     def _stream_error_category(error: Exception) -> str:
