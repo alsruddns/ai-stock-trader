@@ -180,6 +180,14 @@ class PaperSessionFeedMonitor:
             "last_tick_received_at": None,
             "ticks_received_by_feed": {"paper": 0, "real": 0},
             "last_tick_received_at_by_feed": {"paper": None, "real": None},
+            "frames_received_by_feed": {"paper": 0, "real": 0},
+            "frame_transaction_counts_by_feed": {
+                "paper": {"H0STCNT0": 0, "H0STASP0": 0, "HDFSCNT0": 0, "OTHER": 0},
+                "real": {"H0STCNT0": 0, "H0STASP0": 0, "HDFSCNT0": 0, "OTHER": 0},
+            },
+            "last_frame_kind_by_feed": {"paper": None, "real": None},
+            "last_frame_transaction_id_by_feed": {"paper": None, "real": None},
+            "last_frame_received_at_by_feed": {"paper": None, "real": None},
             "orderbook_updates_by_feed": {"paper": 0, "real": 0},
             "last_orderbook_received_at_by_feed": {"paper": None, "real": None},
             "bars_closed_by_feed": {"paper": 0, "real": 0},
@@ -215,6 +223,14 @@ class PaperSessionFeedMonitor:
             result["decisions"] = {key: dict(value) for key, value in self._decisions.items()}
             result["ticks_received_by_feed"] = dict(self._status["ticks_received_by_feed"])
             result["last_tick_received_at_by_feed"] = dict(self._status["last_tick_received_at_by_feed"])
+            result["frames_received_by_feed"] = dict(self._status["frames_received_by_feed"])
+            result["frame_transaction_counts_by_feed"] = {
+                feed: dict(counts)
+                for feed, counts in self._status["frame_transaction_counts_by_feed"].items()
+            }
+            result["last_frame_kind_by_feed"] = dict(self._status["last_frame_kind_by_feed"])
+            result["last_frame_transaction_id_by_feed"] = dict(self._status["last_frame_transaction_id_by_feed"])
+            result["last_frame_received_at_by_feed"] = dict(self._status["last_frame_received_at_by_feed"])
             result["bars_closed_by_feed"] = dict(self._status["bars_closed_by_feed"])
             result["candidate_refresh_by_market"] = {
                 key: dict(value) for key, value in self._status["candidate_refresh_by_market"].items()
@@ -224,6 +240,42 @@ class PaperSessionFeedMonitor:
     def bars(self, watch: PaperWatch) -> tuple[MinuteBar, ...]:
         with self._lock:
             return tuple(self._bars.get(watch.key, ()))
+
+    def _record_frame_metadata(self, environment: str, frame: str | bytes) -> None:
+        """Keep bounded WebSocket receipt diagnostics without retaining market payloads."""
+        if environment not in {"paper", "real"}:
+            return
+        normalized = normalize_stream_frame(frame)
+        frame_kind = normalized.get("kind")
+        if frame_kind not in {"data", "control"}:
+            frame_kind = "other"
+        transaction_id = normalized.get("transaction_id", "") if frame_kind == "data" else ""
+        allowed_transactions = {"H0STCNT0", "H0STASP0", "HDFSCNT0"}
+        counter_key = transaction_id if transaction_id in allowed_transactions else "OTHER"
+        safe_transaction_id = counter_key if frame_kind == "data" else None
+        received_at = datetime.now().astimezone().isoformat()
+        with self._lock:
+            frames = dict(self._status["frames_received_by_feed"])
+            frames[environment] = int(frames.get(environment, 0)) + 1
+            self._status["frames_received_by_feed"] = frames
+            last_kind = dict(self._status["last_frame_kind_by_feed"])
+            last_kind[environment] = frame_kind
+            self._status["last_frame_kind_by_feed"] = last_kind
+            last_transaction = dict(self._status["last_frame_transaction_id_by_feed"])
+            last_transaction[environment] = safe_transaction_id
+            self._status["last_frame_transaction_id_by_feed"] = last_transaction
+            last_received = dict(self._status["last_frame_received_at_by_feed"])
+            last_received[environment] = received_at
+            self._status["last_frame_received_at_by_feed"] = last_received
+            if frame_kind == "data":
+                by_feed = {
+                    feed: dict(counts)
+                    for feed, counts in self._status["frame_transaction_counts_by_feed"].items()
+                }
+                counts = by_feed[environment]
+                counts[counter_key] = int(counts.get(counter_key, 0)) + 1
+                by_feed[environment] = counts
+                self._status["frame_transaction_counts_by_feed"] = by_feed
 
     def decisions(self) -> dict[str, dict[str, object]]:
         """Return latest advisory quant decisions; none are executable orders."""
@@ -838,6 +890,7 @@ class PaperSessionFeedMonitor:
                                 if acknowledged:
                                     self._set_status(last_subscription_error_code=None)
                                     self._set_connection_state(environment, "RUNNING")
+                            self._record_frame_metadata(environment, frame)
                             self._consume(frame, tuple(self._watches_by_feed.get(environment, watches)))
                     finally:
                         update_task.cancel()

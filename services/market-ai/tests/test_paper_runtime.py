@@ -473,6 +473,39 @@ def test_websocket_reconnect_backoff_survives_short_lived_connections() -> None:
     assert PaperSessionFeedMonitor._next_reconnect_delay(30, connected_seconds=60) == 1
 
 
+def test_websocket_frame_diagnostics_count_only_bounded_metadata() -> None:
+    runtime = PaperSessionFeedMonitor()
+    marker = "PRIVATE-MARKET-PAYLOAD"
+
+    runtime._record_frame_metadata("paper", f"0|H0STCNT0|1|{marker}")
+    runtime._record_frame_metadata(
+        "paper",
+        f'{{"header":{{"tr_id":"PINGPONG"}},"body":{{"output":{{"msg1":"{marker}"}}}}}}',
+    )
+    runtime._record_frame_metadata("paper", f"0|UNEXPECTED_TRANSACTION|1|{marker}")
+
+    status = runtime.status()
+    assert status["frames_received_by_feed"]["paper"] == 3
+    assert status["frame_transaction_counts_by_feed"]["paper"] == {
+        "H0STCNT0": 1, "H0STASP0": 0, "HDFSCNT0": 0, "OTHER": 1,
+    }
+    assert status["last_frame_kind_by_feed"]["paper"] == "data"
+    assert status["last_frame_transaction_id_by_feed"]["paper"] == "OTHER"
+    assert marker not in str(status)
+    assert "UNEXPECTED_TRANSACTION" not in str(status)
+
+
+def test_websocket_frame_diagnostics_keep_feed_maps_isolated() -> None:
+    runtime = PaperSessionFeedMonitor()
+
+    runtime._record_frame_metadata("real", "0|HDFSCNT0|1|payload")
+
+    status = runtime.status()
+    assert status["frames_received_by_feed"] == {"paper": 0, "real": 1}
+    assert status["frame_transaction_counts_by_feed"]["real"]["HDFSCNT0"] == 1
+    assert status["frame_transaction_counts_by_feed"]["paper"]["HDFSCNT0"] == 0
+
+
 def test_multi_feed_status_only_reports_running_when_all_streams_are_connected() -> None:
     runtime = PaperSessionFeedMonitor()
     runtime._set_status(stream_connections={"paper": "CONNECTING", "real": "CONNECTING"})
