@@ -329,10 +329,14 @@ if (Test-TrackedProcessIdentity $wrongPython 'market-ai') { throw 'Python from a
 $unrelatedRunner = $runnerProcess.PSObject.Copy()
 $unrelatedRunner.CommandLine = 'powershell.exe -File C:\other\run-local-stack-task.ps1'
 if (Test-TrackedProcessIdentity $unrelatedRunner 'runner') { throw 'Runner from another repository must be rejected.' }
-if (-not (Test-TrackedProcessParentage $runnerProcess $backendProcess $marketAiProcess)) { throw 'Expected process parentage was rejected.' }
+if (-not (Test-TrackedProcessParentage $runnerProcess $backendProcess $marketAiProcess 100)) { throw 'Expected process parentage was rejected.' }
+$orphanedRunnerChildren = $backendProcess.PSObject.Copy()
+if (-not (Test-TrackedProcessParentage $null $orphanedRunnerChildren $marketAiProcess 100)) {
+    throw 'Verified API children should remain restartable after their runner exits.'
+}
 $orphanBackend = $backendProcess.PSObject.Copy()
 $orphanBackend.ParentProcessId = 999
-if (Test-TrackedProcessParentage $runnerProcess $orphanBackend $marketAiProcess) { throw 'Unexpected process parentage must be rejected.' }
+if (Test-TrackedProcessParentage $runnerProcess $orphanBackend $marketAiProcess 100) { throw 'Unexpected process parentage must be rejected.' }
 
 $previousPaperSession = [pscustomobject]@{
     enabled = $true; state = 'RUNNING'; orders_enabled = $false

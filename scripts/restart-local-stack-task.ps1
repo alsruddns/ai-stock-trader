@@ -1,7 +1,8 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$TaskName = 'AIStockTrader-LocalStack',
-    [ValidateRange(10, 300)] [int]$StartupTimeoutSeconds = 120
+    [ValidateRange(10, 300)] [int]$StartupTimeoutSeconds = 120,
+    [switch]$DomesticOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,9 +20,14 @@ function Assert-PostgresLoopbackForRestart {
     Assert-LocalPostgresBinding -Port 5432 -ListenerAddresses $ListenerAddresses
 }
 
-function Test-SessionResponsesFreshAndClosed($Sessions, [DateTimeOffset]$NowUtc) {
-    if (@($Sessions).Count -ne 2) { return $false }
-    foreach ($market in @('KR', 'US')) {
+function Get-RequiredSessionMarkets([switch]$DomesticOnly) {
+    if ($DomesticOnly) { return @('KR') }
+    return @('KR', 'US')
+}
+
+function Test-SessionResponsesFreshAndClosed($Sessions, [DateTimeOffset]$NowUtc, [string[]]$Markets = @('KR', 'US')) {
+    if (@($Sessions).Count -ne $Markets.Count) { return $false }
+    foreach ($market in $Markets) {
         $session = @($Sessions | Where-Object { [string]$_.market -eq $market }) | Select-Object -First 1
         if (-not $session) { return $false }
         if ([string]$session.market -ne $market -or
@@ -42,13 +48,14 @@ function Test-SessionResponsesFreshAndClosed($Sessions, [DateTimeOffset]$NowUtc)
     return $true
 }
 
-function Get-ConfirmedClosedSessions {
+function Get-ConfirmedClosedSessions([switch]$DomesticOnly) {
     $nowUtc = [DateTimeOffset]::UtcNow
-    $sessions = foreach ($market in @('KR', 'US')) {
+    $markets = @(Get-RequiredSessionMarkets -DomesticOnly:$DomesticOnly)
+    $sessions = foreach ($market in $markets) {
         Invoke-RestMethod -Uri "http://127.0.0.1:18000/api/v1/market/sessions/$market" -TimeoutSec 5
     }
-    if (-not (Test-SessionResponsesFreshAndClosed $sessions $nowUtc)) {
-        throw 'Both exchanges must be confirmed closed by fresh local calendar responses; local stack restart was not attempted.'
+    if (-not (Test-SessionResponsesFreshAndClosed $sessions $nowUtc $markets)) {
+        throw 'Required exchange sessions must be confirmed closed by fresh local calendar responses; local stack restart was not attempted.'
     }
 }
 
@@ -75,10 +82,22 @@ function Get-TrackedProcess($ProcessId, [string]$Description) {
     return $process
 }
 
-function Test-TrackedProcessParentage($Runner, $Backend, $MarketAi) {
-    return $Runner -and $Backend -and $MarketAi -and
-        [int]$Backend.ParentProcessId -eq [int]$Runner.ProcessId -and
-        [int]$MarketAi.ParentProcessId -eq [int]$Runner.ProcessId
+function Test-TrackedProcessParentage($Runner, $Backend, $MarketAi, [int]$ExpectedRunnerProcessId) {
+    if (-not $Backend -or -not $MarketAi -or $ExpectedRunnerProcessId -le 0) { return $false }
+    if ($Runner) {
+        return [int]$Runner.ProcessId -eq $ExpectedRunnerProcessId -and
+            [int]$Backend.ParentProcessId -eq $ExpectedRunnerProcessId -and
+            [int]$MarketAi.ParentProcessId -eq $ExpectedRunnerProcessId
+    }
+    # The task runner can exit after Windows records its result while its
+    # repository-verified API children remain alive. Accept only the exact
+    # recorded parent PID for both verified children.
+    return [int]$Backend.ParentProcessId -eq $ExpectedRunnerProcessId -and
+        [int]$MarketAi.ParentProcessId -eq $ExpectedRunnerProcessId
+}
+
+function Test-LocalTaskRestartable([string]$State) {
+    return $State -eq 'Running' -or $State -eq 'Ready'
 }
 
 function Test-PaperSessionRestored($Session, $PreviousSession) {
@@ -210,7 +229,9 @@ function Test-LocalPortsFree {
 
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($null -eq $task) { throw "Scheduled task '$TaskName' is not registered." }
-if ($task.State -ne 'Running') { throw "Scheduled task '$TaskName' is not running; restart was not attempted." }
+if (-not (Test-LocalTaskRestartable ([string]$task.State))) {
+    throw "Scheduled task '$TaskName' is not restartable from its current state; restart was not attempted."
+}
 $expectedRunnerPath = Join-Path $PSScriptRoot 'run-local-stack-task.ps1'
 $taskActionMatches = @($task.Actions | Where-Object {
     [string]$_.Arguments -match [regex]::Escape($expectedRunnerPath)
@@ -222,7 +243,7 @@ $postgresListenerAddresses = @(Get-NetTCPConnection -State Listen -LocalPort 543
     Select-Object -ExpandProperty LocalAddress -Unique)
 Assert-PostgresLoopbackForRestart -ListenerAddresses $postgresListenerAddresses
 
-Get-ConfirmedClosedSessions
+Get-ConfirmedClosedSessions -DomesticOnly:$DomesticOnly
 $pythonHealthBefore = Invoke-RestMethod -Uri $pythonHealthUrl -TimeoutSec 5
 $springSummaryBefore = Invoke-RestMethod -Uri $springSummaryUrl -TimeoutSec 5
 if (-not (Test-LocalTradingLocks $pythonHealthBefore $springSummaryBefore)) {
@@ -237,23 +258,25 @@ $state = Get-Content -LiteralPath $runtimeStatePath -Raw | ConvertFrom-Json
 $runner = Get-TrackedProcess $state.runnerProcessId 'runner'
 $backend = Get-TrackedProcess $state.backendProcessId 'backend'
 $marketAi = Get-TrackedProcess $state.marketAiProcessId 'market-ai'
-if ($null -eq $runner -or $null -eq $backend -or $null -eq $marketAi) {
-    throw 'One or more tracked API processes are missing; restart was not attempted.'
+if ($null -eq $backend -or $null -eq $marketAi) {
+    throw 'One or more tracked API child processes are missing; restart was not attempted.'
 }
-$runnerId = [int]$runner.ProcessId
-if (-not (Test-TrackedProcessParentage $runner $backend $marketAi)) {
+$runnerId = [int]$state.runnerProcessId
+if (-not (Test-TrackedProcessParentage $runner $backend $marketAi $runnerId)) {
     throw 'A tracked API process is not owned by the local stack runner; restart was stopped.'
 }
 
 if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart Spring Boot and Python APIs')) {
-    Stop-ScheduledTask -TaskName $TaskName
-    $stopDeadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
-    do {
-        Start-Sleep -Milliseconds 250
-        $currentTask = Get-ScheduledTask -TaskName $TaskName
-    } while ($currentTask.State -eq 'Running' -and [DateTimeOffset]::UtcNow -lt $stopDeadline)
+    if ($task.State -eq 'Running') {
+        Stop-ScheduledTask -TaskName $TaskName
+        $stopDeadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
+        do {
+            Start-Sleep -Milliseconds 250
+            $currentTask = Get-ScheduledTask -TaskName $TaskName
+        } while ($currentTask.State -eq 'Running' -and [DateTimeOffset]::UtcNow -lt $stopDeadline)
 
-    if ($currentTask.State -eq 'Running') { throw 'Windows did not stop the local stack task in time.' }
+        if ($currentTask.State -eq 'Running') { throw 'Windows did not stop the local stack task in time.' }
+    }
     Stop-TrackedProcessTree $runner
     Stop-TrackedProcessTree $backend
     Stop-TrackedProcessTree $marketAi
@@ -310,5 +333,6 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
     if (-not (Test-PaperMarketDataDiagnosticsReady $paperSession)) {
         throw 'The restarted Python API did not expose the expected market-data processing diagnostics.'
     }
-    Write-Output 'Local APIs restarted after both exchanges closed; frame/quote/processing diagnostics and monitor/storage were restored and all trading locks remain enabled.'
+    $closedSessionScope = if ($DomesticOnly) { 'KRX' } else { 'both exchanges' }
+    Write-Output "Local APIs restarted after $closedSessionScope closed; frame/quote/processing diagnostics and monitor/storage were restored and all trading locks remain enabled."
 }

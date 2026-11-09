@@ -11,7 +11,9 @@ on:
       - 'scripts/test-paper-kis-python.ps1'
       - 'scripts/tests/exchange-session-monitor.Tests.ps1'
       - 'scripts/tests/krx-session-monitor-domestic.Tests.ps1'
+      - 'scripts/tests/local-stack-restart-domestic.Tests.ps1'
       - 'scripts/tests/safe-http-diagnostic.Tests.ps1'
+      - 'scripts/restart-local-stack-task.ps1'
       - '.github/workflows/krx-session-monitor-safety.yml'
   workflow_dispatch:
 
@@ -42,6 +44,7 @@ jobs:
             'scripts/test-paper-websocket-monitor.ps1',
             'scripts/lib/safe-http-diagnostic.ps1',
             'scripts/test-paper-kis-python.ps1'
+            'scripts/restart-local-stack-task.ps1'
           )) {
             $tokens = $null
             $errors = $null
@@ -52,6 +55,11 @@ jobs:
           $result = Invoke-Pester -Path 'scripts/tests/krx-session-monitor-domestic.Tests.ps1' -PassThru
           if ($result.FailedCount -gt 0 -or $result.PassedCount -ne 4) {
             throw "Domestic KRX session monitor tests failed: passed=$($result.PassedCount), failed=$($result.FailedCount)."
+          }
+
+          $restartResult = Invoke-Pester -Path 'scripts/tests/local-stack-restart-domestic.Tests.ps1' -PassThru
+          if ($restartResult.FailedCount -gt 0 -or $restartResult.PassedCount -ne 4) {
+            throw "Domestic local stack restart tests failed: passed=$($restartResult.PassedCount), failed=$($restartResult.FailedCount)."
           }
 
           $diagnosticResult = Invoke-Pester -Path 'scripts/tests/safe-http-diagnostic.Tests.ps1' -PassThru
