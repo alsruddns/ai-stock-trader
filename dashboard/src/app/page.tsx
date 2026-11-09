@@ -25,7 +25,7 @@ type Ops = {
 type Model = { model_id: string; market?: string; model_type?: string; approved?: boolean; active?: boolean; integrity_error?: boolean; feature_compatible?: boolean; data_rights_verified?: boolean; approval_evidence_verified?: boolean; artifact_sha256?: string; dataset_sha256?: string; test_metrics?: Record<string, number>; quant_baseline_test_metrics?: Record<string, number>; quant_backtest_test_metrics?: Record<string, string | number>; ai_quant_backtest_test_metrics?: Record<string, string | number>; training_config?: Record<string, string | number> };
 type Decision = { market: string; symbol: string; exchange: string | null; signal: string; reason: string; bars_in_session: number; evaluated_at: string | null; model_id?: string | null; executable: false };
 type MarketSession = { market: "KR" | "US"; session_date: string; is_session: boolean; is_open: boolean; open_at: string | null; close_at: string | null; evaluated_at: string };
-type SessionQuality = { market: string; symbol: string; session_date: string; status: string; expected_bars: number; observed_bars: number; missing_bars: number; spread_bars: number; spread_coverage_percent: number | null; missing_bar_timestamps?: string[]; bars_without_spread_timestamps?: string[]; full_session_complete: boolean };
+type SessionQuality = { market: string; symbol: string; session_date: string; status: string; expected_bars: number; observed_bars: number; missing_bars: number; spread_bars: number; spread_coverage_percent: number | null; source_counts?: Record<string, number>; missing_bar_timestamps?: string[]; bars_without_spread_timestamps?: string[]; full_session_complete: boolean };
 type SessionQualityBatch = { market: string; session_date: string; sessions: SessionQuality[] };
 type CostAssumptionStatus = { configured: boolean; missing: string[]; invalid: string[] };
 type MarketAiHealth = Record<string, unknown> & { strategy_cost_assumptions?: Partial<Record<"KR" | "US", CostAssumptionStatus>> };
@@ -42,6 +42,20 @@ const basisPoints = (value?: number) => value == null ? "—" : `${value >= 0 ? 
 const trainingConfig = (value?: Record<string, string | number>) => value?.symbol ? `레이블 ${value.label_horizon_bars ?? "?"}봉 · 비용 ${value.label_round_trip_cost_bps ?? "?"} bps · 1주/세션 · 매수/매도 수수료 ${value.backtest_buy_commission_bps ?? "?"}/${value.backtest_sell_commission_bps ?? "?"} · 매도세금 ${value.backtest_sell_tax_bps ?? "?"} · 편도 슬리피지 ${value.backtest_slippage_bps ?? "?"} bps` : "이전 모델 · 미기록";
 const time = (value: string) => new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "medium" }).format(new Date(value));
 const marketMinute = (value: string, market: string) => new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", timeZone: market === "KR" ? "Asia/Seoul" : "America/New_York" }).format(new Date(value));
+const expectedSessionSource = (market: string) => market === "KR" ? "KIS_PAPER_WEBSOCKET" : "KIS_REAL_US_WEBSOCKET";
+const sessionSourceSummary = (item: SessionQuality) => {
+  const sources = item.source_counts ?? {};
+  if (Object.keys(sources).length === 0) return "출처 미확인";
+  const approvedSource = expectedSessionSource(item.market);
+  const approvedCount = sources[approvedSource] ?? 0;
+  const otherCount = Object.entries(sources).reduce((total, [source, count]) => total + (source === approvedSource ? 0 : count), 0);
+  const sourceLabel = item.market === "KR" ? "PAPER WebSocket" : "REAL WebSocket";
+  return `${sourceLabel} ${approvedCount}/${item.expected_bars}${otherCount ? ` · 기타 출처 ${otherCount}` : ""}`;
+};
+const hasApprovedSessionSource = (item: SessionQuality) => {
+  const sources = item.source_counts ?? {};
+  return Object.keys(sources).length === 1 && sources[expectedSessionSource(item.market)] === item.expected_bars;
+};
 
 export default function Dashboard() {
   const [data, setData] = useState<Payload | null>(null);
@@ -130,16 +144,16 @@ export default function Dashboard() {
   ];
   const qualityBySymbol = new Map(qualitySessions.map((item) => [`${item.market}:${item.symbol}`, item]));
   const completeQualityCount = qualitySessions.filter((item) => item.full_session_complete
-    && item.spread_coverage_percent === 100).length;
+    && item.spread_coverage_percent === 100 && hasApprovedSessionSource(item)).length;
   const qualitySummary = qualitySessions.length
-    ? `${completeQualityCount}/${qualitySessions.length}개 종목이 정규장 봉·스프레드 100%`
+    ? `${completeQualityCount}/${qualitySessions.length}개 종목이 완전한 봉·스프레드·승인 출처 확인`
     : "저장 품질을 확인할 수 없음";
   const qualityDetails = qualitySessions.slice(0, 3).map((item) => {
     const missingBars = item.missing_bar_timestamps ?? [];
     const missingSpread = item.bars_without_spread_timestamps ?? [];
     const gapDetail = missingBars.length ? ` · 분봉누락 ${missingBars.slice(0, 3).map(value => marketMinute(value, item.market)).join(",")}${missingBars.length > 3 ? ` 외 ${missingBars.length - 3}개` : ""}` : "";
     const spreadDetail = missingSpread.length ? ` · 호가누락 ${missingSpread.slice(0, 3).map(value => marketMinute(value, item.market)).join(",")}${missingSpread.length > 3 ? ` 외 ${missingSpread.length - 3}개` : ""}` : "";
-    return `${item.market} ${item.session_date} ${item.symbol} ${item.status} · ${item.observed_bars}/${item.expected_bars}봉 · spread ${item.spread_coverage_percent ?? "—"}%${gapDetail}${spreadDetail}`;
+    return `${item.market} ${item.session_date} ${item.symbol} ${item.status} · ${item.observed_bars}/${item.expected_bars}봉 · spread ${item.spread_coverage_percent ?? "—"}% · ${sessionSourceSummary(item)}${gapDetail}${spreadDetail}`;
   }).join(" / ");
 
   return <main className="shell">
@@ -181,7 +195,7 @@ export default function Dashboard() {
       <p className="audit-note">매수 체결의 평균 원가와 체결비용으로 계산하고, 청산 주문에 보존된 전략·모델 ID로 분류합니다. 기대손익은 매도 주문별 평균 순손익, 손익비는 총이익÷총손실, 실현 하락폭은 누적 실현 손익 경로의 최대 고점 대비 하락액입니다. 미분류·과거 기록은 구분되며, 실계좌 수익이나 평가손익을 뜻하지 않습니다.</p>
     </section>
     <section className="panel signals-panel"><div className="panel-title"><div><p className="eyebrow">P5 STRATEGY PREVIEW</p><h2>종목별 판단 상태</h2></div><span className="tag">paper 진입 게이트 · 실계좌 잠금</span></div>
-      {Object.keys(data?.paperSession?.decisions ?? {}).length ? <div className="table-wrap"><table><thead><tr><th>시장</th><th>종목</th><th>판단</th><th>판단 사유</th><th>수신 분봉</th><th>저장 품질</th></tr></thead><tbody>{Object.entries(data?.paperSession?.decisions ?? {}).map(([key, item]) => { const quality = qualityBySymbol.get(`${item.market}:${item.symbol}`); return <tr key={key}><td>{item.market}</td><td className="symbol">{item.symbol}{item.exchange ? ` · ${item.exchange}` : ""}</td><td>{signalLabel(item.signal)}</td><td>{decisionReason(item.reason)}</td><td>{item.bars_in_session}</td><td>{quality ? `${quality.status} · ${quality.observed_bars}/${quality.expected_bars} · spread ${quality.spread_coverage_percent ?? "—"}%` : "판정 불가"}</td></tr>; })}</tbody></table></div> : <Empty text="세션 모니터가 비활성이거나 아직 종목을 구독하지 않았습니다." />}
+      {Object.keys(data?.paperSession?.decisions ?? {}).length ? <div className="table-wrap"><table><thead><tr><th>시장</th><th>종목</th><th>판단</th><th>판단 사유</th><th>수신 분봉</th><th>저장 품질</th></tr></thead><tbody>{Object.entries(data?.paperSession?.decisions ?? {}).map(([key, item]) => { const quality = qualityBySymbol.get(`${item.market}:${item.symbol}`); return <tr key={key}><td>{item.market}</td><td className="symbol">{item.symbol}{item.exchange ? ` · ${item.exchange}` : ""}</td><td>{signalLabel(item.signal)}</td><td>{decisionReason(item.reason)}</td><td>{item.bars_in_session}</td><td>{quality ? `${quality.status} · ${quality.observed_bars}/${quality.expected_bars} · spread ${quality.spread_coverage_percent ?? "—"}% · ${sessionSourceSummary(quality)}` : "판정 불가"}</td></tr>; })}</tbody></table></div> : <Empty text="세션 모니터가 비활성이거나 아직 종목을 구독하지 않았습니다." />}
     </section>
     <section className="two-col">
       <div className="panel"><div className="panel-title"><div><p className="eyebrow">PAPER ACCOUNT</p><h2>가상 현금</h2></div><span className="tag">실계좌 잔고 아님</span></div>

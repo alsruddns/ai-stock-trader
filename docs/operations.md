@@ -180,6 +180,8 @@ KIS에서 국내 정규 연속매매 분봉을 읽기 전용으로 확인할 때
 
 PostgreSQL 저장 분봉의 현재 감사·백테스트·학습 검증은 국내 종목만 대상으로 합니다. 미국 AAPL 2026-11-06 예시는 과거 기록이며 재실행하지 않습니다. 국내 삼성전자 감사 명령은 `.\services\market-ai\.venv\Scripts\python.exe .\scripts\audit-market-session.py --market KR --symbol 005930 --session-date YYYY-MM-DD`입니다. `PRE_OPEN`/`COLLECTING`은 아직 정규장이 끝나지 않은 상태이며, 폐장 후 `COMPLETE`는 예상 국내 연속매매 380분이 중복·누락·시간 격자 이탈 없이 저장됐다는 뜻입니다. `source_counts`는 분봉 출처별 개수를 보여주므로 `full_session_complete=true`만으로 PAPER WebSocket 전체 세션이라고 판단하지 않습니다. PAPER WebSocket 세션은 `KIS_PAPER_WEBSOCKET` 출처가 380개인지 별도로 확인해야 합니다. `--require-complete`를 붙이면 완전한 전체 세션이 아닐 때 종료 코드 2를 반환합니다. 스프레드 기준 분석은 `--minimum-spread-coverage-percent 95`처럼 최소 포함률을 지정할 수 있으며 기준 미달이면 닫힙니다. 이 도구는 조회만 하며 누락 봉을 보정하거나 DB를 수정하지 않습니다.
 
+운영 대시보드의 P3 분봉 품질 정상 판정도 완전한 세션과 100% 스프레드뿐 아니라 전 세션 봉이 승인된 WebSocket 출처에서 왔는지 확인합니다. 출처별 개수는 세션 상세에 표시하고 REST 보완 봉이 있으면 정상으로 처리하지 않습니다. 이는 데이터 품질 상태만 표시하며 매매 신호나 주문을 만들지 않습니다.
+
 같은 감사 결과는 Python API `GET /api/v1/market/session-quality/{market}/{symbol}?session_date=YYYY-MM-DD`에서도 조회할 수 있습니다. 이 경로는 PostgreSQL의 읽기 전용 분봉만 확인하며, 저장 기능이 꺼져 있으면 `503`으로 닫힙니다. 거래소 비영업일은 DB를 조회하지 않고 `NON_SESSION`으로 반환합니다.
 
 감시 중인 시장의 여러 종목을 한 번에 감사하려면 `GET /api/v1/market/session-quality/{market}?symbols=005930&symbols=069500&session_date=YYYY-MM-DD`를 사용합니다. 세션 날짜를 직접 지정하지 않고 `latest_closed=true`를 주면 거래소 현지 날짜 기준으로 아직 폐장하지 않은 세션을 건너뛰고 최근 마감 세션을 선택합니다. 최근 30일 안에서 거래일을 확인할 수 없으면 `503`으로 닫힙니다. 이 API는 종목 수를 최대 50개로 제한하고 단일 읽기 전용 DB 쿼리로 결과를 묶습니다. 각 결과에는 누락된 예상 분봉 시각과 저장된 분봉 중 스프레드가 없는 시각이 포함되며, 운영 대시보드는 처음 세 시각까지 각 거래소 현지 시간으로 표시합니다. 이 진단은 저장 자료를 수정하거나 누락 데이터를 만들어 내지 않습니다. 대시보드는 현재 구독 종목의 분봉 완전성·누락 수·스프레드 포함률과 선택된 거래일도 보여 주며, API나 저장소가 응답하지 않으면 품질을 확인 불가로 표시합니다.
