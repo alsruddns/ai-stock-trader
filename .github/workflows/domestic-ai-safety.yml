@@ -44,7 +44,7 @@ jobs:
         run: >-
           python -m pytest -q tests/test_ai_pipeline.py
           -k "not test_us_training_and_inference_accept_one_new_york_session_crossing_korea_midnight
-          and not test_session_progress_uses_market_open_and_exchange_timezone
-          and not test_model_training_compares_both_models_and_keeps_them_unapproved
-          and not test_model_governance_requires_review_and_records_rollback
-          and not test_active_model_registry_keeps_market_and_symbol_selections_independent"
+          and not test_us_session_progress_uses_new_york_exchange_session
+          and not test_model_prediction_rejects_market_scope_mismatch
+          and not test_us_model_governance_is_scoped_to_us_symbol
+          and not test_us_active_model_registry_selection_is_independent"

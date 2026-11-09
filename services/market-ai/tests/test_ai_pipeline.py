@@ -277,14 +277,18 @@ def test_us_training_and_inference_accept_one_new_york_session_crossing_korea_mi
     assert len(features) == len(FEATURE_NAMES)
 
 
-def test_session_progress_uses_market_open_and_exchange_timezone() -> None:
+def test_kr_session_progress_uses_korean_market_open() -> None:
     assert _session_progress(datetime(2026, 11, 5, 0, 0, tzinfo=timezone.utc), "KR") == Decimal(0)
     assert _session_progress(datetime(2026, 11, 5, 3, 10, tzinfo=timezone.utc), "KR") == Decimal("0.5")
+    assert _session_progress(datetime(2026, 11, 5, 6, 30, tzinfo=timezone.utc), "KR") == Decimal(1)
+    with pytest.raises(ValueError, match="market must be KR"):
+        _session_progress(datetime(2026, 11, 5, 0, 0, tzinfo=timezone.utc), "JP")
+
+
+def test_us_session_progress_uses_new_york_exchange_session() -> None:
     assert _session_progress(datetime(2026, 11, 5, 14, 30, tzinfo=timezone.utc), "US") == Decimal(0)
     assert _session_progress(datetime(2026, 11, 5, 17, 45, tzinfo=timezone.utc), "US") == Decimal("0.5")
     assert _session_progress(datetime(2026, 11, 5, 21, 30, tzinfo=timezone.utc), "US") == Decimal(1)
-    with pytest.raises(ValueError, match="market must be KR or US"):
-        _session_progress(datetime(2026, 11, 5, 0, 0, tzinfo=timezone.utc), "JP")
 
 
 def test_chronological_split_keeps_sessions_disjoint_and_ordered() -> None:
@@ -409,13 +413,20 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path,
         assert prediction["market"] == "KR"
         assert prediction["approved"] is False
         assert prediction["executable"] is False
-        with pytest.raises(ValueError, match="market scope"):
-            LocalModelRegistry(tmp_path).predict_preview(result.model_id,
-                _sample_sessions()[date(2026, 10, 8)][:21], market="US", symbol="005930")
 
         with pytest.raises(ValueError, match="symbol scope"):
             LocalModelRegistry(tmp_path).predict_preview(result.model_id,
                 _sample_sessions()[date(2026, 10, 8)][:21], market="KR", symbol="000660")
+
+
+def test_model_prediction_rejects_market_scope_mismatch(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "c" * 32
+    _write_candidate(registry, model_id)
+    with pytest.raises(ValueError, match="market scope"):
+        registry.predict_preview(
+            model_id, _sample_sessions()[date(2026, 10, 8)][:21], market="US", symbol="005930",
+        )
 
 
 def test_training_rejects_malformed_dataset_digest_before_training(tmp_path) -> None:
@@ -631,34 +642,40 @@ def test_model_governance_requires_review_and_records_rollback(tmp_path) -> None
     assert registry.governance_events()[-1]["action"] == "rollback"
     assert registry.active_approved_model("KR", "005930")["model_id"] == first
     assert registry.active_approved_model("KR", "000660") is None
-    assert registry.active_approved_model("US", "AAPL") is None
 
 
-def test_active_model_registry_keeps_market_and_symbol_selections_independent(tmp_path) -> None:
+def test_us_model_governance_is_scoped_to_us_symbol(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "c" * 32
+    _write_candidate(registry, model_id, market="US", symbol="AAPL")
+    registry.approve(model_id, approved_by="operator", note="Independent holdout evidence reviewed for US scope.")
+    registry.activate(model_id, changed_by="operator", note="Activate the reviewed US model only in its scope.")
+
+    assert registry.active_approved_model("US", "AAPL")["model_id"] == model_id
+    assert registry.active_approved_model("US", "MSFT") is None
+    assert registry.active_approved_model("KR", "005930") is None
+
+
+def test_active_kr_model_registry_keeps_symbol_selections_independent(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)
     domestic_samsung = "lightgbm-" + "1" * 32
     domestic_sk = "xgboost-" + "2" * 32
-    us_apple = "lightgbm-" + "3" * 32
     _write_candidate(registry, domestic_samsung)
     _write_candidate(registry, domestic_sk, symbol="000660")
-    _write_candidate(registry, us_apple, market="US", symbol="AAPL")
-    for model_id in (domestic_samsung, domestic_sk, us_apple):
+    for model_id in (domestic_samsung, domestic_sk):
         registry.approve(model_id, approved_by="operator", note="Independent holdout evidence reviewed for scoped activation.")
 
     # Migrate an existing single-pointer KR selection while adding independent scopes.
     registry._active_path.write_text(json.dumps({"model_id": domestic_samsung,
                                                  "changed_at": "2026-10-20T12:00:00+09:00"}), encoding="utf-8")
     registry.activate(domestic_sk, changed_by="operator", note="Select the independently evaluated SK model.")
-    registry.activate(us_apple, changed_by="operator", note="Select the independently evaluated AAPL model.")
 
     assert registry.active_approved_model("KR", "005930")["model_id"] == domestic_samsung
     assert registry.active_approved_model("KR", "000660")["model_id"] == domestic_sk
-    assert registry.active_approved_model("US", "AAPL")["model_id"] == us_apple
-    assert registry.active_approved_model("US", "MSFT") is None
     active_ids = {item["model_id"] for item in registry.list_models() if item.get("active")}
-    assert active_ids == {domestic_samsung, domestic_sk, us_apple}
+    assert active_ids == {domestic_samsung, domestic_sk}
     assert set(json.loads(registry._active_models_path.read_text(encoding="utf-8"))["models"]) == {
-        "KR:005930", "KR:000660", "US:AAPL",
+        "KR:005930", "KR:000660",
     }
 
     registry._active_models_path.write_text(json.dumps({"schema_version": 1, "models": {
@@ -667,8 +684,20 @@ def test_active_model_registry_keeps_market_and_symbol_selections_independent(tm
     assert registry.active_approved_model("KR", "005930") is None
 
     registry._active_models_path.write_text(json.dumps({"schema_version": 1, "models": {
-        "KR:005930": {"model_id": us_apple},
+        "KR:005930": {"model_id": domestic_sk},
     }}), encoding="utf-8")
+    assert registry.active_approved_model("KR", "005930") is None
+
+
+def test_us_active_model_registry_selection_is_independent(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "3" * 32
+    _write_candidate(registry, model_id, market="US", symbol="AAPL")
+    registry.approve(model_id, approved_by="operator", note="Independent holdout evidence reviewed for US scope.")
+    registry.activate(model_id, changed_by="operator", note="Activate the reviewed US model in its own scope.")
+
+    assert registry.active_approved_model("US", "AAPL")["model_id"] == model_id
+    assert registry.active_approved_model("US", "MSFT") is None
     assert registry.active_approved_model("KR", "005930") is None
 
 
