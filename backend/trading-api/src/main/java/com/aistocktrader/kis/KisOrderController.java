@@ -2,6 +2,7 @@ package com.aistocktrader.kis;
 
 import com.aistocktrader.order.OrderRequest;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,9 +21,16 @@ import java.util.UUID;
 public class KisOrderController {
     private final KisOrderOrchestrator orders;
     private final KisOrderIntentStore intents;
+    private final MarketOperationalScope marketScope;
 
     public KisOrderController(KisOrderOrchestrator orders, KisOrderIntentStore intents) {
-        this.orders = orders; this.intents = intents;
+        this(orders, intents, MarketOperationalScope.domesticOnly());
+    }
+
+    @Autowired
+    public KisOrderController(KisOrderOrchestrator orders, KisOrderIntentStore intents,
+                              MarketOperationalScope marketScope) {
+        this.orders = orders; this.intents = intents; this.marketScope = marketScope;
     }
 
     @PostMapping
@@ -30,6 +38,7 @@ public class KisOrderController {
             @RequestHeader("Idempotency-Key") UUID idempotencyKey,
             @RequestParam(required = false) String exchange,
             @Valid @RequestBody OrderRequest request) {
+        marketScope.require(request.market(), "KIS PAPER order submission");
         KisOrderIntentResponse response = orders.submitPaperOrder(idempotencyKey, request, exchange);
         HttpStatus status = response.status() == KisOrderStatus.REJECTED ? HttpStatus.UNPROCESSABLE_ENTITY
                 : response.status() == KisOrderStatus.ACCEPTED ? HttpStatus.ACCEPTED : HttpStatus.ACCEPTED;

@@ -1,6 +1,8 @@
 package com.aistocktrader.order;
 
+import com.aistocktrader.kis.MarketOperationalScope;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
@@ -12,14 +14,22 @@ import java.time.LocalDate;
 public class OrderController {
     private final OrderService service;
     private final PaperDailyRiskBaselineService riskBaselineService;
+    private final MarketOperationalScope marketScope;
     public OrderController(OrderService service, PaperDailyRiskBaselineService riskBaselineService) {
+        this(service, riskBaselineService, MarketOperationalScope.domesticOnly());
+    }
+    @Autowired
+    public OrderController(OrderService service, PaperDailyRiskBaselineService riskBaselineService,
+                           MarketOperationalScope marketScope) {
         this.service = service;
         this.riskBaselineService = riskBaselineService;
+        this.marketScope = marketScope;
     }
     @PostMapping("/paper")
     @ResponseStatus(HttpStatus.CREATED)
     public OrderRecord paperOrder(@RequestHeader("Idempotency-Key") UUID idempotencyKey,
                                   @Valid @RequestBody OrderRequest request) {
+        marketScope.require(request.market(), "local PAPER order submission");
         return service.submit(request, idempotencyKey);
     }
 

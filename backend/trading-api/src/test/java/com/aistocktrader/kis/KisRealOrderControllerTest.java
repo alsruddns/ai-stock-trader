@@ -39,6 +39,22 @@ class KisRealOrderControllerTest {
     }
 
     @Test
+    void blocksOverseasRealSubmissionAtTheOperationalScopeGate() {
+        KisRealOrderController controller = controller(
+                new TradingSafetyProperties("paper", false, false, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
+                properties(false, false));
+        OrderRequest overseas = new OrderRequest(Market.US, "AAPL", OrderSide.BUY,
+                1, BigDecimal.ONE, Currency.USD);
+
+        KisApiException exception = assertThrows(KisApiException.class,
+                () -> controller.submit(UUID.randomUUID(), "NASD", overseas));
+
+        assertEquals(HttpStatus.LOCKED, exception.status());
+        org.junit.jupiter.api.Assertions.assertTrue(exception.getMessage().contains("domestic KR operational scope"));
+        verifyNoInteractions(accounts, orders, marketAiEvidence);
+    }
+
+    @Test
     void paperModeRejectsRealSignalBeforeReadingEvidenceAccountOrCallingBroker() {
         KisRealOrderController controller = controller(
                 new TradingSafetyProperties("paper", false, false, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),

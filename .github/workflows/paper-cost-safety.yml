@@ -8,6 +8,16 @@ on:
       - 'backend/trading-api/src/main/java/com/aistocktrader/order/PaperTransactionCostCalculator.java'
       - 'backend/trading-api/src/main/resources/application.yml'
       - 'backend/trading-api/src/test/java/com/aistocktrader/order/DomesticPaperCostSafetyTest.java'
+      - 'backend/trading-api/src/main/java/com/aistocktrader/kis/MarketOperationalScope.java'
+      - 'backend/trading-api/src/main/java/com/aistocktrader/kis/KisAccountController.java'
+      - 'backend/trading-api/src/main/java/com/aistocktrader/kis/KisOrderController.java'
+      - 'backend/trading-api/src/main/java/com/aistocktrader/kis/KisRealOrderController.java'
+      - 'backend/trading-api/src/main/java/com/aistocktrader/order/OrderController.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/MarketOperationalScopeTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisAccountControllerMarketScopeTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisOrderControllerMarketScopeTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealOrderControllerTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/order/OrderControllerMarketScopeTest.java'
       - '.github/workflows/paper-cost-safety.yml'
   workflow_dispatch:
 
@@ -23,6 +33,7 @@ jobs:
       LIVE_TRADING_ENABLED: "false"
       KIS_PAPER_ORDERS_ENABLED: "false"
       KIS_REAL_ORDERS_ENABLED: "false"
+      MARKET_OPERATIONAL_SCOPE: KR
       RUN_KIS_PAPER_ACCOUNT_INTEGRATION_TESTS: "false"
       RUN_KIS_REAL_ACCOUNT_INTEGRATION_TESTS: "false"
       KIS_TEST_US_ACCOUNT_READS: "false"
@@ -34,7 +45,7 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: backend/trading-api/pom.xml
-      - name: Run focused PAPER cost safety tests
+      - name: Run focused domestic PAPER and market-scope safety tests
         working-directory: backend/trading-api
         shell: powershell
-        run: .\mvnw.cmd --batch-mode '-Dtest=DomesticPaperCostSafetyTest' test
+        run: .\mvnw.cmd --batch-mode '-Dtest=DomesticPaperCostSafetyTest,MarketOperationalScopeTest,KisAccountControllerMarketScopeTest,KisOrderControllerMarketScopeTest,KisRealOrderControllerTest,OrderControllerMarketScopeTest' test

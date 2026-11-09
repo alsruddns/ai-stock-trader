@@ -29,6 +29,7 @@ public class KisRealOrderController {
     private final KisMarketAiEvidenceClient marketAiEvidence;
     private final KisProperties kisProperties;
     private final TradingSafetyProperties safety;
+    private final MarketOperationalScope marketScope;
     private final boolean protectiveExitAutomationEnabled;
     private final boolean realReconciliationEnabled;
 
@@ -36,6 +37,7 @@ public class KisRealOrderController {
     public KisRealOrderController(KisRealOrderOrchestrator orders, KisOrderIntentStore intents,
                                   KisAccountClient accounts, KisProperties kisProperties,
                                   TradingSafetyProperties safety, KisMarketAiEvidenceClient marketAiEvidence,
+                                  MarketOperationalScope marketScope,
                                   @Value("${kis.real-protective-exit-automation-enabled:false}") boolean protectiveExitAutomationEnabled,
                                   @Value("${kis.real-reconciliation-enabled:false}") boolean realReconciliationEnabled) {
         this.orders = orders;
@@ -44,6 +46,7 @@ public class KisRealOrderController {
         this.marketAiEvidence = marketAiEvidence;
         this.kisProperties = kisProperties;
         this.safety = safety;
+        this.marketScope = marketScope;
         this.protectiveExitAutomationEnabled = protectiveExitAutomationEnabled;
         this.realReconciliationEnabled = realReconciliationEnabled;
     }
@@ -52,14 +55,25 @@ public class KisRealOrderController {
     public KisRealOrderController(KisRealOrderOrchestrator orders, KisOrderIntentStore intents,
                                   KisAccountClient accounts, KisProperties kisProperties,
                                   TradingSafetyProperties safety, KisMarketAiEvidenceClient marketAiEvidence) {
-        this(orders, intents, accounts, kisProperties, safety, marketAiEvidence, false, false);
+        this(orders, intents, accounts, kisProperties, safety, marketAiEvidence,
+                MarketOperationalScope.domesticOnly(), false, false);
+    }
+
+    /** Compatibility constructor for tests configuring optional worker switches. */
+    public KisRealOrderController(KisRealOrderOrchestrator orders, KisOrderIntentStore intents,
+                                  KisAccountClient accounts, KisProperties kisProperties,
+                                  TradingSafetyProperties safety, KisMarketAiEvidenceClient marketAiEvidence,
+                                  boolean protectiveExitAutomationEnabled, boolean realReconciliationEnabled) {
+        this(orders, intents, accounts, kisProperties, safety, marketAiEvidence,
+                MarketOperationalScope.domesticOnly(), protectiveExitAutomationEnabled, realReconciliationEnabled);
     }
 
     /** Compatibility constructor for tests that exercise only the locked/raw-order paths. */
     public KisRealOrderController(KisRealOrderOrchestrator orders, KisOrderIntentStore intents,
                                   KisAccountClient accounts, KisProperties kisProperties,
                                   TradingSafetyProperties safety) {
-        this(orders, intents, accounts, kisProperties, safety, null, false, false);
+        this(orders, intents, accounts, kisProperties, safety, null,
+                MarketOperationalScope.domesticOnly(), false, false);
     }
 
     @PostMapping
@@ -67,6 +81,7 @@ public class KisRealOrderController {
             @RequestHeader("Idempotency-Key") UUID idempotencyKey,
             @RequestParam(required = false) String exchange,
             @Valid @RequestBody OrderRequest request) {
+        marketScope.require(request.market(), "KIS REAL order submission");
         requireRealOrderPathEnabled(request.side() == com.aistocktrader.order.OrderSide.BUY);
         String normalizedExchange = exchange == null ? null : exchange.trim().toUpperCase(Locale.ROOT);
         boolean buy = request.side() == com.aistocktrader.order.OrderSide.BUY;
@@ -83,6 +98,7 @@ public class KisRealOrderController {
             @RequestHeader("Idempotency-Key") UUID idempotencyKey,
             @RequestParam(required = false) String exchange,
             @Valid @RequestBody KisRealSignalRequest signal) {
+        marketScope.require(signal.market(), "KIS REAL signal submission");
         requireRealOrderPathEnabled(true);
         String normalizedExchange = exchange == null ? null : exchange.trim().toUpperCase(Locale.ROOT);
         if (signal.market() == com.aistocktrader.order.Market.US && !validUsExchange(normalizedExchange)) {

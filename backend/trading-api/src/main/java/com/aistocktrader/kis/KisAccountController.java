@@ -1,6 +1,7 @@
 package com.aistocktrader.kis;
 
 import com.aistocktrader.order.Market;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.web.bind.annotation.*;
 import org.slf4j.Logger;
@@ -17,10 +18,18 @@ public class KisAccountController {
     private final KisAccountClient client;
     private final KisProperties properties;
     private final KisSnapshotStore snapshots;
+    private final MarketOperationalScope marketScope;
     public KisAccountController(KisAccountClient client, KisProperties properties, KisSnapshotStore snapshots) {
+        this(client, properties, snapshots, MarketOperationalScope.domesticOnly());
+    }
+
+    @Autowired
+    public KisAccountController(KisAccountClient client, KisProperties properties, KisSnapshotStore snapshots,
+                                MarketOperationalScope marketScope) {
         this.client = client;
         this.properties = properties;
         this.snapshots = snapshots;
+        this.marketScope = marketScope;
     }
 
     @GetMapping("/{environment}/{market}/balance")
@@ -29,6 +38,7 @@ public class KisAccountController {
                                       @RequestParam(required = false) String symbol,
                                       @RequestParam(required = false) BigDecimal unitPrice,
                                       @RequestParam(defaultValue = "NASD") String exchange) {
+        marketScope.require(market, "KIS account read");
         KisEnvironment mode;
         try {
             mode = KisEnvironment.valueOf(environment.trim().toUpperCase(Locale.ROOT));
@@ -74,6 +84,7 @@ public class KisAccountController {
                                                @RequestParam LocalDate from,
                                                @RequestParam LocalDate to,
                                                @RequestParam(defaultValue = "NASD") String exchange) {
+        marketScope.require(market, "KIS realized-PnL read");
         LocalDate koreaToday = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
         if (from.isAfter(koreaToday) || to.isAfter(koreaToday)) {
             throw new KisApiException(org.springframework.http.HttpStatus.BAD_REQUEST,

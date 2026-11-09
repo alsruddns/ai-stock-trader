@@ -25,6 +25,7 @@ from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from .paper_ops import exchange_session_window, korean_calendar_compatibility
 from .paper_automation import PaperAutomationReadiness
 from .market_calendar import exchange_continuous_session_window, latest_closed_session_date
+from .market_scope import require_operational_market
 from .paper_runtime import PaperWatch, market_cost_assumptions_status, paper_session_monitor
 from .session_quality import audit_minute_bar_session
 
@@ -66,6 +67,7 @@ def get_kis_market_data_client(environment: Literal["paper", "real"] | None = No
 
 def get_kis_candidate_client(market: Market) -> KisReadOnlyClient:
     if market == "US":
+        require_operational_market(market, "KIS candidate screening")
         if os.getenv("KIS_REAL_MARKET_DATA_ENABLED", "false").strip().lower() != "true":
             raise HTTPException(status_code=503, detail="KIS REAL market-data screening is disabled")
         return get_kis_market_data_client("real")
@@ -74,11 +76,13 @@ def get_kis_candidate_client(market: Market) -> KisReadOnlyClient:
 
 def get_kis_real_market_data_client() -> KisReadOnlyClient:
     """Use the separately gated REAL read-only client for US market data."""
+    require_operational_market("US", "KIS overseas market-data access")
     return get_kis_market_data_client("real")
 
 
 def get_market_data_client(market: Market = Path()) -> KisReadOnlyClient:
     """Route domestic REST data to PAPER and US REST data to the gated REAL environment."""
+    require_operational_market(market, "KIS market-data access")
     return get_kis_real_market_data_client() if market == "US" else get_kis_client()
 
 
@@ -389,6 +393,7 @@ async def market_session_quality(
 ) -> dict[str, object]:
     """Read-only audit of stored continuous-session bars; never fills or changes data."""
     normalized_market = str(market).upper()
+    require_operational_market(normalized_market, "market-session quality validation")
     normalized_symbol = symbol.strip().upper()
     if ((normalized_market == "KR" and not re.fullmatch(r"\d{6}", normalized_symbol))
             or (normalized_market == "US" and not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,15}", normalized_symbol))):
@@ -427,6 +432,7 @@ async def market_session_quality_batch(
 ) -> dict[str, object]:
     """Audit the watched symbols for one market with a single read-only DB query."""
     normalized_market = str(market).upper()
+    require_operational_market(normalized_market, "market-session quality validation")
     if not 1 <= len(symbols) <= 50:
         raise HTTPException(status_code=422, detail="Provide 1 to 50 symbols")
     normalized_symbols = list(dict.fromkeys(symbol.strip().upper() for symbol in symbols))
@@ -486,6 +492,7 @@ async def market_training_readiness(
 ) -> dict[str, object]:
     """Count stored sessions eligible for model training; never fetches or changes market data."""
     normalized_market = str(market).upper()
+    require_operational_market(normalized_market, "model training-readiness validation")
     normalized_symbol = symbol.strip().upper()
     pattern = r"\d{6}" if normalized_market == "KR" else r"[A-Z][A-Z0-9.-]{0,15}"
     if not re.fullmatch(pattern, normalized_symbol):
@@ -593,6 +600,7 @@ async def screen_market_candidates(
     maximum_spread_bps: Decimal = Query(default=Decimal("15"), ge=0),
 ) -> CandidateScreenResponse:
     """Read-only, top-of-market discovery; output is never an executable signal."""
+    require_operational_market(market, "market candidate screening")
     if market == "US" and exchange is None:
         raise HTTPException(status_code=422, detail="US candidates require exchange=NAS, NYS, or AMS")
     if market == "KR" and exchange is not None:
@@ -634,6 +642,7 @@ async def subscribe_market_candidates(
     maximum_spread_bps: Decimal = Query(default=Decimal("15"), ge=0),
 ) -> CandidateSubscriptionResponse:
     """Add screened symbols to the active local PAPER market-data monitor."""
+    require_operational_market(market, "PAPER candidate subscription")
     if os.getenv("PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED", "false").strip().lower() != "true":
         raise HTTPException(status_code=423, detail="PAPER candidate subscriptions are disabled")
     if (os.getenv("TRADING_MODE", "paper").strip().lower() != "paper"
@@ -693,6 +702,7 @@ async def refresh_market_candidate_subscriptions(
     maximum_spread_bps: Decimal = Query(default=Decimal("15"), ge=0),
 ) -> CandidateRefreshResponse:
     """Refresh candidate-only subscriptions after proving PAPER positions are protected."""
+    require_operational_market(market, "PAPER candidate subscription refresh")
     if os.getenv("PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED", "false").strip().lower() != "true":
         raise HTTPException(status_code=423, detail="PAPER candidate subscriptions are disabled")
     if os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true":
@@ -824,6 +834,7 @@ def get_overseas_minute_bars(
     client: KisReadOnlyClient = Depends(get_kis_real_market_data_client),
 ) -> HistoricalMinuteBarsResponse:
     """Fetch one latest KIS US minute page (up to 120 bars), optionally date-filtered."""
+    require_operational_market("US", "KIS overseas historical-data access")
     normalized_symbol = symbol.upper()
     try:
         bars = client.get_overseas_minute_bars(normalized_symbol, exchange, session_date)
@@ -857,6 +868,7 @@ def get_overseas_minute_session_bars(
     client: KisReadOnlyClient = Depends(get_kis_real_market_data_client),
 ) -> HistoricalMinuteBarsResponse:
     """Fetch one bounded historical US session through the separately gated REAL KIS client."""
+    require_operational_market("US", "KIS overseas historical-data access")
     normalized_symbol = symbol.upper()
     try:
         history: HistoricalMinuteSession = client.get_overseas_minute_session_snapshot(
@@ -956,6 +968,7 @@ def get_account_balance(
     exchange: str = Query(default="NASD", pattern="^(NASD|NYSE|AMEX)$"),
 ) -> AccountBalance:
     """Read-only KIS balance/positions. Disabled unless explicitly enabled in local env."""
+    require_operational_market(market, "KIS account read")
     global_reads_enabled = os.getenv("KIS_ACCOUNT_READ_ENABLED", "false").strip().lower() == "true"
     environment_reads_enabled = os.getenv(
         f"KIS_{environment.upper()}_ACCOUNT_READ_ENABLED", "false"
@@ -980,6 +993,7 @@ def get_account_balance(
 @app.post("/api/v1/analysis/momentum", response_model=AnalysisResponse)
 def analyze_momentum(request: AnalysisRequest) -> AnalysisResponse:
     """A transparent SMA crossover preview. This is not an AI prediction or trade instruction."""
+    require_operational_market(request.market, "strategy analysis")
     closes = [bar.close for bar in request.bars]
     short_window = min(5, len(closes) - 1)
     short_average = sum(closes[-short_window:]) / short_window
@@ -1003,6 +1017,7 @@ def analyze_momentum(request: AnalysisRequest) -> AnalysisResponse:
 @app.post("/api/v1/strategies/orb-vwap/backtest", response_model=QuantBacktestResponse)
 def backtest_orb_vwap_endpoint(request: QuantBacktestRequest) -> QuantBacktestResponse:
     """Run a local, long-only one-session backtest. It never creates executable orders."""
+    require_operational_market(request.market, "quant strategy backtest")
     try:
         bars = [MinuteBar(
             timestamp=item.timestamp, open=item.open, high=item.high, low=item.low,
@@ -1041,13 +1056,14 @@ def predict_with_model(
     request: AiPredictionRequest = ...,
 ) -> dict[str, object]:
     """Return an advisory probability from a locally registered model; never an order."""
+    require_operational_market(request.market, "AI model inference")
     try:
         bars = [MinuteBar(
             timestamp=item.timestamp, open=item.open, high=item.high, low=item.low,
             close=item.close, volume=item.volume, spread_bps=item.spread_bps,
         ) for item in request.bars]
         registry = LocalModelRegistry(os.getenv("AI_MODEL_REGISTRY_PATH", ".local/models"))
-        result = registry.predict_preview(model_id, bars, market=request.market.value, symbol=request.symbol)
+        result = registry.predict_preview(model_id, bars, market=request.market, symbol=request.symbol)
         result["symbol"] = request.symbol.strip().upper()
         return result
     except FileNotFoundError as exc:
