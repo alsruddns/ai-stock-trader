@@ -107,7 +107,18 @@ $endpointStatus['local.validation_task_schedule'] = [ordered]@{
 }
 $marketSessions = @{ KR = $null; US = $null }
 $marketDataQuality = @{ KR = $null; US = $null }
+$operationalMarkets = @('KR')
+$configuredMarkets = @($report.operationalMarkets | ForEach-Object { [string]$_ })
+if ($configuredMarkets.Count -gt 0 -and
+    @($configuredMarkets | Where-Object { $_ -notin @('KR', 'US') }).Count -eq 0) {
+    $operationalMarkets = @($configuredMarkets | Select-Object -Unique)
+}
 foreach ($market in @('KR', 'US')) {
+    if ($market -notin $operationalMarkets) {
+        $endpointStatus["python.market_session_$market"] = [ordered]@{ state = 'OUT_OF_SCOPE'; httpStatus = $null; errorType = $null }
+        $endpointStatus["python.market_data_quality_$market"] = [ordered]@{ state = 'OUT_OF_SCOPE'; httpStatus = $null; errorType = $null }
+        continue
+    }
     $sessionResult = Invoke-AiTraderOptionalJsonRequest "$PythonApiBaseUrl/api/v1/market/sessions/$market"
     $endpointStatus["python.market_session_$market"] = [ordered]@{ state = $sessionResult.state; httpStatus = $sessionResult.http_status; errorType = $sessionResult.error_type }
     $marketSessions[$market] = $sessionResult.data
@@ -141,7 +152,7 @@ $report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 1
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
 $endpointStates = @($endpointStatus.GetEnumerator() |
-    Where-Object { $_.Key -ne 'local.local_stack_task' } |
+    Where-Object { $_.Key -ne 'local.local_stack_task' -and $_.Value.state -ne 'OUT_OF_SCOPE' } |
     ForEach-Object { $_.Value.state })
 $optionalDataStatus = if (@($endpointStates | Where-Object { $_ -in @('HTTP_ERROR', 'UNREACHABLE', 'UNAVAILABLE', 'PARTIAL') }).Count -gt 0) {
     'PARTIAL'

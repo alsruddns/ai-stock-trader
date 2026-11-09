@@ -13,6 +13,8 @@ on:
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisOrderControllerMarketScopeTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/health/OperationsControllerTest.java'
       - 'services/market-ai/app/**'
+      - 'scripts/export-daily-report.ps1'
+      - 'scripts/tests/domestic-only-operations-report.Tests.ps1'
       - 'scripts/lib/retired-kis-analysis-scan.ps1'
       - 'scripts/tests/retired-kis-analysis-scan.Tests.ps1'
       - '.github/workflows/domestic-kis-compatibility.yml'
@@ -48,6 +50,11 @@ jobs:
           $findings = @(Get-RetiredKisDomesticAnalysisFindings -RepositoryRoot (Get-Location).Path)
           if ($findings.Count -gt 0) {
             throw "Found $($findings.Count) retired KIS domestic analysis API reference(s) in runtime sources."
+          }
+
+          $result = Invoke-Pester -Path 'scripts/tests/domestic-only-operations-report.Tests.ps1' -PassThru
+          if ($result.FailedCount -gt 0 -or $result.PassedCount -ne 1) {
+            throw "Domestic-only operations report test failed: passed=$($result.PassedCount), failed=$($result.FailedCount)."
           }
 
   spring-domestic-operational-scope:
