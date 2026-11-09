@@ -202,7 +202,7 @@ KIS's [published online fee page](https://securities.koreainvestment.com/main/cu
 .\scripts\run-model-retraining.ps1 -Market US -Symbol AAPL -FromDate 2026-11-02 -ToDate 2026-11-06
 ```
 
-실행 보고서에서 `candidate_created_review_required`가 아니면 후보가 만들어졌다고 간주하지 마세요. 실패 보고서는 실행 전후의 모델 manifest와 artifact 파일을 비교해 이번 실행에서 새로 생긴 후보와 고아 파일을 표시합니다. 실패 뒤 새 artifact가 남으면 그 파일을 검토·정리하기 전까지 승인이나 활성화를 진행하지 마세요.
+실행 보고서에서 `candidate_created_review_required`가 아니면 후보가 만들어졌다고 간주하지 마세요. 비용 설정 누락·오류는 `configuration_failed`로 기록하고 DB 내보내기 전에 멈춥니다. 이후 실패 보고서는 실행 전후의 모델 manifest와 artifact 파일을 비교해 이번 실행에서 새로 생긴 후보와 고아 파일을 표시합니다. 실패 뒤 새 artifact가 남으면 그 파일을 검토·정리하기 전까지 승인이나 활성화를 진행하지 마세요.
 
 사전에 세션 자료가 3개 이상 모일 것으로 예상되는 범위만 자동 후보 학습 작업으로 등록합니다. `register-model-candidate-retraining-task.ps1`는 거래소 캘린더에서 3개 이상 거래일인지 확인하고 `.env_local`의 PAPER 모드·주문 잠금 및 시장별 비용 설정을 확인합니다. 예약 작업은 실행 당일 `.env_local` 비용 가정을 읽으므로 이미 등록된 일정도 새 실행 코드와 호환됩니다. 등록·실행 전에 매수/매도 수수료, 매도세금, 보수적 슬리피지와 왕복 비용을 검토하세요. 예약 실행 시에도 재학습·홀드아웃 스크립트가 `.env_local`에서 안전 스위치만 다시 읽어 PAPER 모드, PAPER/REAL 주문 비활성, PAPER 자동매매 비활성을 확인합니다. 하나라도 빠졌거나 켜져 있으면 데이터 내보내기 전에 종료합니다. 실제 학습은 권리 manifest와 완전한 세션 데이터가 다시 확인된 경우에만 진행됩니다. 이 작업은 후보를 자동 승인하거나 활성화하지 않으며, 주문 API를 호출하지 않습니다. Windows 사용자가 로그인하고 PostgreSQL이 실행 중이어야 합니다.
 

@@ -24,7 +24,7 @@ function Write-AiTraderModelRetrainingFailureReport {
     param(
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][string]$RunId,
-        [Parameter(Mandatory)][ValidateSet('data_export', 'candidate_training', 'candidate_verification')][string]$FailureStage,
+        [Parameter(Mandatory)][ValidateSet('configuration', 'data_export', 'candidate_training', 'candidate_verification')][string]$FailureStage,
         [Parameter(Mandatory)][string]$Market,
         [Parameter(Mandatory)][string]$Symbol,
         [Parameter(Mandatory)][string]$FromDate,
@@ -39,12 +39,15 @@ function Write-AiTraderModelRetrainingFailureReport {
     )
 
     $status = switch ($FailureStage) {
+        'configuration' { 'configuration_failed' }
         'data_export' { 'export_failed' }
         'candidate_training' { 'training_failed' }
         'candidate_verification' { 'candidate_verification_failed' }
     }
     $errorType = if ($null -ne $Exception) { $Exception.GetType().Name } else { $null }
     $safeFailureCodes = @(
+        'local_configuration_missing', 'market_cost_assumptions_missing_or_invalid',
+        'market_cost_assumptions_inconsistent',
         'insufficient_training_sessions', 'insufficient_partition_samples',
         'single_class_training_partition', 'training_dependencies_missing',
         'unclassified_training_failure'
@@ -89,7 +92,7 @@ function Get-AiTraderModelRetrainingSummary {
     } catch {
         return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
     }
-    $validStatuses = @('candidate_created_review_required', 'export_failed', 'training_failed', 'candidate_verification_failed')
+    $validStatuses = @('candidate_created_review_required', 'configuration_failed', 'export_failed', 'training_failed', 'candidate_verification_failed')
     if ($null -eq $document -or $document.status -notin $validStatuses -or
         $document.run_id -notmatch '^(kr|us)-[a-z0-9.-]+-\d{8}-[a-f0-9]{12}$' -or
         $document.market -notin @('KR', 'US') -or [string]::IsNullOrWhiteSpace([string]$document.symbol)) {
@@ -121,6 +124,8 @@ function Get-AiTraderModelRetrainingSummary {
         $orphanArtifactCount = $orphanArtifacts.Count
     }
     $knownFailureCodes = @(
+        'local_configuration_missing', 'market_cost_assumptions_missing_or_invalid',
+        'market_cost_assumptions_inconsistent',
         'insufficient_training_sessions', 'insufficient_partition_samples',
         'single_class_training_partition', 'training_dependencies_missing',
         'unclassified_training_failure'
@@ -141,7 +146,7 @@ function Get-AiTraderModelRetrainingSummary {
         latestRun = [pscustomobject]@{
             runId = [string]$document.run_id
             status = [string]$document.status
-            failureStage = if ($document.failure_stage -in @('data_export', 'candidate_training', 'candidate_verification')) {
+            failureStage = if ($document.failure_stage -in @('configuration', 'data_export', 'candidate_training', 'candidate_verification')) {
                 [string]$document.failure_stage
             } else { $null }
             failureCode = $failureCode
