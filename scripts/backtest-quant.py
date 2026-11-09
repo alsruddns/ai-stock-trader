@@ -16,6 +16,13 @@ from app.data_provenance import load_data_provenance
 from app.quant import QuantConfig, backtest_orb_vwap
 
 
+def spread_coverage(bars) -> tuple[int, float | None]:
+    """Return observed spread count and coverage without treating missing as zero."""
+    total = len(bars)
+    observed = sum(bar.spread_bps is not None for bar in bars)
+    return observed, round(100 * observed / total, 2) if total else None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run the deterministic ORB/VWAP quant backtest over permission-cleared minute-bar CSV data."
@@ -51,9 +58,15 @@ def main() -> int:
                      sell_commission_bps=args.sell_commission_bps,
                      sell_tax_bps=args.sell_tax_bps, slippage_bps=args.slippage_bps,
                      minimum_turnover=args.minimum_turnover, maximum_spread_bps=args.maximum_spread_bps)
-    results = [backtest_orb_vwap(args.market, args.symbol, bars, config)
-               for _, bars in sorted(sessions.items())]
+    session_results = [
+        (session, bars, backtest_orb_vwap(args.market, args.symbol, bars, config))
+        for session, bars in sorted(sessions.items())
+    ]
+    results = [result for _session, _bars, result in session_results]
     trades = [trade for result in results for trade in result.trades]
+    total_bars = sum(len(bars) for _session, bars, _result in session_results)
+    total_spread_bars = sum(spread_coverage(bars)[0] for _session, bars, _result in session_results)
+    spread_coverage_percent = round(100 * total_spread_bars / total_bars, 2) if total_bars else None
     output = {
         "market": args.market,
         "symbol": args.symbol.strip().upper(),
@@ -61,12 +74,19 @@ def main() -> int:
         "data_rights_verified": True,
         "data_provenance": provenance,
         "sessions": [{
-            "date": result.session.isoformat(), "bars": result.data_points, "signals": result.signals,
-            "trades": len(result.trades), "gross_pnl": str(result.gross_pnl),
+            "date": result.session.isoformat(), "bars": result.data_points,
+            "spread_bars": spread_coverage(bars)[0],
+            "spread_coverage_percent": spread_coverage(bars)[1],
+            "spread_filter_has_complete_input": spread_coverage(bars)[0] == len(bars),
+            "signals": result.signals, "trades": len(result.trades),
+            "gross_pnl": str(result.gross_pnl),
             "estimated_costs": str(result.costs), "net_pnl": str(result.net_pnl),
-        } for result in results],
+        } for _session, bars, result in session_results],
         "summary": {
-            "session_count": len(results), "bar_count": sum(result.data_points for result in results),
+            "session_count": len(results), "bar_count": total_bars,
+            "spread_bars": total_spread_bars,
+            "spread_coverage_percent": spread_coverage_percent,
+            "spread_filter_has_complete_input": total_spread_bars == total_bars,
             "signal_count": sum(result.signals for result in results), "trade_count": len(trades),
             "winning_trades": sum(trade.net_pnl > 0 for trade in trades),
             "gross_pnl": str(sum((result.gross_pnl for result in results), Decimal(0))),
@@ -85,6 +105,7 @@ def main() -> int:
             "Input data licensing, corrections, symbol mapping, and timestamp zone are the operator's responsibility.",
             "Each session is simulated independently at one share; results do not compound portfolio capital.",
             "Exchange fees and market impact must be reflected in the supplied assumptions where applicable.",
+            "Entries require observed spreads within the configured limit; missing spread data is reported and is not treated as zero or a passing filter.",
         ],
     }
     print(json.dumps(output, indent=2, ensure_ascii=False))

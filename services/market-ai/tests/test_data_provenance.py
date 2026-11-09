@@ -4,6 +4,7 @@ from pathlib import Path
 import runpy
 import sys
 from datetime import date, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +14,21 @@ from app.data_provenance import (
     validate_data_provenance,
     validate_model_training_coverage,
 )
+
+
+def test_quant_backtest_spread_coverage_keeps_missing_values_unavailable() -> None:
+    repository = Path(__file__).resolve().parents[3]
+    script = repository / "scripts" / "backtest-quant.py"
+    coverage = runpy.run_path(str(script))["spread_coverage"]
+
+    observed, percent = coverage([
+        SimpleNamespace(spread_bps=None),
+        SimpleNamespace(spread_bps=Decimal("3.5")),
+    ])
+
+    assert observed == 1
+    assert percent == 50.0
+    assert coverage([]) == (0, None)
 
 
 def _payload(digest: str) -> dict:
