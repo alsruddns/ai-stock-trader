@@ -635,6 +635,12 @@ def test_domestic_feed_waits_for_trade_and_orderbook_subscription_acks(monkeypat
             raise asyncio.CancelledError
 
     runtime = PaperSessionFeedMonitor()
+    runtime._set_status(
+        last_stream_failure_stage="websocket_connect",
+        last_stream_error_category="NETWORK_DISCONNECT",
+        last_stream_failure_at="2026-11-05T00:00:00+00:00",
+        last_stream_failure_environment="paper",
+    )
     connection = AckConnection(runtime)
     watch = parse_watchlist("KR:005930")[0]
     monkeypatch.setattr("app.paper_runtime.approval_key", lambda _settings: "approval")
@@ -648,6 +654,10 @@ def test_domestic_feed_waits_for_trade_and_orderbook_subscription_acks(monkeypat
     assert runtime.status()["subscription_acknowledgements_by_feed"]["paper"] == {
         "accepted_count": 2, "required_count": 2, "complete": True,
     }
+    assert runtime.status()["last_stream_failure_stage"] == "websocket_connect"
+    assert runtime.status()["last_stream_error_category"] == "NETWORK_DISCONNECT"
+    assert runtime.status()["last_stream_failure_at"] == "2026-11-05T00:00:00+00:00"
+    assert runtime.status()["last_stream_failure_environment"] == "paper"
 
 
 def test_runtime_routes_domestic_orderbook_updates_to_matching_symbol_aggregator(monkeypatch) -> None:

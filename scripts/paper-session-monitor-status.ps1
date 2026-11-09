@@ -23,6 +23,29 @@ function Get-MonitorFailureCode([string]$Message) {
     }
 }
 
+function Get-MonitorStreamFailureDiagnostic($Status) {
+    $allowedStages = @('approval_key', 'websocket_connect', 'subscription_send', 'subscription_acknowledgement', 'websocket_receive')
+    $allowedCategories = @('TIMEOUT', 'NETWORK_DISCONNECT', 'WEBSOCKET_PROTOCOL', 'KIS_APPROVAL_OR_AUTH', 'SUBSCRIPTION_REJECTED', 'SUBSCRIPTION_TIMEOUT', 'UNCLASSIFIED')
+    $stageProperty = if ($Status) { $Status.PSObject.Properties['last_stream_failure_stage'] } else { $null }
+    $categoryProperty = if ($Status) { $Status.PSObject.Properties['last_stream_error_category'] } else { $null }
+    $recordedAtProperty = if ($Status) { $Status.PSObject.Properties['last_stream_failure_at'] } else { $null }
+    $environmentProperty = if ($Status) { $Status.PSObject.Properties['last_stream_failure_environment'] } else { $null }
+    $recordedAt = $null
+    if ($recordedAtProperty -and $recordedAtProperty.Value) {
+        $parsedAt = [DateTimeOffset]::MinValue
+        if ([DateTimeOffset]::TryParse([string]$recordedAtProperty.Value, [ref]$parsedAt)) {
+            $recordedAt = $parsedAt.ToUniversalTime().ToString('o')
+        }
+    }
+    return [ordered]@{
+        stream_failure_diagnostic_available = ($null -ne $stageProperty -and $null -ne $categoryProperty)
+        stream_failure_stage = if ($stageProperty -and $stageProperty.Value -in $allowedStages) { [string]$stageProperty.Value } else { $null }
+        stream_error_category = if ($categoryProperty -and $categoryProperty.Value -in $allowedCategories) { [string]$categoryProperty.Value } else { $null }
+        stream_failure_at = $recordedAt
+        stream_failure_environment = if ($environmentProperty -and $environmentProperty.Value -in @('paper', 'real')) { [string]$environmentProperty.Value } else { $null }
+    }
+}
+
 function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
     $feedNames = if ($SelectedFeed) { @($SelectedFeed.ToLowerInvariant()) } else { @('paper', 'real') }
     $result = [ordered]@{}

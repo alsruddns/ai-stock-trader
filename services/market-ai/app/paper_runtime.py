@@ -208,7 +208,9 @@ class PaperSessionFeedMonitor:
             "last_orderbook_received_at_by_feed": {"paper": None, "real": None},
             "bars_closed_by_feed": {"paper": 0, "real": 0},
             "last_error": None, "last_stream_failure_stage": None,
-            "last_stream_error_category": None, "orders_enabled": False,
+            "last_stream_error_category": None, "last_stream_failure_at": None,
+            "last_stream_failure_environment": None,
+            "orders_enabled": False,
             "subscription_acknowledgements_by_feed": {}, "last_subscription_error_code": None,
             "automation_state": "DISABLED", "automation_error": None,
             "bar_storage_state": "DISABLED", "bar_storage_error": None,
@@ -932,10 +934,6 @@ class PaperSessionFeedMonitor:
                                 if acknowledged:
                                     self._set_status(last_subscription_error_code=None)
                                     self._set_connection_state(environment, "RUNNING")
-                                    self._set_status(
-                                        last_stream_failure_stage=None,
-                                        last_stream_error_category=None,
-                                    )
                                     failure_stage = "websocket_receive"
                             self._record_frame_metadata(environment, frame)
                             self._consume(frame, tuple(self._watches_by_feed.get(environment, watches)))
@@ -956,6 +954,8 @@ class PaperSessionFeedMonitor:
                     last_error="KIS_SUBSCRIPTION_REJECTED",
                     last_stream_failure_stage=failure_stage,
                     last_stream_error_category="SUBSCRIPTION_REJECTED",
+                    last_stream_failure_at=datetime.now(timezone.utc).isoformat(),
+                    last_stream_failure_environment=environment,
                 )
                 await asyncio.sleep(delay)
             except SubscriptionAcknowledgementTimeoutError:
@@ -967,6 +967,8 @@ class PaperSessionFeedMonitor:
                     last_error="KIS_SUBSCRIPTION_ACK_TIMEOUT",
                     last_stream_failure_stage=failure_stage,
                     last_stream_error_category="SUBSCRIPTION_TIMEOUT",
+                    last_stream_failure_at=datetime.now(timezone.utc).isoformat(),
+                    last_stream_failure_environment=environment,
                 )
                 await asyncio.sleep(delay)
             except Exception as exc:
@@ -977,6 +979,8 @@ class PaperSessionFeedMonitor:
                 self._set_status(
                     last_stream_failure_stage=failure_stage,
                     last_stream_error_category=self._stream_error_category(exc),
+                    last_stream_failure_at=datetime.now(timezone.utc).isoformat(),
+                    last_stream_failure_environment=environment,
                 )
                 await asyncio.sleep(delay)
 

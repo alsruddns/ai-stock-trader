@@ -32,6 +32,42 @@ Describe 'Paper session monitor failure codes' {
     }
 }
 
+Describe 'Paper session WebSocket failure diagnostics' {
+    It 'keeps only approved stage and category codes' {
+        $status = [pscustomobject]@{
+            last_stream_failure_stage = 'websocket_connect'
+            last_stream_error_category = 'NETWORK_DISCONNECT'
+            last_stream_failure_at = '2026-11-05T00:00:00+00:00'
+            last_stream_failure_environment = 'paper'
+        }
+
+        $diagnostic = Get-MonitorStreamFailureDiagnostic $status
+
+        $diagnostic.stream_failure_diagnostic_available | Should Be $true
+        $diagnostic.stream_failure_stage | Should Be 'websocket_connect'
+        $diagnostic.stream_error_category | Should Be 'NETWORK_DISCONNECT'
+        $diagnostic.stream_failure_at | Should Be '2026-11-05T00:00:00.0000000+00:00'
+        $diagnostic.stream_failure_environment | Should Be 'paper'
+    }
+
+    It 'omits arbitrary exception text and distinguishes older API payloads' {
+        $unsafeStatus = [pscustomobject]@{
+            last_stream_failure_stage = 'password=private-value'
+            last_stream_error_category = 'appsecret=private-value'
+        }
+        $oldStatus = [pscustomobject]@{ state = 'RUNNING' }
+
+        $unsafe = Get-MonitorStreamFailureDiagnostic $unsafeStatus
+        $old = Get-MonitorStreamFailureDiagnostic $oldStatus
+        $combined = (@($unsafe, $old) | ConvertTo-Json -Compress -Depth 4)
+
+        $unsafe.stream_failure_stage | Should Be $null
+        $unsafe.stream_error_category | Should Be $null
+        $old.stream_failure_diagnostic_available | Should Be $false
+        $combined | Should Not Match 'private-value'
+    }
+}
+
 Describe 'Paper session feed quote-quality diagnostics' {
     It 'records the four valid counters independently from frame diagnostics' {
         $status = [pscustomobject]@{

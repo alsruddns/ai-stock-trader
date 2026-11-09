@@ -26,8 +26,12 @@ $evidenceDirectory = Split-Path -Parent $EvidencePath
 $progressName = '{0}.progress.jsonl' -f [IO.Path]::GetFileNameWithoutExtension($EvidencePath)
 $ProgressPath = Join-Path $evidenceDirectory $progressName
 
-function Write-ProgressRecord($Record) {
+function Write-ProgressRecord($Record, $Status = $null) {
     if ($evidenceDirectory) { New-Item -ItemType Directory -Force -Path $evidenceDirectory | Out-Null }
+    $streamFailureDiagnostic = Get-MonitorStreamFailureDiagnostic $Status
+    foreach ($name in $streamFailureDiagnostic.Keys) {
+        $Record[$name] = $streamFailureDiagnostic[$name]
+    }
     [System.IO.File]::AppendAllText($ProgressPath,
         ($Record | ConvertTo-Json -Compress -Depth 5) + [Environment]::NewLine,
         [System.Text.UTF8Encoding]::new($false))
@@ -168,7 +172,7 @@ $initialProgress = [ordered]@{
     automation_state = $initial.automation_state
     result = 'running'
 }
-Write-ProgressRecord $initialProgress
+Write-ProgressRecord $initialProgress $initial
 while ([DateTimeOffset]::UtcNow -lt $deadline) {
     $remaining = [int][Math]::Ceiling(($deadline - [DateTimeOffset]::UtcNow).TotalSeconds)
     Start-Sleep -Seconds ([Math]::Min($PollIntervalSeconds, [Math]::Max(1, $remaining)))
@@ -264,7 +268,7 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
         automation_state = $latest.automation_state
         result = 'running'
     }
-    Write-ProgressRecord $progress
+    Write-ProgressRecord $progress $latest
 
     if ($stopwatch.Elapsed.TotalSeconds -ge $nextProgressSeconds) {
         $tickDelta = $currentTicks - $initialTicks
@@ -306,7 +310,7 @@ if ($RequireSessionClose) {
                 orders_enabled = if ($status) { [bool]$status.orders_enabled } else { $false }
                 automation_state = if ($status) { $status.automation_state } else { $null }
                 result = 'session_status_unavailable'
-            })
+            }) $status
             return [pscustomobject]@{
                 ready = $false
                 status = $status
@@ -357,7 +361,7 @@ if ($RequireSessionClose) {
             orders_enabled = [bool]$status.orders_enabled
             automation_state = $status.automation_state
             result = if ($qualityEvidence.Count -gt 0) { 'post_close_ready' } else { 'finalizing' }
-        })
+        }) $status
         return [pscustomobject]@{
             ready = ($qualityEvidence.Count -gt 0)
             status = $status
@@ -440,6 +444,10 @@ $evidence = [ordered]@{
     feeds = $latest.stream_connections
     feed_diagnostics = Get-MonitorFeedDiagnostics $latest $Feed
     feed_diagnostics_delta = Get-MonitorFeedDiagnosticsDelta $initial $latest $Feed
+    stream_failure_diagnostic_available = (Get-MonitorStreamFailureDiagnostic $latest).stream_failure_diagnostic_available
+    stream_failure_stage = (Get-MonitorStreamFailureDiagnostic $latest).stream_failure_stage
+    stream_error_category = (Get-MonitorStreamFailureDiagnostic $latest).stream_error_category
+    stream_failure_at = (Get-MonitorStreamFailureDiagnostic $latest).stream_failure_at
     orders_enabled = $false
     automation_state = $latest.automation_state
     result = 'passed'
@@ -473,7 +481,7 @@ Write-ProgressRecord ([ordered]@{
     orders_enabled = $false
     automation_state = $latest.automation_state
     result = 'passed'
-})
+}) $latest
 [System.IO.File]::AppendAllText($EvidencePath,
     ($evidence | ConvertTo-Json -Compress -Depth 5) + [Environment]::NewLine,
     [System.Text.UTF8Encoding]::new($false))
@@ -514,6 +522,6 @@ Write-Output "Read-only KIS $validationLabel passed: feed=$(if ($Feed) { $Feed }
         failure_code = Get-MonitorFailureCode ([string]$_.Exception.Message)
         result = 'failed'
     }
-    try { Write-ProgressRecord $failureProgress } catch { }
+    try { Write-ProgressRecord $failureProgress $latest } catch { }
     throw
 }
