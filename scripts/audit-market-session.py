@@ -15,6 +15,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 import psycopg
 from app.market_calendar import exchange_continuous_session_window
 from app.quant import MinuteBar
+from app.market_scope import require_cli_operational_market
 from app.session_quality import audit_minute_bar_session, meets_minimum_spread_coverage
 
 
@@ -67,6 +68,7 @@ def main() -> int:
 
     try:
         _load_local_env()
+        require_cli_operational_market(args.market, "market-session data audit")
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     if not os.getenv("POSTGRES_PASSWORD"):

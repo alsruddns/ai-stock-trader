@@ -22,3 +22,11 @@ def require_operational_market(market: str, operation: str) -> None:
             status_code=423,
             detail=f"{operation} is disabled for {normalized}; current operational markets are domestic KR only",
         )
+
+
+def require_cli_operational_market(market: str, operation: str) -> None:
+    """Apply the same scope gate to offline command-line validation tools."""
+    try:
+        require_operational_market(market, operation)
+    except HTTPException as exc:
+        raise ValueError(str(exc.detail)) from exc

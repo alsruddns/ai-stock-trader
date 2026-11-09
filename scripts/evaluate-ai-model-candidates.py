@@ -12,6 +12,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 from app.ai_pipeline import LocalModelRegistry
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
+from app.market_scope import require_cli_operational_market
 
 
 def main() -> int:
@@ -23,6 +24,10 @@ def main() -> int:
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--registry", type=Path, default=Path(".local/models"))
     args = parser.parse_args()
+    try:
+        require_cli_operational_market(args.market, "AI candidate holdout evaluation")
+    except ValueError as exc:
+        parser.error(str(exc))
     try:
         provenance = load_data_provenance(args.csv_file, purpose="backtesting")
         digest = hashlib.sha256(args.csv_file.read_bytes()).hexdigest()

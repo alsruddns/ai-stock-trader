@@ -15,6 +15,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 import psycopg
 from app.data_export import summarize_session_coverage, validate_websocket_session_rows, write_minute_bar_export
 from app.market_calendar import exchange_continuous_session_window
+from app.market_scope import require_cli_operational_market
 
 
 def _load_local_env() -> None:
@@ -76,6 +77,7 @@ def main() -> int:
 
     try:
         _load_local_env()
+        require_cli_operational_market(market, "market-data export and quality validation")
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     if not os.getenv("POSTGRES_PASSWORD"):

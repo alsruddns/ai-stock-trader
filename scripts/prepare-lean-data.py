@@ -16,6 +16,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
 from app.ai_pipeline import LocalModelRegistry, predict_probability_series
+from app.market_scope import require_cli_operational_market
 from app.quant import QuantConfig, backtest_orb_vwap
 
 
@@ -35,6 +36,10 @@ def main() -> int:
     parser.add_argument("--slippage-bps", type=Decimal, default=Decimal("5"))
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+    try:
+        require_cli_operational_market(args.market, "LEAN strategy replay preparation")
+    except ValueError as exc:
+        parser.error(str(exc))
 
     cost_values = (args.buy_commission_bps, args.sell_commission_bps,
                    args.sell_tax_bps, args.slippage_bps)

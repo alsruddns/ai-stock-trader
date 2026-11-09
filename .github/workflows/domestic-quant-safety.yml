@@ -5,6 +5,15 @@ on:
     branches: [develop]
     paths:
       - 'services/market-ai/app/quant.py'
+      - 'services/market-ai/app/backtest_metrics.py'
+      - 'services/market-ai/app/market_scope.py'
+      - 'services/market-ai/tests/test_backtest_metrics.py'
+      - 'scripts/audit-market-session.py'
+      - 'scripts/backtest-quant.py'
+      - 'scripts/evaluate-ai-model-candidates.py'
+      - 'scripts/export-market-data.py'
+      - 'scripts/prepare-lean-data.py'
+      - 'scripts/train-ai-models.py'
       - 'services/market-ai/tests/test_quant.py'
       - 'services/market-ai/scripts/validate_domestic_quant_selection.py'
       - '.github/workflows/domestic-quant-safety.yml'
@@ -44,3 +53,15 @@ jobs:
         run: >-
           python -m pytest -q tests/test_quant.py
           -k "not test_us_backtest"
+      - name: Run domestic cost-adjusted backtest metrics tests
+        working-directory: services/market-ai
+        run: python -m pytest -q tests/test_backtest_metrics.py
+      - name: Compile domestic analytics command-line tools
+        run: >-
+          python -m compileall -q
+          scripts/audit-market-session.py
+          scripts/backtest-quant.py
+          scripts/evaluate-ai-model-candidates.py
+          scripts/export-market-data.py
+          scripts/prepare-lean-data.py
+          scripts/train-ai-models.py

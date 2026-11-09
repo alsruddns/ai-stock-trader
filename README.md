@@ -96,6 +96,8 @@ LightGBM·XGBoost 학습용 선택 의존성은 `python -m pip install -e ".[dev
 
 퀀트 백테스트도 같은 권리 manifest가 필요하며, 예를 들어 `python .\scripts\backtest-quant.py .\data\licensed\005930.csv --market KR --symbol 005930`으로 실행합니다. CSV 내용이 바뀌어 SHA-256이 달라지면 기존 manifest는 사용할 수 없습니다.
 
+백테스트 요약에는 거래별 진입금액 대비 총수익률, 비용, 순수익률(bps), 중앙값·최악 거래, 승률과 손익비를 추가합니다. 여러 거래의 수익률은 단순 산술 평균이며 복리나 실계좌 성과로 해석하지 않습니다. 거래가 없거나 손실 거래가 없는 경우 손익비는 임의의 0 대신 미정으로 표시합니다.
+
 ### LEAN 로컬 전략 백테스트
 
 `scripts/run-lean-backtest.ps1`은 권리 sidecar와 완전한 단일 세션을 검사하고, 공식 LEAN 엔진 소스와 .NET 10 SDK를 무시된 `.local/lean-toolchain`에 준비한 뒤 C# ORB/VWAP/EMA/ATR 전략을 로컬로 실행합니다. 이 Windows 네이티브 경로에는 Docker나 QuantConnect 유료 조직 계정이 필요하지 않습니다. KIS 데이터는 로컬 data folder만 사용하며 cloud로 업로드하지 않습니다. 첫 실행은 인터넷에서 Microsoft SDK 설치 스크립트, QuantConnect LEAN 소스, NuGet 패키지를 가져옵니다. 빌드·실행 기록은 `.local/logs`에 저장됩니다. 시장별 `.env_local`의 매수·매도 수수료, 매도세, 체결별 슬리피지가 모두 설정되면 두 엔진이 그 값을 함께 사용합니다. 전부 비어 있으면 5/5/0/5 bps 진단 기본값임을 결과에 표시하고, 일부만 설정하면 중단합니다. 네 값을 명령행 인자로 명시해 비교할 수도 있습니다.

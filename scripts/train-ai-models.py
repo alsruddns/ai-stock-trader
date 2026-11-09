@@ -13,6 +13,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 from app.ai_pipeline import LocalModelRegistry
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance, validate_model_training_coverage
+from app.market_scope import require_cli_operational_market
 from app.quant import QuantConfig
 
 
@@ -36,6 +37,10 @@ def main() -> int:
     parser.add_argument("--slippage-bps", type=Decimal, required=True,
                         help="explicit slippage assumption per fill in basis points")
     args = parser.parse_args()
+    try:
+        require_cli_operational_market(args.market, "model training and validation")
+    except ValueError as exc:
+        parser.error(str(exc))
     minimum_round_trip_cost = (args.buy_commission_bps + args.sell_commission_bps
                                + args.sell_tax_bps + 2 * args.slippage_bps)
     if min(args.buy_commission_bps, args.sell_commission_bps, args.sell_tax_bps, args.slippage_bps) < 0:

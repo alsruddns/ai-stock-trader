@@ -1,9 +1,16 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.market_scope import require_cli_operational_market
 
 
 client = TestClient(app)
+
+
+def test_domestic_offline_command_scope_is_allowed_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("MARKET_OPERATIONAL_SCOPE", raising=False)
+
+    require_cli_operational_market("KR", "domestic CLI validation")
 
 
 def test_domestic_analysis_remains_available_in_default_scope(monkeypatch) -> None:
