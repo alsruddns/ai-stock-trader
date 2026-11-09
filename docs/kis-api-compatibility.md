@@ -1,6 +1,6 @@
 # KIS API compatibility check
 
-Last checked: 2026-11-08 against the current examples in the official KIS repository.
+Last checked: 2026-11-09 against the current examples in the official KIS repository.
 
 ## Read-only account balance
 
