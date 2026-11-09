@@ -93,7 +93,7 @@ export default function Dashboard() {
     ? trainingReadiness.map((item) => `${item.market} ${item.symbol} ${item.eligible_sessions}/${item.minimum_required_sessions}`).join(" · ")
     : "학습 데이터를 확인할 수 없음";
   const trainingReadinessDetail = trainingReadiness.length
-    ? trainingReadiness.map((item) => `${item.market} ${item.symbol}: ${item.additional_sessions_needed > 0 ? `완전한 호가 포함 세션 ${item.additional_sessions_needed}개 더 필요` : "학습 최소 세션 충족"} · ${item.from_date}~${item.to_date}`).join(" / ")
+    ? `${trainingReadiness.map((item) => `${item.market} ${item.symbol}: ${item.additional_sessions_needed > 0 ? `완전한 호가 포함 세션 ${item.additional_sessions_needed}개 더 필요` : "학습 최소 세션 충족"} · ${item.from_date}~${item.to_date}`).join(" / ")} · 학습 기준 충족 후에도 이후 거래일의 독립 홀드아웃 세션 5개 이상이 별도로 필요합니다.`
     : "P4 재학습 작업 또는 저장 데이터 상태를 확인하세요.";
   const interactiveTasks = scheduledTasks.filter((task) => task.requiresInteractiveLogon === true).length
     + (localReport?.localStackTask?.requiresInteractiveLogon === true ? 1 : 0);
