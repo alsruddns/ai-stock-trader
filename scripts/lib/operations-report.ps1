@@ -221,6 +221,7 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         sessionCloseReached = $null; sessionQualityStatus = $null; ticksDelta = $null; barsDelta = $null
         orderbookFramesDelta = $null; orderbookUpdatesDelta = $null
         maxNoTickSeconds = $null; failureStage = $null; failureCode = $null
+        symbolMarketDataStatus = 'UNAVAILABLE'; symbolMarketData = @()
     }
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $unverified }
     try { $lines = @(Get-Content -LiteralPath $Path -Tail 1 -ErrorAction Stop) }
@@ -253,6 +254,75 @@ function Get-AiTraderDomesticSessionMonitorSummary {
     $hasMaxNoTick = [double]::TryParse([string]$record.max_observed_no_tick_seconds,
         [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$maxNoTick) -and
         $maxNoTick -ge 0
+    $symbolMarketDataStatus = 'UNAVAILABLE'
+    $symbolMarketData = @()
+    $symbolDelta = $record.symbol_market_data_delta
+    if ($symbolDelta -and $symbolDelta.available -eq $true) {
+        $safeRows = [System.Collections.Generic.List[object]]::new()
+        $symbolRowsValid = $true
+        foreach ($row in @($symbolDelta.symbols)) {
+            $market = ([string]$row.market).Trim().ToUpperInvariant()
+            $symbol = ([string]$row.symbol).Trim().ToUpperInvariant()
+            $exchange = if ([string]::IsNullOrWhiteSpace([string]$row.exchange)) { $null } else { ([string]$row.exchange).Trim().ToUpperInvariant() }
+            if ($market -ne 'KR' -or $null -ne $exchange -or $symbol -notmatch '^\d{6}$' -or
+                [string]$row.key -ne "KR:${symbol}:") {
+                $symbolRowsValid = $false
+                continue
+            }
+
+            $counts = @{}
+            foreach ($counter in @('trade_ticks_received', 'bars_closed', 'orderbook_quotes_received', 'usable_orderbook_quotes')) {
+                $count = 0L
+                if (-not [long]::TryParse([string]$row.$counter, [ref]$count) -or $count -lt 0) {
+                    $symbolRowsValid = $false
+                    break
+                }
+                $counts[$counter] = $count
+            }
+            if (-not $symbolRowsValid) { continue }
+
+            $times = @{}
+            foreach ($timeField in @('last_trade_at_utc', 'last_trade_received_at_utc', 'last_orderbook_at_utc', 'last_orderbook_received_at_utc')) {
+                $normalized = $null
+                if (-not [string]::IsNullOrWhiteSpace([string]$row.$timeField)) {
+                    $parsed = [DateTimeOffset]::MinValue
+                    if ([DateTimeOffset]::TryParse([string]$row.$timeField, [ref]$parsed)) {
+                        $normalized = $parsed.ToUniversalTime().ToString('o')
+                    } else {
+                        $symbolRowsValid = $false
+                    }
+                }
+                $times[$timeField] = $normalized
+            }
+            if (($counts.trade_ticks_received -gt 0 -and
+                    (-not $times.last_trade_at_utc -or -not $times.last_trade_received_at_utc)) -or
+                ($counts.orderbook_quotes_received -gt 0 -and
+                    (-not $times.last_orderbook_at_utc -or -not $times.last_orderbook_received_at_utc))) {
+                $symbolRowsValid = $false
+            }
+            if (-not $symbolRowsValid) { continue }
+
+            $safeRows.Add([pscustomobject]@{
+                key = [string]$row.key
+                market = 'KR'
+                symbol = $symbol
+                tradeTicksReceived = $counts.trade_ticks_received
+                barsClosed = $counts.bars_closed
+                orderbookQuotesReceived = $counts.orderbook_quotes_received
+                usableOrderbookQuotes = $counts.usable_orderbook_quotes
+                lastTradeAtUtc = $times.last_trade_at_utc
+                lastTradeReceivedAtUtc = $times.last_trade_received_at_utc
+                lastOrderbookAtUtc = $times.last_orderbook_at_utc
+                lastOrderbookReceivedAtUtc = $times.last_orderbook_received_at_utc
+            })
+        }
+        if ($symbolRowsValid -and $safeRows.Count -gt 0) {
+            $symbolMarketDataStatus = 'AVAILABLE'
+            $symbolMarketData = [object[]]$safeRows.ToArray()
+        } else {
+            $symbolMarketDataStatus = 'UNVERIFIED'
+        }
+    }
     $paperDiagnostics = if ($record.feed_diagnostics_delta) { $record.feed_diagnostics_delta.PSObject.Properties['paper'] } else { $null }
     $paperDiagnosticValue = if ($paperDiagnostics) { $paperDiagnostics.Value } else { $null }
     $transactionCounts = if ($paperDiagnosticValue) { $paperDiagnosticValue.transaction_counts } else { $null }
@@ -277,6 +347,8 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         maxNoTickSeconds = if ($hasMaxNoTick) { [Math]::Round($maxNoTick, 1) } else { $null }
         failureStage = if ($record.failure_stage -in $knownStages) { [string]$record.failure_stage } else { $null }
         failureCode = if ($record.failure_code -in $knownFailureCodes) { [string]$record.failure_code } else { $null }
+        symbolMarketDataStatus = $symbolMarketDataStatus
+        symbolMarketData = $symbolMarketData
     }
 }
 

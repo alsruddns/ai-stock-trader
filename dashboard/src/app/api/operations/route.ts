@@ -21,6 +21,14 @@ type ScheduledTask = {
   lastTaskResult: number | null;
 };
 
+type DomesticSymbolMarketData = {
+  symbol: string;
+  tradeTicksReceived: number;
+  barsClosed: number;
+  orderbookQuotesReceived: number;
+  usableOrderbookQuotes: number;
+};
+
 type LocalOperationsReport = {
   generatedAt: string;
   reportSchemaVersion: number;
@@ -57,6 +65,8 @@ type LocalOperationsReport = {
     maxNoTickSeconds: number | null;
     failureStage: string | null;
     failureCode: string | null;
+    symbolMarketDataStatus: string;
+    symbolMarketData: DomesticSymbolMarketData[];
   } | null;
   validationTaskSchedule: {
     state: string;
@@ -88,6 +98,10 @@ function optionalNumber(value: unknown): number | null {
 
 function optionalBoolean(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null;
+}
+
+function nonNegativeInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 function scheduledTasks(value: unknown): ScheduledTask[] {
@@ -195,6 +209,27 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
       lastTaskResult: optionalNumber(stack.lastTaskResult),
     } : null;
     const rawMonitor = asObject(raw.domesticSessionMonitor);
+    const rawSymbolMarketData = rawMonitor && Array.isArray(rawMonitor.symbolMarketData)
+      ? rawMonitor.symbolMarketData
+      : [];
+    const symbolMarketData = rawSymbolMarketData.flatMap((value): DomesticSymbolMarketData[] => {
+      const row = asObject(value);
+      const symbol = optionalString(row?.symbol);
+      const tradeTicksReceived = nonNegativeInteger(row?.tradeTicksReceived);
+      const barsClosed = nonNegativeInteger(row?.barsClosed);
+      const orderbookQuotesReceived = nonNegativeInteger(row?.orderbookQuotesReceived);
+      const usableOrderbookQuotes = nonNegativeInteger(row?.usableOrderbookQuotes);
+      if (row?.market !== "KR" || !symbol || !/^\d{6}$/.test(symbol) || row.key !== `KR:${symbol}:` ||
+        tradeTicksReceived === null || barsClosed === null || orderbookQuotesReceived === null || usableOrderbookQuotes === null) {
+        return [];
+      }
+      return [{ symbol, tradeTicksReceived, barsClosed, orderbookQuotesReceived, usableOrderbookQuotes }];
+    });
+    const rawSymbolMarketDataStatus = optionalString(rawMonitor?.symbolMarketDataStatus);
+    const symbolMarketDataStatus = rawSymbolMarketDataStatus === "AVAILABLE" &&
+      rawSymbolMarketData.length > 0 && symbolMarketData.length === rawSymbolMarketData.length
+      ? "AVAILABLE"
+      : rawSymbolMarketDataStatus === "UNVERIFIED" ? "UNVERIFIED" : "UNAVAILABLE";
     const domesticSessionMonitor = rawMonitor && typeof rawMonitor.state === "string" ? {
       state: rawMonitor.state,
       recordedAt: optionalString(rawMonitor.recordedAt),
@@ -209,6 +244,8 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
       maxNoTickSeconds: optionalNumber(rawMonitor.maxNoTickSeconds),
       failureStage: optionalString(rawMonitor.failureStage),
       failureCode: optionalString(rawMonitor.failureCode),
+      symbolMarketDataStatus,
+      symbolMarketData: symbolMarketDataStatus === "AVAILABLE" ? symbolMarketData : [],
     } : null;
 
     return {

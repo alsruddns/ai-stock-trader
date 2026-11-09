@@ -275,7 +275,7 @@ Describe 'Daily operations report endpoint health summary' {
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
         $archivedReport = Get-Content -LiteralPath $archivePath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 12
+        $report.reportSchemaVersion | Should Be 13
         $archivedReport.generatedAt | Should Be $report.generatedAt
         $archivedReport.tradingMode | Should Be $report.tradingMode
         $report.pythonConnected | Should Be $true

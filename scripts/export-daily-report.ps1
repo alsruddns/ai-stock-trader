@@ -94,6 +94,7 @@ $endpointStatus['local.domestic_session_monitor'] = [ordered]@{
     failureCode = $domesticSessionMonitor.failureCode
     orderbookFramesDelta = $domesticSessionMonitor.orderbookFramesDelta
     orderbookUpdatesDelta = $domesticSessionMonitor.orderbookUpdatesDelta
+    symbolMarketDataStatus = $domesticSessionMonitor.symbolMarketDataStatus
 }
 $validationTaskSchedule = Get-AiTraderValidationTaskScheduleSummary
 $endpointStatus['local.validation_task_schedule'] = [ordered]@{
@@ -148,7 +149,7 @@ foreach ($market in @('KR', 'US')) {
     $marketDataQuality[$market] = $qualityResult.data
 }
 
-$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 12 -Force
+$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 13 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
 $endpointStates = @($endpointStatus.GetEnumerator() |
