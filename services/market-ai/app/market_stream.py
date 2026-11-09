@@ -170,6 +170,20 @@ class MinuteBarAggregator:
         minute = quote.timestamp.replace(second=0, microsecond=0)
         if self._minute is not None and minute < self._minute:
             return False
+        valid_quote = (
+            quote.bid is not None and quote.ask is not None
+            and quote.bid > 0 and quote.ask >= quote.bid
+        )
+        if not valid_quote:
+            if self._quote_minute == minute and self._bid is not None and self._ask is not None:
+                if self._bid > 0 and self._ask >= self._bid:
+                    # Keep the last usable quote for this minute when KIS sends
+                    # an empty or crossed update; never carry it into a later minute.
+                    return False
+            self._symbol = quote.symbol
+            self._quote_minute = minute
+            self._bid = self._ask = None
+            return True
         self._symbol = quote.symbol
         self._quote_minute = minute
         self._bid, self._ask = quote.bid, quote.ask

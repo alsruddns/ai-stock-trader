@@ -204,3 +204,60 @@ def test_minute_aggregator_rejects_stale_orderbook_quote_for_spread() -> None:
 
     assert completed is not None
     assert completed.spread_bps is None
+
+
+@pytest.mark.parametrize(
+    ("bid", "ask"),
+    [(Decimal("0"), Decimal("101")), (Decimal("102"), Decimal("101")), (None, Decimal("101"))],
+)
+def test_minute_aggregator_keeps_last_valid_quote_after_bad_same_minute_update(
+    bid: Decimal | None, ask: Decimal | None,
+) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo("Asia/Seoul")
+    aggregate = MinuteBarAggregator()
+    aggregate.add(TradeTick(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 2, tzinfo=zone), Decimal("100"), 1, None, None,
+    ))
+    assert aggregate.update_quote(OrderBookQuote(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 10, tzinfo=zone), Decimal("99"), Decimal("101"),
+    ))
+    assert not aggregate.update_quote(OrderBookQuote(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 20, tzinfo=zone), bid, ask,
+    ))
+
+    completed = aggregate.add(TradeTick(
+        "KR", "005930", datetime(2026, 11, 6, 10, 2, 1, tzinfo=zone), Decimal("100"), 1, None, None,
+    ))
+
+    assert completed is not None
+    assert completed.spread_bps == Decimal("200")
+
+
+def test_minute_aggregator_does_not_carry_valid_quote_into_minute_with_only_bad_updates() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo("Asia/Seoul")
+    aggregate = MinuteBarAggregator()
+    aggregate.add(TradeTick(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 2, tzinfo=zone), Decimal("100"), 1, None, None,
+    ))
+    aggregate.update_quote(OrderBookQuote(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 10, tzinfo=zone), Decimal("99"), Decimal("101"),
+    ))
+    aggregate.add(TradeTick(
+        "KR", "005930", datetime(2026, 11, 6, 10, 2, 1, tzinfo=zone), Decimal("100"), 1, None, None,
+    ))
+    assert aggregate.update_quote(OrderBookQuote(
+        "KR", "005930", datetime(2026, 11, 6, 10, 2, 10, tzinfo=zone), Decimal("0"), Decimal("101"),
+    ))
+
+    completed = aggregate.add(TradeTick(
+        "KR", "005930", datetime(2026, 11, 6, 10, 3, 1, tzinfo=zone), Decimal("100"), 1, None, None,
+    ))
+
+    assert completed is not None
+    assert completed.spread_bps is None
