@@ -360,6 +360,7 @@ def market_session_status(market: Market = Path()) -> dict[str, object]:
 @app.get("/api/v1/market/sessions/{market}/latest-closed")
 def latest_closed_market_session_status(market: Market = Path()) -> dict[str, object]:
     """Return the latest completed exchange session for cross-market read-only risk evidence."""
+    require_operational_market(market, "latest-closed market-session validation")
     now = datetime.now(timezone.utc)
     zone = ZoneInfo("Asia/Seoul" if market == "KR" else "America/New_York")
     try:
