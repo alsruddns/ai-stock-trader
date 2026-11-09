@@ -137,6 +137,30 @@ function Test-PaperFrameDiagnosticsReady($Session) {
     return $true
 }
 
+function Test-PaperQuoteQualityDiagnosticsReady($Session) {
+    if (-not $Session -or
+        $null -eq $Session.PSObject.Properties['orderbook_quote_quality_by_feed']) {
+        return $false
+    }
+    $quality = $Session.orderbook_quote_quality_by_feed
+    if (-not $quality) { return $false }
+    foreach ($feed in @('paper', 'real')) {
+        $feedProperty = $quality.PSObject.Properties[$feed]
+        if ($null -eq $feedProperty) { return $false }
+        $feedQuality = $feedProperty.Value
+        foreach ($counterName in @('usable', 'empty_or_nonpositive', 'crossed', 'stale_rejected')) {
+            $countProperty = $feedQuality.PSObject.Properties[$counterName]
+            $parsedCount = 0L
+            if ($null -eq $countProperty -or
+                -not [long]::TryParse([string]$countProperty.Value, [ref]$parsedCount) -or
+                $parsedCount -lt 0) {
+                return $false
+            }
+        }
+    }
+    return $true
+}
+
 function Stop-TrackedProcessTree($Process) {
     if ($null -eq $Process) { return }
     $current = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$Process.ProcessId)" -ErrorAction SilentlyContinue
@@ -252,5 +276,8 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
     if (-not (Test-PaperFrameDiagnosticsReady $paperSession)) {
         throw 'The restarted Python API did not expose the expected per-feed frame diagnostics.'
     }
-    Write-Output 'Local APIs restarted after both exchanges closed; feed diagnostics and monitor/storage were restored and all trading locks remain enabled.'
+    if (-not (Test-PaperQuoteQualityDiagnosticsReady $paperSession)) {
+        throw 'The restarted Python API did not expose the expected per-feed quote-quality diagnostics.'
+    }
+    Write-Output 'Local APIs restarted after both exchanges closed; frame/quote diagnostics and monitor/storage were restored and all trading locks remain enabled.'
 }

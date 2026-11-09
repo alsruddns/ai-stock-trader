@@ -123,8 +123,13 @@ $frameDiagnosticsAst = $restartAst.Find({
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
         $node.Name -eq 'Test-PaperFrameDiagnosticsReady'
 }, $true)
+$quoteQualityDiagnosticsAst = $restartAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Test-PaperQuoteQualityDiagnosticsReady'
+}, $true)
 if ($null -eq $identityAst -or $null -eq $parentageAst -or $null -eq $paperSessionAst -or
-    $null -eq $tradingLocksAst -or $null -eq $frameDiagnosticsAst) {
+    $null -eq $tradingLocksAst -or $null -eq $frameDiagnosticsAst -or $null -eq $quoteQualityDiagnosticsAst) {
     throw 'Process ownership or paper-session restoration checks were not found.'
 }
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -134,6 +139,7 @@ $script:restartScriptDirectory = $PSScriptRoot
 . ([ScriptBlock]::Create($paperSessionAst.Extent.Text))
 . ([ScriptBlock]::Create($tradingLocksAst.Extent.Text))
 . ([ScriptBlock]::Create($frameDiagnosticsAst.Extent.Text))
+. ([ScriptBlock]::Create($quoteQualityDiagnosticsAst.Extent.Text))
 
 $lockedPython = [pscustomobject]@{ status = 'ok'; live_trading_enabled = $false; paper_automation_enabled = $false }
 $lockedSpring = [pscustomobject]@{
@@ -180,9 +186,29 @@ $diagnosticSession = [pscustomobject]@{
         paper = [pscustomobject]@{ H0STCNT0 = 0; H0STASP0 = 0; HDFSCNT0 = 0; OTHER = 0 }
         real = [pscustomobject]@{ H0STCNT0 = 0; H0STASP0 = 0; HDFSCNT0 = 0; OTHER = 0 }
     }
+    orderbook_quote_quality_by_feed = [pscustomobject]@{
+        paper = [pscustomobject]@{ usable = 0; empty_or_nonpositive = 0; crossed = 0; stale_rejected = 0 }
+        real = [pscustomobject]@{ usable = 0; empty_or_nonpositive = 0; crossed = 0; stale_rejected = 0 }
+    }
 }
 if (-not (Test-PaperFrameDiagnosticsReady $diagnosticSession)) {
     throw 'A complete per-feed frame diagnostics payload should pass.'
+}
+if (-not (Test-PaperQuoteQualityDiagnosticsReady $diagnosticSession)) {
+    throw 'A complete per-feed quote-quality diagnostics payload should pass.'
+}
+$missingQuoteQuality = $diagnosticSession.PSObject.Copy()
+$missingQuoteQuality.orderbook_quote_quality_by_feed = $null
+if (Test-PaperQuoteQualityDiagnosticsReady $missingQuoteQuality) {
+    throw 'Missing per-feed quote-quality counters must block declaring diagnostics ready.'
+}
+$negativeQuoteQuality = $diagnosticSession.PSObject.Copy()
+$negativeQuoteQuality.orderbook_quote_quality_by_feed = [pscustomobject]@{
+    paper = [pscustomobject]@{ usable = 0; empty_or_nonpositive = -1; crossed = 0; stale_rejected = 0 }
+    real = $diagnosticSession.orderbook_quote_quality_by_feed.real
+}
+if (Test-PaperQuoteQualityDiagnosticsReady $negativeQuoteQuality) {
+    throw 'Negative quote-quality counters must block declaring diagnostics ready.'
 }
 $missingFrameCounts = $diagnosticSession.PSObject.Copy()
 $missingFrameCounts.frames_received_by_feed = $null
@@ -203,7 +229,9 @@ $diagnosticSession.frame_transaction_counts_by_feed.paper = [pscustomobject]@{
 }
 $monitorDiagnostics = Get-MonitorFeedDiagnostics $diagnosticSession 'paper'
 if (-not $monitorDiagnostics.paper.available -or $monitorDiagnostics.paper.frames_received -ne 0 -or
-    $monitorDiagnostics.paper.transaction_counts.H0STCNT0 -ne 0) {
+    $monitorDiagnostics.paper.transaction_counts.H0STCNT0 -ne 0 -or
+    -not $monitorDiagnostics.paper.quote_quality_available -or
+    $monitorDiagnostics.paper.quote_quality.usable -ne 0) {
     throw 'The WebSocket monitor should record selected-feed frame and transaction counters.'
 }
 $bothMonitorDiagnostics = Get-MonitorFeedDiagnostics $diagnosticSession ''
