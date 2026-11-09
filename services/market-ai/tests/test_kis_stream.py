@@ -70,17 +70,17 @@ def test_domestic_watch_subscribes_to_trade_and_orderbook_but_us_stays_single_st
 
 
 def test_subscription_message_supports_official_unsubscribe_type() -> None:
-    message = subscription_message("approval", "KR", "005930", tr_type="2")
-    assert message["header"]["tr_type"] == "2"
+    message = subscription_message("approval", "KR", "005930", tr_type="0")
+    assert message["header"]["tr_type"] == "0"
     assert message["body"]["input"] == {"tr_id": "H0STCNT0", "tr_key": "005930"}
     assert [item["header"]["tr_type"] for item in subscription_messages(
-        "approval", "KR", "005930", tr_type="2",
-    )] == ["2", "2"]
+        "approval", "KR", "005930", tr_type="0",
+    )] == ["0", "0"]
 
 
 def test_subscription_message_rejects_unsupported_subscription_type() -> None:
     with pytest.raises(ValueError, match="subscription type"):
-        subscription_message("approval", "KR", "005930", tr_type="0")
+        subscription_message("approval", "KR", "005930", tr_type="2")
 
 
 @pytest.mark.parametrize(

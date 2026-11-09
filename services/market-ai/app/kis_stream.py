@@ -159,8 +159,8 @@ def approval_key(settings: KisSettings, client: httpx.Client | None = None) -> s
 def subscription_message(
     key: str, market: Market, symbol: str, exchange: str | None = None, *, tr_type: str = "1",
 ) -> dict:
-    if tr_type not in {"1", "2"}:
-        raise ValueError("subscription type must be 1 (subscribe) or 2 (unsubscribe)")
+    if tr_type not in {"1", "0"}:
+        raise ValueError("subscription type must be 1 (subscribe) or 0 (unsubscribe)")
     normalized = symbol.strip().upper()
     if market == "KR":
         if not _KR_SYMBOL.fullmatch(normalized) or exchange is not None:

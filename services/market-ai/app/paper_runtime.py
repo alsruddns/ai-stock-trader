@@ -993,7 +993,7 @@ class PaperSessionFeedMonitor:
                         await upstream.send(message)
                     sent_keys.add(watch.key)
                 elif tr_type == "2" and watch.key in sent_keys:
-                    for message in self._subscription_jsons(key, watch, tr_type=tr_type):
+                    for message in self._subscription_jsons(key, watch, tr_type="0"):
                         await upstream.send(message)
                     sent_keys.discard(watch.key)
                 if not sent.done():

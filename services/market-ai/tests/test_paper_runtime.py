@@ -211,7 +211,7 @@ def test_monitor_unsubscribes_only_a_candidate_watch_after_safe_reconciliation(m
                 pass
 
         assert removed == [candidate.key]
-        assert upstream.sent[0]["header"]["tr_type"] == "2"
+        assert upstream.sent[0]["header"]["tr_type"] == "0"
         assert upstream.sent[0]["body"]["input"] == {"tr_id": "H0STCNT0", "tr_key": "000660"}
         assert runtime._watches_by_feed["paper"] == [manual]
         assert candidate.key not in runtime._bars
@@ -301,7 +301,7 @@ def test_candidate_refresh_keeps_held_symbol_and_unsubscribes_only_unused_candid
         assert result["removed"] == [stale.key]
         assert held in runtime._watches_by_feed["paper"]
         assert stale not in runtime._watches_by_feed["paper"]
-        assert upstream.sent[0]["header"]["tr_type"] == "2"
+        assert upstream.sent[0]["header"]["tr_type"] == "0"
         assert upstream.sent[0]["body"]["input"] == {"tr_id": "H0STCNT0", "tr_key": "000001"}
 
     asyncio.run(scenario())

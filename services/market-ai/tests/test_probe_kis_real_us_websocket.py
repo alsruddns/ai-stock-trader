@@ -106,7 +106,7 @@ def test_real_us_probe_subscribes_and_unsubscribes_without_orders(frames, expect
     assert upstream.sent[0]["header"]["tr_type"] == "1"
     assert upstream.sent[0]["body"]["input"]["tr_id"] == "HDFSCNT0"
     assert upstream.sent[0]["body"]["input"]["tr_key"] == "DNASAAPL"
-    assert upstream.sent[1]["header"]["tr_type"] == "2"
+    assert upstream.sent[1]["header"]["tr_type"] == "0"
 
 
 def test_main_validates_subscription_before_approval(monkeypatch, capsys) -> None:

@@ -165,7 +165,7 @@ async def run_probe(
                 break
 
             if result["acknowledged"] or result["tick_received"]:
-                unsubscribe = subscription_message(key, "KR", symbol, tr_type="2")
+                unsubscribe = subscription_message(key, "KR", symbol, tr_type="0")
                 await upstream.send(json.dumps(unsubscribe, separators=(",", ":")))
                 result["unsubscribe_sent"] = True
     except Exception as exc:
