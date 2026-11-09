@@ -3,8 +3,18 @@ name: Windows PAPER preflight checks
 on:
   push:
     branches: [develop]
+    paths:
+      - 'scripts/**/*.ps1'
+      - 'scripts/**/*.py'
+      - 'scripts/tests/**/*.ps1'
+      - '.github/workflows/windows-paper-preflight.yml'
   pull_request:
     branches: [main, develop]
+    paths:
+      - 'scripts/**/*.ps1'
+      - 'scripts/**/*.py'
+      - 'scripts/tests/**/*.ps1'
+      - '.github/workflows/windows-paper-preflight.yml'
 
 jobs:
   paper-order-preflight:

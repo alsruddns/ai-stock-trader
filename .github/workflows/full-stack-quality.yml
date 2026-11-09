@@ -1,10 +1,9 @@
-name: Full stack quality
+name: Final integration quality
 
 on:
-  push:
-    branches: [develop]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
