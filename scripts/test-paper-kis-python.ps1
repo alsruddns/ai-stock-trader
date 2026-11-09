@@ -1,5 +1,6 @@
 param(
-    [string]$ApiBaseUrl = 'http://127.0.0.1:18000'
+    [string]$ApiBaseUrl = 'http://127.0.0.1:18000',
+    [switch]$IncludeUS
 )
 
 $ErrorActionPreference = 'Stop'
@@ -71,6 +72,8 @@ function Assert-Quote {
     }
 }
 
+. (Join-Path $PSScriptRoot 'lib\paper-kis-smoke.ps1')
+
 $health = Invoke-LocalReadOnlyGet '/api/v1/health'
 if ($health.status -ne 'ok' -or
     -not $health.kis_market_data_enabled -or
@@ -79,23 +82,34 @@ if ($health.status -ne 'ok' -or
     throw 'Python API is not ready for a locked PAPER read-only KIS smoke test.'
 }
 
-$krQuote = Invoke-LocalReadOnlyGet '/api/v1/market/quotes/KR/005930'
-$usQuote = Invoke-LocalReadOnlyGet '/api/v1/market/quotes/US/AAPL?exchange=NAS'
-$krBalance = Invoke-LocalReadOnlyGet '/api/v1/accounts/paper/KR/balance'
-$usBalance = Invoke-LocalReadOnlyGet '/api/v1/accounts/paper/US/balance?exchange=NASD'
-Assert-Quote $krQuote 'KR' '005930'
-Assert-Quote $usQuote 'US' 'AAPL'
-if ($krBalance.environment -ne 'paper' -or $krBalance.market -ne 'KR' -or
-    $usBalance.environment -ne 'paper' -or $usBalance.market -ne 'US' -or
-    $null -eq $krBalance.positions -or $null -eq $usBalance.positions) {
-    throw 'Python KIS account responses did not match the expected PAPER read-only contract.'
+$responses = @()
+$markets = @(Get-PaperKisSmokeMarkets -IncludeUS:$IncludeUS)
+foreach ($market in $markets) {
+    if ($market -eq 'KR') {
+        $symbol = '005930'
+        $quotePath = "/api/v1/market/quotes/KR/$symbol"
+        $balancePath = '/api/v1/accounts/paper/KR/balance'
+    } else {
+        $symbol = 'AAPL'
+        $quotePath = "/api/v1/market/quotes/US/$symbol`?exchange=NAS"
+        $balancePath = '/api/v1/accounts/paper/US/balance?exchange=NASD'
+    }
+    $quote = Invoke-LocalReadOnlyGet $quotePath
+    $balance = Invoke-LocalReadOnlyGet $balancePath
+    Assert-Quote $quote $market $symbol
+    if ($balance.environment -ne 'paper' -or $balance.market -ne $market -or
+        $null -eq $balance.positions) {
+        throw "Python KIS account response did not match the expected PAPER $market read-only contract."
+    }
+    $responses += @($quote, $balance)
 }
 
-$responsesJson = @($krQuote, $usQuote, $krBalance, $usBalance) | ConvertTo-Json -Depth 12 -Compress
+$responsesJson = $responses | ConvertTo-Json -Depth 12 -Compress
 if ($responsesJson.Contains($env:KIS_PAPER_APP_KEY) -or
     $responsesJson.Contains($env:KIS_PAPER_APP_SECRET) -or
     $responsesJson.Contains($accountNumber)) {
     throw 'Python KIS API response unexpectedly included local credential data.'
 }
 
-Write-Output 'Python KIS PAPER read-only smoke passed: KR/US REST quotes and account balances.'
+$marketScope = $markets -join '/'
+Write-Output "Python KIS PAPER read-only smoke passed: $marketScope REST quotes and account balances."

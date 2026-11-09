@@ -142,7 +142,7 @@ Invoke-RestMethod 'http://localhost:18080/api/v1/kis/accounts/paper/US/balance?e
 Invoke-RestMethod 'http://localhost:18080/api/v1/kis/accounts/paper/KR/balance?symbol=005930&unitPrice=71000'
 ```
 
-P1-001 구현이 완료되면 계좌 스냅샷은 `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`일 때만 PostgreSQL에 저장합니다. Spring 계좌 잔고 스모크는 `.\scripts\test-paper-kis.ps1`, Python FastAPI의 국내·미국 현재가 및 PAPER 잔고 읽기 전용 스모크는 `.\scripts\test-paper-kis-python.ps1`로 실행합니다. Python 스크립트는 `.env_local`에서 PAPER 키와 읽기 전용 스위치를 확인한 뒤 네 개 GET 경로만 호출하며, 주문 스위치가 켜져 있으면 중단합니다. 기본 테스트에서는 외부 KIS에 연결하지 않습니다. API·DB·운영 상세는 [docs](docs/README.md)를 참고하세요.
+P1-001 구현이 완료되면 계좌 스냅샷은 `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`일 때만 PostgreSQL에 저장합니다. Spring 계좌 잔고 스모크는 `.\scripts\test-paper-kis.ps1`, Python FastAPI 시세·잔고 스모크는 `.\scripts\test-paper-kis-python.ps1`로 실행합니다. 두 스크립트는 현재 국내(KR)만 조회합니다. 해외 조회는 `-IncludeUS`를 명시했을 때만 추가되며 현 운영 범위에서는 사용하지 않습니다. PAPER 키와 읽기 전용 스위치를 확인하며 주문 스위치가 켜져 있으면 중단합니다, 주문 스위치가 켜져 있으면 중단합니다. 기본 테스트에서는 외부 KIS에 연결하지 않습니다. API·DB·운영 상세는 [docs](docs/README.md)를 참고하세요.
 
 Paper 주문 미리보기:
 

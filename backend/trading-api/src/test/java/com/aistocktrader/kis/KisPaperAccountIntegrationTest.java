@@ -45,6 +45,7 @@ class KisPaperAccountIntegrationTest {
     }
 
     @Test
+    @EnabledIfEnvironmentVariable(named = "KIS_TEST_US_ACCOUNT_READS", matches = "true")
     void readsUsPaperBalanceWithoutPlacingOrders() {
         KisAccountSnapshot snapshot = client.getBalance(KisEnvironment.PAPER, Market.US, null, null, "NASD");
         assertEquals(KisEnvironment.PAPER, snapshot.environment());
@@ -64,6 +65,7 @@ class KisPaperAccountIntegrationTest {
     }
 
     @Test
+    @EnabledIfEnvironmentVariable(named = "KIS_TEST_US_ACCOUNT_READS", matches = "true")
     void readsUsPaperOrderableCashWithoutPlacingOrders() {
         KisAccountSnapshot snapshot = client.getBalance(KisEnvironment.PAPER, Market.US, "F",
                 new BigDecimal("11"), "NYSE");
