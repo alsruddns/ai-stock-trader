@@ -59,6 +59,30 @@ class KisRealOrderReconciliationJobTest {
         verifyNoMoreInteractions(orchestrator);
     }
 
+    @Test
+    void enabledJobRetriesReadOnlyReconciliationForUnknownOrdersOnlyWhenBrokerIdIsKnown() {
+        KisOrderIntentRepository intents = mock(KisOrderIntentRepository.class);
+        KisRealOrderOrchestrator orchestrator = mock(KisRealOrderOrchestrator.class);
+        UUID knownKey = UUID.randomUUID();
+        UUID missingBrokerIdKey = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent unknownWithBrokerId = new KisOrderIntent(knownKey, "hash-known", KisEnvironment.REAL, request, null);
+        unknownWithBrokerId.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "9002", "ORG01", "0", Instant.now()));
+        unknownWithBrokerId.markUnknown();
+        KisOrderIntent unknownWithoutBrokerId = new KisOrderIntent(missingBrokerIdKey, "hash-missing", KisEnvironment.REAL, request, null);
+        unknownWithoutBrokerId.markUnknown();
+        when(intents.findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.REAL), anyCollection()))
+                .thenReturn(List.of(unknownWithBrokerId, unknownWithoutBrokerId));
+
+        new KisRealOrderReconciliationJob(true, kisProperties(true, true, true), intents, orchestrator)
+                .reconcileKnownBrokerOrders();
+
+        verify(intents).findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.REAL), anyCollection());
+        verify(orchestrator).reconcile(knownKey);
+        verifyNoMoreInteractions(orchestrator);
+    }
+
     private static KisProperties kisProperties(boolean globalRead, boolean realRead, boolean credentials) {
         return new KisProperties(globalRead, false, realRead, false,
                 new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
