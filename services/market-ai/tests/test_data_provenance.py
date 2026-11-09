@@ -129,6 +129,7 @@ def test_model_training_requires_complete_spread_covered_approved_source_session
                 "session_date": session_date.isoformat(), "bars": 390, "expected_bars": 390,
                 "complete": True, "bars_with_spread": 390, "spread_complete": True,
                 "sources": ["KIS_REAL_US_WEBSOCKET"],
+                "source_counts": {"KIS_REAL_US_WEBSOCKET": 390},
             }
             for session_date in session_dates
         ],
@@ -167,10 +168,44 @@ def test_model_training_rejects_missing_or_partial_session_coverage() -> None:
             "session_date": "2026-11-02", "bars": 1, "expected_bars": 1,
             "complete": True, "bars_with_spread": 1, "spread_complete": True,
             "sources": ["KIS_REAL_US_WEBSOCKET"],
+            "source_counts": {"KIS_REAL_US_WEBSOCKET": 1},
         }],
     }
     with pytest.raises(ValueError, match="complete, spread-covered sessions"):
         validate_model_training_coverage(payload, market="US", sessions=sessions)
+
+
+def test_kr_model_training_rejects_mixed_source_counts_even_if_source_list_is_approved() -> None:
+    first_session = date(2026, 11, 2)
+    session_dates = [first_session + timedelta(days=index) for index in range(13)]
+    sessions = {
+        session_date: [SimpleNamespace(spread_bps=Decimal("5")) for _ in range(380)]
+        for session_date in session_dates
+    }
+    payload = _payload("e" * 64)
+    payload["coverage"] = {
+        "observed_session_count": 13,
+        "observed_bar_count": 13 * 380,
+        "complete_session_count": 13,
+        "spread_complete_session_count": 13,
+        "sessions": [
+            {
+                "session_date": session_date.isoformat(), "bars": 380, "expected_bars": 380,
+                "complete": True, "bars_with_spread": 380, "spread_complete": True,
+                "sources": ["KIS_PAPER_WEBSOCKET"],
+                "source_counts": {"KIS_PAPER_WEBSOCKET": 380},
+            }
+            for session_date in session_dates
+        ],
+    }
+
+    validate_model_training_coverage(payload, market="KR", sessions=sessions)
+
+    payload["coverage"]["sessions"][0]["source_counts"] = {
+        "KIS_PAPER_WEBSOCKET": 379, "KIS_REST_MINUTE_SESSION": 1,
+    }
+    with pytest.raises(ValueError, match="approved KIS WebSocket feed"):
+        validate_model_training_coverage(payload, market="KR", sessions=sessions)
 
 
 @pytest.mark.parametrize(

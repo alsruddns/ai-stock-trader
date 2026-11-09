@@ -136,11 +136,18 @@ def validate_model_training_coverage(
     spread_complete_count = 0
     for session, bars in sessions.items():
         row = by_date[session.isoformat()]
+        source_counts = row.get("source_counts")
+        source_counts_match = (
+            isinstance(source_counts, dict)
+            and set(source_counts) == {expected_source}
+            and count_matches(source_counts.get(expected_source), len(bars))
+        )
         if (row.get("complete") is not True or row.get("spread_complete") is not True
                 or not count_matches(row.get("bars"), len(bars))
                 or not count_matches(row.get("expected_bars"), len(bars))
                 or not count_matches(row.get("bars_with_spread"), len(bars))
                 or row.get("sources") != [expected_source]
+                or not source_counts_match
                 or any(getattr(bar, "spread_bps", None) is None for bar in bars)):
             raise ValueError("model training requires complete, spread-covered sessions from the approved KIS WebSocket feed")
         complete_count += 1
