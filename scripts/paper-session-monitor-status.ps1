@@ -219,6 +219,141 @@ function Get-MonitorFeedDiagnosticsDelta($InitialStatus, $CurrentStatus, [string
     return $result
 }
 
+function Get-MonitorSymbolMarketData($Status, [string]$SelectedFeed) {
+    $feed = if ($SelectedFeed) { $SelectedFeed.Trim().ToLowerInvariant() } else { 'paper' }
+    if ($feed -notin @('paper', 'real')) {
+        return [pscustomobject]@{ available = $false; reason = 'INVALID_FEED'; symbols = $null }
+    }
+    $sourceProperty = if ($Status) { $Status.PSObject.Properties['market_data_by_watch_by_feed'] } else { $null }
+    $feedProperty = if ($sourceProperty -and $sourceProperty.Value) {
+        $sourceProperty.Value.PSObject.Properties[$feed]
+    } else { $null }
+    if (-not $feedProperty -or -not $feedProperty.Value) {
+        return [pscustomobject]@{ available = $false; reason = 'FIELD_UNAVAILABLE'; symbols = $null }
+    }
+
+    $valid = $true
+    $expectedMarket = if ($feed -eq 'paper') { 'KR' } else { 'US' }
+    $symbols = [System.Collections.Generic.List[object]]::new()
+    foreach ($property in $feedProperty.Value.PSObject.Properties) {
+        $row = $property.Value
+        $market = [string]$row.market
+        $symbol = ([string]$row.symbol).Trim().ToUpperInvariant()
+        $exchange = if ([string]::IsNullOrWhiteSpace([string]$row.exchange)) { $null } else { ([string]$row.exchange).Trim().ToUpperInvariant() }
+        $keyMatches = if ($expectedMarket -eq 'KR') {
+            $property.Name -match '^KR:(\d{6}):$' -and $Matches[1] -eq $symbol -and $null -eq $exchange
+        } else {
+            $property.Name -match '^US:([A-Z][A-Z0-9.\-]{0,14}):(NAS|NYS|AMS)$' -and
+                $Matches[1] -eq $symbol -and $Matches[2] -eq $exchange
+        }
+        if ($market -ne $expectedMarket -or -not $keyMatches) {
+            $valid = $false
+            continue
+        }
+
+        $counts = [ordered]@{}
+        foreach ($name in @('trade_ticks_received', 'bars_closed', 'orderbook_quotes_received', 'usable_orderbook_quotes')) {
+            $count = 0L
+            $countProperty = $row.PSObject.Properties[$name]
+            if ($countProperty -and (-not [long]::TryParse([string]$countProperty.Value, [ref]$count) -or $count -lt 0)) {
+                $valid = $false
+            }
+            $counts[$name] = $count
+        }
+
+        $times = [ordered]@{}
+        foreach ($name in @('last_trade_at', 'last_trade_received_at', 'last_orderbook_at', 'last_orderbook_received_at')) {
+            $value = $row.PSObject.Properties[$name]
+            $normalized = $null
+            if ($value -and -not [string]::IsNullOrWhiteSpace([string]$value.Value)) {
+                $parsed = [DateTimeOffset]::MinValue
+                if ([DateTimeOffset]::TryParse([string]$value.Value, [ref]$parsed)) {
+                    $normalized = $parsed.ToUniversalTime().ToString('o')
+                } else {
+                    $valid = $false
+                }
+            }
+            $times[('{0}_utc' -f $name)] = $normalized
+        }
+        if (($counts.trade_ticks_received -gt 0 -and
+                (-not $times.last_trade_at_utc -or -not $times.last_trade_received_at_utc)) -or
+            ($counts.orderbook_quotes_received -gt 0 -and
+                (-not $times.last_orderbook_at_utc -or -not $times.last_orderbook_received_at_utc))) {
+            $valid = $false
+        }
+
+        $symbols.Add([pscustomobject][ordered]@{
+            key = $property.Name
+            market = $market
+            symbol = $symbol
+            exchange = $exchange
+            trade_ticks_received = $counts.trade_ticks_received
+            bars_closed = $counts.bars_closed
+            orderbook_quotes_received = $counts.orderbook_quotes_received
+            usable_orderbook_quotes = $counts.usable_orderbook_quotes
+            last_trade_at_utc = $times.last_trade_at_utc
+            last_trade_received_at_utc = $times.last_trade_received_at_utc
+            last_orderbook_at_utc = $times.last_orderbook_at_utc
+            last_orderbook_received_at_utc = $times.last_orderbook_received_at_utc
+        })
+    }
+    $rows = [object[]]$symbols.ToArray()
+    return [pscustomobject]@{
+        available = $valid
+        reason = if ($valid) { $null } else { 'INVALID_SYMBOL_DIAGNOSTICS' }
+        symbols = if ($valid) { $rows } else { $null }
+    }
+}
+
+function Get-MonitorSymbolMarketDataDelta($InitialStatus, $CurrentStatus, [string]$SelectedFeed) {
+    $initial = Get-MonitorSymbolMarketData $InitialStatus $SelectedFeed
+    $current = Get-MonitorSymbolMarketData $CurrentStatus $SelectedFeed
+    if (-not $initial.available -or -not $current.available) {
+        return [pscustomobject]@{
+            available = $false
+            reason = if (-not $current.available) { $current.reason } else { $initial.reason }
+            symbols = $null
+        }
+    }
+    $initialByKey = @{}
+    foreach ($row in $initial.symbols) { $initialByKey[$row.key] = $row }
+    $currentByKey = @{}
+    foreach ($row in $current.symbols) { $currentByKey[$row.key] = $row }
+    $keys = @(@($initialByKey.Keys) + @($currentByKey.Keys) | Sort-Object -Unique)
+    $valid = $true
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($key in $keys) {
+        $start = $initialByKey[$key]
+        $end = $currentByKey[$key]
+        $deltas = [ordered]@{}
+        foreach ($name in @('trade_ticks_received', 'bars_closed', 'orderbook_quotes_received', 'usable_orderbook_quotes')) {
+            $startCount = if ($start) { [long]$start.$name } else { 0L }
+            $endCount = if ($end) { [long]$end.$name } else { 0L }
+            if ($endCount -lt $startCount) { $valid = $false }
+            $deltas[$name] = if ($endCount -ge $startCount) { $endCount - $startCount } else { $null }
+        }
+        $rows.Add([pscustomobject][ordered]@{
+            key = $key
+            market = if ($end) { $end.market } else { $start.market }
+            symbol = if ($end) { $end.symbol } else { $start.symbol }
+            exchange = if ($end) { $end.exchange } else { $start.exchange }
+            trade_ticks_received = $deltas.trade_ticks_received
+            bars_closed = $deltas.bars_closed
+            orderbook_quotes_received = $deltas.orderbook_quotes_received
+            usable_orderbook_quotes = $deltas.usable_orderbook_quotes
+            last_trade_at_utc = if ($end) { $end.last_trade_at_utc } else { $null }
+            last_trade_received_at_utc = if ($end) { $end.last_trade_received_at_utc } else { $null }
+            last_orderbook_at_utc = if ($end) { $end.last_orderbook_at_utc } else { $null }
+            last_orderbook_received_at_utc = if ($end) { $end.last_orderbook_received_at_utc } else { $null }
+        })
+    }
+    return [pscustomobject]@{
+        available = $valid
+        reason = if ($valid) { $null } else { 'COUNTER_DECREASED' }
+        symbols = if ($valid) { [object[]]$rows.ToArray() } else { $null }
+    }
+}
+
 function Test-MonitorFeedReady($Status, [string]$SelectedFeed, [bool]$BothFeeds) {
     $connections = $Status.stream_connections
     if ($BothFeeds) {

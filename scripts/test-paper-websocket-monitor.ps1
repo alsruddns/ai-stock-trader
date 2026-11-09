@@ -32,6 +32,11 @@ function Write-ProgressRecord($Record, $Status = $null) {
     foreach ($name in $streamFailureDiagnostic.Keys) {
         $Record[$name] = $streamFailureDiagnostic[$name]
     }
+    $Record.symbol_market_data = Get-MonitorSymbolMarketData $Status $Feed
+    if ($script:monitorInitialStatus) {
+        $Record.symbol_market_data_delta = Get-MonitorSymbolMarketDataDelta `
+            $script:monitorInitialStatus $Status $Feed
+    }
     [System.IO.File]::AppendAllText($ProgressPath,
         ($Record | ConvertTo-Json -Compress -Depth 5) + [Environment]::NewLine,
         [System.Text.UTF8Encoding]::new($false))
@@ -117,6 +122,7 @@ $monitorRunStartedAtUtc = [DateTimeOffset]::UtcNow
 $monitorStage = 'startup_readiness'
 try {
 $initial = Wait-ForSafeRunningStatus
+$script:monitorInitialStatus = $initial
 $monitorStage = 'exchange_calendar'
 $exchangeSession = Get-SelectedExchangeSessionWindow
 $initialTicks = if ($Feed) { [int]$initial.ticks_received_by_feed.$Feed } else { [int]$initial.ticks_received }
@@ -452,6 +458,8 @@ $evidence = [ordered]@{
     feeds = $latest.stream_connections
     feed_diagnostics = Get-MonitorFeedDiagnostics $latest $Feed
     feed_diagnostics_delta = Get-MonitorFeedDiagnosticsDelta $initial $latest $Feed
+    symbol_market_data = Get-MonitorSymbolMarketData $latest $Feed
+    symbol_market_data_delta = Get-MonitorSymbolMarketDataDelta $initial $latest $Feed
     stream_failure_diagnostic_available = (Get-MonitorStreamFailureDiagnostic $latest).stream_failure_diagnostic_available
     stream_failure_stage = (Get-MonitorStreamFailureDiagnostic $latest).stream_failure_stage
     stream_error_category = (Get-MonitorStreamFailureDiagnostic $latest).stream_error_category
@@ -486,6 +494,8 @@ Write-ProgressRecord ([ordered]@{
     feeds = $latest.stream_connections
     feed_diagnostics = Get-MonitorFeedDiagnostics $latest $Feed
     feed_diagnostics_delta = Get-MonitorFeedDiagnosticsDelta $initial $latest $Feed
+    symbol_market_data = Get-MonitorSymbolMarketData $latest $Feed
+    symbol_market_data_delta = Get-MonitorSymbolMarketDataDelta $initial $latest $Feed
     orders_enabled = $false
     automation_state = $latest.automation_state
     result = 'passed'

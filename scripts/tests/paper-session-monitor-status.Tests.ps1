@@ -206,6 +206,80 @@ Describe 'Paper session feed quote-quality diagnostics' {
     }
 }
 
+Describe 'Per-symbol feed diagnostics for domestic session evidence' {
+    It 'validates and returns only domestic symbol counts and UTC timestamps' {
+        $status = [pscustomobject]@{
+            market_data_by_watch_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{
+                    'KR:005930:' = [pscustomobject]@{
+                        market = 'KR'; symbol = '005930'; exchange = $null
+                        trade_ticks_received = 12; bars_closed = 3
+                        orderbook_quotes_received = 19; usable_orderbook_quotes = 18
+                        last_trade_at = '2026-11-10T09:00:01+09:00'
+                        last_trade_received_at = '2026-11-10T09:00:02+09:00'
+                        last_orderbook_at = '2026-11-10T09:00:03+09:00'
+                        last_orderbook_received_at = '2026-11-10T09:00:04+09:00'
+                    }
+                }
+            }
+        }
+
+        $diagnostic = Get-MonitorSymbolMarketData $status 'paper'
+        $json = $diagnostic | ConvertTo-Json -Compress -Depth 5
+
+        $diagnostic.available | Should Be $true
+        $diagnostic.symbols.Count | Should Be 1
+        $diagnostic.symbols[0].key | Should Be 'KR:005930:'
+        $diagnostic.symbols[0].trade_ticks_received | Should Be 12
+        $diagnostic.symbols[0].orderbook_quotes_received | Should Be 19
+        $diagnostic.symbols[0].last_trade_at_utc | Should Match '\+00:00$'
+        $json | Should Not Match 'price|payload|account|secret'
+    }
+
+    It 'reports per-symbol counter deltas and fails closed on a counter reset' {
+        $initial = [pscustomobject]@{
+            market_data_by_watch_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{
+                    'KR:005930:' = [pscustomobject]@{
+                        market = 'KR'; symbol = '005930'; exchange = $null
+                        trade_ticks_received = 10; bars_closed = 2
+                        orderbook_quotes_received = 15; usable_orderbook_quotes = 14
+                        last_trade_at = '2026-11-10T09:00:01+09:00'
+                        last_trade_received_at = '2026-11-10T09:00:02+09:00'
+                        last_orderbook_at = '2026-11-10T09:00:03+09:00'
+                        last_orderbook_received_at = '2026-11-10T09:00:04+09:00'
+                    }
+                }
+            }
+        }
+        $current = [pscustomobject]@{
+            market_data_by_watch_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{
+                    'KR:005930:' = [pscustomobject]@{
+                        market = 'KR'; symbol = '005930'; exchange = $null
+                        trade_ticks_received = 16; bars_closed = 3
+                        orderbook_quotes_received = 24; usable_orderbook_quotes = 22
+                        last_trade_at = '2026-11-10T09:01:01+09:00'
+                        last_trade_received_at = '2026-11-10T09:01:02+09:00'
+                        last_orderbook_at = '2026-11-10T09:01:03+09:00'
+                        last_orderbook_received_at = '2026-11-10T09:01:04+09:00'
+                    }
+                }
+            }
+        }
+        $delta = Get-MonitorSymbolMarketDataDelta $initial $current 'paper'
+        $delta.available | Should Be $true
+        $delta.symbols[0].trade_ticks_received | Should Be 6
+        $delta.symbols[0].bars_closed | Should Be 1
+        $delta.symbols[0].orderbook_quotes_received | Should Be 9
+
+        $current.market_data_by_watch_by_feed.paper.'KR:005930:'.trade_ticks_received = 1
+        $reset = Get-MonitorSymbolMarketDataDelta $initial $current 'paper'
+        $reset.available | Should Be $false
+        $reset.reason | Should Be 'COUNTER_DECREASED'
+    }
+}
+
 Describe 'Paper session feed diagnostics deltas' {
     It 'reports per-monitor increases for frame, quote, and processing counters' {
         $initial = [pscustomobject]@{
