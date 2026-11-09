@@ -67,11 +67,13 @@ function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
     $result = [ordered]@{}
     $framesProperty = if ($Status) { $Status.PSObject.Properties['frames_received_by_feed'] } else { $null }
     $transactionsProperty = if ($Status) { $Status.PSObject.Properties['frame_transaction_counts_by_feed'] } else { $null }
+    $orderbookUpdatesProperty = if ($Status) { $Status.PSObject.Properties['orderbook_updates_by_feed'] } else { $null }
     $quoteQualityProperty = if ($Status) { $Status.PSObject.Properties['orderbook_quote_quality_by_feed'] } else { $null }
     $processingProperty = if ($Status) { $Status.PSObject.Properties['market_data_diagnostics_by_feed'] } else { $null }
     foreach ($feed in $feedNames) {
         $frameValue = if ($framesProperty) { $framesProperty.Value.PSObject.Properties[$feed] } else { $null }
         $transactionValue = if ($transactionsProperty) { $transactionsProperty.Value.PSObject.Properties[$feed] } else { $null }
+        $orderbookUpdatesValue = if ($orderbookUpdatesProperty) { $orderbookUpdatesProperty.Value.PSObject.Properties[$feed] } else { $null }
         $quoteQualityValue = if ($quoteQualityProperty) { $quoteQualityProperty.Value.PSObject.Properties[$feed] } else { $null }
         $processingValue = if ($processingProperty) { $processingProperty.Value.PSObject.Properties[$feed] } else { $null }
         $frameCount = 0L
@@ -88,6 +90,10 @@ function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
                 $transactionCounts[$transactionId] = $count
             }
         }
+        $orderbookUpdates = 0L
+        $orderbookUpdatesValid = $null -ne $orderbookUpdatesValue -and
+            [long]::TryParse([string]$orderbookUpdatesValue.Value, [ref]$orderbookUpdates) -and
+            $orderbookUpdates -ge 0
         $quoteQualityCounts = [ordered]@{}
         $quoteQualityValid = $null -ne $quoteQualityValue
         foreach ($counterName in @('usable', 'empty_or_nonpositive', 'crossed', 'stale_rejected')) {
@@ -121,6 +127,8 @@ function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
             available = [bool]$valid
             frames_received = if ($valid) { $frameCount } else { $null }
             transaction_counts = if ($valid) { $transactionCounts } else { $null }
+            orderbook_updates_available = [bool]$orderbookUpdatesValid
+            orderbook_updates = if ($orderbookUpdatesValid) { $orderbookUpdates } else { $null }
             quote_quality_available = [bool]$quoteQualityValid
             quote_quality = if ($quoteQualityValid) { $quoteQualityCounts } else { $null }
             processing_diagnostics_available = [bool]$processingValid
@@ -183,6 +191,9 @@ function Get-MonitorFeedDiagnosticsDelta($InitialStatus, $CurrentStatus, [string
             $end.available ([ordered]@{ frames_received = $end.frames_received }) @('frames_received')
         $transactionDelta = Get-MonitorCounterDeltas $start.available $start.transaction_counts `
             $end.available $end.transaction_counts @('H0STCNT0', 'H0STASP0', 'HDFSCNT0', 'OTHER')
+        $orderbookUpdatesDelta = Get-MonitorCounterDeltas $start.orderbook_updates_available `
+            ([ordered]@{ orderbook_updates = $start.orderbook_updates }) `
+            $end.orderbook_updates_available ([ordered]@{ orderbook_updates = $end.orderbook_updates }) @('orderbook_updates')
         $quoteDelta = Get-MonitorCounterDeltas $start.quote_quality_available $start.quote_quality `
             $end.quote_quality_available $end.quote_quality @('usable', 'empty_or_nonpositive', 'crossed', 'stale_rejected')
         $processingDelta = Get-MonitorCounterDeltas $start.processing_diagnostics_available $start.processing_diagnostics `
@@ -197,6 +208,8 @@ function Get-MonitorFeedDiagnosticsDelta($InitialStatus, $CurrentStatus, [string
             frames_received = if ($frameDelta.available) { $frameDelta.counts.frames_received } else { $null }
             transaction_counts_available = $transactionDelta.available
             transaction_counts = $transactionDelta.counts
+            orderbook_updates_available = $orderbookUpdatesDelta.available
+            orderbook_updates = if ($orderbookUpdatesDelta.available) { $orderbookUpdatesDelta.counts.orderbook_updates } else { $null }
             quote_quality_available = $quoteDelta.available
             quote_quality = $quoteDelta.counts
             processing_diagnostics_available = $processingDelta.available

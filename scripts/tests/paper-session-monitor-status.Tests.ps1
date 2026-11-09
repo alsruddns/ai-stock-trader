@@ -110,6 +110,7 @@ Describe 'Paper session feed quote-quality diagnostics' {
     It 'records the four valid counters independently from frame diagnostics' {
         $status = [pscustomobject]@{
             frames_received_by_feed = [pscustomobject]@{ paper = 12; real = 2 }
+            orderbook_updates_by_feed = [pscustomobject]@{ paper = 4; real = 1 }
             frame_transaction_counts_by_feed = [pscustomobject]@{
                 paper = [pscustomobject]@{ H0STCNT0 = 5; H0STASP0 = 7; HDFSCNT0 = 0; OTHER = 0 }
                 real = [pscustomobject]@{ H0STCNT0 = 0; H0STASP0 = 0; HDFSCNT0 = 2; OTHER = 0 }
@@ -137,6 +138,8 @@ Describe 'Paper session feed quote-quality diagnostics' {
         $diagnostics = Get-MonitorFeedDiagnostics $status 'paper'
 
         $diagnostics.paper.available | Should Be $true
+        $diagnostics.paper.orderbook_updates_available | Should Be $true
+        $diagnostics.paper.orderbook_updates | Should Be 4
         $diagnostics.paper.quote_quality_available | Should Be $true
         $diagnostics.paper.quote_quality.usable | Should Be 5
         $diagnostics.paper.quote_quality.empty_or_nonpositive | Should Be 1
@@ -159,6 +162,8 @@ Describe 'Paper session feed quote-quality diagnostics' {
 
         $diagnostics.paper.available | Should Be $true
         $diagnostics.paper.frames_received | Should Be 12
+        $diagnostics.paper.orderbook_updates_available | Should Be $false
+        $diagnostics.paper.orderbook_updates | Should Be $null
         $diagnostics.paper.quote_quality_available | Should Be $false
         $diagnostics.paper.quote_quality | Should Be $null
         $diagnostics.paper.processing_diagnostics_available | Should Be $false
@@ -182,12 +187,30 @@ Describe 'Paper session feed quote-quality diagnostics' {
         $diagnostics.paper.quote_quality_available | Should Be $false
         $diagnostics.paper.quote_quality | Should Be $null
     }
+
+    It 'rejects a negative accepted orderbook-update count without losing frame diagnostics' {
+        $status = [pscustomobject]@{
+            frames_received_by_feed = [pscustomobject]@{ paper = 12 }
+            frame_transaction_counts_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{ H0STCNT0 = 5; H0STASP0 = 7; HDFSCNT0 = 0; OTHER = 0 }
+            }
+            orderbook_updates_by_feed = [pscustomobject]@{ paper = -1 }
+        }
+
+        $diagnostics = Get-MonitorFeedDiagnostics $status 'paper'
+
+        $diagnostics.paper.available | Should Be $true
+        $diagnostics.paper.frames_received | Should Be 12
+        $diagnostics.paper.orderbook_updates_available | Should Be $false
+        $diagnostics.paper.orderbook_updates | Should Be $null
+    }
 }
 
 Describe 'Paper session feed diagnostics deltas' {
     It 'reports per-monitor increases for frame, quote, and processing counters' {
         $initial = [pscustomobject]@{
             frames_received_by_feed = [pscustomobject]@{ paper = 100 }
+            orderbook_updates_by_feed = [pscustomobject]@{ paper = 50 }
             frame_transaction_counts_by_feed = [pscustomobject]@{
                 paper = [pscustomobject]@{ H0STCNT0 = 20; H0STASP0 = 70; HDFSCNT0 = 0; OTHER = 10 }
             }
@@ -205,6 +228,7 @@ Describe 'Paper session feed diagnostics deltas' {
         }
         $current = [pscustomobject]@{
             frames_received_by_feed = [pscustomobject]@{ paper = 145 }
+            orderbook_updates_by_feed = [pscustomobject]@{ paper = 68 }
             frame_transaction_counts_by_feed = [pscustomobject]@{
                 paper = [pscustomobject]@{ H0STCNT0 = 35; H0STASP0 = 100; HDFSCNT0 = 0; OTHER = 10 }
             }
@@ -225,6 +249,8 @@ Describe 'Paper session feed diagnostics deltas' {
 
         $delta.paper.frames_available | Should Be $true
         $delta.paper.frames_received | Should Be 45
+        $delta.paper.orderbook_updates_available | Should Be $true
+        $delta.paper.orderbook_updates | Should Be 18
         $delta.paper.transaction_counts.H0STCNT0 | Should Be 15
         $delta.paper.transaction_counts.H0STASP0 | Should Be 30
         $delta.paper.quote_quality.usable | Should Be 25
@@ -236,12 +262,14 @@ Describe 'Paper session feed diagnostics deltas' {
     It 'marks a reset counter unavailable instead of reporting a negative delta' {
         $initial = [pscustomobject]@{
             frames_received_by_feed = [pscustomobject]@{ paper = 100 }
+            orderbook_updates_by_feed = [pscustomobject]@{ paper = 10 }
             frame_transaction_counts_by_feed = [pscustomobject]@{
                 paper = [pscustomobject]@{ H0STCNT0 = 20; H0STASP0 = 70; HDFSCNT0 = 0; OTHER = 10 }
             }
         }
         $current = [pscustomobject]@{
             frames_received_by_feed = [pscustomobject]@{ paper = 5 }
+            orderbook_updates_by_feed = [pscustomobject]@{ paper = 3 }
             frame_transaction_counts_by_feed = [pscustomobject]@{
                 paper = [pscustomobject]@{ H0STCNT0 = 2; H0STASP0 = 2; HDFSCNT0 = 0; OTHER = 1 }
             }
@@ -253,6 +281,8 @@ Describe 'Paper session feed diagnostics deltas' {
         $delta.paper.frames_received | Should Be $null
         $delta.paper.transaction_counts_available | Should Be $false
         $delta.paper.transaction_counts | Should Be $null
+        $delta.paper.orderbook_updates_available | Should Be $false
+        $delta.paper.orderbook_updates | Should Be $null
         $delta.paper.quote_quality_available | Should Be $false
         $delta.paper.processing_diagnostics_available | Should Be $false
     }
