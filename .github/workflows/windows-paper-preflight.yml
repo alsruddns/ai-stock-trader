@@ -1,15 +1,9 @@
 name: Windows PAPER preflight checks
 
 on:
-  push:
-    branches: [develop]
-    paths:
-      - 'scripts/**/*.ps1'
-      - 'scripts/**/*.py'
-      - 'scripts/tests/**/*.ps1'
-      - '.github/workflows/windows-paper-preflight.yml'
+  workflow_dispatch:
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'scripts/**/*.ps1'
       - 'scripts/**/*.py'

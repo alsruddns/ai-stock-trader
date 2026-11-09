@@ -187,6 +187,8 @@ python -m pytest
 
 Spring Boot는 Maven으로 빌드합니다. 프로젝트에 포함된 `mvnw.cmd`를 사용하므로 Maven을 별도로 설치할 필요가 없습니다. Gradle 빌드 구성은 없습니다.
 
+기능 개발 중에는 변경한 동작에 해당하는 테스트만 실행합니다(예: `python -m pytest services/market-ai/tests/test_paper_runtime.py::test_name -q`, `Invoke-Pester -Path scripts/tests/paper-session-monitor-status.Tests.ps1`). 위 전체 Spring/Python 테스트와 Windows PAPER preflight는 최종 통합 검증 때 실행하며, GitHub Actions 전체 검사는 수동 실행 또는 `main` 대상 PR에서만 수행합니다.
+
 ## 비밀정보 취급
 
 - 실제 KIS App Key, App Secret, 계좌번호는 `.env_local`에만 보관하고 절대 커밋하지 마세요.
