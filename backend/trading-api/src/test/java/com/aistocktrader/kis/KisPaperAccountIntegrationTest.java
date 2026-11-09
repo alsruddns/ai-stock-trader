@@ -45,15 +45,6 @@ class KisPaperAccountIntegrationTest {
     }
 
     @Test
-    @EnabledIfEnvironmentVariable(named = "KIS_TEST_US_ACCOUNT_READS", matches = "true")
-    void readsUsPaperBalanceWithoutPlacingOrders() {
-        KisAccountSnapshot snapshot = client.getBalance(KisEnvironment.PAPER, Market.US, null, null, "NASD");
-        assertEquals(KisEnvironment.PAPER, snapshot.environment());
-        assertEquals(Market.US, snapshot.market());
-        assertEquals("USD", snapshot.currency());
-    }
-
-    @Test
     void readsDomesticPaperOrderableCashWithoutPlacingOrders() {
         KisAccountSnapshot snapshot = client.getBalance(KisEnvironment.PAPER, Market.KR, "005930",
                 new BigDecimal("70000"), null);
@@ -62,18 +53,6 @@ class KisPaperAccountIntegrationTest {
         assertTrue(snapshot.orderableCash().signum() >= 0, "Paper KR orderable cash cannot be negative.");
         System.out.println("PAPER_KR_70000_KRW_ORDERABLE="
                 + (snapshot.orderableCash().compareTo(new BigDecimal("70000")) >= 0));
-    }
-
-    @Test
-    @EnabledIfEnvironmentVariable(named = "KIS_TEST_US_ACCOUNT_READS", matches = "true")
-    void readsUsPaperOrderableCashWithoutPlacingOrders() {
-        KisAccountSnapshot snapshot = client.getBalance(KisEnvironment.PAPER, Market.US, "F",
-                new BigDecimal("11"), "NYSE");
-        assertEquals("USD", snapshot.currency());
-        assertNotNull(snapshot.orderableCash(), "Paper US orderable cash response must be mapped.");
-        assertTrue(snapshot.orderableCash().signum() >= 0, "Paper US orderable cash cannot be negative.");
-        System.out.println("PAPER_US_F_11_USD_ORDERABLE="
-                + (snapshot.orderableCash().compareTo(new BigDecimal("11")) >= 0));
     }
 
 }

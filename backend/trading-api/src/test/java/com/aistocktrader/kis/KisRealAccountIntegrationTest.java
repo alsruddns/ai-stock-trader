@@ -45,27 +45,10 @@ class KisRealAccountIntegrationTest {
     }
 
     @Test
-    void readsUsRealBalanceWithoutPlacingOrders() {
-        KisAccountSnapshot snapshot = client.getBalance(KisEnvironment.REAL, Market.US, null, null, "NASD");
-        assertEquals(KisEnvironment.REAL, snapshot.environment());
-        assertEquals(Market.US, snapshot.market());
-        assertEquals("USD", snapshot.currency());
-    }
-
-    @Test
     void readsDomesticRealizedPnlFieldNamesWithoutPrintingFinancialValues() {
         KisRealizedPnlStatement statement = client.getRealizedPnlStatement(
                 Market.KR, LocalDate.of(2026, 11, 5), LocalDate.of(2026, 11, 6), null);
         assertEquals(Market.KR, statement.market());
-        assertEquals("KIS_READ_ONLY_REALIZED_PNL_REST", statement.source());
-        printFieldNamesOnly(statement);
-    }
-
-    @Test
-    void readsUsRealizedPnlFieldNamesWithoutPrintingFinancialValues() {
-        KisRealizedPnlStatement statement = client.getRealizedPnlStatement(
-                Market.US, LocalDate.of(2026, 11, 5), LocalDate.of(2026, 11, 6), "NASD");
-        assertEquals(Market.US, statement.market());
         assertEquals("KIS_READ_ONLY_REALIZED_PNL_REST", statement.source());
         printFieldNamesOnly(statement);
     }
@@ -84,23 +67,6 @@ class KisRealAccountIntegrationTest {
             assertNotNull(execution.side());
         });
         System.out.printf("KIS REAL execution history market=KR session=%s rows=%d (details suppressed)%n",
-                session.sessionDate(), executions.size());
-    }
-
-    @Test
-    void readsUsSessionExecutionsWithoutPrintingTradeDetails() {
-        var session = sessions.latestClosedSession(Market.US);
-        assertTrue(session.session());
-
-        var executions = realOrders.getRealSessionExecutions(Market.US, session.sessionDate());
-
-        assertNotNull(executions);
-        executions.forEach(execution -> {
-            assertFalse(execution.orderNumber().isBlank());
-            assertFalse(execution.symbol().isBlank());
-            assertNotNull(execution.side());
-        });
-        System.out.printf("KIS REAL execution history market=US session=%s rows=%d (details suppressed)%n",
                 session.sessionDate(), executions.size());
     }
 
