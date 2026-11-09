@@ -90,11 +90,13 @@ Set-Location .\services\market-ai
 
 ### 국내 PAPER 취소 사전조회 점검
 
-KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는지 확인할 때만 아래 읽기 전용 명령을 사용합니다. 현재 [KIS 공식 조회 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_psbl_rvsecncl/inquire_psbl_rvsecncl.py)은 `TTTC0084R`만 명시하고 PAPER 조회 transaction ID는 문서화하지 않았으므로, 이 probe는 그 공식 ID 하나만 허용하며 `VTTC0084R` 등 추정 ID는 보내지 않습니다. `KIS_ACCOUNT_READ_ENABLED=true`, `KIS_PAPER_ACCOUNT_READ_ENABLED=true`가 필요하며 PAPER/REAL 주문, REAL 계좌조회, REAL 주문대조 스위치는 `false`여야 합니다. 이 도구는 PostgreSQL 공유 호출 제한을 지키며 GET만 보냅니다.
+KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는지 확인할 때만 아래 읽기 전용 명령을 사용합니다. 현재 공식 샘플의 `TTTC0084R`과 공식 레거시 샘플의 `TTTC8036R`만 허용합니다. 레거시 ID는 공식 샘플의 PAPER 변환 규칙에 따라 `VTTC8036R`로 전송하고 레거시 조회구분을 사용합니다. 그 샘플은 `psbl_qty`를 문서화하지 않으므로 조회 성공만으로 취소를 활성화할 수 없습니다. `VTTC0084R` 등 추정 ID는 보내지 않습니다. `KIS_ACCOUNT_READ_ENABLED=true`, `KIS_PAPER_ACCOUNT_READ_ENABLED=true`가 필요하며 PAPER/REAL 주문, REAL 계좌조회, REAL 주문대조 스위치는 `false`여야 합니다. 이 도구는 PostgreSQL 공유 호출 제한을 지키며 GET만 보냅니다.
 
 ```powershell
 .\services\market-ai\.venv\Scripts\python.exe .\scripts\probe-kis-paper-cancel-preflight.py --transaction-id TTTC0084R
 ```
+
+공식 레거시 샘플의 PAPER 변환 경로를 점검하려면 `--transaction-id TTTC8036R`을 지정합니다. 실제 요청에는 `VTTC8036R`이 사용됩니다.
 
 `supported`는 조회 서비스가 응답했다는 뜻일 뿐 취소 허용을 뜻하지 않습니다. 실제 취소를 열기 전에는 해당 주문번호·종목·계좌에 맞는 `psbl_qty` 확인과 로컬 취소 제한 검증이 별도로 필요합니다. `unsupported_or_rejected`이거나 응답이 불완전하면 취소를 잠근 채 둡니다. 이 점검 명령은 주문·취소를 보내지 않습니다.
 

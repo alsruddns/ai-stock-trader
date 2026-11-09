@@ -15,11 +15,15 @@ sys.path.insert(0, str(repository / "scripts" / "lib"))
 from app.kis import KisApiError, KisReadOnlyClient, KisSettings
 from kis_local_env import load_local_environment
 
+OFFICIAL_TRANSACTION_IDS = {"TTTC0084R", "TTTC8036R"}
+
 
 def main(transaction_id: str = "TTTC0084R") -> int:
-    # The official sample documents only TTTC0084R. The official PAPER matrix
-    # does not mark this inquiry as supported, so do not guess PAPER TR IDs.
-    if transaction_id != "TTTC0084R":
+    # The current official sample uses TTTC0084R. The official legacy sample
+    # uses TTTC8036R and its auth helper maps T-prefixed IDs to V-prefixed IDs
+    # for PAPER. The legacy example does not document psbl_qty, so success alone
+    # must never unlock cancellation.
+    if transaction_id not in OFFICIAL_TRANSACTION_IDS:
         print(json.dumps({"status": "blocked", "reason": "UNSUPPORTED_TRANSACTION_ID"}))
         return 2
     try:
@@ -50,11 +54,15 @@ def main(transaction_id: str = "TTTC0084R") -> int:
         return 2
 
     client = KisReadOnlyClient(settings)
+    request_transaction_id = "VTTC8036R" if transaction_id == "TTTC8036R" else transaction_id
+    query_kind = "legacy_order_sequence" if transaction_id == "TTTC8036R" else "current_item_sequence"
     result = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "environment": "paper",
         "api_path": "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl",
         "transaction_id": transaction_id,
+        "request_transaction_id": request_transaction_id,
+        "query_kind": query_kind,
         "local_config_file": source.name,
         "order_or_cancel_sent": False,
     }
@@ -64,7 +72,7 @@ def main(transaction_id: str = "TTTC0084R") -> int:
         "ACNT_PRDT_CD": account[8:],
         # The current official sample describes 0=order sequence, 1=item sequence
         # and demonstrates item sequence for this cancelable-order lookup.
-        "INQR_DVSN_1": "1",
+        "INQR_DVSN_1": "0" if query_kind == "legacy_order_sequence" else "1",
         "INQR_DVSN_2": "0",
         "CTX_AREA_FK100": "",
         "CTX_AREA_NK100": "",
@@ -74,7 +82,7 @@ def main(transaction_id: str = "TTTC0084R") -> int:
             "authorization": f"Bearer {client._access_token()}",
             "appkey": settings.app_key,
             "appsecret": settings.app_secret,
-            "tr_id": transaction_id,
+            "tr_id": request_transaction_id,
             "custtype": "P",
         }
         response = client._get(
@@ -129,5 +137,5 @@ def main(transaction_id: str = "TTTC0084R") -> int:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Read-only PAPER cancel-preflight service probe.")
-    parser.add_argument("--transaction-id", choices=("TTTC0084R",), default="TTTC0084R")
+    parser.add_argument("--transaction-id", choices=tuple(sorted(OFFICIAL_TRANSACTION_IDS)), default="TTTC0084R")
     raise SystemExit(main(parser.parse_args().transaction_id))

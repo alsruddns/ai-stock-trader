@@ -43,6 +43,7 @@ class _FakeClient:
         self.payload = payload
         self.closed = False
         self.expected_transaction_id = "VTTC0084R"
+        self.expected_query_kind = "current_item_sequence"
 
     def _access_token(self) -> str:
         return "redacted-test-token"
@@ -51,7 +52,7 @@ class _FakeClient:
         assert url.endswith("/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl")
         assert headers["tr_id"] == self.expected_transaction_id
         assert headers["custtype"] == "P"
-        assert params["INQR_DVSN_1"] == "1"
+        assert params["INQR_DVSN_1"] == ("0" if self.expected_query_kind == "legacy_order_sequence" else "1")
         assert params["INQR_DVSN_2"] == "0"
         return _Response(self.payload)
 
@@ -97,7 +98,27 @@ def test_paper_preflight_probe_uses_official_transaction_id_and_reports_only_san
     assert client.closed
 
 
-@pytest.mark.parametrize("transaction_id", ["VTTC0084R", "VTTC8036R", "TTTC8036R"])
+def test_legacy_official_transaction_maps_to_paper_id_without_unlocking_cancel(
+    monkeypatch: pytest.MonkeyPatch, capsys,
+) -> None:
+    client = _configure_safe_probe(monkeypatch, {
+        "rt_cd": "0", "msg_cd": "OK", "output": [{"psbl_qty": "2", "odno": "private-order-number"}],
+    }, transaction_id="VTTC8036R")
+    client.expected_query_kind = "legacy_order_sequence"
+
+    assert probe.main("TTTC8036R") == 0
+
+    output = capsys.readouterr().out
+    assert '"transaction_id": "TTTC8036R"' in output
+    assert '"request_transaction_id": "VTTC8036R"' in output
+    assert '"query_kind": "legacy_order_sequence"' in output
+    assert '"cancel_quantity_field_observed": true' in output
+    assert '"order_or_cancel_sent": false' in output
+    assert "private-order-number" not in output
+    assert client.closed
+
+
+@pytest.mark.parametrize("transaction_id", ["VTTC0084R", "VTTC8036R", "TTTC0000R"])
 def test_probe_rejects_unverified_transaction_ids_before_loading_credentials(
     monkeypatch: pytest.MonkeyPatch, capsys, transaction_id: str,
 ) -> None:
