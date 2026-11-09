@@ -56,6 +56,17 @@ function Test-ExchangeSessionNoTickThresholdApplies([string]$SessionPhase) {
     return $SessionPhase -in @('CONTINUOUS', 'NOT_APPLICABLE')
 }
 
+function Test-ExchangeSessionMonitorShouldDeferNoTickFailure(
+    [double]$ObservedNoTickSeconds,
+    [int]$MaximumNoTickSeconds,
+    [bool]$RequiresCompleteSession
+) {
+    if ($ObservedNoTickSeconds -lt 0 -or $MaximumNoTickSeconds -lt 1) {
+        throw 'No-tick monitor limits must be positive and observed duration cannot be negative.'
+    }
+    return $RequiresCompleteSession -and $ObservedNoTickSeconds -gt $MaximumNoTickSeconds
+}
+
 function Update-ExchangeSessionOpenBarsBaseline(
     [bool]$AwaitingSessionOpenBaseline,
     [DateTimeOffset]$SampledAt,
@@ -199,9 +210,16 @@ function Test-ExchangeSessionCompletion {
         [int]$ObservedCounterBars,
         [int]$MinimumCounterBars,
         [bool]$RequiresCompleteSession,
-        [bool]$StoredSessionQualityVerified
+        [bool]$StoredSessionQualityVerified,
+        [double]$MaxObservedNoTickSeconds = 0,
+        [int]$MaxNoTickSeconds = 300
     )
-    if ($RequiresCompleteSession) { return $StoredSessionQualityVerified }
+    if ($MaxObservedNoTickSeconds -lt 0 -or $MaxNoTickSeconds -lt 1) {
+        throw 'Session completion no-tick limits must be positive and observed duration cannot be negative.'
+    }
+    if ($RequiresCompleteSession) {
+        return $StoredSessionQualityVerified -and $MaxObservedNoTickSeconds -le $MaxNoTickSeconds
+    }
     return $ObservedCounterBars -ge $MinimumCounterBars
 }
 

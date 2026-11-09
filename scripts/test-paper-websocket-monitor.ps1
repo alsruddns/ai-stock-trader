@@ -223,7 +223,11 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
         $maxObservedNoTickSeconds = [Math]::Max($maxObservedNoTickSeconds, $noTickSeconds)
     }
     if ((Test-ExchangeSessionNoTickThresholdApplies $sessionPhase) -and $noTickSeconds -gt $MaxNoTickSeconds) {
-        throw "No WebSocket ticks arrived for more than $MaxNoTickSeconds seconds."
+        $deferNoTickFailure = Test-ExchangeSessionMonitorShouldDeferNoTickFailure `
+            $noTickSeconds $MaxNoTickSeconds ([bool]$RequireSessionClose)
+        if (-not $deferNoTickFailure) {
+            throw "No WebSocket ticks arrived for more than $MaxNoTickSeconds seconds."
+        }
     }
 
     $currentBars = if ($Feed) { [int]$latest.bars_closed_by_feed.$Feed } else { [int]$latest.bars_closed }
@@ -406,7 +410,11 @@ $verifiedSessionBars = 0
 if ($sessionQualityEvidence.Count -gt 0) {
     $verifiedSessionBars = [int](($sessionQualityEvidence | Measure-Object -Property observed_bars -Sum).Sum)
 }
-if (-not (Test-ExchangeSessionCompletion $barDelta $MinimumBarsDelta ([bool]$RequireSessionClose) ($verifiedSessionBars -gt 0))) {
+if ($RequireSessionClose -and $maxObservedNoTickSeconds -gt $MaxNoTickSeconds) {
+    throw "No WebSocket ticks arrived for more than $MaxNoTickSeconds seconds during full-session validation."
+}
+if (-not (Test-ExchangeSessionCompletion $barDelta $MinimumBarsDelta ([bool]$RequireSessionClose) `
+        ($verifiedSessionBars -gt 0) $maxObservedNoTickSeconds $MaxNoTickSeconds)) {
     if ($RequireSessionClose) {
         throw 'Stored-session quality did not verify a complete session with full spread and source coverage.'
     }

@@ -266,6 +266,17 @@ Describe 'Exchange session monitor registration times' {
     }
 }
 
+Describe 'Domestic full-session feed continuity gate' {
+    It 'continues a full-session observation after a tick gap but keeps the final result ineligible' {
+        (Test-ExchangeSessionMonitorShouldDeferNoTickFailure 301 300 $true) | Should Be $true
+        (Test-ExchangeSessionMonitorShouldDeferNoTickFailure 301 300 $false) | Should Be $false
+        (Test-ExchangeSessionMonitorShouldDeferNoTickFailure 300 300 $true) | Should Be $false
+        (Test-ExchangeSessionCompletion 380 380 $true $true 299 300) | Should Be $true
+        (Test-ExchangeSessionCompletion 380 380 $true $true 301 300) | Should Be $false
+        (Test-ExchangeSessionCompletion 380 380 $true $false 0 300) | Should Be $false
+    }
+}
+
 function New-TestScheduledTask($State, $Arguments, $TriggerType, $StartBoundary, $DaysInterval = 1) {
     [pscustomobject]@{
         State = $State
