@@ -4,6 +4,7 @@ param(
     [ValidateRange(1, 60)] [int]$PollIntervalSeconds = 15,
     [ValidateRange(30, 3600)] [int]$MaxNoTickSeconds = 300,
     [ValidateRange(0, 36000)] [int]$MinimumBarsDelta = 0,
+    [ValidateRange(1, 300)] [int]$StartupTimeoutSeconds = 120,
     [ValidateRange(0, 600)] [int]$PostCloseGraceSeconds = 180,
     [ValidateSet('paper', 'real')] [string]$Feed,
     [string]$EvidencePath,
@@ -69,7 +70,7 @@ function Get-SelectedExchangeSessionWindow {
 }
 
 function Wait-ForSafeRunningStatus {
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(120)
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     while ([DateTimeOffset]::UtcNow -lt $deadline) {
         $health = $null
         try { $health = Invoke-RestMethod -Uri "$ApiBaseUrl/api/v1/health" -TimeoutSec 5 } catch { }
@@ -89,11 +90,14 @@ function Wait-ForSafeRunningStatus {
         Assert-SafeRunningStatus $status $Feed ([bool]$RequireBothFeeds)
         return $status
     }
-    throw 'Local market-data feed did not become ready within 120 seconds.'
+    throw "Local market-data feed did not become ready within $StartupTimeoutSeconds seconds."
 }
 
+$monitorRunStartedAtUtc = [DateTimeOffset]::UtcNow
+$monitorStage = 'startup_readiness'
 try {
 $initial = Wait-ForSafeRunningStatus
+$monitorStage = 'exchange_calendar'
 $exchangeSession = Get-SelectedExchangeSessionWindow
 $initialTicks = if ($Feed) { [int]$initial.ticks_received_by_feed.$Feed } else { [int]$initial.ticks_received }
 $initialBars = if ($Feed) { [int]$initial.bars_closed_by_feed.$Feed } else { [int]$initial.bars_closed }
@@ -117,6 +121,7 @@ $closingAuctionSilenceSeconds = 0.0
 $sessionCloseReached = $false
 $sessionQualityEvidence = @()
 $postCloseWaitSeconds = 0.0
+$monitorStage = 'stream_monitoring'
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($DurationSeconds)
 $latest = $initial
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -247,6 +252,7 @@ if ($RequireSessionClose -and -not $sessionCloseReached) {
     throw 'The monitored exchange session did not reach its calendar-confirmed close.'
 }
 if ($RequireSessionClose) {
+    $monitorStage = 'post_close_validation'
     $sessionQualityProbe = {
         $status = Get-SessionStatus
         Assert-SafeRunningStatus $status $Feed ([bool]$RequireBothFeeds)
@@ -290,6 +296,7 @@ if ($RequireSessionClose) {
     }
 }
 
+$monitorStage = 'completion_validation'
 $stopwatch.Stop()
 $latestTicks = if ($Feed) { [int]$latest.ticks_received_by_feed.$Feed } else { [int]$latest.ticks_received }
 $tickDelta = $latestTicks - $initialTicks
@@ -371,29 +378,33 @@ Write-ProgressRecord ([ordered]@{
     [System.Text.UTF8Encoding]::new($false))
 Write-Output "Read-only KIS monitor sample passed: feed=$(if ($Feed) { $Feed } else { 'any' }) seconds=$DurationSeconds ticks_delta=$tickDelta bars_delta=$barDelta max_no_tick_seconds=$([Math]::Round($maxObservedNoTickSeconds, 1)) orders=disabled automation=disabled evidence=$EvidencePath."
 } catch {
-    if ($startedAtUtc) {
-        $elapsedSeconds = if ($stopwatch) { [int]$stopwatch.Elapsed.TotalSeconds } else { 0 }
-        $failureProgress = [ordered]@{
-            recorded_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
-            requested_seconds = $DurationSeconds
-            elapsed_seconds = $elapsedSeconds
-            selected_feed = if ($Feed) { $Feed } else { 'any' }
-            max_observed_no_tick_seconds = if ($maxObservedNoTickSeconds) { [Math]::Round($maxObservedNoTickSeconds, 1) } else { 0.0 }
-            preopen_silence_seconds = if ($preOpenSilenceSeconds) { [Math]::Round($preOpenSilenceSeconds, 1) } else { 0.0 }
-            session_phase = if ($exchangeSession) { Get-ExchangeSessionPhase ([DateTimeOffset]::UtcNow) $exchangeSession } else { 'NOT_APPLICABLE' }
-            market_session = if ($exchangeSession) { $exchangeSession.market } else { $null }
-            market_session_date = if ($exchangeSession) { $exchangeSession.session_date } else { $null }
-            market_session_open_utc = if ($exchangeSession) { $exchangeSession.open_utc.ToString('o') } else { $null }
-            market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
-            closing_auction_silence_seconds = if ($closingAuctionSilenceSeconds) { [Math]::Round($closingAuctionSilenceSeconds, 1) } else { 0.0 }
-            feeds = if ($latest) { $latest.stream_connections } else { $null }
-            feed_diagnostics = if ($latest) { Get-MonitorFeedDiagnostics $latest $Feed } else { $null }
-            orders_enabled = if ($latest) { [bool]$latest.orders_enabled } else { $false }
-            automation_state = if ($latest) { $latest.automation_state } else { $null }
-            failure_type = $_.Exception.GetType().Name
-            result = 'failed'
-        }
-        try { Write-ProgressRecord $failureProgress } catch { }
+    $elapsedSeconds = if ($stopwatch) {
+        [int]$stopwatch.Elapsed.TotalSeconds
+    } else {
+        [int]([DateTimeOffset]::UtcNow - $monitorRunStartedAtUtc).TotalSeconds
     }
+    $failureProgress = [ordered]@{
+        recorded_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+        started_at_utc = if ($startedAtUtc) { $startedAtUtc.ToString('o') } else { $monitorRunStartedAtUtc.ToString('o') }
+        requested_seconds = $DurationSeconds
+        elapsed_seconds = $elapsedSeconds
+        selected_feed = if ($Feed) { $Feed } else { 'any' }
+        failure_stage = $monitorStage
+        max_observed_no_tick_seconds = if ($maxObservedNoTickSeconds) { [Math]::Round($maxObservedNoTickSeconds, 1) } else { 0.0 }
+        preopen_silence_seconds = if ($preOpenSilenceSeconds) { [Math]::Round($preOpenSilenceSeconds, 1) } else { 0.0 }
+        session_phase = if ($exchangeSession) { Get-ExchangeSessionPhase ([DateTimeOffset]::UtcNow) $exchangeSession } else { 'NOT_APPLICABLE' }
+        market_session = if ($exchangeSession) { $exchangeSession.market } else { $null }
+        market_session_date = if ($exchangeSession) { $exchangeSession.session_date } else { $null }
+        market_session_open_utc = if ($exchangeSession) { $exchangeSession.open_utc.ToString('o') } else { $null }
+        market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
+        closing_auction_silence_seconds = if ($closingAuctionSilenceSeconds) { [Math]::Round($closingAuctionSilenceSeconds, 1) } else { 0.0 }
+        feeds = if ($latest) { $latest.stream_connections } else { $null }
+        feed_diagnostics = if ($latest) { Get-MonitorFeedDiagnostics $latest $Feed } else { $null }
+        orders_enabled = if ($latest) { [bool]$latest.orders_enabled } else { $false }
+        automation_state = if ($latest) { $latest.automation_state } else { $null }
+        failure_type = $_.Exception.GetType().Name
+        result = 'failed'
+    }
+    try { Write-ProgressRecord $failureProgress } catch { }
     throw
 }
