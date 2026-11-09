@@ -290,14 +290,8 @@ def test_us_backtest_uses_new_york_session_date_across_korea_midnight() -> None:
     assert len(result.trades) == 1
 
 
-def test_backtest_rejects_premarket_partial_open_and_missing_minute_bars() -> None:
+def test_kr_backtest_rejects_partial_open_and_missing_minute_bars() -> None:
     bars = _session_bars()
-    premarket = datetime(2026, 11, 5, 23, 0, tzinfo=timezone(timedelta(hours=9)))
-    us_bars = [MinuteBar(premarket + timedelta(minutes=i), bar.open, bar.high, bar.low,
-                         bar.close, bar.volume, bar.spread_bps) for i, bar in enumerate(bars)]
-    with pytest.raises(ValueError, match="official regular-session open"):
-        backtest_orb_vwap("US", "AAPL", us_bars)
-
     partial_open = [MinuteBar(bar.timestamp + timedelta(minutes=1), bar.open, bar.high, bar.low,
                               bar.close, bar.volume, bar.spread_bps) for bar in bars]
     with pytest.raises(ValueError, match="official regular-session open"):
@@ -309,3 +303,12 @@ def test_backtest_rejects_premarket_partial_open_and_missing_minute_bars() -> No
 
     with pytest.raises(ValueError, match="final regular-session"):
         backtest_orb_vwap("KR", "005930", bars[:23])
+
+
+def test_us_backtest_rejects_premarket_bars() -> None:
+    bars = _session_bars()
+    premarket = datetime(2026, 11, 5, 23, 0, tzinfo=timezone(timedelta(hours=9)))
+    us_bars = [MinuteBar(premarket + timedelta(minutes=i), bar.open, bar.high, bar.low,
+                         bar.close, bar.volume, bar.spread_bps) for i, bar in enumerate(bars)]
+    with pytest.raises(ValueError, match="official regular-session open"):
+        backtest_orb_vwap("US", "AAPL", us_bars)

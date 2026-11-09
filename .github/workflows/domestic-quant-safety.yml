@@ -43,4 +43,4 @@ jobs:
         working-directory: services/market-ai
         run: >-
           python -m pytest -q tests/test_quant.py
-          -k "not test_us_backtest and not test_backtest_rejects_premarket_partial_open_and_missing_minute_bars"
+          -k "not test_us_backtest"

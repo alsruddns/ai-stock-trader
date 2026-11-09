@@ -10,7 +10,7 @@ from pathlib import Path
 TEST_FILE = Path(__file__).resolve().parents[1] / "tests" / "test_quant.py"
 EXCLUDED_TESTS = {
     "test_us_backtest_uses_new_york_session_date_across_korea_midnight",
-    "test_backtest_rejects_premarket_partial_open_and_missing_minute_bars",
+    "test_us_backtest_rejects_premarket_bars",
 }
 FOREIGN_MARKERS = re.compile(
     r"(?<![A-Za-z0-9_])US(?![A-Za-z0-9_])|\bAAPL\b|\bNASDAQ\b|\bNYSE\b|"
@@ -48,9 +48,9 @@ def main() -> int:
                     raise SystemExit(f"Cannot count parameterized domestic quant test cases: {test.name}.")
                 case_count *= len(decorator.args[1].elts)
         selected_count += case_count
-    if selected_count != 26:
-        raise SystemExit(f"Expected 26 domestic quant tests, found {selected_count}.")
-    print(f"Domestic quant selection verified: {selected_count} tests; 2 cross-market tests excluded.")
+    if selected_count != 27:
+        raise SystemExit(f"Expected 27 domestic quant tests, found {selected_count}.")
+    print(f"Domestic quant selection verified: {selected_count} tests; 2 US-specific tests excluded.")
     return 0
 
 
