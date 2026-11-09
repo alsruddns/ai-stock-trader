@@ -5,7 +5,9 @@ on:
     branches: [develop]
     paths:
       - 'services/market-ai/app/ai_pipeline.py'
+      - 'services/market-ai/app/main.py'
       - 'services/market-ai/tests/test_ai_pipeline.py'
+      - 'services/market-ai/tests/test_api.py'
       - 'services/market-ai/scripts/validate_domestic_ai_pipeline_selection.py'
       - '.github/workflows/domestic-ai-safety.yml'
   workflow_dispatch:
@@ -48,3 +50,9 @@ jobs:
           and not test_model_prediction_rejects_market_scope_mismatch
           and not test_us_model_governance_is_scoped_to_us_symbol
           and not test_us_active_model_registry_selection_is_independent"
+      - name: Run domestic training-readiness API tests only
+        working-directory: services/market-ai
+        run: >-
+          python -m pytest -q
+          tests/test_api.py::test_training_readiness_counts_only_complete_approved_websocket_sessions
+          tests/test_api.py::test_kr_training_readiness_reports_incomplete_session_and_spread_reasons

@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 TEST_FILE = Path(__file__).resolve().parents[1] / "tests" / "test_ai_pipeline.py"
+API_TEST_FILE = Path(__file__).resolve().parents[1] / "tests" / "test_api.py"
 EXCLUDED_TESTS = {
     "test_us_training_and_inference_accept_one_new_york_session_crossing_korea_midnight",
     "test_us_session_progress_uses_new_york_exchange_session",
@@ -20,6 +21,10 @@ FOREIGN_MARKERS = re.compile(
     r"\bNASD\b|America/New_York|HDFSCNT0|overseas",
     re.IGNORECASE,
 )
+DOMESTIC_API_TESTS = {
+    "test_training_readiness_counts_only_complete_approved_websocket_sessions",
+    "test_kr_training_readiness_reports_incomplete_session_and_spread_reasons",
+}
 
 
 def _case_count(test: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
@@ -56,7 +61,19 @@ def main() -> int:
     selected_count = sum(_case_count(test) for test in tests if test.name not in EXCLUDED_TESTS)
     if selected_count != 58:
         raise SystemExit(f"Expected 58 domestic AI pipeline tests, found {selected_count}.")
-    print(f"Domestic AI pipeline selection verified: {selected_count} tests; 5 US-specific tests excluded.")
+    api_source = API_TEST_FILE.read_text(encoding="utf-8")
+    api_tree = ast.parse(api_source, filename=str(API_TEST_FILE))
+    api_tests = [node for node in api_tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                 and node.name in DOMESTIC_API_TESTS]
+    if {test.name for test in api_tests} != DOMESTIC_API_TESTS:
+        raise SystemExit("The domestic training-readiness API test selection no longer matches the test file.")
+    api_foreign = [test.name for test in api_tests
+                   if FOREIGN_MARKERS.search(ast.get_source_segment(api_source, test) or "")]
+    if api_foreign:
+        raise SystemExit("Domestic training-readiness API tests contain foreign-market markers: "
+                         + ", ".join(sorted(api_foreign)))
+    print(f"Domestic AI selection verified: {selected_count} tests; 5 US-specific tests excluded.")
+    print(f"Domestic training-readiness API selection verified: {len(api_tests)} tests; no foreign-market markers.")
     return 0
 
 
