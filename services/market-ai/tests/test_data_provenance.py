@@ -175,7 +175,7 @@ def test_model_training_rejects_missing_or_partial_session_coverage() -> None:
         validate_model_training_coverage(payload, market="US", sessions=sessions)
 
 
-def test_kr_model_training_rejects_mixed_source_counts_even_if_source_list_is_approved() -> None:
+def test_kr_model_training_rejects_missing_mixed_or_non_integer_source_counts() -> None:
     first_session = date(2026, 11, 2)
     session_dates = [first_session + timedelta(days=index) for index in range(13)]
     sessions = {
@@ -201,9 +201,24 @@ def test_kr_model_training_rejects_mixed_source_counts_even_if_source_list_is_ap
 
     validate_model_training_coverage(payload, market="KR", sessions=sessions)
 
+    first_row = payload["coverage"]["sessions"][0]
+    exact_source_counts = dict(first_row["source_counts"])
+    del first_row["source_counts"]
+    with pytest.raises(ValueError, match="approved KIS WebSocket feed"):
+        validate_model_training_coverage(payload, market="KR", sessions=sessions)
+    first_row["source_counts"] = exact_source_counts
+
     payload["coverage"]["sessions"][0]["source_counts"] = {
         "KIS_PAPER_WEBSOCKET": 379, "KIS_REST_MINUTE_SESSION": 1,
     }
+    with pytest.raises(ValueError, match="approved KIS WebSocket feed"):
+        validate_model_training_coverage(payload, market="KR", sessions=sessions)
+
+    one_bar_session = session_dates[0]
+    sessions[one_bar_session] = [SimpleNamespace(spread_bps=Decimal("5"))]
+    payload["coverage"]["observed_bar_count"] -= 379
+    first_row.update({"bars": 1, "expected_bars": 1, "bars_with_spread": 1})
+    first_row["source_counts"] = {"KIS_PAPER_WEBSOCKET": True}
     with pytest.raises(ValueError, match="approved KIS WebSocket feed"):
         validate_model_training_coverage(payload, market="KR", sessions=sessions)
 
