@@ -7,4 +7,5 @@
 - [KIS market-data rights](kis-market-data-rights.md): 개인용 로컬 저장·백테스트·모델 학습 전 KIS 권리 확인 항목
 - [Database](database.md): PostgreSQL 테이블과 마이그레이션 정책
 - [Operations](operations.md): Windows 실행, 설정, 안전 스위치
+- [AI model validation](model-validation.md): 시간순 학습 분할과 독립 홀드아웃 평가 기준
 - [Roadmap](roadmap.md): 확정된 v1.0 P1–P7 개발·검증 기준
