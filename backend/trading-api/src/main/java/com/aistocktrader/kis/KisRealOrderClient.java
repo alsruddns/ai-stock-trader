@@ -6,6 +6,8 @@ import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderSide;
 import com.aistocktrader.order.OrderRequest;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +37,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 /** Real-account order adapter. Calls are impossible unless all production switches and read preflight gates are open. */
 @Component
 public class KisRealOrderClient {
+    private static final Logger log = LoggerFactory.getLogger(KisRealOrderClient.class);
+    private static final int MAX_TRANSIENT_READ_RETRIES = 1;
     private static final String DOMESTIC_ORDER_PATH = "/uapi/domestic-stock/v1/trading/order-cash";
     private static final String OVERSEAS_ORDER_PATH = "/uapi/overseas-stock/v1/trading/order";
     private static final String DOMESTIC_CANCEL_PATH = "/uapi/domestic-stock/v1/trading/order-rvsecncl";
@@ -418,24 +422,79 @@ public class KisRealOrderClient {
 
     private BrokerQueryResponse get(String path, String trId, MultiValueMap<String, String> params,
                                    String continuation, KisProperties.Account credentials) {
+        var uri = UriComponentsBuilder.fromUriString(KisEnvironment.REAL.baseUrl() + path);
+        params.forEach((key, values) -> values.forEach(value -> uri.queryParam(key, value)));
+        for (int attempt = 0; attempt <= MAX_TRANSIENT_READ_RETRIES; attempt++) {
+            try {
+                rateLimiter.acquire(KisEnvironment.REAL, credentials.appKey(), properties.minRequestInterval());
+                var response = http.get().uri(uri.build().encode().toUri())
+                        .header("authorization", "Bearer " + tokenProvider.accessToken(KisEnvironment.REAL))
+                        .header("appkey", credentials.appKey()).header("appsecret", credentials.appSecret())
+                        .header("tr_id", trId).header("custtype", "P").header("tr_cont", continuation)
+                        .accept(MediaType.APPLICATION_JSON).retrieve().toEntity(JsonNode.class);
+                JsonNode body = response.getBody();
+                if (attempt < MAX_TRANSIENT_READ_RETRIES && isTransientKisReadError(body)) {
+                    log.warn("Transient KIS REAL read response; retrying once (path={}, code={}).",
+                            path, safeCode(body.path("msg_cd").asText("unknown")));
+                    waitBeforeReadRetry();
+                    continue;
+                }
+                return new BrokerQueryResponse(body, response.getHeaders().getFirst("tr_cont"));
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                        "KIS real order query was interrupted.");
+            } catch (KisApiException exception) {
+                throw exception;
+            } catch (ResourceAccessException exception) {
+                if (attempt < MAX_TRANSIENT_READ_RETRIES) {
+                    log.warn("Transient KIS REAL read transport failure; retrying once (path={}).", path);
+                    waitBeforeReadRetry();
+                    continue;
+                }
+                throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                        "KIS real order reconciliation transport failed.");
+            } catch (RestClientResponseException exception) {
+                int status = exception.getStatusCode().value();
+                if (status == HttpStatus.TOO_MANY_REQUESTS.value()) {
+                    throw new KisApiException(HttpStatus.TOO_MANY_REQUESTS,
+                            "KIS real order query was rate limited.");
+                }
+                String code = safeCode(KisResponseCodes.fromErrorMessage(exception.getResponseBodyAsString(), "unknown"));
+                if (attempt < MAX_TRANSIENT_READ_RETRIES
+                        && (isTransientHttpStatus(status) || isTransientKisReadCode(code))) {
+                    log.warn("Transient KIS REAL read HTTP failure; retrying once (path={}, status={}, code={}).",
+                            path, status, code);
+                    waitBeforeReadRetry();
+                    continue;
+                }
+                throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                        "KIS real order reconciliation request failed.");
+            }
+        }
+        throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                "KIS real order reconciliation failed after one transient retry.");
+    }
+
+    private static boolean isTransientKisReadError(JsonNode body) {
+        if (body == null || "0".equals(body.path("rt_cd").asText())) return false;
+        return isTransientKisReadCode(safeCode(body.path("msg_cd").asText("unknown")));
+    }
+
+    private static boolean isTransientKisReadCode(String code) {
+        return "EGW00001".equals(code) || "EGW00002".equals(code);
+    }
+
+    private static boolean isTransientHttpStatus(int status) {
+        return status == 500 || status == 502 || status == 503 || status == 504;
+    }
+
+    private static void waitBeforeReadRetry() {
         try {
-            var uri = UriComponentsBuilder.fromUriString(KisEnvironment.REAL.baseUrl() + path);
-            params.forEach((key, values) -> values.forEach(value -> uri.queryParam(key, value)));
-            rateLimiter.acquire(KisEnvironment.REAL, credentials.appKey(), properties.minRequestInterval());
-            var response = http.get().uri(uri.build().encode().toUri())
-                    .header("authorization", "Bearer " + tokenProvider.accessToken(KisEnvironment.REAL))
-                    .header("appkey", credentials.appKey()).header("appsecret", credentials.appSecret())
-                    .header("tr_id", trId).header("custtype", "P").header("tr_cont", continuation)
-                    .accept(MediaType.APPLICATION_JSON).retrieve().toEntity(JsonNode.class);
-            return new BrokerQueryResponse(response.getBody(), response.getHeaders().getFirst("tr_cont"));
+            Thread.sleep(500);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "KIS real order query was interrupted before submission.");
-        } catch (KisApiException exception) {
-            throw exception;
-        } catch (ResourceAccessException | RestClientResponseException exception) {
-            throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS real order reconciliation request failed.");
+            throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE, "KIS real order query retry was interrupted.");
         }
     }
 

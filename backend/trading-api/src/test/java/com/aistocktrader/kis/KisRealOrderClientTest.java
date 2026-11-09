@@ -6,6 +6,7 @@ import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderSide;
 import com.aistocktrader.order.OrderRequest;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.http.client.MockClientHttpResponse;
@@ -32,6 +33,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 class KisRealOrderClientTest {
     private static final String REAL_URL = "https://openapi.koreainvestment.com:9443";
@@ -236,6 +238,45 @@ class KisRealOrderClientTest {
         assertEquals(1, snapshot.filledQuantity());
         assertEquals(0, snapshot.remainingQuantity());
         assertEquals(new BigDecimal("70100"), snapshot.averageFillPrice());
+        server.verify();
+    }
+
+    @Test
+    void realOrderReconciliationRetriesOnceAfterTransientHttpFailure() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        for (int attempt = 0; attempt < 2; attempt++) {
+            server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                            "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                    .andExpect(method(HttpMethod.GET)).andExpect(header("tr_id", "TTTC0081R"))
+                    .andRespond(attempt == 0
+                            ? withStatus(HttpStatus.BAD_GATEWAY)
+                            : withSuccess("{\"rt_cd\":\"0\",\"output1\":[]}", MediaType.APPLICATION_JSON));
+        }
+
+        assertTrue(new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                .reconcileRealOrder(realIntent(Market.KR, "005930", "7001", "ORG01", null, 1)).isEmpty());
+        server.verify();
+    }
+
+    @Test
+    void realOrderReconciliationDoesNotRetryHttp429() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(method(HttpMethod.GET)).andExpect(header("tr_id", "TTTC0081R"))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+
+        KisApiException error = assertThrows(KisApiException.class, () ->
+                new KisRealOrderClient(properties(true, true), realSafety(), builder)
+                        .reconcileRealOrder(realIntent(Market.KR, "005930", "7001", "ORG01", null, 1)));
+
+        assertEquals(HttpStatus.TOO_MANY_REQUESTS, error.status());
         server.verify();
     }
 
