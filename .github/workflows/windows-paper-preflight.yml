@@ -77,9 +77,9 @@ jobs:
             throw "PAPER preflight tests failed: passed=$($result.PassedCount), failed=$($result.FailedCount)."
           }
 
-          $usPaperSmokeResult = Invoke-Pester -Path 'scripts/tests/us-paper-lifecycle-smoke.Tests.ps1' -PassThru
-          if ($usPaperSmokeResult.FailedCount -gt 0 -or $usPaperSmokeResult.PassedCount -ne 13) {
-            throw "US PAPER lifecycle smoke tests failed: passed=$($usPaperSmokeResult.PassedCount), failed=$($usPaperSmokeResult.FailedCount)."
+          $domesticScopeResult = Invoke-Pester -Path 'scripts/tests/domestic-only-validation.Tests.ps1' -PassThru
+          if ($domesticScopeResult.FailedCount -gt 0 -or $domesticScopeResult.PassedCount -ne 8) {
+            throw "Domestic-only operational scope tests failed: passed=$($domesticScopeResult.PassedCount), failed=$($domesticScopeResult.FailedCount)."
           }
 
           $leanCostResult = Invoke-Pester -Path 'scripts/tests/lean-cost-inputs.Tests.ps1' -PassThru
