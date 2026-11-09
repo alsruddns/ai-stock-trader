@@ -43,6 +43,38 @@ function Write-ProcessState {
     Move-Item -LiteralPath $temporaryState -Destination $runtimeState -Force
 }
 
+function Test-LocalSessionsFreshAndClosed($Sessions, [DateTimeOffset]$NowUtc) {
+    if (@($Sessions).Count -ne 2) { return $false }
+    foreach ($market in @('KR', 'US')) {
+        $session = @($Sessions | Where-Object { [string]$_.market -eq $market }) | Select-Object -First 1
+        if (-not $session -or $null -eq $session.PSObject.Properties['is_open'] -or
+            $null -eq $session.PSObject.Properties['evaluated_at']) { return $false }
+        $sessionTime = [DateTimeOffset]::MinValue
+        if (-not [DateTimeOffset]::TryParse([string]$session.evaluated_at, [ref]$sessionTime)) { return $false }
+        $ageSeconds = ($NowUtc.ToUniversalTime() - $sessionTime.ToUniversalTime()).TotalSeconds
+        if ($ageSeconds -lt -10 -or $ageSeconds -gt 30 -or [bool]$session.is_open) { return $false }
+    }
+    return $true
+}
+
+function Get-EnvironmentReloadDecision([bool]$EnvironmentChanged, [bool]$ExchangesConfirmedClosed) {
+    if (-not $EnvironmentChanged) { return 'NONE' }
+    if ($ExchangesConfirmedClosed) { return 'RESTART' }
+    return 'DEFER'
+}
+
+function Test-LocalExchangesClosedForEnvironmentReload {
+    $nowUtc = [DateTimeOffset]::UtcNow
+    try {
+        $sessions = foreach ($market in @('KR', 'US')) {
+            Invoke-RestMethod -Uri "http://127.0.0.1:18000/api/v1/market/sessions/$market" -TimeoutSec 3
+        }
+        return Test-LocalSessionsFreshAndClosed $sessions $nowUtc
+    } catch {
+        return $false
+    }
+}
+
 function Test-PermanentStackStartupFailure {
     param([string]$StartupErrorMessage, [string]$BackendErrorOutput)
 
@@ -107,11 +139,15 @@ function Import-LocalEnvironment {
 try {
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     Write-ProcessState
+    $pendingEnvironmentHash = $null
+    $nextEnvironmentReloadCheckUtc = [DateTimeOffset]::MinValue
 
     while ($true) {
         $permanentStartupFailure = $false
         try {
             $environmentHash = Import-LocalEnvironment
+            $pendingEnvironmentHash = $null
+            $nextEnvironmentReloadCheckUtc = [DateTimeOffset]::MinValue
             $powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
             if (-not (Test-Path -LiteralPath $powerShellPath)) { $powerShellPath = (Get-Process -Id $PID).Path }
             $backendRunner = Join-Path $PSScriptRoot 'start-local.ps1'
@@ -171,9 +207,27 @@ try {
                 Start-Sleep -Seconds 2
                 $currentEnvironmentHash = (Get-FileHash -LiteralPath $envPath -Algorithm SHA256).Hash
                 if ($currentEnvironmentHash -ne $environmentHash) {
-                    Write-TaskLog 'Local environment file changed; restarting APIs to reload configuration.'
-                    throw 'Local environment file changed.'
+                    if ($backendProcess.HasExited) { throw "Spring Boot stopped unexpectedly (code $($backendProcess.ExitCode))." }
+                    if ($marketAiProcess.HasExited) { throw "Python market-ai stopped unexpectedly (code $($marketAiProcess.ExitCode))." }
+                    if ($currentEnvironmentHash -ne $pendingEnvironmentHash) {
+                        $pendingEnvironmentHash = $currentEnvironmentHash
+                        $nextEnvironmentReloadCheckUtc = [DateTimeOffset]::MinValue
+                        Write-TaskLog 'Local environment file changed; reload is deferred until both exchanges are confirmed closed.'
+                    }
+                    $nowUtc = [DateTimeOffset]::UtcNow
+                    if ($nowUtc -ge $nextEnvironmentReloadCheckUtc) {
+                        $exchangesClosed = Test-LocalExchangesClosedForEnvironmentReload
+                        $decision = Get-EnvironmentReloadDecision $true $exchangesClosed
+                        if ($decision -eq 'RESTART') {
+                            Write-TaskLog 'Both exchanges are confirmed closed; restarting APIs to load the pending environment.'
+                            throw 'Local environment file changed.'
+                        }
+                        $nextEnvironmentReloadCheckUtc = $nowUtc.AddSeconds(30)
+                    }
+                    continue
                 }
+                $pendingEnvironmentHash = $null
+                $nextEnvironmentReloadCheckUtc = [DateTimeOffset]::MinValue
                 if ($backendProcess.HasExited) { throw "Spring Boot stopped unexpectedly (code $($backendProcess.ExitCode))." }
                 if ($marketAiProcess.HasExited) { throw "Python market-ai stopped unexpectedly (code $($marketAiProcess.ExitCode))." }
             }
