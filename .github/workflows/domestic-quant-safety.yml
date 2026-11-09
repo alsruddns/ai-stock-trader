@@ -1,0 +1,46 @@
+name: Domestic quant safety
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'services/market-ai/app/quant.py'
+      - 'services/market-ai/tests/test_quant.py'
+      - 'services/market-ai/scripts/validate_domestic_quant_selection.py'
+      - '.github/workflows/domestic-quant-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  domestic-quant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TRADING_MODE: paper
+      LIVE_TRADING_ENABLED: "false"
+      PAPER_AUTOTRADING_ENABLED: "false"
+      KIS_PAPER_ORDERS_ENABLED: "false"
+      KIS_REAL_ORDERS_ENABLED: "false"
+      KIS_ACCOUNT_READ_ENABLED: "false"
+      KIS_PAPER_ACCOUNT_READ_ENABLED: "false"
+      KIS_REAL_ACCOUNT_READ_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/market-ai/pyproject.toml
+      - name: Install focused quant test dependencies
+        working-directory: services/market-ai
+        run: python -m pip install -e ".[dev,ops]"
+      - name: Verify the selected test set is domestic only
+        working-directory: services/market-ai
+        run: python scripts/validate_domestic_quant_selection.py
+      - name: Run domestic quant tests only
+        working-directory: services/market-ai
+        run: >-
+          python -m pytest -q tests/test_quant.py
+          -k "not test_us_backtest and not test_backtest_rejects_premarket_partial_open_and_missing_minute_bars"
