@@ -52,6 +52,8 @@ REAL 주문 API는 Spring이 `127.0.0.1:18080`에 바인딩된 로컬 운영만 
 
 Python health의 `broker_connected=true`는 모니터가 활성화되어 있고 구성된 모든 PAPER/REAL WebSocket feed가 `RUNNING`일 때만 반환합니다. 이는 연결 상태이며, 최신 tick이나 세션 전체의 데이터 완전성을 보증하지 않습니다.
 
+`GET /api/v1/paper/session`의 `orderbook_quote_quality_by_feed`는 구독 종목과 일치해 파싱된 국내 호가를 feed별로 집계합니다. `usable`, `empty_or_nonpositive`, `crossed`는 호가값 분류이며 `stale_rejected`는 이미 처리 중인 분보다 오래되어 거부한 수로 다른 분류와 겹칠 수 있습니다. 이 카운터는 프로세스 재시작 시 초기화되고, 원시 프레임 수나 저장 분봉의 스프레드 포함률을 대신하지 않습니다.
+
 Python health의 `strategy_cost_assumptions`는 KR/US별 백테스트·학습 비용 설정 상태와 누락되거나 유효하지 않은 환경변수 이름만 반환합니다. 비용 숫자와 자격정보는 반환하지 않습니다. 왕복 라벨 비용이 매수·매도 수수료, 매도세금, 양쪽 체결 슬리피지 합보다 작으면 미준비로 표시합니다. 대시보드는 이 상태를 사용해 `.env_local`에서 확인할 항목을 보여주며, 이 진단 자체는 비용을 승인하거나 PAPER/REAL 주문을 활성화하지 않습니다.
 
 `GET /api/v1/market/sessions/{market}`는 `market`이 `KR` 또는 `US`일 때 거래소 캘린더가 확인한 현지 세션 날짜와 UTC 개장·폐장 시각, 조회 시점의 장중 여부를 반환합니다. 휴장일에는 `is_session=false`와 빈 개장·폐장 시각을 돌려줍니다. 캘린더를 검증할 수 없으면 HTTP 503으로 닫습니다. 이 endpoint는 읽기 전용 세션 정보이며 주문 승인이 아닙니다.
