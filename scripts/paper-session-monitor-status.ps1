@@ -220,7 +220,7 @@ function Assert-SafeRunningStatus($Status, [string]$SelectedFeed, [bool]$BothFee
                 $connections.$SelectedFeed -in $transientStates -and
                 $Status.enabled -ne $false -and
                 $Status.state -notin @('BLOCKED', 'STOPPED') -and
-                $Status.last_error -eq 'KIS_STREAM_UNAVAILABLE') {
+                (-not $Status.last_error -or $Status.last_error -eq 'KIS_STREAM_UNAVAILABLE')) {
                 return
             }
             throw "The selected $SelectedFeed market-data feed must be RUNNING."

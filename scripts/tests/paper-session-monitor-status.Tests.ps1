@@ -1,5 +1,36 @@
 . (Join-Path $PSScriptRoot '../paper-session-monitor-status.ps1')
 
+Describe 'Domestic PAPER monitor reconnect tolerance' {
+    It 'continues read-only observation during a selected feed reconnect with no aggregate error code' {
+        $status = [pscustomobject]@{
+            orders_enabled = $false
+            automation_state = 'DISABLED'
+            stream_connections = [pscustomobject]@{ paper = 'RECONNECTING'; real = 'RUNNING' }
+            enabled = $true
+            state = 'RECONNECTING'
+            last_error = $null
+        }
+
+        { Assert-SafeRunningStatus $status 'paper' $false $true } | Should Not Throw
+    }
+
+    It 'still rejects a non-feed runtime error during reconnect' {
+        $status = [pscustomobject]@{
+            orders_enabled = $false
+            automation_state = 'DISABLED'
+            stream_connections = [pscustomobject]@{ paper = 'RECONNECTING'; real = 'RUNNING' }
+            enabled = $true
+            state = 'RECONNECTING'
+            last_error = 'DATABASE_UNAVAILABLE'
+        }
+
+        $threw = $false
+        try { Assert-SafeRunningStatus $status 'paper' $false $true }
+        catch { $threw = $true }
+        $threw | Should Be $true
+    }
+}
+
 Describe 'Paper session monitor failure codes' {
     It 'classifies a stalled WebSocket without persisting the raw exception text' {
         Get-MonitorFailureCode 'No WebSocket ticks arrived for more than 300 seconds.' |
