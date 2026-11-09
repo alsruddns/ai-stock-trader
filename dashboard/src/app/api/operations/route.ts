@@ -49,6 +49,8 @@ type LocalOperationsReport = {
     sessionQualityStatus: string | null;
     ticksDelta: number | null;
     barsDelta: number | null;
+    orderbookFramesDelta: number | null;
+    orderbookUpdatesDelta: number | null;
     maxNoTickSeconds: number | null;
     failureStage: string | null;
     failureCode: string | null;
@@ -199,6 +201,8 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
       sessionQualityStatus: optionalString(rawMonitor.sessionQualityStatus),
       ticksDelta: optionalNumber(rawMonitor.ticksDelta),
       barsDelta: optionalNumber(rawMonitor.barsDelta),
+      orderbookFramesDelta: optionalNumber(rawMonitor.orderbookFramesDelta),
+      orderbookUpdatesDelta: optionalNumber(rawMonitor.orderbookUpdatesDelta),
       maxNoTickSeconds: optionalNumber(rawMonitor.maxNoTickSeconds),
       failureStage: optionalString(rawMonitor.failureStage),
       failureCode: optionalString(rawMonitor.failureCode),

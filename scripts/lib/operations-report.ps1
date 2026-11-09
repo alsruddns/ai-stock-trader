@@ -213,6 +213,7 @@ function Get-AiTraderDomesticSessionMonitorSummary {
     $unverified = [ordered]@{
         state = 'UNVERIFIED'; recordedAt = $null; sessionDate = $null; validationScope = $null
         sessionCloseReached = $null; sessionQualityStatus = $null; ticksDelta = $null; barsDelta = $null
+        orderbookFramesDelta = $null; orderbookUpdatesDelta = $null
         maxNoTickSeconds = $null; failureStage = $null; failureCode = $null
     }
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $unverified }
@@ -246,6 +247,16 @@ function Get-AiTraderDomesticSessionMonitorSummary {
     $hasMaxNoTick = [double]::TryParse([string]$record.max_observed_no_tick_seconds,
         [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$maxNoTick) -and
         $maxNoTick -ge 0
+    $paperDiagnostics = if ($record.feed_diagnostics_delta) { $record.feed_diagnostics_delta.PSObject.Properties['paper'] } else { $null }
+    $paperDiagnosticValue = if ($paperDiagnostics) { $paperDiagnostics.Value } else { $null }
+    $transactionCounts = if ($paperDiagnosticValue) { $paperDiagnosticValue.transaction_counts } else { $null }
+    $orderbookFramesValue = 0
+    $hasOrderbookFrames = $paperDiagnosticValue -and $paperDiagnosticValue.transaction_counts_available -eq $true -and
+        $transactionCounts -and [int]::TryParse([string]$transactionCounts.H0STASP0, [ref]$orderbookFramesValue) -and $orderbookFramesValue -ge 0
+    $orderbookFrames = if ($hasOrderbookFrames) { $orderbookFramesValue } else { $null }
+    $orderbookUpdates = 0
+    $hasOrderbookUpdates = $paperDiagnosticValue -and $paperDiagnosticValue.orderbook_updates_available -eq $true -and
+        [int]::TryParse([string]$paperDiagnosticValue.orderbook_updates, [ref]$orderbookUpdates) -and $orderbookUpdates -ge 0
     return [ordered]@{
         state = ([string]$record.result).ToUpperInvariant()
         recordedAt = $recordedAt
@@ -255,6 +266,8 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         sessionQualityStatus = if ($record.session_quality_status -in @('verified', 'incomplete', 'not_checked')) { [string]$record.session_quality_status } else { $null }
         ticksDelta = if ($hasTicks) { $ticks } else { $null }
         barsDelta = if ($hasBars) { $bars } else { $null }
+        orderbookFramesDelta = if ($hasOrderbookFrames) { $orderbookFrames } else { $null }
+        orderbookUpdatesDelta = if ($hasOrderbookUpdates) { $orderbookUpdates } else { $null }
         maxNoTickSeconds = if ($hasMaxNoTick) { [Math]::Round($maxNoTick, 1) } else { $null }
         failureStage = if ($record.failure_stage -in $knownStages) { [string]$record.failure_stage } else { $null }
         failureCode = if ($record.failure_code -in $knownFailureCodes) { [string]$record.failure_code } else { $null }
