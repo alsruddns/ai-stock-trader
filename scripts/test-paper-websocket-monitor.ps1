@@ -152,7 +152,7 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
         break
     }
     $latest = Get-SessionStatus
-    Assert-SafeRunningStatus $latest $Feed ([bool]$RequireBothFeeds)
+    Assert-SafeRunningStatus $latest $Feed ([bool]$RequireBothFeeds) ([bool]$Feed)
 
     $currentTicks = if ($Feed) { [int]$latest.ticks_received_by_feed.$Feed } else { [int]$latest.ticks_received }
     if ($currentTicks -lt $previousTicks) {

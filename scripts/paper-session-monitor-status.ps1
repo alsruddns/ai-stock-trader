@@ -15,7 +15,7 @@ function Test-MonitorFeedReady($Status, [string]$SelectedFeed, [bool]$BothFeeds)
     return @($connections.PSObject.Properties | Where-Object { $_.Value -eq 'RUNNING' }).Count -gt 0
 }
 
-function Assert-SafeRunningStatus($Status, [string]$SelectedFeed, [bool]$BothFeeds) {
+function Assert-SafeRunningStatus($Status, [string]$SelectedFeed, [bool]$BothFeeds, [bool]$AllowTransientSelectedReconnect = $false) {
     Assert-MonitorSafetyLocks $Status
 
     $connections = $Status.stream_connections
@@ -29,6 +29,14 @@ function Assert-SafeRunningStatus($Status, [string]$SelectedFeed, [bool]$BothFee
 
     if ($SelectedFeed) {
         if ($connections.$SelectedFeed -ne 'RUNNING') {
+            $transientStates = @('CONNECTING', 'SUBSCRIBING', 'RECONNECTING')
+            if ($AllowTransientSelectedReconnect -and
+                $connections.$SelectedFeed -in $transientStates -and
+                $Status.enabled -ne $false -and
+                $Status.state -notin @('BLOCKED', 'STOPPED') -and
+                $Status.last_error -eq 'KIS_STREAM_UNAVAILABLE') {
+                return
+            }
             throw "The selected $SelectedFeed market-data feed must be RUNNING."
         }
         if ($Status.enabled -eq $false -or $Status.state -in @('BLOCKED', 'STOPPED')) {

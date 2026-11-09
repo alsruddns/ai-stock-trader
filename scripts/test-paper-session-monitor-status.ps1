@@ -16,11 +16,22 @@ function New-Status($State, $Paper, $Real, $LastError = $null, $OrdersEnabled = 
 $selectedPaperReady = New-Status 'RECONNECTING' 'RUNNING' 'RECONNECTING' 'KIS_STREAM_UNAVAILABLE'
 Assert-SafeRunningStatus $selectedPaperReady 'paper' $false
 
-# The selected feed itself reconnecting must fail, even if the other feed is running.
+# Initial readiness remains strict. During an active sample, a bounded transient
+# reconnect is tolerated; the websocket monitor still enforces its no-tick limit.
 $selectedPaperReconnecting = New-Status 'RECONNECTING' 'RECONNECTING' 'RUNNING' 'KIS_STREAM_UNAVAILABLE'
 $failedAsExpected = $false
 try { Assert-SafeRunningStatus $selectedPaperReconnecting 'paper' $false } catch { $failedAsExpected = $true }
-if (-not $failedAsExpected) { throw 'A reconnecting selected feed was incorrectly accepted.' }
+if (-not $failedAsExpected) { throw 'Initial readiness incorrectly accepted a reconnecting selected feed.' }
+Assert-SafeRunningStatus $selectedPaperReconnecting 'paper' $false $true
+$selectedPaperConnecting = New-Status 'RECONNECTING' 'CONNECTING' 'RUNNING' 'KIS_STREAM_UNAVAILABLE'
+Assert-SafeRunningStatus $selectedPaperConnecting 'paper' $false $true
+$selectedPaperSubscribing = New-Status 'RECONNECTING' 'SUBSCRIBING' 'RUNNING' 'KIS_STREAM_UNAVAILABLE'
+Assert-SafeRunningStatus $selectedPaperSubscribing 'paper' $false $true
+
+$explicitSubscriptionError = New-Status 'RECONNECTING' 'RECONNECTING' 'RUNNING' 'KIS_SUBSCRIPTION_FAILED'
+$failedAsExpected = $false
+try { Assert-SafeRunningStatus $explicitSubscriptionError 'paper' $false $true } catch { $failedAsExpected = $true }
+if (-not $failedAsExpected) { throw 'An explicit subscription failure was incorrectly tolerated.' }
 
 # Unexpected runtime errors and enabled orders remain hard failures.
 $runtimeError = New-Status 'RECONNECTING' 'RUNNING' 'RECONNECTING' 'PAPER_BAR_HISTORY_RESTORE_FAILED'
@@ -40,4 +51,4 @@ $failedAsExpected = $false
 try { Assert-SafeRunningStatus $selectedPaperReady '' $true } catch { $failedAsExpected = $true }
 if (-not $failedAsExpected) { throw 'A degraded both-feed sample was incorrectly accepted.' }
 
-Write-Output 'Paper session status tests passed: selected-feed isolation, reconnect failure, unexpected runtime error, order lock, and aggregate readiness.'
+Write-Output 'Paper session status tests passed: selected-feed isolation, bounded reconnect states, explicit error rejection, unexpected runtime error, order lock, and aggregate readiness.'
