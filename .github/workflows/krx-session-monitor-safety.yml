@@ -81,7 +81,7 @@ jobs:
             throw "Domestic local stack restart tests failed: passed=$($restartResult.PassedCount), failed=$($restartResult.FailedCount)."
           }
 
-          & 'scripts/test-local-stack-env-reload.ps1'
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'scripts/test-local-stack-env-reload.ps1'
           if ($LASTEXITCODE -ne 0) { throw 'Domestic operational-scope environment reload test failed.' }
 
           $diagnosticResult = Invoke-Pester -Path 'scripts/tests/safe-http-diagnostic.Tests.ps1' -PassThru
