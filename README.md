@@ -10,6 +10,8 @@ Windows 로컬에서 실행하는 국내·미국 주식 자동매매 프로젝�
 
 > **안전 범위:** 기본값은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ACCOUNT_READ_ENABLED=false`, `KIS_REAL_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ORDERS_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`, `KIS_REAL_RECONCILIATION_ENABLED=false`, `REAL_PROTECTIVE_EXIT_MANAGER_ENABLED=false`, `KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED=false`, `REAL_SIGNAL_SUBMISSION_ENABLED=false`입니다. 계좌 조회는 전체 허용 스위치와 해당 환경 허용 스위치가 모두 켜져야 합니다. 실계좌 신규 매수는 보호청산 관리기가 검증되기 전까지 별도 잠금 상태이며, 실계좌 주문도 기본 비활성입니다.
 
+> **현재 시장 범위:** 국내·미국 공통 코드 개발은 계속하지만 KIS 연동, 시장 세션 검증, PAPER/REAL 운용, 데이터 백테스트·학습 후보 검증은 국내(KR)만 수행합니다. 미국 경로는 Mock/고정 fixture 단위 테스트만 허용하며 운영 스크립트는 미국 외부 호출·작업 등록을 거부합니다.
+
 ## 구성
 
 ```text
@@ -75,7 +77,7 @@ python -m pip install -e ".[dev,ai,ops]"
 uvicorn app.main:app --reload --host 127.0.0.1 --port 18000 --env-file ../../.env_local
 ```
 
-KIS 조회를 쓸 때는 `.env_local`의 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET`, `KIS_PAPER_ACCOUNT_NUMBER`에 모의계좌 값을 넣습니다. 실전 값은 별도 `KIS_REAL_*` 항목에만 저장합니다. PAPER REST 시세는 `KIS_MARKET_DATA_ENABLED=true`, REAL 미국 REST 시세·분봉은 별도 `KIS_REAL_MARKET_DATA_ENABLED=true`가 필요합니다. WebSocket 시세는 `KIS_WEBSOCKET_ENABLED=true`가 필요합니다. Spring PAPER 계좌조회는 전체 잠금 `KIS_ACCOUNT_READ_ENABLED=true`와 `KIS_PAPER_ACCOUNT_READ_ENABLED=true`를 모두 요구합니다. REAL 조회는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`도 별도로 요구합니다. 계좌번호는 8자리 계좌번호와 2자리 상품코드를 붙인 총 10자리입니다. 일반 이름 `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ACCOUNT_NUMBER`는 호환 설정이 아니므로 쓰지 않습니다. 인증정보는 Git에 추가하지 마세요. 계좌 조회는 읽기 전용이며 실주문 스위치는 계속 꺼둡니다.
+KIS 조회를 쓸 때는 `.env_local`의 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET`, `KIS_PAPER_ACCOUNT_NUMBER`에 모의계좌 값을 넣습니다. 실전 값은 별도 `KIS_REAL_*` 항목에만 저장합니다. PAPER REST 시세는 `KIS_MARKET_DATA_ENABLED=true`가 필요합니다. REAL 미국 REST 시세·분봉용 코드와 설정은 유지하지만 현재 국내 전용 검증 범위에서는 활성화하지 않습니다. WebSocket 시세는 `KIS_WEBSOCKET_ENABLED=true`가 필요합니다. Spring PAPER 계좌조회는 전체 잠금 `KIS_ACCOUNT_READ_ENABLED=true`와 `KIS_PAPER_ACCOUNT_READ_ENABLED=true`를 모두 요구합니다. REAL 조회는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`도 별도로 요구합니다. 계좌번호는 8자리 계좌번호와 2자리 상품코드를 붙인 총 10자리입니다. 일반 이름 `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ACCOUNT_NUMBER`는 호환 설정이 아니므로 쓰지 않습니다. 인증정보는 Git에 추가하지 마세요. 계좌 조회는 읽기 전용이며 실주문 스위치는 계속 꺼둡니다.
 
 국내 KIS 분봉 이력은 `GET /api/v1/market/bars/KR/{종목코드}?session_date=YYYY-MM-DD&end_time=HHMMSS`로 한 번에 최대 120개, 전체 KRX 세션은 `GET /api/v1/market/sessions/KR/{종목코드}/bars?session_date=YYYY-MM-DD`로 제한된 페이지 범위에서 조회할 수 있습니다. 미국 최신 분봉은 `GET /api/v1/market/bars/US/{종목코드}?exchange=NAS|NYS|AMS`로 한 번에 최대 120개 조회하고, 과거 세션은 `GET /api/v1/market/sessions/US/{종목코드}/bars?exchange=NAS|NYS|AMS&session_date=YYYY-MM-DD`로 최대 20페이지까지 조회합니다. KIS 해외 분봉의 `PINC`, `NEXT`, `KEYB` 커서를 사용하며, 응답에 continuation header가 없더라도 120행이 찬 페이지는 커서로 이어 읽습니다. 응답에는 페이지 수·원본 행 수·조회 원본 시간 범위·continuation 상태를 포함합니다. API 보관자료·페이지 한도 때문에 반환 봉이 세션 전체라는 보장은 없습니다. 해외 분봉은 모의투자를 지원하지 않으므로 REAL REST 요청은 `KIS_REAL_MARKET_DATA_ENABLED=true`와 REAL 앱키·시크릿을 별도로 요구합니다. 이 설정은 계좌 조회나 주문 권한을 열지 않습니다. [KIS 공식 해외 분봉 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/overseas_stock/inquire_time_itemchartprice/inquire_time_itemchartprice.py)
 
@@ -99,15 +101,12 @@ LightGBM·XGBoost 학습용 선택 의존성은 `python -m pip install -e ".[dev
 `scripts/run-lean-backtest.ps1`은 권리 sidecar와 완전한 단일 세션을 검사하고, 공식 LEAN 엔진 소스와 .NET 10 SDK를 무시된 `.local/lean-toolchain`에 준비한 뒤 C# ORB/VWAP/EMA/ATR 전략을 로컬로 실행합니다. 이 Windows 네이티브 경로에는 Docker나 QuantConnect 유료 조직 계정이 필요하지 않습니다. KIS 데이터는 로컬 data folder만 사용하며 cloud로 업로드하지 않습니다. 첫 실행은 인터넷에서 Microsoft SDK 설치 스크립트, QuantConnect LEAN 소스, NuGet 패키지를 가져옵니다. 빌드·실행 기록은 `.local/logs`에 저장됩니다. 시장별 `.env_local`의 매수·매도 수수료, 매도세, 체결별 슬리피지가 모두 설정되면 두 엔진이 그 값을 함께 사용합니다. 전부 비어 있으면 5/5/0/5 bps 진단 기본값임을 결과에 표시하고, 일부만 설정하면 중단합니다. 네 값을 명령행 인자로 명시해 비교할 수도 있습니다.
 
 ```powershell
-.\scripts\run-lean-backtest.ps1 -CsvFile .\data\licensed\AAPL-2026-11-06.csv -Market US -Symbol AAPL -Session 2026-11-06
+# Overseas operational backtest commands are disabled in the current KR-only validation phase.
 .\scripts\run-lean-backtest.ps1 -CsvFile .\data\backtests\kis-kr-005930-2026-10-30.csv -Market KR -Symbol 005930 -Session 2026-10-30
-# 선택: 계좌별 실제 비용값이 아닌 별도 진단 비용을 명시해 두 엔진 비교
-.\scripts\run-lean-backtest.ps1 -CsvFile .\data\licensed\AAPL-2026-11-06.csv -Market US -Symbol AAPL -Session 2026-11-06 -BuyCommissionBps 7 -SellCommissionBps 9 -SellTaxBps 2 -SlippageBps 3
-# 선택: 검증용 후보 모델의 AI 확률 필터 포함 재생
-.\scripts\run-lean-backtest.ps1 -CsvFile .\data\licensed\AAPL-session.csv -Market US -Symbol AAPL -Session 2026-11-06 -ModelId xgboost-<32자리hex>
+
 ```
 
-실행 도구는 Python 기준 백테스트와 LEAN의 봉 수·양자/AI 신호·거래 수·순손익을 비교하고 차이가 1센트를 넘으면 실패합니다. `-ModelId`를 주면 로컬 registry에서 현재 feature schema와 권리 provenance를 확인하고, 시점별 확률 파일의 해시와 세션 timestamp를 대조합니다. 검증 표본은 미국 AAPL 2026-11-06 390봉/9신호/9거래와 국내 005930 2026-10-30 380봉/0신호/0거래입니다. 기본값 경로는 현재 5/5/0/5 bps 진단 비용으로 미국 순손익 차이가 0.01 미만입니다. 별도 비용 7/9/2/3 bps를 명시한 미국 재생에서도 9건 거래의 결과가 일치했습니다. 이 진단 비용은 계좌 적용 수수료를 뜻하지 않습니다. 국내 자료에는 과거 스프레드가 없어 거래가 생성되지 않았습니다. 이 소수 표본은 전략 성과를 입증하지 않으며, AI 모델을 포함한 LEAN 재생은 후보·완전한 세션 자료가 준비된 뒤 결과 검증이 필요합니다.
+이전에 미국 자료로 수행한 결과는 당시의 구현 비교 기록이며 현재 운영 검증 근거로 보지 않고 재실행하지 않습니다. 국내 범위에서 실행 도구는 Python 기준 백테스트와 LEAN의 봉 수·양자/AI 신호·거래 수·순손익을 비교하고 차이가 1센트를 넘으면 실패합니다. `-ModelId`를 주면 로컬 registry에서 현재 feature schema와 권리 provenance를 확인하고, 시점별 확률 파일의 해시와 세션 timestamp를 대조합니다. 검증 표본은 미국 AAPL 2026-11-06 390봉/9신호/9거래와 국내 005930 2026-10-30 380봉/0신호/0거래입니다. 기본값 경로는 현재 5/5/0/5 bps 진단 비용으로 미국 순손익 차이가 0.01 미만입니다. 별도 비용 7/9/2/3 bps를 명시한 미국 재생에서도 9건 거래의 결과가 일치했습니다. 이 진단 비용은 계좌 적용 수수료를 뜻하지 않습니다. 국내 자료에는 과거 스프레드가 없어 거래가 생성되지 않았습니다. 이 소수 표본은 전략 성과를 입증하지 않으며, AI 모델을 포함한 LEAN 재생은 후보·완전한 세션 자료가 준비된 뒤 결과 검증이 필요합니다.
 
 P4 모델 학습은 왕복 레이블 비용과 매수·매도 수수료, 매도세, 체결별 슬리피지 값을 모두 요구합니다. 실제 계좌 적용값을 확인한 뒤 [비용 설정 및 학습 절차](docs/operations.md)에 있는 명령 형식으로 실행하세요. 진단 기본값을 실계좌 비용으로 대신 사용하지 않습니다.
 

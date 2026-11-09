@@ -13,6 +13,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'lib\domestic-only-validation.ps1')
+Assert-DomesticOnlyValidation -Market $Market -Operation 'model holdout validation'
 . (Join-Path $PSScriptRoot 'lib\paper-safety.ps1')
 $localSettings = Read-AiTraderLocalSafetySettings -RepositoryRoot $repoRoot
 Assert-AiTraderPaperSafetyLocks -Settings $localSettings

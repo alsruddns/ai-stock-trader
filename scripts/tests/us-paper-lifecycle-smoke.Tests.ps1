@@ -60,11 +60,11 @@ Describe 'US KIS PAPER lifecycle smoke limit price' {
         $didThrow | Should Be $true
     }
 
-    It 'refuses to run without the explicit PAPER smoke switch before reading the local environment' {
+    It 'refuses overseas operational validation before reading the local environment' {
         $scriptPath = Join-Path $PSScriptRoot '../run-us-paper-lifecycle-smoke.ps1'
         $message = $null
         try { & $scriptPath } catch { $message = $_.Exception.Message }
-        $message | Should Be 'No request was sent. The one-share PAPER lifecycle smoke requires -ConfirmPaperLifecycleSmoke.'
+        $message | Should Match 'Current KIS PAPER order lifecycle validation scope is domestic KR only.*No KIS request was sent\.'
     }
 
     It 'uses the NYSE listing code for Ford in both quote and PAPER order requests' {

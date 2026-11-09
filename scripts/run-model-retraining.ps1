@@ -27,6 +27,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'lib\domestic-only-validation.ps1')
+Assert-DomesticOnlyValidation -Market $Market -Operation 'model retraining and data validation'
 if ([string]::IsNullOrWhiteSpace($PythonPath)) {
     $PythonPath = Join-Path $repoRoot 'services\market-ai\.venv\Scripts\python.exe'
 }

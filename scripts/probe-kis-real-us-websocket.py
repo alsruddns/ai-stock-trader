@@ -191,6 +191,8 @@ def main(
     exchange: str = "NAS",
     wait_for_tick_seconds: int = 0,
 ) -> int:
+    print(json.dumps({"status": "blocked", "reason": "DOMESTIC_ONLY_VALIDATION_SCOPE"}))
+    return 2
     try:
         source = load_local_environment(repository)
     except (OSError, ValueError):

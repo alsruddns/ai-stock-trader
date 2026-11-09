@@ -7,6 +7,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($IncludeUS) {
+    throw 'Current market-session validation scope is domestic KR only. No US monitoring tasks were registered.'
+}
 $schedulerLibrary = Join-Path $PSScriptRoot 'lib\market-session-scheduler.ps1'
 . $schedulerLibrary
 $koreaZone = [TimeZoneInfo]::FindSystemTimeZoneById('Korea Standard Time')

@@ -6,6 +6,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'lib\domestic-only-validation.ps1')
+try {
+    Assert-DomesticOnlyValidation -Market 'US' -Operation 'KIS PAPER order lifecycle validation'
+} catch {
+    throw "$_ No KIS request was sent."
+}
 if (-not $ConfirmPaperLifecycleSmoke) {
     throw 'No request was sent. The one-share PAPER lifecycle smoke requires -ConfirmPaperLifecycleSmoke.'
 }
@@ -20,7 +27,6 @@ function Get-SafeHttpStatus($ErrorRecord) {
     return 'unavailable'
 }
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
 $envPath = Join-Path $repoRoot '.env_local'
 if (-not (Test-Path -LiteralPath $envPath)) {
     throw 'The PAPER lifecycle smoke requires the ignored local .env_local file.'

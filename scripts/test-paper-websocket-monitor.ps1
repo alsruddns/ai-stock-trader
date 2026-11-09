@@ -13,6 +13,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Feed -eq 'real') {
+    throw 'Current market-session validation scope is domestic KR only. No US feed was monitored.'
+}
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'paper-session-monitor-status.ps1')
 . (Join-Path $PSScriptRoot 'lib\exchange-session-monitor.ps1')

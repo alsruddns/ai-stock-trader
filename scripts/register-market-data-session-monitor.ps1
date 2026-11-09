@@ -9,6 +9,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Feed -ne 'paper') {
+    throw 'Current market-session validation scope is domestic KR PAPER only. No US monitoring task was registered.'
+}
 $koreaZone = [TimeZoneInfo]::FindSystemTimeZoneById('Korea Standard Time')
 if ([TimeZoneInfo]::Local.Id -ne $koreaZone.Id) { throw 'Windows time zone must be Korea Standard Time (KST) for session task scheduling.' }
 $libPath = Join-Path $PSScriptRoot 'lib\exchange-session-monitor.ps1'

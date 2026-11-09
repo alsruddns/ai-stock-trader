@@ -17,6 +17,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'lib\domestic-only-validation.ps1')
+Assert-DomesticOnlyValidation -Market $Market -Operation 'model candidate retraining task registration'
 $symbolValue = $Symbol.Trim().ToUpperInvariant()
 if ($Market -eq 'KR' -and $symbolValue -notmatch '^\d{6}$') { throw 'KR symbol must be a six-digit instrument code.' }
 if ($Market -eq 'US' -and $symbolValue -notmatch '^[A-Z][A-Z0-9.-]{0,15}$') { throw 'US symbol must contain 1 to 16 letters, digits, dots, or hyphens.' }

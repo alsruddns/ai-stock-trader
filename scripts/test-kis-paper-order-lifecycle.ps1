@@ -17,6 +17,8 @@ foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerat
 
 try {
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'lib\domestic-only-validation.ps1')
+Assert-DomesticOnlyValidation -Market $Market -Operation 'KIS PAPER order lifecycle validation'
 if ($PreflightOnly -and $ConfirmPaperOrderAndCancel) {
     throw 'Choose either -PreflightOnly or -ConfirmPaperOrderAndCancel, not both.'
 }

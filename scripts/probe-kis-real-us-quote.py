@@ -81,11 +81,13 @@ def safe_success_result(market: str, symbol: str, exchange: str | None, currency
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--market", choices=("KR", "US", "ALL"), default="ALL")
+    parser.add_argument("--market", choices=("KR", "US", "ALL"), default="KR")
     parser.add_argument("--kr-symbol", default="005930")
     parser.add_argument("--symbol", default="AAPL", help="US symbol")
     parser.add_argument("--exchange", choices=("NAS", "NYS", "AMS"), default="NAS")
     arguments = parser.parse_args()
+    if arguments.market != "KR":
+        parser.error("Current KIS quote validation scope is domestic KR only. No US request was sent.")
 
     try:
         validate_configuration(os.environ)

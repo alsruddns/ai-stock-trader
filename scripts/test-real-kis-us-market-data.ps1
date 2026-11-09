@@ -1,13 +1,16 @@
 [CmdletBinding()]
 param(
     [switch]$EnableReadOnlyGetForThisRun,
-    [ValidateSet('KR', 'US', 'ALL')] [string]$Market = 'ALL',
+    [ValidateSet('KR', 'US', 'ALL')] [string]$Market = 'KR',
     [string]$KoreanSymbol = '005930',
     [string]$Symbol = 'AAPL',
     [ValidateSet('NAS', 'NYS', 'AMS')] [string]$Exchange = 'NAS'
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Market -ne 'KR') {
+    throw 'Current KIS market-data validation scope is domestic KR only. No US or ALL request was sent.'
+}
 $originalEnvironment = @{}
 foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerator()) {
     $originalEnvironment[[string]$entry.Key] = [string]$entry.Value

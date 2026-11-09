@@ -28,6 +28,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+. (Join-Path $PSScriptRoot 'lib\domestic-only-validation.ps1')
+Assert-DomesticOnlyValidation -Market $Market -Operation 'LEAN historical backtest validation'
 $sourceCsv = (Resolve-Path -LiteralPath $CsvFile).Path
 $python = Join-Path $repository 'services\market-ai\.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python)) {

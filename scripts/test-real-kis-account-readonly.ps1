@@ -54,6 +54,7 @@ if ($env:TRADING_MODE -ne 'paper' -or $env:LIVE_TRADING_ENABLED -ne 'false' -or
 }
 
 $env:RUN_KIS_REAL_ACCOUNT_INTEGRATION_TESTS = 'true'
+$env:KIS_TEST_US_ACCOUNT_READS = 'false'
 Push-Location (Join-Path $repoRoot 'backend/trading-api')
 try {
     & .\mvnw.cmd '-Dtest=KisRealAccountIntegrationTest' test

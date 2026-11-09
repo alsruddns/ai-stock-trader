@@ -11,6 +11,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'lib\domestic-only-validation.ps1')
+Assert-DomesticOnlyValidation -Market $Market -Operation 'KIS PAPER order lifecycle validation'
 if ($PreflightOnly -eq $ConfirmPaperOrderAndCancel) {
     throw 'Choose exactly one mode: -PreflightOnly or -ConfirmPaperOrderAndCancel.'
 }
