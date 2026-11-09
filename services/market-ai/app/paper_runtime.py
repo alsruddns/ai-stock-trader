@@ -209,6 +209,7 @@ class PaperSessionFeedMonitor:
                 for feed in ("paper", "real")
             },
             "last_orderbook_received_at_by_feed": {"paper": None, "real": None},
+            "market_data_by_watch_by_feed": {"paper": {}, "real": {}},
             "bars_closed_by_feed": {"paper": 0, "real": 0},
             "stream_failures_by_feed": {"paper": 0, "real": 0},
             "last_error": None, "last_stream_failure_stage": None,
@@ -262,6 +263,10 @@ class PaperSessionFeedMonitor:
             result["market_data_diagnostics_by_feed"] = {
                 feed: dict(counts)
                 for feed, counts in self._status["market_data_diagnostics_by_feed"].items()
+            }
+            result["market_data_by_watch_by_feed"] = {
+                feed: {key: dict(metrics) for key, metrics in watches.items()}
+                for feed, watches in self._status["market_data_by_watch_by_feed"].items()
             }
             result["bars_closed_by_feed"] = dict(self._status["bars_closed_by_feed"])
             result["stream_failures_by_feed"] = dict(self._status["stream_failures_by_feed"])
@@ -320,6 +325,36 @@ class PaperSessionFeedMonitor:
             }
             by_feed[feed][key] = int(by_feed[feed].get(key, 0)) + amount
             self._status["market_data_diagnostics_by_feed"] = by_feed
+
+    def _record_watch_market_data(
+        self,
+        feed: str,
+        watch: PaperWatch,
+        metric: str,
+        exchange_timestamp: datetime | None = None,
+    ) -> None:
+        """Track bounded per-symbol receipt counts without retaining market payloads."""
+        if feed not in {"paper", "real"}:
+            return
+        metric_fields = {
+            "trade": ("trade_ticks_received", "last_trade_at", "last_trade_received_at"),
+            "bar": ("bars_closed", None, None),
+            "orderbook": ("orderbook_quotes_received", "last_orderbook_at", "last_orderbook_received_at"),
+            "usable_orderbook": ("usable_orderbook_quotes", None, None),
+        }
+        fields = metric_fields.get(metric)
+        if fields is None:
+            raise ValueError("market-data metric is invalid")
+        count_field, exchange_time_field, received_time_field = fields
+        with self._lock:
+            by_feed = self._status["market_data_by_watch_by_feed"]
+            values = by_feed[feed].setdefault(watch.key, {})
+            values[count_field] = int(values.get(count_field, 0)) + 1
+            if exchange_time_field and exchange_timestamp is not None:
+                values[exchange_time_field] = exchange_timestamp.isoformat()
+            if received_time_field:
+                values[received_time_field] = datetime.now().astimezone().isoformat()
+            values.update({"market": watch.market, "symbol": watch.symbol, "exchange": watch.exchange})
 
     def decisions(self) -> dict[str, dict[str, object]]:
         """Return latest advisory quant decisions; none are executable orders."""
@@ -1157,6 +1192,7 @@ class PaperSessionFeedMonitor:
                     )
                 for quote in matching_quotes:
                     feed = self._feed_by_watch.get(watch.key, self._feed_for_watch(watch))
+                    self._record_watch_market_data(feed, watch, "orderbook", quote.timestamp)
                     valid_quote = (
                         quote.bid is not None and quote.ask is not None
                         and quote.bid > 0 and quote.ask > 0
@@ -1180,6 +1216,7 @@ class PaperSessionFeedMonitor:
                         self._status["orderbook_quote_quality_by_feed"] = quality
                     if not accepted:
                         continue
+                    self._record_watch_market_data(feed, watch, "usable_orderbook")
                     with self._lock:
                         counts = dict(self._status["orderbook_updates_by_feed"])
                         counts[feed] = int(counts.get(feed, 0)) + 1
@@ -1206,7 +1243,10 @@ class PaperSessionFeedMonitor:
             if not matching_ticks and not filtered:
                 self._increment_market_data_diagnostic(feed, "trade_symbol_mismatches")
             for tick in matching_ticks:
+                self._record_watch_market_data(feed, watch, "trade", tick.timestamp)
                 bar = self._aggregators[watch.key].add(tick)
+                if bar is not None:
+                    self._record_watch_market_data(feed, watch, "bar")
                 with self._lock:
                     received_at = datetime.now().astimezone().isoformat()
                     feed_ticks = dict(self._status["ticks_received_by_feed"])

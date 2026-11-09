@@ -54,6 +54,8 @@ Python health의 `broker_connected=true`는 모니터가 활성화되어 있고 
 
 `GET /api/v1/paper/session`의 `orderbook_quote_quality_by_feed`는 구독 종목과 일치해 파싱된 국내 호가를 feed별로 집계합니다. `usable`, `empty_or_nonpositive`, `crossed`는 호가값 분류이며 `stale_rejected`는 이미 처리 중인 분보다 오래되어 거부한 수로 다른 분류와 겹칠 수 있습니다. 이 카운터는 프로세스 재시작 시 초기화되고, 원시 프레임 수나 저장 분봉의 스프레드 포함률을 대신하지 않습니다.
 
+같은 응답의 `market_data_by_watch_by_feed`는 feed별 구독 키(KR 심볼 또는 US 심볼·거래소)로 체결 틱·완료 분봉·호가 수신량과 마지막 거래소/로컬 수신시각을 제공합니다. 개별 가격이나 원시 프레임은 저장하거나 반환하지 않습니다. 카운터는 프로세스 실행 중 누적되는 운영 진단이며, 거래일 전체 수집이나 저장된 세션의 완전성은 별도 세션 품질 endpoint로 확인해야 합니다.
+
 같은 응답의 `last_stream_failure_stage`, `last_stream_error_category`, `last_stream_failure_at`, `last_stream_failure_environment`는 마지막 WebSocket 재연결 실패의 구간·안전한 오류 분류·UTC 발생시각·PAPER/REAL feed 환경을 제공합니다. 원시 예외 메시지, 프레임 내용, 계좌정보는 반환하지 않습니다. 진단은 feed가 다시 연결된 뒤에도 다음 실패 또는 Python 프로세스 재시작까지 보존됩니다.
 
 운영 대시보드는 이 필드를 WebSocket 재연결 상태로 번역해 KST 발생 시각과 함께 표시합니다. 새 진단 필드가 없는 구버전 API 응답은 `진단 미지원`으로 구분합니다. 국내 감시 progress 기록에는 허용 목록에 있는 구간·분류 코드와 발생시각만 저장하고 예외 메시지는 저장하지 않습니다.

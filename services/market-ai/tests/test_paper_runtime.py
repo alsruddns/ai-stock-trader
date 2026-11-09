@@ -459,6 +459,45 @@ def test_runtime_reports_parse_errors_and_symbol_mismatch_for_domestic_trade_fra
     assert runtime.status()["market_data_diagnostics_by_feed"]["paper"]["trade_symbol_mismatches"] == 1
 
 
+def test_runtime_reports_domestic_market_data_receipts_per_symbol(monkeypatch) -> None:
+    runtime = PaperSessionFeedMonitor()
+    samsung, hynix = parse_watchlist("KR:005930;KR:000660")
+    for watch in (samsung, hynix):
+        runtime._aggregators[watch.key] = SimpleNamespace(
+            add=lambda _tick: None,
+            quote_is_stale=lambda _quote: False,
+            update_quote=lambda _quote: True,
+        )
+    timestamp = datetime.fromisoformat("2026-11-10T09:00:05+09:00")
+    trade = TradeTick("KR", "005930", timestamp, Decimal("100"), 1, Decimal("99"), Decimal("101"))
+    monkeypatch.setattr(
+        "app.paper_runtime.normalize_stream_frame",
+        lambda _frame: {"kind": "data", "encrypted": "0", "transaction_id": "H0STCNT0", "count": "1", "payload": "tick"},
+    )
+    monkeypatch.setattr("app.paper_runtime.parse_trade_frame_with_diagnostics", lambda *_args: ([trade], 0))
+    runtime._consume("trade", (samsung, hynix))
+
+    quote = OrderBookQuote("KR", "000660", timestamp, Decimal("99"), Decimal("101"))
+    monkeypatch.setattr(
+        "app.paper_runtime.normalize_stream_frame",
+        lambda _frame: {"kind": "data", "encrypted": "0", "transaction_id": "H0STASP0", "count": "1", "payload": "quote"},
+    )
+    monkeypatch.setattr("app.paper_runtime.parse_domestic_orderbook_frame_with_diagnostics", lambda *_args, **_kwargs: ([quote], 0))
+    runtime._consume("orderbook", (samsung, hynix))
+
+    status = runtime.status()
+    per_symbol = status["market_data_by_watch_by_feed"]["paper"]
+    assert per_symbol[samsung.key]["trade_ticks_received"] == 1
+    assert per_symbol[samsung.key]["last_trade_at"] == timestamp.isoformat()
+    assert "orderbook_quotes_received" not in per_symbol[samsung.key]
+    assert per_symbol[hynix.key]["orderbook_quotes_received"] == 1
+    assert per_symbol[hynix.key]["usable_orderbook_quotes"] == 1
+    assert per_symbol[hynix.key]["last_orderbook_at"] == timestamp.isoformat()
+    assert "trade_ticks_received" not in per_symbol[hynix.key]
+    per_symbol[samsung.key]["trade_ticks_received"] = 999
+    assert runtime.status()["market_data_by_watch_by_feed"]["paper"][samsung.key]["trade_ticks_received"] == 1
+
+
 def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch) -> None:
     from app import snapshot_store
 
