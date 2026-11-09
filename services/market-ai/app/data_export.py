@@ -48,6 +48,11 @@ def summarize_session_coverage(
         expected_timestamps = [opened + timedelta(minutes=index) for index in range(expected_count)]
         actual_timestamps = sorted(row[0].astimezone(timezone.utc) for row in session_rows)
         spread_count = sum(row[6] is not None for row in session_rows)
+        source_counts: dict[str, int] = {}
+        for row in session_rows:
+            source = str(row[7]).strip() if row[7] is not None else ""
+            if source:
+                source_counts[source] = source_counts.get(source, 0) + 1
         summaries.append({
             "session_date": session_date.isoformat(),
             "bars": len(session_rows),
@@ -56,6 +61,7 @@ def summarize_session_coverage(
             "bars_with_spread": spread_count,
             "spread_complete": actual_timestamps == expected_timestamps and spread_count == expected_count,
             "sources": sorted({str(row[7]) for row in session_rows if row[7]}),
+            "source_counts": dict(sorted(source_counts.items())),
         })
     return summaries
 

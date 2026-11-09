@@ -39,6 +39,7 @@ def test_session_coverage_reports_complete_bars_and_spreads(market, opened, expe
         "bars_with_spread": expected_bars,
         "spread_complete": True,
         "sources": ["KIS_REST_MINUTE_CHART"],
+        "source_counts": {"KIS_REST_MINUTE_CHART": expected_bars},
     }]
 
 
@@ -53,6 +54,24 @@ def test_session_coverage_marks_gaps_duplicates_and_missing_spreads() -> None:
     assert summary["complete"] is False
     assert summary["bars"] == 390
     assert summary["bars_with_spread"] == 389
+    assert summary["spread_complete"] is False
+
+
+def test_kr_session_coverage_reports_domestic_websocket_and_rest_source_counts() -> None:
+    opened = datetime(2026, 11, 9, 0, 0, tzinfo=timezone.utc)
+    rows = []
+    for index in range(380):
+        source = "KIS_PAPER_WEBSOCKET" if index < 52 else "KIS_REST_MINUTE_SESSION"
+        row = _row(opened + timedelta(minutes=index), source)
+        rows.append(row if index < 52 else (*row[:6], None, row[7]))
+
+    summary = summarize_session_coverage(rows, market="KR")[0]
+
+    assert summary["source_counts"] == {
+        "KIS_PAPER_WEBSOCKET": 52,
+        "KIS_REST_MINUTE_SESSION": 328,
+    }
+    assert summary["bars_with_spread"] == 52
     assert summary["spread_complete"] is False
 
 
@@ -77,6 +96,7 @@ def test_kis_export_applies_confirmed_personal_rights_to_hash_bound_sidecar(tmp_
     assert b"005930,2026-11-05T09:00:00+00:00" in csv_bytes
     assert sidecar["dataset_sha256"] == hashlib.sha256(csv_bytes).hexdigest()
     assert sidecar["provider"] == "KIS Open API"
+    assert sidecar["coverage"]["sessions"][0]["source_counts"] == {"KIS_REST_MINUTE_CHART": 2}
     assert sidecar["rights_reviewed"] is True
     assert sidecar["permissions"] == {"local_storage": True, "backtesting": True, "model_training": True}
     assert "no public redistribution" in sidecar["license_or_terms"]
@@ -112,6 +132,7 @@ def test_export_manifest_reports_observed_sessions_separately_from_requested_dat
             "bars_with_spread": 390,
             "spread_complete": True,
             "sources": ["KIS_REAL_US_WEBSOCKET"],
+            "source_counts": {"KIS_REAL_US_WEBSOCKET": 390},
         }],
     }
 
