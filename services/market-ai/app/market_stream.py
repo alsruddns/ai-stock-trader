@@ -201,7 +201,8 @@ class MinuteBarAggregator:
             self._low = min(self._low, tick.price)
             self._close = tick.price
             self._volume += tick.volume
-        if tick.bid is not None and tick.ask is not None:
+        if (tick.bid is not None and tick.ask is not None
+                and tick.bid > 0 and tick.ask >= tick.bid):
             self.update_quote(OrderBookQuote(tick.market, tick.symbol, tick.timestamp, tick.bid, tick.ask))
         return completed
 

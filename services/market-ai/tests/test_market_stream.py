@@ -160,6 +160,32 @@ def test_minute_aggregator_uses_same_minute_orderbook_quote_for_spread() -> None
     assert completed.spread_bps == Decimal("200")
 
 
+def test_minute_aggregator_ignores_empty_trade_quote_after_orderbook_quote() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo("Asia/Seoul")
+    aggregate = MinuteBarAggregator()
+    first = TradeTick("KR", "005930", datetime(2026, 11, 6, 10, 1, 1, tzinfo=zone), Decimal("100"), 2, None, None)
+    aggregate.add(first)
+    assert aggregate.update_quote(OrderBookQuote(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 20, tzinfo=zone), Decimal("99"), Decimal("101"),
+    ))
+
+    # KIS trade frames can have empty best-bid/ask fields. They must not erase
+    # the valid same-minute quote delivered by the separate orderbook stream.
+    aggregate.add(TradeTick(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 40, tzinfo=zone), Decimal("100.5"), 1,
+        Decimal("0"), Decimal("0"),
+    ))
+    completed = aggregate.add(TradeTick(
+        "KR", "005930", datetime(2026, 11, 6, 10, 2, 1, tzinfo=zone), Decimal("101"), 3, None, None,
+    ))
+
+    assert completed is not None
+    assert completed.spread_bps == Decimal("200")
+
+
 def test_minute_aggregator_rejects_stale_orderbook_quote_for_spread() -> None:
     from datetime import datetime
     from zoneinfo import ZoneInfo
