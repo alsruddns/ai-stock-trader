@@ -2,6 +2,14 @@ function Get-SessionMonitorDurationSeconds {
     return 25200
 }
 
+function Get-SessionMonitorMarkets {
+    [CmdletBinding()]
+    param([switch]$IncludeUS)
+
+    if ($IncludeUS) { return @('KR', 'US') }
+    return @('KR')
+}
+
 function Test-SessionMonitorTaskDefinition {
     [CmdletBinding()]
     param(
@@ -43,7 +51,8 @@ function Test-SessionMonitorRefreshTaskDefinition {
     param(
         [Parameter(Mandatory)]$Task,
         [Parameter(Mandatory)][string]$RegistrarPath,
-        [Parameter(Mandatory)][ValidateRange(1, 20)][int]$SessionCount
+        [Parameter(Mandatory)][ValidateRange(1, 20)][int]$SessionCount,
+        [switch]$IncludeUS
     )
 
     if (-not $Task -or $Task.State -eq 'Disabled' -or
@@ -58,6 +67,8 @@ function Test-SessionMonitorRefreshTaskDefinition {
         [int]$trigger.DaysInterval -ne 1 -or
         [string]$action.Arguments -notmatch [regex]::Escape($RegistrarPath) -or
         [string]$action.Arguments -notmatch "-SessionCount\s+$SessionCount(?:\s|$)") { return $false }
+    $taskIncludesUS = [string]$action.Arguments -match '(?:^|\s)-IncludeUS(?:\s|$)'
+    if ($taskIncludesUS -ne [bool]$IncludeUS) { return $false }
 
     try {
         $scheduledAt = [DateTimeOffset]::Parse([string]$trigger.StartBoundary)

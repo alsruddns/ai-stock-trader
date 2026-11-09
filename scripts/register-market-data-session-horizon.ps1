@@ -2,6 +2,7 @@
 param(
     [ValidateRange(1, 20)]
     [int]$SessionCount = 10,
+    [switch]$IncludeUS,
     [switch]$InstallDailyRefresh
 )
 
@@ -45,11 +46,12 @@ if found < count:
 '@
 $calendarEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($calendarCode))
 $calendarBootstrap = "import base64;exec(base64.b64decode('$calendarEncoded'))"
+$markets = @(Get-SessionMonitorMarkets -IncludeUS:$IncludeUS)
 
 $sessionsByMarket = @{}
 Push-Location (Join-Path $repoRoot 'services\market-ai')
 try {
-    foreach ($market in @('KR', 'US')) {
+    foreach ($market in $markets) {
         $rows = @(& $pythonPath -c $calendarBootstrap $market $SessionCount)
         if ($LASTEXITCODE -ne 0 -or $rows.Count -ne $SessionCount) {
             throw "The exchange calendar could not produce $SessionCount future $market sessions."
@@ -95,19 +97,24 @@ if ($InstallDailyRefresh) {
     $existingRefreshTask = Get-ScheduledTask -TaskName $refreshTaskName -ErrorAction SilentlyContinue
     if ($existingRefreshTask) {
         if (-not (Test-SessionMonitorRefreshTaskDefinition -Task $existingRefreshTask `
-                -RegistrarPath $PSCommandPath -SessionCount $SessionCount)) {
+                -RegistrarPath $PSCommandPath -SessionCount $SessionCount -IncludeUS:$IncludeUS)) {
             throw "Existing task '$refreshTaskName' does not match the required daily 00:05 KST registration definition; refusing to replace it."
         }
         Write-Output "Verified existing daily refresh task '$refreshTaskName'; it was left unchanged."
     } else {
-        $scriptArguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$PSCommandPath`" -SessionCount $SessionCount"
+        $includeUSArgument = if ($IncludeUS) { ' -IncludeUS' } else { '' }
+        $scriptArguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$PSCommandPath`" -SessionCount $SessionCount$includeUSArgument"
         $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $scriptArguments -WorkingDirectory $repoRoot
         $trigger = New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.AddMinutes(5))
         $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
         $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
         $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun `
             -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -MultipleInstances IgnoreNew
-        $description = 'Maintains a rolling horizon of read-only KIS KR PAPER and US REAL market-session monitors; no orders.'
+        $description = if ($IncludeUS) {
+            'Maintains a rolling horizon of read-only KIS KR PAPER and US REAL market-session monitors; no orders.'
+        } else {
+            'Maintains a rolling horizon of read-only KIS KR PAPER market-session monitors; US is excluded; no orders.'
+        }
         if ($PSCmdlet.ShouldProcess($refreshTaskName, 'Register daily 00:05 KST rolling session monitor registration')) {
             Register-ScheduledTask -TaskName $refreshTaskName -Action $action -Trigger $trigger `
                 -Principal $principal -Settings $settings -Description $description | Out-Null

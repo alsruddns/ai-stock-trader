@@ -245,6 +245,11 @@ function New-TestScheduledTask($State, $Arguments, $TriggerType, $StartBoundary,
 }
 
 Describe 'Existing market session task verification' {
+    It 'registers domestic sessions by default and permits the overseas horizon explicitly' {
+        (@(Get-SessionMonitorMarkets) -join ',') | Should Be 'KR'
+        (@(Get-SessionMonitorMarkets -IncludeUS) -join ',') | Should Be 'KR,US'
+    }
+
     It 'accepts only a matching limited KST monitor schedule' {
         $task = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -DurationSeconds 25200 -RequireSessionClose' `
             'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
@@ -283,7 +288,11 @@ Describe 'Existing market session task verification' {
     It 'requires the daily refresh job to match the intended registrar and horizon' {
         $task = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\register-market-data-session-horizon.ps1" -SessionCount 10' `
             'MSFT_TaskDailyTrigger' '2026-11-08T00:05:00+09:00'
+        $taskWithUS = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\register-market-data-session-horizon.ps1" -SessionCount 10 -IncludeUS' `
+            'MSFT_TaskDailyTrigger' '2026-11-08T00:05:00+09:00'
         (Test-SessionMonitorRefreshTaskDefinition $task 'C:\repo\scripts\register-market-data-session-horizon.ps1' 10) | Should Be $true
         (Test-SessionMonitorRefreshTaskDefinition $task 'C:\repo\scripts\register-market-data-session-horizon.ps1' 12) | Should Be $false
+        (Test-SessionMonitorRefreshTaskDefinition $taskWithUS 'C:\repo\scripts\register-market-data-session-horizon.ps1' 10 -IncludeUS) | Should Be $true
+        (Test-SessionMonitorRefreshTaskDefinition $taskWithUS 'C:\repo\scripts\register-market-data-session-horizon.ps1' 10) | Should Be $false
     }
 }
