@@ -18,15 +18,18 @@ public class KisRealOrderReconciliationJob {
 
     private final boolean enabled;
     private final KisProperties properties;
+    private final MarketOperationalScope marketScope;
     private final KisOrderIntentRepository intents;
     private final KisRealOrderOrchestrator orchestrator;
 
     public KisRealOrderReconciliationJob(
             @Value("${kis.real-reconciliation-enabled:false}") boolean enabled,
-            KisProperties properties, KisOrderIntentRepository intents,
+            KisProperties properties, MarketOperationalScope marketScope,
+            KisOrderIntentRepository intents,
             KisRealOrderOrchestrator orchestrator) {
         this.enabled = enabled;
         this.properties = properties;
+        this.marketScope = marketScope;
         this.intents = intents;
         this.orchestrator = orchestrator;
     }
@@ -36,7 +39,8 @@ public class KisRealOrderReconciliationJob {
         if (!enabled || !properties.accountReadEnabled() || !properties.realAccountReadEnabled()
                 || !properties.credentials(KisEnvironment.REAL).configured()) return;
         intents.findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(KisEnvironment.REAL, POLLABLE_STATUSES)
-                .stream().filter(intent -> intent.getBrokerOrderNumber() != null
+                .stream().filter(intent -> marketScope.allowedMarkets().contains(intent.getMarket()))
+                .filter(intent -> intent.getBrokerOrderNumber() != null
                         && !intent.getBrokerOrderNumber().isBlank())
                 .forEach(intent -> {
                     try {

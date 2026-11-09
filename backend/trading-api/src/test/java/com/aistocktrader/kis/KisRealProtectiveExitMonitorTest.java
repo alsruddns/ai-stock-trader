@@ -41,7 +41,8 @@ class KisRealProtectiveExitMonitorTest {
                 new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
                 new KisProperties.Account("real-key", "real-secret", "1234567801"),
                 Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ofSeconds(1));
-        monitor = new KisRealProtectiveExitMonitor(true, true, safety, kis, intents, accounts, sessions, marketData, orders);
+        monitor = new KisRealProtectiveExitMonitor(true, true, safety, kis,
+                MarketOperationalScope.domesticOnly(), intents, accounts, sessions, marketData, orders);
         plan = armedPlan();
         when(intents.findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.REAL), anyList()))
                 .thenReturn(List.of(plan));
@@ -68,7 +69,7 @@ class KisRealProtectiveExitMonitorTest {
         KisRealProtectiveExitMonitor disabled = new KisRealProtectiveExitMonitor(false, true,
                 new TradingSafetyProperties("real", true, true, true,
                         new BigDecimal("1000000"), new BigDecimal("100")), kis,
-                intents, accounts, sessions, marketData, orders);
+                MarketOperationalScope.domesticOnly(), intents, accounts, sessions, marketData, orders);
 
         disabled.monitorRealPositions();
 
@@ -84,11 +85,27 @@ class KisRealProtectiveExitMonitorTest {
         KisRealProtectiveExitMonitor unreconciled = new KisRealProtectiveExitMonitor(true, false,
                 new TradingSafetyProperties("real", true, true, true,
                         new BigDecimal("1000000"), new BigDecimal("100")), kis,
-                intents, accounts, sessions, marketData, orders);
+                MarketOperationalScope.domesticOnly(), intents, accounts, sessions, marketData, orders);
 
         unreconciled.monitorRealPositions();
 
         verifyNoInteractions(intents, accounts, sessions, marketData, orders);
+    }
+
+    @Test
+    void domesticOnlyScopeSkipsOutOfScopeProtectiveExitBeforeSessionOrAccountAccess() {
+        KisOrderIntent usPlan = new KisOrderIntent(UUID.randomUUID(), "us-hash", KisEnvironment.REAL,
+                new OrderRequest(Market.US, "AAPL", OrderSide.BUY, 2,
+                        new BigDecimal("100"), Currency.USD), "NASD",
+                new BigDecimal("95"), new BigDecimal("105"));
+        usPlan.reconcile(2, 0, new BigDecimal("100"), false, false);
+        when(intents.findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.REAL), anyList()))
+                .thenReturn(List.of(usPlan));
+
+        monitor.monitorRealPositions();
+
+        verify(intents, never()).findExitManagedRealBuyCandidates(any(), any(), anyString());
+        verifyNoInteractions(accounts, sessions, marketData, orders);
     }
 
     @Test

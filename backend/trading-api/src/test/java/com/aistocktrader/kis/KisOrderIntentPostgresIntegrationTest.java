@@ -401,7 +401,8 @@ class KisOrderIntentPostgresIntegrationTest {
                     new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
                     new KisProperties.Account("real-key", "real-secret", "1234567801"),
                     java.time.Duration.ofSeconds(3), java.time.Duration.ofSeconds(8), java.time.Duration.ofSeconds(1));
-            var monitor = new KisRealProtectiveExitMonitor(true, true, trading, kis, kisOrderRepository,
+            var monitor = new KisRealProtectiveExitMonitor(true, true, trading, kis,
+                    MarketOperationalScope.domesticOnly(), kisOrderRepository,
                     kisAccountClient, kisMarketSessionClient, kisMarketAiEvidenceClient, kisRealOrderOrchestrator);
 
             monitor.monitorRealPositions();

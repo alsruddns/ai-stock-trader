@@ -21,7 +21,8 @@ class KisRealOrderReconciliationJobTest {
     void disabledJobDoesNotQueryDatabaseOrBroker() {
         KisOrderIntentRepository intents = mock(KisOrderIntentRepository.class);
         KisRealOrderOrchestrator orchestrator = mock(KisRealOrderOrchestrator.class);
-        KisRealOrderReconciliationJob job = new KisRealOrderReconciliationJob(false, kisProperties(true, true, true), intents, orchestrator);
+        KisRealOrderReconciliationJob job = new KisRealOrderReconciliationJob(false, kisProperties(true, true, true),
+                MarketOperationalScope.domesticOnly(), intents, orchestrator);
 
         job.reconcileKnownBrokerOrders();
 
@@ -32,9 +33,11 @@ class KisRealOrderReconciliationJobTest {
     void missingAccountReadSwitchOrCredentialsKeepsJobIdle() {
         KisOrderIntentRepository intents = mock(KisOrderIntentRepository.class);
         KisRealOrderOrchestrator orchestrator = mock(KisRealOrderOrchestrator.class);
-        new KisRealOrderReconciliationJob(true, kisProperties(true, false, true), intents, orchestrator)
+        new KisRealOrderReconciliationJob(true, kisProperties(true, false, true),
+                MarketOperationalScope.domesticOnly(), intents, orchestrator)
                 .reconcileKnownBrokerOrders();
-        new KisRealOrderReconciliationJob(true, kisProperties(true, true, false), intents, orchestrator)
+        new KisRealOrderReconciliationJob(true, kisProperties(true, true, false),
+                MarketOperationalScope.domesticOnly(), intents, orchestrator)
                 .reconcileKnownBrokerOrders();
 
         verifyNoInteractions(intents, orchestrator);
@@ -51,7 +54,8 @@ class KisRealOrderReconciliationJobTest {
         when(intents.findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.REAL), anyCollection()))
                 .thenReturn(List.of(known));
 
-        new KisRealOrderReconciliationJob(true, kisProperties(true, true, true), intents, orchestrator)
+        new KisRealOrderReconciliationJob(true, kisProperties(true, true, true),
+                MarketOperationalScope.domesticOnly(), intents, orchestrator)
                 .reconcileKnownBrokerOrders();
 
         verify(intents).findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.REAL), anyCollection());
@@ -75,12 +79,35 @@ class KisRealOrderReconciliationJobTest {
         when(intents.findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.REAL), anyCollection()))
                 .thenReturn(List.of(unknownWithBrokerId, unknownWithoutBrokerId));
 
-        new KisRealOrderReconciliationJob(true, kisProperties(true, true, true), intents, orchestrator)
+        new KisRealOrderReconciliationJob(true, kisProperties(true, true, true),
+                MarketOperationalScope.domesticOnly(), intents, orchestrator)
                 .reconcileKnownBrokerOrders();
 
         verify(intents).findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.REAL), anyCollection());
         verify(orchestrator).reconcile(knownKey);
         verifyNoMoreInteractions(orchestrator);
+    }
+
+    @Test
+    void domesticOnlyScopeSkipsOutOfScopeOrdersBeforeBrokerReconciliation() {
+        KisOrderIntentRepository intents = mock(KisOrderIntentRepository.class);
+        KisRealOrderOrchestrator orchestrator = mock(KisRealOrderOrchestrator.class);
+        UUID domesticKey = UUID.randomUUID();
+        UUID outOfScopeKey = UUID.randomUUID();
+        KisOrderIntent domestic = new KisOrderIntent(domesticKey, "kr-hash", KisEnvironment.REAL,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1, new BigDecimal("70000"), Currency.KRW), null);
+        domestic.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "9003", "ORG01", "0", Instant.now()));
+        KisOrderIntent outOfScope = new KisOrderIntent(outOfScopeKey, "other-hash", KisEnvironment.REAL,
+                new OrderRequest(Market.US, "AAPL", OrderSide.BUY, 1, new BigDecimal("100"), Currency.USD), null);
+        outOfScope.accept(new KisOrderReceipt("real", "US", "AAPL", "BUY", "9004", "ORG01", "0", Instant.now()));
+        when(intents.findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.REAL), anyCollection()))
+                .thenReturn(List.of(outOfScope, domestic));
+
+        new KisRealOrderReconciliationJob(true, kisProperties(true, true, true),
+                MarketOperationalScope.domesticOnly(), intents, orchestrator).reconcileKnownBrokerOrders();
+
+        verify(orchestrator).reconcile(domesticKey);
+        verify(orchestrator, never()).reconcile(outOfScopeKey);
     }
 
     private static KisProperties kisProperties(boolean globalRead, boolean realRead, boolean credentials) {

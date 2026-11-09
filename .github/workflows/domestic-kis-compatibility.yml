@@ -7,6 +7,8 @@ on:
       - 'backend/trading-api/src/main/java/**'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealDailyRiskBaselineServiceTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealExecutionNoticeClientTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealOrderReconciliationJobTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealProtectiveExitMonitorTest.java'
       - 'services/market-ai/app/**'
       - 'scripts/lib/retired-kis-analysis-scan.ps1'
       - 'scripts/tests/retired-kis-analysis-scan.Tests.ps1'
@@ -68,3 +70,9 @@ jobs:
       - name: Run domestic-only execution notice subscription scope test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=KisRealExecutionNoticeClientTest#domesticOperationalScopeSubscribesOnlyToDomesticExecutionNotices test
+      - name: Run domestic-only scheduled reconciliation scope test
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode -Dtest=KisRealOrderReconciliationJobTest#domesticOnlyScopeSkipsOutOfScopeOrdersBeforeBrokerReconciliation test
+      - name: Run domestic-only protective exit scope test
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode -Dtest=KisRealProtectiveExitMonitorTest#domesticOnlyScopeSkipsOutOfScopeProtectiveExitBeforeSessionOrAccountAccess test

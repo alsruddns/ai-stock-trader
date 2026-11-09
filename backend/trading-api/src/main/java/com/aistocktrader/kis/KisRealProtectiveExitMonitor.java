@@ -30,6 +30,7 @@ public class KisRealProtectiveExitMonitor {
     private final boolean reconciliationEnabled;
     private final TradingSafetyProperties trading;
     private final KisProperties kis;
+    private final MarketOperationalScope marketScope;
     private final KisOrderIntentRepository intents;
     private final KisAccountClient accounts;
     private final KisMarketSessionClient sessions;
@@ -40,13 +41,15 @@ public class KisRealProtectiveExitMonitor {
     public KisRealProtectiveExitMonitor(
             @Value("${kis.real-protective-exit-automation-enabled:false}") boolean automationEnabled,
             @Value("${kis.real-reconciliation-enabled:false}") boolean reconciliationEnabled,
-            TradingSafetyProperties trading, KisProperties kis, KisOrderIntentRepository intents,
+            TradingSafetyProperties trading, KisProperties kis, MarketOperationalScope marketScope,
+            KisOrderIntentRepository intents,
             KisAccountClient accounts, KisMarketSessionClient sessions,
             KisMarketAiEvidenceClient marketData, KisRealOrderOrchestrator orders) {
         this.automationEnabled = automationEnabled;
         this.reconciliationEnabled = reconciliationEnabled;
         this.trading = trading;
         this.kis = kis;
+        this.marketScope = marketScope;
         this.intents = intents;
         this.accounts = accounts;
         this.sessions = sessions;
@@ -59,6 +62,7 @@ public class KisRealProtectiveExitMonitor {
         if (!enabled()) return;
         try {
             intents.findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(KisEnvironment.REAL, MONITORED)
+                    .stream().filter(plan -> marketScope.allowedMarkets().contains(plan.getMarket()))
                     .forEach(this::processSafely);
         } catch (RuntimeException exception) {
             log.warn("KIS REAL protective-exit scan failed ({})", exception.getClass().getSimpleName());
@@ -73,6 +77,7 @@ public class KisRealProtectiveExitMonitor {
     }
 
     private void processSafely(KisOrderIntent plan) {
+        if (!marketScope.allowedMarkets().contains(plan.getMarket())) return;
         try {
             process(plan);
         } catch (RuntimeException exception) {
