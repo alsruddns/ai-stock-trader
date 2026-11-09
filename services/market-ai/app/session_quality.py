@@ -61,7 +61,6 @@ def audit_minute_bar_session(
     session_closed = now >= closed
 
     timestamps: list[datetime] = []
-    spread_count = 0
     off_grid_count = 0
     counts: dict[datetime, int] = {}
     timestamps_with_spread: set[datetime] = set()
@@ -73,15 +72,14 @@ def audit_minute_bar_session(
         instant = timestamp.astimezone(timezone.utc)
         if opened <= instant < expected_end:
             timestamps.append(instant)
-            if bar.spread_bps is not None:
-                spread_count += 1
-                timestamps_with_spread.add(instant)
             offset_seconds = (instant - opened).total_seconds()
             if offset_seconds % 60 or instant.second or instant.microsecond:
                 off_grid_count += 1
                 continue
             aligned = opened + timedelta(minutes=int(offset_seconds // 60))
             counts[aligned] = counts.get(aligned, 0) + 1
+            if bar.spread_bps is not None:
+                timestamps_with_spread.add(aligned)
 
     observed_completed = sum(
         count for timestamp, count in counts.items()
@@ -98,6 +96,7 @@ def audit_minute_bar_session(
         if timestamp < opened + timedelta(minutes=completed_minutes) and timestamp not in timestamps_with_spread
     ]
     duplicate_bars = sum(max(0, count - 1) for count in counts.values())
+    spread_count = len(timestamps_with_spread)
     fully_observed = (
         session_closed and completed_minutes == expected_bars
         and missing_bars == 0 and duplicate_bars == 0 and off_grid_count == 0
@@ -110,7 +109,9 @@ def audit_minute_bar_session(
         status = "COMPLETE" if fully_observed else "INCOMPLETE"
 
     ordered_timestamps = sorted(timestamps)
-    spread_percent = (round(100 * spread_count / len(timestamps), 2) if timestamps else None)
+    spread_percent = (
+        round(100 * spread_count / len(counts), 2) if counts else None
+    )
     return {
         "market": normalized_market,
         "symbol": normalized_symbol,
