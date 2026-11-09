@@ -1,0 +1,44 @@
+name: Domestic KIS API compatibility
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'backend/trading-api/src/main/java/**'
+      - 'services/market-ai/app/**'
+      - 'scripts/lib/retired-kis-analysis-scan.ps1'
+      - 'scripts/tests/retired-kis-analysis-scan.Tests.ps1'
+      - '.github/workflows/domestic-kis-compatibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  domestic-kis-compatibility:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check domestic KIS analysis API retirement guard
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pester = Get-Module Pester -ListAvailable | Where-Object { $_.Version -eq [version]'3.4.0' } | Select-Object -First 1
+          if ($null -eq $pester) {
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Install-Module -Name Pester -RequiredVersion 3.4.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          }
+          Import-Module Pester -RequiredVersion 3.4.0 -Force
+
+          $result = Invoke-Pester -Path 'scripts/tests/retired-kis-analysis-scan.Tests.ps1' -PassThru
+          if ($result.FailedCount -gt 0 -or $result.PassedCount -ne 5) {
+            throw "Domestic KIS retirement scanner tests failed: passed=$($result.PassedCount), failed=$($result.FailedCount)."
+          }
+
+          . './scripts/lib/retired-kis-analysis-scan.ps1'
+          $findings = @(Get-RetiredKisDomesticAnalysisFindings -RepositoryRoot (Get-Location).Path)
+          if ($findings.Count -gt 0) {
+            throw "Found $($findings.Count) retired KIS domestic analysis API reference(s) in runtime sources."
+          }
