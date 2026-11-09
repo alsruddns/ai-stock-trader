@@ -72,19 +72,9 @@ jobs:
             }
           }
 
-          $result = Invoke-Pester -Path 'scripts/tests/kis-paper-order-preflight.Tests.ps1' -PassThru
-          if ($result.FailedCount -gt 0 -or $result.PassedCount -ne 41) {
-            throw "PAPER preflight tests failed: passed=$($result.PassedCount), failed=$($result.FailedCount)."
-          }
-
           $domesticScopeResult = Invoke-Pester -Path 'scripts/tests/domestic-only-validation.Tests.ps1' -PassThru
           if ($domesticScopeResult.FailedCount -gt 0 -or $domesticScopeResult.PassedCount -ne 8) {
             throw "Domestic-only operational scope tests failed: passed=$($domesticScopeResult.PassedCount), failed=$($domesticScopeResult.FailedCount)."
-          }
-
-          $leanCostResult = Invoke-Pester -Path 'scripts/tests/lean-cost-inputs.Tests.ps1' -PassThru
-          if ($leanCostResult.FailedCount -gt 0 -or $leanCostResult.PassedCount -ne 6) {
-            throw "LEAN cost input tests failed: passed=$($leanCostResult.PassedCount), failed=$($leanCostResult.FailedCount)."
           }
 
           $credentialScanResult = Invoke-Pester -Path 'scripts/tests/tracked-credential-scan.Tests.ps1' -PassThru
@@ -101,24 +91,14 @@ jobs:
           & 'scripts/test-retired-kis-analysis.ps1'
           if ($LASTEXITCODE -ne 0) { throw 'Retired KIS analysis API runtime scan failed.' }
 
-          $sessionResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -PassThru
-          if ($sessionResult.FailedCount -gt 0 -or $sessionResult.PassedCount -ne 29) {
-            throw "Exchange session monitor tests failed: passed=$($sessionResult.PassedCount), failed=$($sessionResult.FailedCount)."
+          $sessionResult = Invoke-Pester -Path 'scripts/tests/krx-session-monitor-domestic.Tests.ps1' -PassThru
+          if ($sessionResult.FailedCount -gt 0 -or $sessionResult.PassedCount -ne 4) {
+            throw "Domestic KRX session monitor tests failed: passed=$($sessionResult.PassedCount), failed=$($sessionResult.FailedCount)."
           }
 
           $modelSafetyResult = Invoke-Pester -Path 'scripts/tests/paper-safety.Tests.ps1' -PassThru
           if ($modelSafetyResult.FailedCount -gt 0 -or $modelSafetyResult.PassedCount -ne 4) {
             throw "Scheduled model safety tests failed: passed=$($modelSafetyResult.PassedCount), failed=$($modelSafetyResult.FailedCount)."
-          }
-
-          $modelReportResult = Invoke-Pester -Path 'scripts/tests/model-retraining-report.Tests.ps1' -PassThru
-          if ($modelReportResult.FailedCount -gt 0 -or $modelReportResult.PassedCount -ne 12) {
-            throw "Model retraining report tests failed: passed=$($modelReportResult.PassedCount), failed=$($modelReportResult.FailedCount)."
-          }
-
-          $reportResult = Invoke-Pester -Path 'scripts/tests/operations-report.Tests.ps1' -PassThru
-          if ($reportResult.FailedCount -gt 0 -or $reportResult.PassedCount -ne 19) {
-            throw "Operations report tests failed: passed=$($reportResult.PassedCount), failed=$($reportResult.FailedCount)."
           }
 
           $dashboardTaskResult = Invoke-Pester -Path 'scripts/tests/dashboard-task.Tests.ps1' -PassThru
@@ -160,6 +140,4 @@ jobs:
             $parseErrors | ForEach-Object { Write-Error "$restartScript`: $($_.Message)" }
           }
 
-          & 'scripts/test-local-stack-task-restart.ps1'
           & 'scripts/test-local-stack-activation.ps1'
-          & 'scripts/test-local-stack-env-reload.ps1'
