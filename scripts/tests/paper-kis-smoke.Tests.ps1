@@ -6,10 +6,7 @@ Describe 'PAPER KIS read-only smoke market scope' {
         @(Get-PaperKisSmokeMarkets)[0] | Should Be 'KR'
     }
 
-    It 'adds the US market only when explicitly requested' {
-        $markets = @(Get-PaperKisSmokeMarkets -IncludeUS)
-        $markets.Count | Should Be 2
-        $markets[0] | Should Be 'KR'
-        $markets[1] | Should Be 'US'
+    It 'does not expose an overseas opt-in on broker-backed smoke checks' {
+        (Get-Command Get-PaperKisSmokeMarkets).Parameters.ContainsKey('IncludeUS') | Should Be $false
     }
 }

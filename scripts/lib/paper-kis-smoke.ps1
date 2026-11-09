@@ -1,7 +1,8 @@
 function Get-PaperKisSmokeMarkets {
     [CmdletBinding()]
-    param([switch]$IncludeUS)
+    param()
 
-    if ($IncludeUS) { return @('KR', 'US') }
+    # Broker-backed PAPER integration checks stay domestic until overseas
+    # operational testing is explicitly approved in a later phase.
     return @('KR')
 }

@@ -1,6 +1,5 @@
 param(
-    [string]$ApiBaseUrl = 'http://127.0.0.1:18000',
-    [switch]$IncludeUS
+    [string]$ApiBaseUrl = 'http://127.0.0.1:18000'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -83,17 +82,11 @@ if ($health.status -ne 'ok' -or
 }
 
 $responses = @()
-$markets = @(Get-PaperKisSmokeMarkets -IncludeUS:$IncludeUS)
+$markets = @(Get-PaperKisSmokeMarkets)
 foreach ($market in $markets) {
-    if ($market -eq 'KR') {
-        $symbol = '005930'
-        $quotePath = "/api/v1/market/quotes/KR/$symbol"
-        $balancePath = '/api/v1/accounts/paper/KR/balance'
-    } else {
-        $symbol = 'AAPL'
-        $quotePath = "/api/v1/market/quotes/US/$symbol`?exchange=NAS"
-        $balancePath = '/api/v1/accounts/paper/US/balance?exchange=NASD'
-    }
+    $symbol = '005930'
+    $quotePath = "/api/v1/market/quotes/KR/$symbol"
+    $balancePath = '/api/v1/accounts/paper/KR/balance'
     $quote = Invoke-LocalReadOnlyGet $quotePath
     $balance = Invoke-LocalReadOnlyGet $balancePath
     Assert-Quote $quote $market $symbol

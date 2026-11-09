@@ -1,5 +1,3 @@
-param([switch]$IncludeUS)
-
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -51,7 +49,7 @@ if (-not $env:POSTGRES_PASSWORD) {
 $env:KIS_REAL_ACCOUNT_READ_ENABLED = 'false'
 $env:KIS_REAL_EXECUTION_NOTICES_ENABLED = 'false'
 $env:RUN_KIS_PAPER_ACCOUNT_INTEGRATION_TESTS = 'true'
-$env:KIS_TEST_US_ACCOUNT_READS = if ($IncludeUS) { 'true' } else { 'false' }
+$env:KIS_TEST_US_ACCOUNT_READS = 'false'
 Push-Location (Join-Path $repoRoot 'backend/trading-api')
 try {
     & .\mvnw.cmd '-Dtest=KisPaperAccountIntegrationTest' test
