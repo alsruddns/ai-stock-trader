@@ -14,7 +14,13 @@ on:
       - 'backend/trading-api/src/test/java/com/aistocktrader/health/OperationsControllerTest.java'
       - 'services/market-ai/app/**'
       - 'scripts/export-daily-report.ps1'
+      - 'scripts/lib/operations-report.ps1'
       - 'scripts/tests/domestic-only-operations-report.Tests.ps1'
+      - 'scripts/tests/domestic-session-monitor-enabled-counts.Tests.ps1'
+      - 'dashboard/src/app/api/operations/route.ts'
+      - 'dashboard/src/app/page.tsx'
+      - 'dashboard/package.json'
+      - 'dashboard/package-lock.json'
       - 'scripts/lib/retired-kis-analysis-scan.ps1'
       - 'scripts/tests/retired-kis-analysis-scan.Tests.ps1'
       - '.github/workflows/domestic-kis-compatibility.yml'
@@ -57,6 +63,11 @@ jobs:
             throw "Domestic-only operations report test failed: passed=$($result.PassedCount), failed=$($result.FailedCount)."
           }
 
+          $result = Invoke-Pester -Path 'scripts/tests/domestic-session-monitor-enabled-counts.Tests.ps1' -PassThru
+          if ($result.FailedCount -gt 0 -or $result.PassedCount -ne 1) {
+            throw "Domestic session monitor enabled-count test failed: passed=$($result.PassedCount), failed=$($result.FailedCount)."
+          }
+
   spring-domestic-operational-scope:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -95,3 +106,23 @@ jobs:
       - name: Run domestic-only operational market scope summary test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=OperationsControllerTest#operationsSummaryReportsOnlyWhetherEnvironmentCredentialsAreConfigured test
+
+  dashboard-domestic-operations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+      - name: Lint domestic operations dashboard changes
+        working-directory: dashboard
+        run: npm run lint
+      - name: Type-check dashboard
+        working-directory: dashboard
+        run: npx tsc --noEmit --incremental false

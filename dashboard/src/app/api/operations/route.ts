@@ -38,6 +38,9 @@ type LocalOperationsReport = {
     registeredCount: number;
     krRegisteredCount: number;
     usRegisteredCount: number;
+    enabledCount: number;
+    krEnabledCount: number;
+    usEnabledCount: number;
     tasks: ScheduledTask[];
   } | null;
   domesticSessionMonitor: {
@@ -212,7 +215,7 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
       generatedAt: raw.generatedAt,
       reportSchemaVersion: schema,
       localStackTask,
-      sessionMonitorSchedule: schedule(raw.sessionMonitorSchedule, ["krRegisteredCount", "usRegisteredCount"]) as LocalOperationsReport["sessionMonitorSchedule"],
+      sessionMonitorSchedule: schedule(raw.sessionMonitorSchedule, ["krRegisteredCount", "usRegisteredCount", "enabledCount", "krEnabledCount", "usEnabledCount"]) as LocalOperationsReport["sessionMonitorSchedule"],
       domesticSessionMonitor,
       validationTaskSchedule: schedule(raw.validationTaskSchedule, ["paperLifecycleCount", "modelTrainingCount", "modelHoldoutCount"]) as LocalOperationsReport["validationTaskSchedule"],
     };

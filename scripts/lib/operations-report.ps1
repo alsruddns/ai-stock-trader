@@ -148,8 +148,11 @@ function Get-AiTraderSessionMonitorScheduleSummary {
             errorType = $_.Exception.GetType().Name
             timeZoneId = [TimeZoneInfo]::Local.Id
             registeredCount = 0
+            enabledCount = 0
             krRegisteredCount = 0
             usRegisteredCount = 0
+            krEnabledCount = 0
+            usEnabledCount = 0
             tasks = @()
         }
     }
@@ -201,8 +204,11 @@ function Get-AiTraderSessionMonitorScheduleSummary {
         errorType = $null
         timeZoneId = [TimeZoneInfo]::Local.Id
         registeredCount = $rows.Count
+        enabledCount = @($rows | Where-Object { $_.enabled }).Count
         krRegisteredCount = @($rows | Where-Object { $_.market -eq 'KR' }).Count
         usRegisteredCount = @($rows | Where-Object { $_.market -eq 'US' }).Count
+        krEnabledCount = @($rows | Where-Object { $_.market -eq 'KR' -and $_.enabled }).Count
+        usEnabledCount = @($rows | Where-Object { $_.market -eq 'US' -and $_.enabled }).Count
         tasks = @($rows | Sort-Object market, taskName)
     }
 }
