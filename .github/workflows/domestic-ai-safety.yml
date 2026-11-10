@@ -117,6 +117,7 @@ jobs:
           python -m pytest -q
           tests/test_market_stream.py::test_minute_aggregator_closes_prior_bar_before_later_minute_quote
           tests/test_paper_runtime.py::test_domestic_new_minute_orderbook_closes_prior_bar_before_quote_overwrite
+          tests/test_paper_runtime.py::test_domestic_consecutive_quote_before_trade_boundaries_preserve_each_bar_spread
           tests/test_paper_runtime.py::test_finalizer_persists_ended_domestic_minute_without_order_queue
           tests/test_paper_runtime.py::test_stop_waits_for_inflight_domestic_final_bar_storage
       - name: Verify domestic-only runtime operational scope
