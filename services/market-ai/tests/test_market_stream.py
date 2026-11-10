@@ -185,6 +185,7 @@ def test_minute_aggregator_uses_same_minute_orderbook_quote_for_spread() -> None
 
     assert completed is not None
     assert completed.spread_bps == Decimal("200")
+    assert completed.spread_observed_at == datetime(2026, 11, 6, 10, 1, 30, tzinfo=zone)
 
 
 def test_minute_aggregator_closes_prior_bar_before_later_minute_quote() -> None:
@@ -205,6 +206,7 @@ def test_minute_aggregator_closes_prior_bar_before_later_minute_quote() -> None:
     assert closed is not None
     assert closed.timestamp == datetime(2026, 11, 6, 10, 1, tzinfo=zone)
     assert closed.spread_bps == Decimal("200")
+    assert closed.spread_observed_at == datetime(2026, 11, 6, 10, 1, 30, tzinfo=zone)
     assert aggregate.pending_minute is None
     next_tick = TradeTick("KR", "005930", datetime(2026, 11, 6, 10, 2, 1, tzinfo=zone),
                           Decimal("101"), 3, None, None)

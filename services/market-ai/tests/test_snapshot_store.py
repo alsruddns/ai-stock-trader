@@ -41,9 +41,27 @@ def test_minute_bars_are_upserted_with_provenance_and_null_spread(monkeypatch) -
 
     query, rows = connection.calls[0]
     assert "ON CONFLICT (market, symbol, bar_at) DO UPDATE" in query
-    assert "WHERE market_minute_bar.spread_bps IS NULL OR EXCLUDED.spread_bps IS NOT NULL" in query
+    assert "spread_observed_at" in query
+    assert "WHERE market_minute_bar.spread_bps IS NULL OR EXCLUDED.spread_observed_at IS NOT NULL" in query
     assert rows == [("KR", "005930", bar.timestamp, bar.open, bar.high, bar.low, bar.close,
-                     1000, None, "KIS_REST_MINUTE_CHART")]
+                     1000, None, None, "KIS_REST_MINUTE_CHART")]
+
+
+def test_domestic_minute_bar_persistence_keeps_quote_observation_time(monkeypatch) -> None:
+    connection = _FakeConnection()
+    monkeypatch.setattr(snapshot_store, "_connect", lambda: connection)
+    bar = MinuteBar(
+        timestamp=datetime.fromisoformat("2026-11-05T09:00:00+09:00"), open=Decimal("100"),
+        high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=1000,
+        spread_bps=Decimal("5"),
+        spread_observed_at=datetime.fromisoformat("2026-11-05T09:00:30+09:00"),
+    )
+
+    snapshot_store.store_minute_bars("KR", "005930", [bar], source="KIS_PAPER_WEBSOCKET")
+
+    query, rows = connection.calls[0]
+    assert "spread_observed_at" in query
+    assert rows[0][8:10] == (bar.spread_bps, bar.spread_observed_at)
 
 
 def test_minute_bar_persistence_drops_premarket_and_afterhours(monkeypatch) -> None:
@@ -83,9 +101,10 @@ def test_empty_minute_bar_batch_does_not_open_database(monkeypatch) -> None:
 def test_session_bar_restore_uses_local_exchange_date_and_returns_ascending(monkeypatch) -> None:
     connection = _FakeConnection()
     newer = (datetime.fromisoformat("2026-11-05T09:01:00-05:00"), Decimal("101"), Decimal("102"),
-             Decimal("100"), Decimal("101.5"), 1200, None)
+             Decimal("100"), Decimal("101.5"), 1200, None, None)
     older = (datetime.fromisoformat("2026-11-05T09:00:00-05:00"), Decimal("100"), Decimal("101"),
-             Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"))
+             Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
+             datetime.fromisoformat("2026-11-05T09:00:30-05:00"))
     connection.rows = [newer, older]
     monkeypatch.setattr(snapshot_store, "_connect", lambda: connection)
 
@@ -104,13 +123,30 @@ def test_session_bar_restore_uses_local_exchange_date_and_returns_ascending(monk
     assert bars[0].spread_bps == Decimal("4.5")
 
 
+def test_domestic_session_restore_preserves_spread_observation_timestamp(monkeypatch) -> None:
+    connection = _FakeConnection()
+    quote_time = datetime.fromisoformat("2026-11-05T09:00:30+09:00")
+    connection.rows = [
+        (datetime.fromisoformat("2026-11-05T09:00:00+09:00"), Decimal("100"), Decimal("101"),
+         Decimal("99"), Decimal("100.5"), 1000, Decimal("5"), quote_time),
+    ]
+    monkeypatch.setattr(snapshot_store, "_connect", lambda: connection)
+
+    bars = snapshot_store.load_session_minute_bars(
+        "KR", "005930", datetime.fromisoformat("2026-11-05").date(),
+    )
+
+    assert bars[0].spread_observed_at == quote_time
+
+
 def test_multi_symbol_session_load_uses_single_read_only_query(monkeypatch) -> None:
     connection = _FakeConnection()
     connection.rows = [
         ("AAPL", datetime.fromisoformat("2026-11-05T09:30:00-05:00"), Decimal("100"), Decimal("101"),
-         Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5")),
+         Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
+         datetime.fromisoformat("2026-11-05T09:30:30-05:00")),
         ("MSFT", datetime.fromisoformat("2026-11-05T09:30:00-05:00"), Decimal("200"), Decimal("201"),
-         Decimal("199"), Decimal("200.5"), 500, None),
+         Decimal("199"), Decimal("200.5"), 500, None, None),
     ]
     monkeypatch.setattr(snapshot_store, "_connect", lambda: connection)
 
@@ -154,11 +190,14 @@ def test_training_history_excludes_premarket_and_afterhours_rows_from_provenance
     connection = _FakeConnection()
     connection.rows = [
         (datetime.fromisoformat("2026-11-05T09:29:00-05:00"), Decimal("99"), Decimal("100"),
-         Decimal("98"), Decimal("99.5"), 1000, Decimal("5"), "KIS_REAL_US_WEBSOCKET"),
+         Decimal("98"), Decimal("99.5"), 1000, Decimal("5"),
+         datetime.fromisoformat("2026-11-05T09:29:30-05:00"), "KIS_REAL_US_WEBSOCKET"),
         (datetime.fromisoformat("2026-11-05T09:30:00-05:00"), Decimal("100"), Decimal("101"),
-         Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"), "KIS_REAL_US_WEBSOCKET"),
+         Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
+         datetime.fromisoformat("2026-11-05T09:30:30-05:00"), "KIS_REAL_US_WEBSOCKET"),
         (datetime.fromisoformat("2026-11-05T16:00:00-05:00"), Decimal("101"), Decimal("102"),
-         Decimal("100"), Decimal("101.5"), 1000, Decimal("4"), "KIS_REST_MINUTE_CHART"),
+         Decimal("100"), Decimal("101.5"), 1000, Decimal("4"),
+         datetime.fromisoformat("2026-11-05T16:00:30-05:00"), "KIS_REST_MINUTE_CHART"),
     ]
     monkeypatch.setattr(snapshot_store, "_connect", lambda: connection)
 

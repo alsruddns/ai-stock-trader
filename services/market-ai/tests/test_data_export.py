@@ -16,7 +16,7 @@ from app.data_provenance import load_data_provenance
 
 def _row(timestamp: datetime, source: str = "KIS_REST_MINUTE_CHART") -> tuple:
     return (timestamp, Decimal("100.1"), Decimal("101.0"), Decimal("99.5"),
-            Decimal("100.5"), 1200, Decimal("4.2"), source)
+            Decimal("100.5"), 1200, Decimal("4.2"), timestamp + timedelta(seconds=10), source)
 
 
 @pytest.mark.parametrize(
@@ -38,6 +38,8 @@ def test_session_coverage_reports_complete_bars_and_spreads(market, opened, expe
         "complete": True,
         "bars_with_spread": expected_bars,
         "spread_complete": True,
+        "bars_with_spread_observation_time": expected_bars,
+        "spread_observation_time_complete": True,
         "sources": ["KIS_REST_MINUTE_CHART"],
         "source_counts": {"KIS_REST_MINUTE_CHART": expected_bars},
     }]
@@ -46,7 +48,7 @@ def test_session_coverage_reports_complete_bars_and_spreads(market, opened, expe
 def test_session_coverage_marks_gaps_duplicates_and_missing_spreads() -> None:
     opened = datetime(2026, 11, 5, 14, 30, tzinfo=timezone.utc)
     rows = [_row(opened + timedelta(minutes=index)) for index in range(390)]
-    rows[42] = (*rows[42][:6], None, rows[42][7])
+    rows[42] = (*rows[42][:6], None, None, rows[42][-1])
     rows[43] = _row(opened + timedelta(minutes=42))
 
     summary = summarize_session_coverage(rows, market="US")[0]
@@ -63,7 +65,7 @@ def test_kr_session_coverage_reports_domestic_websocket_and_rest_source_counts()
     for index in range(380):
         source = "KIS_PAPER_WEBSOCKET" if index < 52 else "KIS_REST_MINUTE_SESSION"
         row = _row(opened + timedelta(minutes=index), source)
-        rows.append(row if index < 52 else (*row[:6], None, row[7]))
+        rows.append(row if index < 52 else (*row[:6], None, None, row[-1]))
 
     summary = summarize_session_coverage(rows, market="KR")[0]
 
@@ -73,6 +75,7 @@ def test_kr_session_coverage_reports_domestic_websocket_and_rest_source_counts()
     }
     assert summary["bars_with_spread"] == 52
     assert summary["spread_complete"] is False
+    assert summary["bars_with_spread_observation_time"] == 52
 
 
 def test_session_coverage_rejects_non_session_rows() -> None:
@@ -124,6 +127,7 @@ def test_export_manifest_reports_observed_sessions_separately_from_requested_dat
         "expected_bar_count": 390,
         "complete_session_count": 1,
         "spread_complete_session_count": 1,
+        "spread_observation_time_complete_session_count": 1,
         "sessions": [{
             "session_date": "2026-11-06",
             "bars": 390,
@@ -131,6 +135,8 @@ def test_export_manifest_reports_observed_sessions_separately_from_requested_dat
             "complete": True,
             "bars_with_spread": 390,
             "spread_complete": True,
+            "bars_with_spread_observation_time": 390,
+            "spread_observation_time_complete": True,
             "sources": ["KIS_REAL_US_WEBSOCKET"],
             "source_counts": {"KIS_REAL_US_WEBSOCKET": 390},
         }],
@@ -228,10 +234,16 @@ def test_training_export_source_gate_rejects_missing_spread_and_market_source_mi
     opened = datetime(2026, 11, 5, 0, 0, tzinfo=timezone.utc)
     rows = [_row(opened + timedelta(minutes=index), "KIS_PAPER_WEBSOCKET") for index in range(380)]
     missing_spread = list(rows)
-    missing_spread[10] = (*missing_spread[10][:6], None, missing_spread[10][7])
+    missing_spread[10] = (*missing_spread[10][:6], None, None, missing_spread[10][-1])
 
     with pytest.raises(ValueError, match="spread data"):
         validate_websocket_session_rows(missing_spread, market="KR", expected_source="KIS_PAPER_WEBSOCKET")
+    missing_observation_time = list(rows)
+    missing_observation_time[10] = (*missing_observation_time[10][:7], None, missing_observation_time[10][-1])
+    with pytest.raises(ValueError, match="observation time"):
+        validate_websocket_session_rows(
+            missing_observation_time, market="KR", expected_source="KIS_PAPER_WEBSOCKET",
+        )
     with pytest.raises(ValueError, match="do not match"):
         validate_websocket_session_rows(rows, market="US", expected_source="KIS_PAPER_WEBSOCKET")
 

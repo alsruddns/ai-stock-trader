@@ -177,6 +177,7 @@ class MinuteBarAggregator:
         self._bid: Decimal | None = None
         self._ask: Decimal | None = None
         self._quote_minute: datetime | None = None
+        self._quote_timestamp: datetime | None = None
         self._last_tick: datetime | None = None
 
     def quote_is_stale(self, quote: OrderBookQuote) -> bool:
@@ -206,10 +207,12 @@ class MinuteBarAggregator:
             self._symbol = quote.symbol
             self._quote_minute = minute
             self._bid = self._ask = None
+            self._quote_timestamp = None
             return True
         self._symbol = quote.symbol
         self._quote_minute = minute
         self._bid, self._ask = quote.bid, quote.ask
+        self._quote_timestamp = quote.timestamp
         return True
 
     def add(self, tick: TradeTick) -> MinuteBar | None:
@@ -229,6 +232,7 @@ class MinuteBarAggregator:
             if self._quote_minute is None or self._quote_minute < minute:
                 self._bid = self._ask = None
                 self._quote_minute = None
+                self._quote_timestamp = None
         elif self._minute is None:
             self._minute = minute
             self._open = self._high = self._low = self._close = tick.price
@@ -252,6 +256,7 @@ class MinuteBarAggregator:
         self._last_tick = None
         self._quote_minute = None
         self._bid = self._ask = None
+        self._quote_timestamp = None
         return bar
 
     def close_before(self, timestamp: datetime) -> MinuteBar | None:
@@ -267,6 +272,7 @@ class MinuteBarAggregator:
         self._volume = 0
         self._bid = self._ask = None
         self._quote_minute = None
+        self._quote_timestamp = None
         # Keep _symbol and _last_tick so late/out-of-order ticks remain rejected.
         return bar
 
@@ -281,4 +287,8 @@ class MinuteBarAggregator:
                 and self._bid > 0 and self._ask >= self._bid):
             mid = (self._bid + self._ask) / Decimal(2)
             spread = (self._ask - self._bid) / mid * Decimal(10_000)
-        return MinuteBar(self._minute, self._open, self._high, self._low, self._close, self._volume, spread)
+        spread_observed_at = self._quote_timestamp if spread is not None else None
+        return MinuteBar(
+            self._minute, self._open, self._high, self._low, self._close, self._volume,
+            spread, spread_observed_at,
+        )

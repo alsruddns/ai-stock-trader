@@ -23,6 +23,20 @@ def _session_bars(bar_count: int = 380) -> list[MinuteBar]:
     return bars
 
 
+def test_spread_observation_time_must_be_timezone_aware_and_within_bar_minute() -> None:
+    timestamp = datetime(2026, 11, 5, 9, 0, tzinfo=timezone(timedelta(hours=9)))
+
+    with pytest.raises(ValueError, match="timezone"):
+        MinuteBar(timestamp, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"),
+                  1000, Decimal("5"), datetime(2026, 11, 5, 9, 0, 15))
+    with pytest.raises(ValueError, match="bar minute"):
+        MinuteBar(timestamp, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"),
+                  1000, Decimal("5"), timestamp + timedelta(minutes=1))
+    with pytest.raises(ValueError, match="requires a spread"):
+        MinuteBar(timestamp, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"),
+                  1000, None, timestamp + timedelta(seconds=15))
+
+
 def test_ema_uses_initial_period_sma_then_all_subsequent_values() -> None:
     assert _ema([Decimal("10"), Decimal("11"), Decimal("12"), Decimal("13")], 3) == Decimal("12")
     with pytest.raises(ValueError, match="at least one full period"):

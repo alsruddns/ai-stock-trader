@@ -66,6 +66,8 @@ def load_minute_bar_sessions(
                     volume=int(normalized["volume"]),
                     spread_bps=(Decimal(normalized["spread_bps"])
                                 if normalized.get("spread_bps", "").strip() else None),
+                    spread_observed_at=(datetime.fromisoformat(normalized["spread_observed_at"].strip())
+                                        if normalized.get("spread_observed_at", "").strip() else None),
                 )
             except (ArithmeticError, InvalidOperation, KeyError, TypeError, ValueError) as exc:
                 raise ValueError(f"invalid minute-bar CSV row {line_number}: {exc}") from exc

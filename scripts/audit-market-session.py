@@ -86,7 +86,7 @@ def main() -> int:
             connection.execute("SET TRANSACTION READ ONLY")
             rows = connection.execute(
                 """SELECT bar_at, open_price, high_price, low_price, close_price,
-                          volume, spread_bps, source
+                          volume, spread_bps, spread_observed_at, source
                      FROM market_minute_bar
                     WHERE market = %s AND symbol = %s AND bar_at >= %s AND bar_at < %s
                     ORDER BY bar_at""",
@@ -97,11 +97,11 @@ def main() -> int:
 
     bars = [MinuteBar(
         timestamp=row[0], open=row[1], high=row[2], low=row[3], close=row[4],
-        volume=int(row[5]), spread_bps=row[6],
+        volume=int(row[5]), spread_bps=row[6], spread_observed_at=row[7],
     ) for row in rows]
     source_counts: dict[str, int] = {}
     for row in rows:
-        source = str(row[7]).strip() if row[7] is not None else ""
+        source = str(row[8]).strip() if row[8] is not None else ""
         if source:
             source_counts[source] = source_counts.get(source, 0) + 1
     report = audit_minute_bar_session(

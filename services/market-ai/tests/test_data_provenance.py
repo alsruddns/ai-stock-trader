@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import runpy
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -116,7 +116,8 @@ def test_timezone_is_required_for_retrieval_and_rights_review() -> None:
 def test_model_training_requires_complete_spread_covered_approved_source_sessions() -> None:
     first_session = date(2026, 11, 2)
     session_dates = [first_session + timedelta(days=index) for index in range(13)]
-    sessions = {session_date: [SimpleNamespace(spread_bps=5) for _ in range(390)]
+    observed_at = datetime(2026, 11, 2, 14, 30, 10, tzinfo=timezone.utc)
+    sessions = {session_date: [SimpleNamespace(spread_bps=5, spread_observed_at=observed_at) for _ in range(390)]
                 for session_date in session_dates}
     payload = _payload("c" * 64)
     payload["coverage"] = {
@@ -124,10 +125,12 @@ def test_model_training_requires_complete_spread_covered_approved_source_session
         "observed_bar_count": 13 * 390,
         "complete_session_count": 13,
         "spread_complete_session_count": 13,
+        "spread_observation_time_complete_session_count": 13,
         "sessions": [
             {
                 "session_date": session_date.isoformat(), "bars": 390, "expected_bars": 390,
                 "complete": True, "bars_with_spread": 390, "spread_complete": True,
+                "bars_with_spread_observation_time": 390, "spread_observation_time_complete": True,
                 "sources": ["KIS_REAL_US_WEBSOCKET"],
                 "source_counts": {"KIS_REAL_US_WEBSOCKET": 390},
             }
@@ -150,6 +153,7 @@ def test_model_training_requires_complete_spread_covered_approved_source_session
     short_coverage["observed_bar_count"] = 12 * 390
     short_coverage["complete_session_count"] = 12
     short_coverage["spread_complete_session_count"] = 12
+    short_coverage["spread_observation_time_complete_session_count"] = 12
     short_payload = {**payload, "coverage": short_coverage}
     with pytest.raises(ValueError, match="at least 13 eligible exchange sessions"):
         validate_model_training_coverage(short_payload, market="US", sessions=short_sessions)
@@ -164,22 +168,26 @@ def test_model_training_rejects_missing_or_partial_session_coverage() -> None:
     payload["coverage"] = {
         "observed_session_count": 1, "observed_bar_count": 1,
         "complete_session_count": 1, "spread_complete_session_count": 1,
+        "spread_observation_time_complete_session_count": 1,
         "sessions": [{
             "session_date": "2026-11-02", "bars": 1, "expected_bars": 1,
             "complete": True, "bars_with_spread": 1, "spread_complete": True,
+            "bars_with_spread_observation_time": 1, "spread_observation_time_complete": True,
             "sources": ["KIS_REAL_US_WEBSOCKET"],
             "source_counts": {"KIS_REAL_US_WEBSOCKET": 1},
         }],
     }
-    with pytest.raises(ValueError, match="complete, spread-covered sessions"):
+    with pytest.raises(ValueError, match="timestamped spreads"):
         validate_model_training_coverage(payload, market="US", sessions=sessions)
 
 
 def test_kr_model_training_rejects_missing_mixed_or_non_integer_source_counts() -> None:
     first_session = date(2026, 11, 2)
     session_dates = [first_session + timedelta(days=index) for index in range(13)]
+    observed_at = datetime(2026, 11, 2, 0, 0, 10, tzinfo=timezone.utc)
     sessions = {
-        session_date: [SimpleNamespace(spread_bps=Decimal("5")) for _ in range(380)]
+        session_date: [SimpleNamespace(spread_bps=Decimal("5"), spread_observed_at=observed_at)
+                       for _ in range(380)]
         for session_date in session_dates
     }
     payload = _payload("e" * 64)
@@ -188,10 +196,12 @@ def test_kr_model_training_rejects_missing_mixed_or_non_integer_source_counts() 
         "observed_bar_count": 13 * 380,
         "complete_session_count": 13,
         "spread_complete_session_count": 13,
+        "spread_observation_time_complete_session_count": 13,
         "sessions": [
             {
                 "session_date": session_date.isoformat(), "bars": 380, "expected_bars": 380,
                 "complete": True, "bars_with_spread": 380, "spread_complete": True,
+                "bars_with_spread_observation_time": 380, "spread_observation_time_complete": True,
                 "sources": ["KIS_PAPER_WEBSOCKET"],
                 "source_counts": {"KIS_PAPER_WEBSOCKET": 380},
             }
@@ -200,6 +210,11 @@ def test_kr_model_training_rejects_missing_mixed_or_non_integer_source_counts() 
     }
 
     validate_model_training_coverage(payload, market="KR", sessions=sessions)
+
+    sessions[session_dates[0]][0] = SimpleNamespace(spread_bps=Decimal("5"), spread_observed_at=None)
+    with pytest.raises(ValueError, match="timestamped spreads"):
+        validate_model_training_coverage(payload, market="KR", sessions=sessions)
+    sessions[session_dates[0]][0] = SimpleNamespace(spread_bps=Decimal("5"), spread_observed_at=observed_at)
 
     first_row = payload["coverage"]["sessions"][0]
     exact_source_counts = dict(first_row["source_counts"])
@@ -215,7 +230,7 @@ def test_kr_model_training_rejects_missing_mixed_or_non_integer_source_counts() 
         validate_model_training_coverage(payload, market="KR", sessions=sessions)
 
     one_bar_session = session_dates[0]
-    sessions[one_bar_session] = [SimpleNamespace(spread_bps=Decimal("5"))]
+    sessions[one_bar_session] = [SimpleNamespace(spread_bps=Decimal("5"), spread_observed_at=observed_at)]
     payload["coverage"]["observed_bar_count"] -= 379
     first_row.update({"bars": 1, "expected_bars": 1, "bars_with_spread": 1})
     first_row["source_counts"] = {"KIS_PAPER_WEBSOCKET": True}

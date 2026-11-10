@@ -43,8 +43,10 @@ def audit_minute_bar_session(
             "expected_bars": 0, "completed_minutes": 0, "observed_bars": 0,
             "missing_bars": 0, "off_grid_bars": 0, "duplicate_bars": 0,
             "spread_bars": 0, "spread_coverage_percent": None,
+            "spread_observation_time_bars": 0, "spread_observation_time_coverage_percent": None,
             "first_bar_at": None, "last_bar_at": None,
             "missing_bar_timestamps": [], "bars_without_spread_timestamps": [],
+            "bars_without_spread_observation_timestamps": [],
             "full_session_complete": False,
         }
 
@@ -64,6 +66,7 @@ def audit_minute_bar_session(
     off_grid_count = 0
     counts: dict[datetime, int] = {}
     timestamps_with_spread: set[datetime] = set()
+    timestamps_with_spread_observation: set[datetime] = set()
     expected_end = opened + timedelta(minutes=expected_bars)
     for bar in bars:
         timestamp = bar.timestamp
@@ -80,6 +83,11 @@ def audit_minute_bar_session(
             counts[aligned] = counts.get(aligned, 0) + 1
             if bar.spread_bps is not None:
                 timestamps_with_spread.add(aligned)
+                observed_at = bar.spread_observed_at
+                if observed_at is not None:
+                    observed_instant = observed_at.astimezone(timezone.utc)
+                    if instant <= observed_instant < instant + timedelta(minutes=1):
+                        timestamps_with_spread_observation.add(aligned)
 
     observed_completed = sum(
         count for timestamp, count in counts.items()
@@ -95,10 +103,18 @@ def audit_minute_bar_session(
         timestamp for timestamp in sorted(counts)
         if timestamp < opened + timedelta(minutes=completed_minutes) and timestamp not in timestamps_with_spread
     ]
+    bars_without_spread_observation_timestamps = [
+        timestamp for timestamp in sorted(counts)
+        if timestamp < opened + timedelta(minutes=completed_minutes)
+        and timestamp in timestamps_with_spread and timestamp not in timestamps_with_spread_observation
+    ]
     duplicate_bars = sum(max(0, count - 1) for count in counts.values())
     completed_end = opened + timedelta(minutes=completed_minutes)
     completed_observed_minutes = [timestamp for timestamp in counts if timestamp < completed_end]
     spread_count = sum(1 for timestamp in timestamps_with_spread if timestamp < completed_end)
+    spread_observation_time_count = sum(
+        1 for timestamp in timestamps_with_spread_observation if timestamp < completed_end
+    )
     fully_observed = (
         session_closed and completed_minutes == expected_bars
         and missing_bars == 0 and duplicate_bars == 0 and off_grid_count == 0
@@ -129,9 +145,16 @@ def audit_minute_bar_session(
         "duplicate_bars": duplicate_bars,
         "spread_bars": spread_count,
         "spread_coverage_percent": spread_percent,
+        "spread_observation_time_bars": spread_observation_time_count,
+        "spread_observation_time_coverage_percent": round(
+            100 * spread_observation_time_count / len(completed_observed_minutes), 2,
+        ) if completed_observed_minutes else None,
         "first_bar_at": ordered_timestamps[0].isoformat() if ordered_timestamps else None,
         "last_bar_at": ordered_timestamps[-1].isoformat() if ordered_timestamps else None,
         "missing_bar_timestamps": [timestamp.isoformat() for timestamp in missing_bar_timestamps],
         "bars_without_spread_timestamps": [timestamp.isoformat() for timestamp in bars_without_spread_timestamps],
+        "bars_without_spread_observation_timestamps": [
+            timestamp.isoformat() for timestamp in bars_without_spread_observation_timestamps
+        ],
         "full_session_complete": fully_observed,
     }

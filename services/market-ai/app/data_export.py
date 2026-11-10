@@ -48,9 +48,16 @@ def summarize_session_coverage(
         expected_timestamps = [opened + timedelta(minutes=index) for index in range(expected_count)]
         actual_timestamps = sorted(row[0].astimezone(timezone.utc) for row in session_rows)
         spread_count = sum(row[6] is not None for row in session_rows)
+        spread_observation_time_count = sum(
+            row[6] is not None and len(row) >= 9 and row[-2] is not None
+            and row[-2].tzinfo is not None and row[-2].utcoffset() is not None
+            and row[0].astimezone(timezone.utc) <= row[-2].astimezone(timezone.utc)
+            < row[0].astimezone(timezone.utc) + timedelta(minutes=1)
+            for row in session_rows
+        )
         source_counts: dict[str, int] = {}
         for row in session_rows:
-            source = str(row[7]).strip() if row[7] is not None else ""
+            source = str(row[-1]).strip() if row[-1] is not None else ""
             if source:
                 source_counts[source] = source_counts.get(source, 0) + 1
         summaries.append({
@@ -60,7 +67,12 @@ def summarize_session_coverage(
             "complete": actual_timestamps == expected_timestamps,
             "bars_with_spread": spread_count,
             "spread_complete": actual_timestamps == expected_timestamps and spread_count == expected_count,
-            "sources": sorted({str(row[7]) for row in session_rows if row[7]}),
+            "bars_with_spread_observation_time": spread_observation_time_count,
+            "spread_observation_time_complete": (
+                actual_timestamps == expected_timestamps
+                and spread_observation_time_count == expected_count
+            ),
+            "sources": sorted({str(row[-1]) for row in session_rows if row[-1]}),
             "source_counts": dict(sorted(source_counts.items())),
         })
     return summaries
@@ -77,12 +89,17 @@ def validate_websocket_session_rows(rows: Sequence[tuple], *, market: str, expec
     zone = ZoneInfo("Asia/Seoul" if normalized_market == "KR" else "America/New_York")
     sessions: dict[date, list[tuple]] = {}
     for row in rows:
-        if len(row) < 8 or row[0].tzinfo is None or row[0].utcoffset() is None:
+        if len(row) < 9 or row[0].tzinfo is None or row[0].utcoffset() is None:
             raise ValueError("WebSocket session rows require timezone-aware timestamps and source")
-        if row[7] != expected_source:
+        if row[-1] != expected_source:
             raise ValueError("session export contains an unexpected market-data source")
         if row[6] is None:
             raise ValueError("WebSocket session export requires spread data on every bar")
+        observed_at = row[-2]
+        timestamp = row[0].astimezone(timezone.utc)
+        if (observed_at is None or observed_at.tzinfo is None or observed_at.utcoffset() is None
+                or not timestamp <= observed_at.astimezone(timezone.utc) < timestamp + timedelta(minutes=1)):
+            raise ValueError("WebSocket session export requires an in-minute spread observation time")
         sessions.setdefault(row[0].astimezone(zone).date(), []).append(row)
 
     for session_date, session_rows in sessions.items():
@@ -126,13 +143,17 @@ def build_minute_bar_export(
 
     buffer = io.StringIO(newline="")
     writer = csv.writer(buffer, lineterminator="\n")
-    writer.writerow(("symbol", "timestamp", "open", "high", "low", "close", "volume", "spread_bps"))
-    for timestamp, open_price, high_price, low_price, close_price, volume, spread_bps, _source in rows:
+    writer.writerow(("symbol", "timestamp", "open", "high", "low", "close", "volume",
+                     "spread_bps", "spread_observed_at"))
+    for row in rows:
+        timestamp, open_price, high_price, low_price, close_price, volume, spread_bps = row[:7]
+        spread_observed_at = row[-2] if len(row) >= 9 else None
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("stored bar timestamps must include a timezone")
         writer.writerow((normalized_symbol, timestamp.isoformat(), str(open_price), str(high_price),
                          str(low_price), str(close_price), int(volume),
-                         "" if spread_bps is None else str(spread_bps)))
+                         "" if spread_bps is None else str(spread_bps),
+                         "" if spread_observed_at is None else spread_observed_at.isoformat()))
     session_coverage = summarize_session_coverage(
         rows, market=normalized_market, require_continuous_session=False,
     )
@@ -147,6 +168,9 @@ def build_minute_bar_export(
         "expected_bar_count": sum(int(item["expected_bars"]) for item in session_coverage),
         "complete_session_count": sum(bool(item["complete"]) for item in session_coverage),
         "spread_complete_session_count": sum(bool(item["spread_complete"]) for item in session_coverage),
+        "spread_observation_time_complete_session_count": sum(
+            bool(item["spread_observation_time_complete"]) for item in session_coverage
+        ),
         "sessions": session_coverage,
     }
     csv_bytes = buffer.getvalue().encode("utf-8")

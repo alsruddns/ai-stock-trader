@@ -446,6 +446,7 @@ def test_training_readiness_counts_only_complete_approved_websocket_sessions(mon
             timestamp=opened + timedelta(minutes=index),
             open=Decimal("100"), high=Decimal("101"), low=Decimal("99"), close=Decimal("100"),
             volume=1000, spread_bps=Decimal("5"),
+            spread_observed_at=opened + timedelta(minutes=index, seconds=10),
         ) for index in range(380)]
         history[session_date] = {
             "bars": bars,
@@ -485,6 +486,7 @@ def test_kr_training_readiness_reports_incomplete_session_and_spread_reasons(mon
         timestamp=opened + timedelta(minutes=index),
         open=Decimal("100"), high=Decimal("101"), low=Decimal("99"), close=Decimal("100"),
         volume=1000, spread_bps=None if index == 12 else Decimal("5"),
+        spread_observed_at=None if index == 12 else opened + timedelta(minutes=index, seconds=10),
     ) for index in range(379)]
     monkeypatch.setattr(main.snapshot_store, "enabled", lambda: True)
     monkeypatch.setattr(main.snapshot_store, "load_minute_bar_training_history", lambda *args: {
@@ -499,7 +501,10 @@ def test_kr_training_readiness_reports_incomplete_session_and_spread_reasons(mon
     assert response.status_code == 200
     session = response.json()["sessions"][0]
     assert session["eligible_for_training"] is False
-    assert session["ineligibility_reasons"] == ["incomplete_session", "incomplete_spread_coverage"]
+    assert session["ineligibility_reasons"] == [
+        "incomplete_session", "incomplete_spread_coverage", "missing_spread_observation_time",
+    ]
+    assert session["spread_observation_time_bars"] == 378
 
 
 def test_training_readiness_rejects_oversized_ranges_and_wrong_symbols(monkeypatch) -> None:

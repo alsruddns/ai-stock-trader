@@ -22,6 +22,7 @@ class MinuteBar:
     close: Decimal
     volume: int
     spread_bps: Decimal | None = None
+    spread_observed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.timestamp.tzinfo is None:
@@ -40,6 +41,16 @@ class MinuteBar:
             raise ValueError("spread must be a finite decimal")
         if self.spread_bps is not None and self.spread_bps < 0:
             raise ValueError("spread must be non-negative")
+        if self.spread_observed_at is not None:
+            if (self.spread_bps is None or self.spread_observed_at.tzinfo is None
+                    or self.spread_observed_at.utcoffset() is None):
+                raise ValueError("spread observation time requires a spread and timezone")
+            observed_minute = self.spread_observed_at.astimezone(self.timestamp.tzinfo).replace(
+                second=0, microsecond=0,
+            )
+            bar_minute = self.timestamp.replace(second=0, microsecond=0)
+            if observed_minute != bar_minute:
+                raise ValueError("spread observation time must belong to its bar minute")
 
 
 @dataclass(frozen=True)

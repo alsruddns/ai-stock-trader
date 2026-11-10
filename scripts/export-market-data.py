@@ -98,7 +98,7 @@ def main() -> int:
             connection.execute("SET TRANSACTION READ ONLY")
             rows = connection.execute(
                 """SELECT bar_at, open_price, high_price, low_price, close_price,
-                          volume, spread_bps, source
+                          volume, spread_bps, spread_observed_at, source
                      FROM market_minute_bar
                     WHERE market = %s AND symbol = %s AND bar_at >= %s AND bar_at < %s
                     ORDER BY bar_at""",
@@ -113,7 +113,7 @@ def main() -> int:
         and window[0] <= row[0].astimezone(ZoneInfo("UTC")) < window[1]
     ]
 
-    sources = sorted({row[7] for row in rows if row[7]})
+    sources = sorted({row[8] for row in rows if row[8]})
     session_coverage = summarize_session_coverage(rows, market=market)
     if args.dry_run:
         print(json.dumps({

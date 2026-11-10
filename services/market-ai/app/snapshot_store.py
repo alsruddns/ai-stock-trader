@@ -60,16 +60,20 @@ def store_minute_bars(market: str, symbol: str, bars: list[MinuteBar], *, source
             cursor.executemany(
                 """INSERT INTO market_minute_bar
                (market, symbol, bar_at, open_price, high_price, low_price, close_price,
-                volume, spread_bps, source)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                volume, spread_bps, spread_observed_at, source)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON CONFLICT (market, symbol, bar_at) DO UPDATE SET
                  open_price = EXCLUDED.open_price, high_price = EXCLUDED.high_price,
                  low_price = EXCLUDED.low_price, close_price = EXCLUDED.close_price,
-                 volume = EXCLUDED.volume, spread_bps = EXCLUDED.spread_bps,
+                 volume = EXCLUDED.volume,
+                 spread_bps = CASE
+                     WHEN EXCLUDED.spread_observed_at IS NOT NULL OR market_minute_bar.spread_bps IS NULL
+                     THEN EXCLUDED.spread_bps ELSE market_minute_bar.spread_bps END,
+                 spread_observed_at = COALESCE(EXCLUDED.spread_observed_at, market_minute_bar.spread_observed_at),
                  source = EXCLUDED.source, stored_at = now()
-               WHERE market_minute_bar.spread_bps IS NULL OR EXCLUDED.spread_bps IS NOT NULL""",
+               WHERE market_minute_bar.spread_bps IS NULL OR EXCLUDED.spread_observed_at IS NOT NULL""",
                 [(market, symbol.upper(), bar.timestamp, bar.open, bar.high, bar.low, bar.close,
-                  bar.volume, bar.spread_bps, source) for bar in regular_session_bars],
+                  bar.volume, bar.spread_bps, bar.spread_observed_at, source) for bar in regular_session_bars],
             )
 
 
@@ -87,7 +91,8 @@ def load_session_minute_bars(market: str, symbol: str, session_date: date, *, li
         connection.execute("SET TRANSACTION READ ONLY", None)
         with connection.cursor() as cursor:
             cursor.execute(
-                """SELECT bar_at, open_price, high_price, low_price, close_price, volume, spread_bps
+                """SELECT bar_at, open_price, high_price, low_price, close_price, volume, spread_bps,
+                          spread_observed_at
                    FROM market_minute_bar
                    WHERE market = %s AND symbol = %s AND bar_at >= %s AND bar_at < %s
                    ORDER BY bar_at DESC LIMIT %s""",
@@ -96,7 +101,7 @@ def load_session_minute_bars(market: str, symbol: str, session_date: date, *, li
             rows = cursor.fetchall()
     return [MinuteBar(
         timestamp=row[0], open=row[1], high=row[2], low=row[3], close=row[4],
-        volume=int(row[5]), spread_bps=row[6],
+        volume=int(row[5]), spread_bps=row[6], spread_observed_at=row[7],
     ) for row in reversed(rows)]
 
 
@@ -115,7 +120,7 @@ def load_minute_bar_training_history(
         with connection.cursor() as cursor:
             cursor.execute(
                 """SELECT bar_at, open_price, high_price, low_price, close_price,
-                          volume, spread_bps, source
+                          volume, spread_bps, spread_observed_at, source
                      FROM market_minute_bar
                     WHERE market = %s AND symbol = %s AND bar_at >= %s AND bar_at < %s
                     ORDER BY bar_at
@@ -128,7 +133,7 @@ def load_minute_bar_training_history(
 
     sessions: dict[date, dict[str, object]] = {}
     session_windows: dict[date, tuple[datetime, datetime] | None] = {}
-    for timestamp, open_price, high_price, low_price, close_price, volume, spread_bps, source in rows:
+    for timestamp, open_price, high_price, low_price, close_price, volume, spread_bps, spread_observed_at, source in rows:
         session_date = timestamp.astimezone(zone).date()
         if session_date not in session_windows:
             session_noon = datetime.combine(session_date, datetime_time(hour=12), tzinfo=zone)
@@ -142,7 +147,7 @@ def load_minute_bar_training_history(
         assert isinstance(bars, list) and isinstance(source_counts, dict)
         bars.append(MinuteBar(
             timestamp=timestamp, open=open_price, high=high_price, low=low_price, close=close_price,
-            volume=int(volume), spread_bps=spread_bps,
+            volume=int(volume), spread_bps=spread_bps, spread_observed_at=spread_observed_at,
         ))
         if source:
             source_counts[str(source)] = int(source_counts.get(str(source), 0)) + 1
@@ -169,7 +174,8 @@ def load_session_minute_bars_for_symbols(
         connection.execute("SET TRANSACTION READ ONLY", None)
         with connection.cursor() as cursor:
             cursor.execute(
-                """SELECT symbol, bar_at, open_price, high_price, low_price, close_price, volume, spread_bps
+                """SELECT symbol, bar_at, open_price, high_price, low_price, close_price, volume, spread_bps,
+                          spread_observed_at
                    FROM market_minute_bar
                    WHERE market = %s AND symbol = ANY(%s) AND bar_at >= %s AND bar_at < %s
                    ORDER BY symbol, bar_at""",
@@ -182,7 +188,7 @@ def load_session_minute_bars_for_symbols(
             continue
         result[symbol].append(MinuteBar(
             timestamp=row[1], open=row[2], high=row[3], low=row[4], close=row[5],
-            volume=int(row[6]), spread_bps=row[7],
+            volume=int(row[6]), spread_bps=row[7], spread_observed_at=row[8],
         ))
     return result
 

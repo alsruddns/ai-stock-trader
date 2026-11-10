@@ -134,6 +134,7 @@ def validate_model_training_coverage(
         raise ValueError("model training session quality does not match the CSV sessions")
     complete_count = 0
     spread_complete_count = 0
+    spread_observation_time_complete_count = 0
     for session, bars in sessions.items():
         row = by_date[session.isoformat()]
         source_counts = row.get("source_counts")
@@ -148,12 +149,22 @@ def validate_model_training_coverage(
                 or not count_matches(row.get("bars_with_spread"), len(bars))
                 or row.get("sources") != [expected_source]
                 or not source_counts_match
-                or any(getattr(bar, "spread_bps", None) is None for bar in bars)):
-            raise ValueError("model training requires complete, spread-covered sessions from the approved KIS WebSocket feed")
+                or row.get("spread_observation_time_complete") is not True
+                or not count_matches(row.get("bars_with_spread_observation_time"), len(bars))
+                or any(getattr(bar, "spread_bps", None) is None
+                       or getattr(bar, "spread_observed_at", None) is None for bar in bars)):
+            raise ValueError(
+                "model training requires complete sessions with timestamped spreads from the approved KIS WebSocket feed"
+            )
         complete_count += 1
         spread_complete_count += 1
+        spread_observation_time_complete_count += 1
     if (not count_matches(coverage.get("complete_session_count"), complete_count)
-            or not count_matches(coverage.get("spread_complete_session_count"), spread_complete_count)):
+            or not count_matches(coverage.get("spread_complete_session_count"), spread_complete_count)
+            or not count_matches(
+                coverage.get("spread_observation_time_complete_session_count"),
+                spread_observation_time_complete_count,
+            )):
         raise ValueError("model training session quality totals are inconsistent")
     if len(expected_dates) < MIN_MODEL_TRAINING_SESSIONS:
         raise ValueError(

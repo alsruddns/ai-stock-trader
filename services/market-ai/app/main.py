@@ -140,6 +140,7 @@ class QuantBarRequest(BaseModel):
     close: Decimal = Field(gt=0)
     volume: int = Field(ge=0)
     spread_bps: Decimal | None = Field(default=None, ge=0)
+    spread_observed_at: datetime | None = None
 
 
 class QuantBacktestRequest(BaseModel):
@@ -539,6 +540,8 @@ async def market_training_readiness(
             ineligibility_reasons.append("incomplete_session")
         if int(quality["spread_bars"]) != expected_bars:
             ineligibility_reasons.append("incomplete_spread_coverage")
+        if int(quality["spread_observation_time_bars"]) != expected_bars:
+            ineligibility_reasons.append("missing_spread_observation_time")
         if source_counts != {expected_source: len(bars)}:
             ineligibility_reasons.append("unapproved_data_source")
         eligible = not ineligibility_reasons
@@ -550,6 +553,8 @@ async def market_training_readiness(
             "expected_bars": expected_bars,
             "spread_bars": quality["spread_bars"],
             "spread_coverage_percent": quality["spread_coverage_percent"],
+            "spread_observation_time_bars": quality["spread_observation_time_bars"],
+            "spread_observation_time_coverage_percent": quality["spread_observation_time_coverage_percent"],
             "source_counts": source_counts,
             "eligible_for_training": eligible,
             "ineligibility_reasons": ineligibility_reasons,
@@ -776,7 +781,7 @@ def get_domestic_minute_bars(
             spread_bps_available=False,
             bars=[QuantBarRequest(
                 timestamp=bar.timestamp, open=bar.open, high=bar.high, low=bar.low, close=bar.close,
-                volume=bar.volume, spread_bps=None,
+                volume=bar.volume, spread_bps=None, spread_observed_at=None,
             ) for bar in bars],
         )
     except ValueError as exc:
@@ -815,7 +820,7 @@ def get_domestic_minute_session_bars(
             source_continuation_states=history.continuation_states,
             bars=[QuantBarRequest(
                 timestamp=bar.timestamp, open=bar.open, high=bar.high, low=bar.low, close=bar.close,
-                volume=bar.volume, spread_bps=None,
+                volume=bar.volume, spread_bps=None, spread_observed_at=None,
             ) for bar in bars],
         )
     except ValueError as exc:
@@ -849,7 +854,7 @@ def get_overseas_minute_bars(
             source="KIS_REST_MINUTE_CHART", spread_bps_available=False,
             bars=[QuantBarRequest(
                 timestamp=bar.timestamp, open=bar.open, high=bar.high, low=bar.low, close=bar.close,
-                volume=bar.volume, spread_bps=None,
+                volume=bar.volume, spread_bps=None, spread_observed_at=None,
             ) for bar in bars],
         )
     except ValueError as exc:
@@ -890,7 +895,7 @@ def get_overseas_minute_session_bars(
             source_continuation_states=history.continuation_states,
             bars=[QuantBarRequest(
                 timestamp=bar.timestamp, open=bar.open, high=bar.high, low=bar.low, close=bar.close,
-                volume=bar.volume, spread_bps=None,
+                volume=bar.volume, spread_bps=None, spread_observed_at=None,
             ) for bar in bars],
         )
     except ValueError as exc:
@@ -1028,6 +1033,7 @@ def backtest_orb_vwap_endpoint(request: QuantBacktestRequest) -> QuantBacktestRe
         bars = [MinuteBar(
             timestamp=item.timestamp, open=item.open, high=item.high, low=item.low,
             close=item.close, volume=item.volume, spread_bps=item.spread_bps,
+            spread_observed_at=item.spread_observed_at,
         ) for item in request.bars]
         config = QuantConfig(
             commission_bps=Decimal("0"), buy_commission_bps=request.buy_commission_bps,
@@ -1067,6 +1073,7 @@ def predict_with_model(
         bars = [MinuteBar(
             timestamp=item.timestamp, open=item.open, high=item.high, low=item.low,
             close=item.close, volume=item.volume, spread_bps=item.spread_bps,
+            spread_observed_at=item.spread_observed_at,
         ) for item in request.bars]
         registry = LocalModelRegistry(os.getenv("AI_MODEL_REGISTRY_PATH", ".local/models"))
         result = registry.predict_preview(model_id, bars, market=request.market, symbol=request.symbol)

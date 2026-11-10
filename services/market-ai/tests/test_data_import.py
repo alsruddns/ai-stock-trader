@@ -11,10 +11,10 @@ def _write_csv(path: Path, content: str) -> Path:
 
 
 def test_minute_bar_loader_groups_valid_timezone_aware_sessions(tmp_path) -> None:
-    path = _write_csv(tmp_path / "bars.csv", """timestamp,open,high,low,close,volume,spread_bps,symbol
-2026-11-05T09:00:00+09:00,100,101,99,100,1000,5,005930
-2026-11-05T09:01:00+09:00,100,102,99,101,1200,6,005930
-2026-11-06T09:00:00+09:00,101,102,100,101,1100,5,005930
+    path = _write_csv(tmp_path / "bars.csv", """timestamp,open,high,low,close,volume,spread_bps,spread_observed_at,symbol
+2026-11-05T09:00:00+09:00,100,101,99,100,1000,5,2026-11-05T09:00:10+09:00,005930
+2026-11-05T09:01:00+09:00,100,102,99,101,1200,6,2026-11-05T09:01:10+09:00,005930
+2026-11-06T09:00:00+09:00,101,102,100,101,1100,5,2026-11-06T09:00:10+09:00,005930
 """)
 
     sessions = load_minute_bar_sessions(path, market="KR")
@@ -22,6 +22,7 @@ def test_minute_bar_loader_groups_valid_timezone_aware_sessions(tmp_path) -> Non
     assert list(map(str, sessions)) == ["2026-11-05", "2026-11-06"]
     assert len(sessions[next(iter(sessions))]) == 2
     assert sessions[next(iter(sessions))][0].spread_bps == 5
+    assert sessions[next(iter(sessions))][0].spread_observed_at.isoformat() == "2026-11-05T09:00:10+09:00"
 
 
 def test_minute_bar_loader_uses_the_supplied_immutable_source_snapshot(tmp_path) -> None:

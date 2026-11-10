@@ -35,6 +35,29 @@ def test_complete_us_session_reports_full_coverage_and_spreads() -> None:
     assert report["full_session_complete"] is True
 
 
+def test_domestic_session_quality_counts_only_spreads_with_in_minute_observation_time() -> None:
+    session_date = date(2026, 11, 5)
+    zone = ZoneInfo("Asia/Seoul")
+    bars = _bars("KR", session_date, count=380)
+    bars = [MinuteBar(
+        timestamp=bar.timestamp, open=bar.open, high=bar.high, low=bar.low,
+        close=bar.close, volume=bar.volume, spread_bps=bar.spread_bps,
+        spread_observed_at=(None if index == 3 else bar.timestamp + timedelta(seconds=15)),
+    ) for index, bar in enumerate(bars)]
+
+    report = audit_minute_bar_session(
+        "KR", "005930", session_date, bars,
+        evaluated_at=datetime(2026, 11, 5, 16, 0, tzinfo=zone),
+    )
+
+    assert report["spread_bars"] == 380
+    assert report["spread_observation_time_bars"] == 379
+    assert report["spread_observation_time_coverage_percent"] == 99.74
+    assert report["bars_without_spread_observation_timestamps"] == [
+        bars[3].timestamp.astimezone(timezone.utc).isoformat(),
+    ]
+
+
 def test_closed_session_with_missing_opening_bar_is_not_complete() -> None:
     session_date = date(2026, 11, 6)
     bars = _bars("US", session_date, count=390)[1:]
