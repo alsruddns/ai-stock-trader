@@ -918,6 +918,48 @@ def test_runtime_routes_domestic_orderbook_updates_to_matching_symbol_aggregator
     }
 
 
+def test_domestic_new_minute_orderbook_closes_prior_bar_before_quote_overwrite(monkeypatch) -> None:
+    zone = ZoneInfo("Asia/Seoul")
+    watch = parse_watchlist("KR:005930")[0]
+    runtime = PaperSessionFeedMonitor()
+    aggregator = MinuteBarAggregator()
+    runtime._aggregators[watch.key] = aggregator
+    runtime._feed_by_watch[watch.key] = "paper"
+    runtime._bars[watch.key] = deque()
+    runtime._decisions[watch.key] = {"signal": "HOLD", "executable": False}
+    runtime._bar_storage_queue = asyncio.Queue()
+    runtime._set_status(bar_storage_state="RUNNING")
+    tick_at = datetime(2026, 11, 6, 10, 1, 1, tzinfo=zone)
+    aggregator.add(TradeTick("KR", "005930", tick_at, Decimal("100"), 2, None, None))
+    aggregator.update_quote(OrderBookQuote(
+        "KR", "005930", tick_at + timedelta(seconds=30), Decimal("99"), Decimal("101"),
+    ))
+    next_quote = OrderBookQuote(
+        "KR", "005930", datetime(2026, 11, 6, 10, 2, 0, tzinfo=zone), Decimal("100"), Decimal("102"),
+    )
+    monkeypatch.setattr(
+        "app.paper_runtime.normalize_stream_frame",
+        lambda _frame: {"kind": "data", "encrypted": "0", "transaction_id": "H0STASP0", "count": "1", "payload": "quote"},
+    )
+    monkeypatch.setattr(
+        "app.paper_runtime.parse_domestic_orderbook_frame_with_diagnostics",
+        lambda *_args, **_kwargs: ([next_quote], 0),
+    )
+
+    runtime._consume("quote", (watch,))
+
+    queued_watch, bar, _decision, _quotes = runtime._bar_storage_queue.get_nowait()
+    assert queued_watch == watch
+    assert bar.timestamp == tick_at.replace(second=0, microsecond=0)
+    assert bar.spread_bps == Decimal("200")
+    assert runtime.bars(watch) == (bar,)
+    assert runtime._bar_storage_queue.empty()
+    later_tick = TradeTick("KR", "005930", datetime(2026, 11, 6, 10, 2, 1, tzinfo=zone),
+                           Decimal("101"), 3, None, None)
+    assert aggregator.add(later_tick) is None
+    assert runtime.status()["bars_closed_by_feed"]["paper"] == 1
+
+
 def test_websocket_subscription_ack_timeout_keeps_feed_unavailable(monkeypatch) -> None:
     class SilentConnection:
         async def __aenter__(self):

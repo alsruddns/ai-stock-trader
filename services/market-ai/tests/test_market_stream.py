@@ -187,6 +187,31 @@ def test_minute_aggregator_uses_same_minute_orderbook_quote_for_spread() -> None
     assert completed.spread_bps == Decimal("200")
 
 
+def test_minute_aggregator_closes_prior_bar_before_later_minute_quote() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo("Asia/Seoul")
+    aggregate = MinuteBarAggregator()
+    tick = TradeTick("KR", "005930", datetime(2026, 11, 6, 10, 1, 1, tzinfo=zone),
+                     Decimal("100"), 2, None, None)
+    aggregate.add(tick)
+    aggregate.update_quote(OrderBookQuote(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 30, tzinfo=zone), Decimal("99"), Decimal("101"),
+    ))
+
+    closed = aggregate.close_before(datetime(2026, 11, 6, 10, 2, 0, tzinfo=zone))
+
+    assert closed is not None
+    assert closed.timestamp == datetime(2026, 11, 6, 10, 1, tzinfo=zone)
+    assert closed.spread_bps == Decimal("200")
+    assert aggregate.pending_minute is None
+    next_tick = TradeTick("KR", "005930", datetime(2026, 11, 6, 10, 2, 1, tzinfo=zone),
+                          Decimal("101"), 3, None, None)
+    assert aggregate.add(next_tick) is None
+    assert aggregate.pending_minute == next_tick.timestamp.replace(second=0, microsecond=0)
+
+
 def test_minute_aggregator_ignores_empty_trade_quote_after_orderbook_quote() -> None:
     from datetime import datetime
     from zoneinfo import ZoneInfo

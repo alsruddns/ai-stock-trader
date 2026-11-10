@@ -1356,6 +1356,9 @@ class PaperSessionFeedMonitor:
                         else "usable"
                     )
                     aggregator = self._aggregators[watch.key]
+                    completed_bar = aggregator.close_before(quote.timestamp)
+                    if completed_bar is not None:
+                        self._process_closed_bar(watch, completed_bar)
                     stale = aggregator.quote_is_stale(quote)
                     accepted = aggregator.update_quote(quote)
                     self._record_watch_minute_quality(
@@ -1409,12 +1412,7 @@ class PaperSessionFeedMonitor:
             for tick in matching_ticks:
                 self._record_watch_market_data(feed, watch, "trade", tick.timestamp)
                 self._record_watch_minute_quality(feed, watch, "trade", tick.timestamp)
-                bar = self._aggregators[watch.key].add(tick)
-                if bar is not None:
-                    self._record_watch_market_data(feed, watch, "bar")
-                    self._record_watch_minute_quality(
-                        feed, watch, "bar", bar.timestamp, spread_present=bar.spread_bps is not None,
-                    )
+                completed_bar = self._aggregators[watch.key].add(tick)
                 with self._lock:
                     received_at = datetime.now().astimezone().isoformat()
                     feed_ticks = dict(self._status["ticks_received_by_feed"])
@@ -1427,24 +1425,33 @@ class PaperSessionFeedMonitor:
                     self._status["ticks_received"] = int(self._status["ticks_received"]) + 1
                     self._status["last_tick_at"] = tick.timestamp.isoformat()
                     self._status["last_tick_received_at"] = received_at
-                    if bar is not None:
-                        self._record_closed_bar(watch, bar)
-                        self._status["bars_closed"] = int(self._status["bars_closed"]) + 1
-                        feed_bars = dict(self._status["bars_closed_by_feed"])
-                        feed_bars[feed] = int(feed_bars.get(feed, 0)) + 1
-                        self._status["bars_closed_by_feed"] = feed_bars
-                        decision = dict(self._decisions[watch.key])
-                        quotes = dict(self._latest_quotes)
-                        if self._bar_storage_queue is not None:
-                            # Persist market data independently from the opt-in paper order worker.
-                            self._queue_bar_storage(watch, bar, decision, quotes)
-                        if self._automation_queue is not None:
-                            try:
-                                self._automation_queue.put_nowait((watch, bar, decision, quotes))
-                            except asyncio.QueueFull:
-                                self._paper_entry_queue_blocked = True
-                                self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
-                        self._queue_real_signal(watch, bar, decision)
+                if completed_bar is not None:
+                    self._process_closed_bar(watch, completed_bar)
+
+    def _process_closed_bar(self, watch: PaperWatch, bar: MinuteBar) -> None:
+        feed = self._feed_by_watch.get(watch.key, self._feed_for_watch(watch))
+        self._record_watch_market_data(feed, watch, "bar")
+        self._record_watch_minute_quality(
+            feed, watch, "bar", bar.timestamp, spread_present=bar.spread_bps is not None,
+        )
+        with self._lock:
+            self._record_closed_bar(watch, bar)
+            self._status["bars_closed"] = int(self._status["bars_closed"]) + 1
+            feed_bars = dict(self._status["bars_closed_by_feed"])
+            feed_bars[feed] = int(feed_bars.get(feed, 0)) + 1
+            self._status["bars_closed_by_feed"] = feed_bars
+            decision = dict(self._decisions[watch.key])
+            quotes = dict(self._latest_quotes)
+            if self._bar_storage_queue is not None:
+                # Persist market data independently from the opt-in paper order worker.
+                self._queue_bar_storage(watch, bar, decision, quotes)
+            if self._automation_queue is not None:
+                try:
+                    self._automation_queue.put_nowait((watch, bar, decision, quotes))
+                except asyncio.QueueFull:
+                    self._paper_entry_queue_blocked = True
+                    self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
+            self._queue_real_signal(watch, bar, decision)
 
     def _queue_real_signal(self, watch: PaperWatch, bar: MinuteBar, decision: dict[str, object]) -> None:
         queue = self._real_signal_queue

@@ -254,6 +254,22 @@ class MinuteBarAggregator:
         self._bid = self._ask = None
         return bar
 
+    def close_before(self, timestamp: datetime) -> MinuteBar | None:
+        """Close the pending minute when a later exchange-time quote arrives."""
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise ValueError("quote timestamp must include a timezone")
+        minute = timestamp.replace(second=0, microsecond=0)
+        if self._minute is None or minute <= self._minute:
+            return None
+        bar = self._build_bar()
+        self._minute = None
+        self._open = self._high = self._low = self._close = Decimal(0)
+        self._volume = 0
+        self._bid = self._ask = None
+        self._quote_minute = None
+        # Keep _symbol and _last_tick so late/out-of-order ticks remain rejected.
+        return bar
+
     @property
     def pending_minute(self) -> datetime | None:
         """Return the timestamp of the currently open minute, if any."""
