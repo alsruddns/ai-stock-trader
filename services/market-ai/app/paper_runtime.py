@@ -46,6 +46,7 @@ from .paper_risk import baseline_capture_open, daily_loss_percent, paper_equity_
 
 SUBSCRIPTION_ACK_TIMEOUT_SECONDS = 15
 MINUTE_QUALITY_RETENTION = 400
+WEBSOCKET_APPROVAL_KEY_REFRESH_SECONDS = 23 * 60 * 60
 
 
 def _market_quant_config_result(market: str) -> tuple[QuantConfig | None, list[str], list[str]]:
@@ -1084,12 +1085,18 @@ class PaperSessionFeedMonitor:
     async def _run(self, watches: tuple[PaperWatch, ...], settings: StreamSettings) -> None:
         environment = settings.kis.environment
         delay = 1
+        cached_approval_key: str | None = None
+        approval_key_refresh_at = 0.0
         while True:
             connected_at: float | None = None
             subscription_tracker: SubscriptionAckTracker | None = None
             failure_stage = "approval_key"
             try:
-                key = await asyncio.to_thread(approval_key, settings.kis)
+                loop = asyncio.get_running_loop()
+                if cached_approval_key is None or loop.time() >= approval_key_refresh_at:
+                    cached_approval_key = await asyncio.to_thread(approval_key, settings.kis)
+                    approval_key_refresh_at = loop.time() + WEBSOCKET_APPROVAL_KEY_REFRESH_SECONDS
+                key = cached_approval_key
                 import websockets
 
                 failure_stage = "websocket_connect"

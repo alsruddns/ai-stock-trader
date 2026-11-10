@@ -1065,13 +1065,18 @@ def test_websocket_run_keeps_backoff_across_repeated_short_connections(monkeypat
             raise RuntimeError("simulated disconnect")
 
     delays = []
+    approval_calls = []
 
     async def record_sleep(delay):
         delays.append(delay)
         if len(delays) == 5:
             raise asyncio.CancelledError
 
-    monkeypatch.setattr("app.paper_runtime.approval_key", lambda _settings: "mock-approval")
+    def issue_approval_key(_settings):
+        approval_calls.append(1)
+        return "mock-approval"
+
+    monkeypatch.setattr("app.paper_runtime.approval_key", issue_approval_key)
     monkeypatch.setitem(sys.modules, "websockets", SimpleNamespace(
         connect=lambda *_args, **_kwargs: DroppingConnection(),
     ))
@@ -1083,7 +1088,50 @@ def test_websocket_run_keeps_backoff_across_repeated_short_connections(monkeypat
         asyncio.run(runtime._run((), settings))
 
     assert delays == [2, 4, 8, 16, 30]
+    assert len(approval_calls) == 1
     assert runtime.status()["state"] == "RECONNECTING"
+
+
+def test_websocket_run_refreshes_approval_key_after_cache_expiry(monkeypatch) -> None:
+    class DroppingConnection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send(self, _message):
+            pass
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise RuntimeError("simulated disconnect")
+
+    approval_calls = []
+
+    async def stop_after_reconnect(delay):
+        if len(approval_calls) >= 2:
+            raise asyncio.CancelledError
+
+    def issue_approval_key(_settings):
+        approval_calls.append(1)
+        return f"mock-approval-{len(approval_calls)}"
+
+    monkeypatch.setattr("app.paper_runtime.approval_key", issue_approval_key)
+    monkeypatch.setattr("app.paper_runtime.WEBSOCKET_APPROVAL_KEY_REFRESH_SECONDS", 0)
+    monkeypatch.setitem(sys.modules, "websockets", SimpleNamespace(
+        connect=lambda *_args, **_kwargs: DroppingConnection(),
+    ))
+    monkeypatch.setattr("app.paper_runtime.asyncio.sleep", stop_after_reconnect)
+
+    runtime = PaperSessionFeedMonitor()
+    settings = SimpleNamespace(kis=SimpleNamespace(environment="paper"), websocket_url="ws://mock.invalid")
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(runtime._run((), settings))
+
+    assert len(approval_calls) == 2
 
 
 def test_live_mode_blocks_paper_session_monitor(monkeypatch) -> None:
