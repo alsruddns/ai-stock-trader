@@ -78,6 +78,12 @@ jobs:
           python -m pytest -q
           tests/test_paper_runtime.py::test_domestic_websocket_failure_count_is_per_feed_and_keeps_only_safe_fields
           tests/test_paper_runtime.py::test_domestic_websocket_failure_count_ignores_unknown_feed_name
+      - name: Run domestic final-minute persistence and shutdown tests only
+        working-directory: services/market-ai
+        run: >-
+          python -m pytest -q
+          tests/test_paper_runtime.py::test_finalizer_persists_ended_domestic_minute_without_order_queue
+          tests/test_paper_runtime.py::test_stop_waits_for_inflight_domestic_final_bar_storage
       - name: Verify domestic-only runtime operational scope
         working-directory: services/market-ai
         env:

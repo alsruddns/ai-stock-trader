@@ -242,6 +242,7 @@ class PaperSessionFeedMonitor:
         ] | None = None
         self._bar_storage_task: asyncio.Task | None = None
         self._bar_finalizer_task: asyncio.Task | None = None
+        self._bar_finalizer_stop: asyncio.Event | None = None
         self._latest_quotes: dict[tuple[str, str], tuple[Decimal, datetime]] = {}
 
     def status(self) -> dict[str, object]:
@@ -558,7 +559,10 @@ class PaperSessionFeedMonitor:
                 return
             self._bar_storage_queue = asyncio.Queue(maxsize=5_000)
             self._bar_storage_task = asyncio.create_task(self._bar_storage_loop())
-            self._bar_finalizer_task = asyncio.create_task(self._bar_finalizer_loop())
+            self._bar_finalizer_stop = asyncio.Event()
+            self._bar_finalizer_task = asyncio.create_task(
+                self._bar_finalizer_loop(self._bar_finalizer_stop),
+            )
             self._set_status(
                 bar_storage_state="RUNNING", bar_storage_error=None,
                 restored_bars=restored_count,
@@ -779,6 +783,8 @@ class PaperSessionFeedMonitor:
         self._stream_tasks = []
         finalizer_task = self._bar_finalizer_task
         self._bar_finalizer_task = None
+        finalizer_stop = self._bar_finalizer_stop
+        self._bar_finalizer_stop = None
         automation_task = self._automation_task
         self._automation_task = None
         real_signal_task = self._real_signal_task
@@ -800,7 +806,8 @@ class PaperSessionFeedMonitor:
             except asyncio.CancelledError:
                 pass
         if finalizer_task is not None:
-            finalizer_task.cancel()
+            if finalizer_stop is not None:
+                finalizer_stop.set()
             try:
                 await finalizer_task
             except asyncio.CancelledError:
@@ -964,11 +971,16 @@ class PaperSessionFeedMonitor:
             finally:
                 queue.task_done()
 
-    async def _bar_finalizer_loop(self) -> None:
+    async def _bar_finalizer_loop(self, stop_event: asyncio.Event) -> None:
         """Close ended exchange minutes even when no later trade tick arrives."""
         while True:
-            await asyncio.sleep(1)
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=1)
+            except TimeoutError:
+                pass
             await self._flush_closed_pending_bars(datetime.now(timezone.utc))
+            if stop_event.is_set():
+                return
 
     async def _flush_closed_pending_bars(self, now: datetime) -> None:
         if now.tzinfo is None or now.utcoffset() is None:

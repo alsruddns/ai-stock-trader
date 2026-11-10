@@ -404,6 +404,53 @@ def test_finalizer_persists_ended_domestic_minute_without_order_queue(monkeypatc
     assert quality[tick_at.replace(second=0, microsecond=0).isoformat()]["bar_closed"] is True
 
 
+def test_stop_waits_for_inflight_domestic_final_bar_storage(monkeypatch) -> None:
+    from app import snapshot_store
+
+    store_started = threading.Event()
+    release_store = threading.Event()
+    stored = []
+
+    def store_bar(*args, **kwargs):
+        store_started.set()
+        assert release_store.wait(timeout=3)
+        stored.append((args, kwargs))
+
+    monkeypatch.setattr(snapshot_store, "store_minute_bars", store_bar)
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    runtime._watches_by_feed = {"paper": [watch]}
+    runtime._feed_by_watch = {watch.key: "paper"}
+    aggregator = MinuteBarAggregator()
+    runtime._aggregators[watch.key] = aggregator
+    runtime._bars[watch.key] = deque()
+    runtime._decisions[watch.key] = {"signal": "HOLD", "executable": False}
+    tick_at = datetime(2026, 11, 6, 15, 19, 15, tzinfo=ZoneInfo("Asia/Seoul"))
+    aggregator.add(TradeTick("KR", "005930", tick_at, Decimal("70000"), 12, None, None))
+    stop_event = asyncio.Event()
+    stop_event.set()
+
+    async def stop_while_storage_is_inflight():
+        finalizer_task = asyncio.create_task(runtime._bar_finalizer_loop(stop_event))
+        runtime._bar_finalizer_task = finalizer_task
+        runtime._bar_finalizer_stop = stop_event
+        runtime._bar_storage_task = asyncio.create_task(asyncio.sleep(60))
+        assert await asyncio.wait_for(asyncio.to_thread(store_started.wait, 3), timeout=4)
+
+        stop_task = asyncio.create_task(runtime.stop())
+        await asyncio.sleep(0.05)
+        assert not stop_task.done()
+        release_store.set()
+        await asyncio.wait_for(stop_task, timeout=3)
+        assert finalizer_task.done()
+
+    asyncio.run(stop_while_storage_is_inflight())
+
+    assert len(stored) == 1
+    assert len(runtime.bars(watch)) == 1
+    assert aggregator.pending_minute is None
+
+
 def test_partial_session_restore_cannot_create_a_buy_candidate(monkeypatch) -> None:
     _set_quant_cost_settings(monkeypatch, "KR")
     runtime = PaperSessionFeedMonitor()
