@@ -999,7 +999,7 @@ class PaperSessionFeedMonitor:
                     window = exchange_continuous_session_window(watch.market, pending_minute)
                 except RuntimeError:
                     continue
-                bar = aggregator.flush()
+                bar = aggregator.close_before(minute_end)
                 if bar is None:
                     continue
                 if window is None or not window[0] <= bar.timestamp.astimezone(timezone.utc) < window[1]:

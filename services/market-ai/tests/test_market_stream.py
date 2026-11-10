@@ -210,6 +210,8 @@ def test_minute_aggregator_closes_prior_bar_before_later_minute_quote() -> None:
                           Decimal("101"), 3, None, None)
     assert aggregate.add(next_tick) is None
     assert aggregate.pending_minute == next_tick.timestamp.replace(second=0, microsecond=0)
+    with pytest.raises(ValueError, match="chronological"):
+        aggregate.add(tick)
 
 
 def test_minute_aggregator_ignores_empty_trade_quote_after_orderbook_quote() -> None:
