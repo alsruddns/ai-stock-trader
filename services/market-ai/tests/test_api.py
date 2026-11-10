@@ -135,6 +135,25 @@ def test_health_separates_backtest_costs_from_paper_strategy_cost_model(monkeypa
     ready = client.get("/api/v1/health").json()["paper_strategy_cost_model"]["KR"]
     assert ready == {"enabled": True, "ready": True, "missing": [], "invalid": []}
 
+    monkeypatch.setenv("PAPER_KR_COMMISSION_BPS", "0")
+    monkeypatch.setenv("PAPER_KR_SELL_COST_BPS", "0")
+    zero_costs = client.get("/api/v1/health").json()["paper_strategy_cost_model"]["KR"]
+    assert zero_costs == {
+        "enabled": True,
+        "ready": False,
+        "missing": [],
+        "invalid": ["PAPER_KR_COMMISSION_BPS", "PAPER_KR_SELL_COST_BPS"],
+    }
+
+    monkeypatch.setenv("PAPER_KR_COMMISSION_BPS", "not-a-number")
+    malformed = client.get("/api/v1/health").json()["paper_strategy_cost_model"]["KR"]
+    assert malformed == {
+        "enabled": True,
+        "ready": False,
+        "missing": [],
+        "invalid": ["PAPER_KR_COMMISSION_BPS"],
+    }
+
 
 def test_health_reports_connected_only_when_all_kis_feeds_are_running(monkeypatch) -> None:
     monkeypatch.setattr(main.paper_session_monitor, "status", lambda: {

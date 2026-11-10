@@ -124,12 +124,14 @@ def paper_strategy_cost_model_status(market: str) -> dict[str, object]:
             paper_invalid.append(key)
     enabled = os.getenv("PAPER_COST_MODEL_ENABLED", "false").strip().lower() == "true"
     all_missing = sorted(set(missing + paper_missing))
-    all_invalid = sorted(set(invalid + paper_invalid))
     paper_total = Decimal("0")
     if not paper_missing and not paper_invalid:
         paper_total = sum(
             (Decimal(os.environ[key]) for key in paper_fields.values()), Decimal("0")
         )
+        if paper_total <= 0:
+            paper_invalid.extend(paper_fields.values())
+    all_invalid = sorted(set(invalid + paper_invalid))
     ready = enabled and not all_missing and not all_invalid and paper_total > 0
     return {"enabled": enabled, "ready": ready, "missing": all_missing, "invalid": all_invalid}
 
