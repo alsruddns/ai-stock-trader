@@ -48,8 +48,8 @@ def main() -> int:
                     raise SystemExit(f"Cannot count parameterized domestic quant test cases: {test.name}.")
                 case_count *= len(decorator.args[1].elts)
         selected_count += case_count
-    if selected_count != 31:
-        raise SystemExit(f"Expected 31 domestic quant tests, found {selected_count}.")
+    if selected_count != 32:
+        raise SystemExit(f"Expected 32 domestic quant tests, found {selected_count}.")
     print(f"Domestic quant selection verified: {selected_count} tests; 2 US-specific tests excluded.")
     return 0
 

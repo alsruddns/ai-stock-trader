@@ -9,15 +9,19 @@ from app.quant import MinuteBar, QuantConfig, _ema, backtest_orb_vwap, orb_vwap_
 def _session_bars(bar_count: int = 380) -> list[MinuteBar]:
     start = datetime(2026, 11, 5, 9, 0, tzinfo=timezone(timedelta(hours=9)))
     bars = [
-        MinuteBar(start + timedelta(minutes=i), Decimal("100"), Decimal("100.5"), Decimal("99.5"), Decimal("100"), 1000, Decimal("5"))
+        MinuteBar(start + timedelta(minutes=i), Decimal("100"), Decimal("100.5"), Decimal("99.5"),
+                  Decimal("100"), 1000, Decimal("5"), start + timedelta(minutes=i, seconds=30))
         for i in range(20)
     ]
-    bars.append(MinuteBar(start + timedelta(minutes=20), Decimal("100.5"), Decimal("101.5"), Decimal("100.2"), Decimal("101"), 3000, Decimal("5")))
-    bars.append(MinuteBar(start + timedelta(minutes=21), Decimal("102"), Decimal("103"), Decimal("101.5"), Decimal("102.5"), 1800, Decimal("5")))
-    bars.append(MinuteBar(start + timedelta(minutes=22), Decimal("102.5"), Decimal("106"), Decimal("102"), Decimal("105.5"), 2000, Decimal("5")))
+    bars.append(MinuteBar(start + timedelta(minutes=20), Decimal("100.5"), Decimal("101.5"), Decimal("100.2"),
+                          Decimal("101"), 3000, Decimal("5"), start + timedelta(minutes=20, seconds=30)))
+    bars.append(MinuteBar(start + timedelta(minutes=21), Decimal("102"), Decimal("103"), Decimal("101.5"),
+                          Decimal("102.5"), 1800, Decimal("5"), start + timedelta(minutes=21, seconds=30)))
+    bars.append(MinuteBar(start + timedelta(minutes=22), Decimal("102.5"), Decimal("106"), Decimal("102"),
+                          Decimal("105.5"), 2000, Decimal("5"), start + timedelta(minutes=22, seconds=30)))
     bars.extend(
         MinuteBar(start + timedelta(minutes=i), Decimal("100"), Decimal("100.5"), Decimal("99.5"),
-                  Decimal("100"), 1000, Decimal("5"))
+                  Decimal("100"), 1000, Decimal("5"), start + timedelta(minutes=i, seconds=30))
         for i in range(23, bar_count)
     )
     return bars
@@ -76,7 +80,8 @@ def test_orb_vwap_enters_on_next_bar_and_applies_costs() -> None:
 
 
 def test_backtest_applies_direction_specific_commissions_and_sell_tax() -> None:
-    bars = [MinuteBar(bar.timestamp, bar.open, bar.high, bar.low, bar.close, bar.volume, Decimal("0"))
+    bars = [MinuteBar(bar.timestamp, bar.open, bar.high, bar.low, bar.close, bar.volume,
+                      Decimal("0"), bar.spread_observed_at)
             for bar in _session_bars()]
     config = QuantConfig(
         commission_bps=Decimal("0"), buy_commission_bps=Decimal("2"),
@@ -97,7 +102,8 @@ def test_backtest_applies_direction_specific_commissions_and_sell_tax() -> None:
 def test_observed_spread_reduces_entry_and_exit_fill_prices() -> None:
     bars_with_spread = _session_bars()
     bars_without_spread = [
-        MinuteBar(bar.timestamp, bar.open, bar.high, bar.low, bar.close, bar.volume, Decimal("0"))
+        MinuteBar(bar.timestamp, bar.open, bar.high, bar.low, bar.close, bar.volume,
+                  Decimal("0"), bar.spread_observed_at)
         for bar in bars_with_spread
     ]
     config = QuantConfig(
@@ -154,7 +160,8 @@ def test_missing_exit_spread_uses_configured_spread_ceiling() -> None:
         bars[index] = MinuteBar(prior.timestamp, Decimal("102"), Decimal("104"), Decimal("101"),
                                 Decimal("102"), prior.volume, prior.spread_bps)
     last = bars[-1]
-    bars[-1] = MinuteBar(last.timestamp, last.open, last.high, last.low, last.close, last.volume, None)
+    bars[-1] = MinuteBar(last.timestamp, last.open, last.high, last.low, last.close, last.volume,
+                         Decimal("5"))
     config = QuantConfig(
         commission_bps=Decimal("0"), slippage_bps=Decimal("0"),
         minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"),
@@ -164,17 +171,19 @@ def test_missing_exit_spread_uses_configured_spread_ceiling() -> None:
     result = backtest_orb_vwap("KR", "005930", bars, config)
 
     assert len(result.trades) == 1
-    assert result.trades[0].exit_price < bars[-1].close
+    assert result.trades[0].exit_price == bars[-1].close * (
+        Decimal(1) - config.maximum_spread_bps / Decimal(20_000)
+    )
 
 
 def test_vwap_close_signal_exits_at_next_bar_open_not_same_close(monkeypatch) -> None:
     bars = _session_bars()
     failing = bars[22]
     bars[22] = MinuteBar(failing.timestamp, Decimal("102.5"), Decimal("103"), Decimal("100.8"),
-                         Decimal("101"), failing.volume, Decimal("0"))
+                         Decimal("101"), failing.volume, Decimal("0"), failing.spread_observed_at)
     next_bar = bars[23]
     bars[23] = MinuteBar(next_bar.timestamp, Decimal("101.7"), Decimal("102"), Decimal("101.5"),
-                         Decimal("101.8"), next_bar.volume, Decimal("0"))
+                         Decimal("101.8"), next_bar.volume, Decimal("0"), next_bar.spread_observed_at)
     monkeypatch.setattr(
         "app.quant._vwap",
         lambda history: Decimal("102.5") if len(history) >= 22 else Decimal("100"),
@@ -287,17 +296,30 @@ def test_missing_spread_and_low_turnover_block_entries() -> None:
     assert result.trades == ()
 
 
+def test_spread_without_observation_time_cannot_qualify_entry() -> None:
+    bars = [MinuteBar(bar.timestamp, bar.open, bar.high, bar.low, bar.close, bar.volume,
+                      bar.spread_bps, None) for bar in _session_bars()]
+
+    result = backtest_orb_vwap(
+        "KR", "005930", bars,
+        QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1")),
+    )
+
+    assert result.signals == 0
+    assert result.trades == ()
+
+
 def test_relative_volume_requires_full_prior_lookback_plus_current_bar() -> None:
     bars = _session_bars()[:20]
     start = bars[-1].timestamp
     bars[-1] = MinuteBar(start, Decimal("100.5"), Decimal("101.5"), Decimal("100.2"),
-                         Decimal("101"), 3000, Decimal("5"))
+                         Decimal("101"), 3000, Decimal("5"), start + timedelta(seconds=30))
     config = QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"))
 
     assert orb_vwap_entry_candidate(bars, config, market="KR") is False
     next_bar_time = start + timedelta(minutes=1)
     bars.append(MinuteBar(next_bar_time, Decimal("101"), Decimal("101.5"), Decimal("100.8"),
-                          Decimal("101.2"), 3000, Decimal("5")))
+                          Decimal("101.2"), 3000, Decimal("5"), next_bar_time + timedelta(seconds=30)))
     assert orb_vwap_entry_candidate(bars, config, market="KR") is True
 
 
@@ -313,7 +335,8 @@ def test_us_backtest_uses_new_york_session_date_across_korea_midnight() -> None:
     bars = _session_bars(bar_count=390)
     start = datetime(2026, 11, 5, 23, 30, tzinfo=timezone(timedelta(hours=9)))
     bars = [MinuteBar(start + timedelta(minutes=index), bar.open, bar.high, bar.low,
-                      bar.close, bar.volume, bar.spread_bps)
+                      bar.close, bar.volume, bar.spread_bps,
+                      start + timedelta(minutes=index, seconds=30))
             for index, bar in enumerate(bars)]
 
     result = backtest_orb_vwap(

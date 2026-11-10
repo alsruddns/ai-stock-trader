@@ -209,7 +209,11 @@ def orb_vwap_entry_candidate(
     prior_volumes = [bar.volume for bar in bars[max(0, len(bars) - config.relative_volume_period - 1):-1]]
     average_volume = Decimal(sum(prior_volumes)) / len(prior_volumes) if prior_volumes else Decimal(0)
     relative_volume = Decimal(current.volume) / average_volume if average_volume else Decimal(0)
-    spread_ok = current.spread_bps is not None and current.spread_bps <= config.maximum_spread_bps
+    spread_ok = (
+        current.spread_bps is not None
+        and current.spread_observed_at is not None
+        and current.spread_bps <= config.maximum_spread_bps
+    )
     turnover_ok = current.close * current.volume >= config.minimum_turnover
     return (
         current.close > opening_high and current.close > _vwap(bars)
@@ -272,7 +276,12 @@ def backtest_orb_vwap(
                 # A spread aggregated anywhere inside this bar may arrive after an
                 # open/intrabar exit. Use only the previous completed bar's quote;
                 # for a session-close fill, the final bar's quote is contemporaneous.
-                exit_spread = (bar.spread_bps if reason == "SESSION_END" else prior[-1].spread_bps)
+                exit_spread_bar = bar if reason == "SESSION_END" else prior[-1]
+                exit_spread = (
+                    exit_spread_bar.spread_bps
+                    if exit_spread_bar.spread_observed_at is not None
+                    else None
+                )
                 exit_spread_bps = exit_spread if exit_spread is not None else config.maximum_spread_bps
                 exit_cost_bps = config.slippage_bps + exit_spread_bps / Decimal(2)
                 slipped_exit = exit_price * (Decimal(1) - exit_cost_bps / Decimal(10_000))
