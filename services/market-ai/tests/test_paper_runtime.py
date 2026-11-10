@@ -963,6 +963,52 @@ def test_domestic_new_minute_orderbook_closes_prior_bar_before_quote_overwrite(m
     assert runtime.status()["bars_closed_by_feed"]["paper"] == 1
 
 
+def test_domestic_consecutive_quote_before_trade_boundaries_preserve_each_bar_spread(monkeypatch) -> None:
+    zone = ZoneInfo("Asia/Seoul")
+    watch = parse_watchlist("KR:005930")[0]
+    runtime = PaperSessionFeedMonitor()
+    aggregator = MinuteBarAggregator()
+    runtime._aggregators[watch.key] = aggregator
+    runtime._feed_by_watch[watch.key] = "paper"
+    runtime._bars[watch.key] = deque()
+    runtime._decisions[watch.key] = {"signal": "HOLD", "executable": False}
+    runtime._bar_storage_queue = asyncio.Queue()
+    runtime._set_status(bar_storage_state="RUNNING")
+    quote_rows = []
+    monkeypatch.setattr(
+        "app.paper_runtime.parse_domestic_orderbook_frame_with_diagnostics",
+        lambda *_args, **_kwargs: (quote_rows, 0),
+    )
+
+    first_tick_at = datetime(2026, 11, 6, 10, 1, 1, tzinfo=zone)
+    aggregator.add(TradeTick("KR", "005930", first_tick_at, Decimal("100"), 1, None, None))
+    expected_minutes = [first_tick_at.replace(second=0, microsecond=0) + timedelta(minutes=index)
+                        for index in range(3)]
+    for index, minute in enumerate(expected_minutes):
+        bid = Decimal(99 + index)
+        ask = bid + Decimal(2)
+        quote_rows[:] = [OrderBookQuote("KR", "005930", minute + timedelta(seconds=30), bid, ask)]
+        runtime._consume("0|H0STASP0|1|quote", (watch,))
+
+        next_minute = minute + timedelta(minutes=1)
+        quote_rows[:] = [OrderBookQuote(
+            "KR", "005930", next_minute, bid + Decimal(1), ask + Decimal(1),
+        )]
+        runtime._consume("0|H0STASP0|1|quote", (watch,))
+        aggregator.add(TradeTick(
+            "KR", "005930", next_minute + timedelta(seconds=1), ask, 1, None, None,
+        ))
+
+    stored_bars = [runtime._bar_storage_queue.get_nowait()[1] for _ in expected_minutes]
+    assert [bar.timestamp for bar in stored_bars] == expected_minutes
+    assert all(bar.spread_bps is not None for bar in stored_bars)
+    assert [bar.spread_observed_at for bar in stored_bars] == [
+        minute + timedelta(seconds=30) for minute in expected_minutes
+    ]
+    assert runtime._bar_storage_queue.empty()
+    assert runtime.status()["bars_closed_by_feed"]["paper"] == len(expected_minutes)
+
+
 def test_websocket_subscription_ack_timeout_keeps_feed_unavailable(monkeypatch) -> None:
     class SilentConnection:
         async def __aenter__(self):
