@@ -31,6 +31,72 @@ Describe 'Domestic PAPER monitor reconnect tolerance' {
     }
 }
 
+Describe 'Domestic minute-level spread diagnostics' {
+    It 'distinguishes quote gaps from quotes that did not produce a spread bar' {
+        $status = [pscustomobject]@{
+            market_data_minute_quality_by_watch_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{
+                    'KR:005930:' = [pscustomobject]@{
+                        '2026-11-10T09:00:00+09:00' = [pscustomobject]@{
+                            market = 'KR'; symbol = '005930'; exchange = $null
+                            bar_closed = $true; bar_spread_present = $true
+                            bar_spread_observed_at = '2026-11-10T09:00:20+09:00'
+                            orderbook_quotes_received = 2; usable_orderbook_quotes = 2; stale_quotes = 0
+                        }
+                        '2026-11-10T09:01:00+09:00' = [pscustomobject]@{
+                            market = 'KR'; symbol = '005930'; exchange = $null
+                            bar_closed = $true; bar_spread_present = $false
+                            bar_spread_observed_at = $null
+                            orderbook_quotes_received = 1; usable_orderbook_quotes = 1; stale_quotes = 0
+                        }
+                        '2026-11-10T09:02:00+09:00' = [pscustomobject]@{
+                            market = 'KR'; symbol = '005930'; exchange = $null
+                            bar_closed = $true; bar_spread_present = $false
+                            bar_spread_observed_at = $null
+                            orderbook_quotes_received = 0; usable_orderbook_quotes = 0; stale_quotes = 0
+                        }
+                    }
+                }
+                real = [pscustomobject]@{}
+            }
+        }
+
+        $diagnostics = Get-MonitorMinuteQualityDiagnostics $status 'paper'
+
+        $diagnostics.available | Should Be $true
+        $diagnostics.symbols.Count | Should Be 1
+        $diagnostics.symbols[0].closed_minutes | Should Be 3
+        $diagnostics.symbols[0].spread_minutes | Should Be 1
+        $diagnostics.symbols[0].spread_coverage_percent | Should Be 33.33
+        $diagnostics.symbols[0].minutes_with_orderbook_quotes | Should Be 2
+        $diagnostics.symbols[0].minutes_with_quotes_without_spread | Should Be 1
+        $diagnostics.symbols[0].minutes_without_orderbook_quotes | Should Be 1
+        $diagnostics.symbols[0].missing_spread_samples.Count | Should Be 2
+    }
+
+    It 'reports missing or malformed per-minute diagnostics as unavailable' {
+        (Get-MonitorMinuteQualityDiagnostics ([pscustomobject]@{}) 'paper').reason |
+            Should Be 'FIELD_UNAVAILABLE'
+        $status = [pscustomobject]@{
+            market_data_minute_quality_by_watch_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{
+                    'KR:005930:' = [pscustomobject]@{
+                        'not-a-time' = [pscustomobject]@{
+                            market = 'KR'; symbol = '005930'; exchange = $null
+                            bar_closed = $true; bar_spread_present = $false
+                            bar_spread_observed_at = $null
+                            orderbook_quotes_received = 0; usable_orderbook_quotes = 0; stale_quotes = 0
+                        }
+                    }
+                }
+                real = [pscustomobject]@{}
+            }
+        }
+        (Get-MonitorMinuteQualityDiagnostics $status 'paper').reason |
+            Should Be 'INVALID_MINUTE_QUALITY_DATA'
+    }
+}
+
 Describe 'Paper session monitor failure codes' {
     It 'classifies a stalled WebSocket without persisting the raw exception text' {
         Get-MonitorFailureCode 'No WebSocket ticks arrived for more than 300 seconds.' |

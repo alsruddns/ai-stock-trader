@@ -76,6 +76,11 @@ jobs:
             throw "Domestic PAPER reconnect tolerance tests failed: passed=$($reconnectResult.PassedCount), failed=$($reconnectResult.FailedCount)."
           }
 
+          $minuteQualityResult = Invoke-Pester -Path 'scripts/tests/paper-session-monitor-status.Tests.ps1' -TestName 'Domestic minute-level spread diagnostics' -PassThru
+          if ($minuteQualityResult.FailedCount -gt 0 -or $minuteQualityResult.PassedCount -ne 2) {
+            throw "Domestic minute-level spread diagnostics tests failed: passed=$($minuteQualityResult.PassedCount), failed=$($minuteQualityResult.FailedCount)."
+          }
+
           $restartResult = Invoke-Pester -Path 'scripts/tests/local-stack-restart-domestic.Tests.ps1' -PassThru
           if ($restartResult.FailedCount -gt 0 -or $restartResult.PassedCount -ne 6) {
             throw "Domestic local stack restart tests failed: passed=$($restartResult.PassedCount), failed=$($restartResult.FailedCount)."

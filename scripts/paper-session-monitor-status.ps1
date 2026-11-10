@@ -305,6 +305,148 @@ function Get-MonitorSymbolMarketData($Status, [string]$SelectedFeed) {
     }
 }
 
+function Get-MonitorMinuteQualityDiagnostics($Status, [string]$SelectedFeed) {
+    $feed = if ($SelectedFeed) { $SelectedFeed.Trim().ToLowerInvariant() } else { 'paper' }
+    if ($feed -notin @('paper', 'real')) {
+        return [pscustomobject]@{ available = $false; reason = 'INVALID_FEED'; symbols = $null }
+    }
+    $sourceProperty = if ($Status) {
+        $Status.PSObject.Properties['market_data_minute_quality_by_watch_by_feed']
+    } else { $null }
+    $feedProperty = if ($sourceProperty -and $sourceProperty.Value) {
+        $sourceProperty.Value.PSObject.Properties[$feed]
+    } else { $null }
+    if (-not $feedProperty -or -not $feedProperty.Value) {
+        return [pscustomobject]@{ available = $false; reason = 'FIELD_UNAVAILABLE'; symbols = $null }
+    }
+
+    $valid = $true
+    $expectedMarket = if ($feed -eq 'paper') { 'KR' } else { 'US' }
+    $symbols = [System.Collections.Generic.List[object]]::new()
+    foreach ($watchProperty in $feedProperty.Value.PSObject.Properties) {
+        $market = $expectedMarket
+        $symbol = ''
+        $exchange = $null
+        $keyMatches = if ($expectedMarket -eq 'KR') {
+            if ($watchProperty.Name -match '^KR:(\d{6}):$') {
+                $symbol = $Matches[1]
+                $true
+            } else { $false }
+        } else {
+            if ($watchProperty.Name -match '^US:([A-Z][A-Z0-9.\-]{0,14}):(NAS|NYS|AMS)$') {
+                $symbol = $Matches[1]
+                $exchange = $Matches[2]
+                $true
+            } else { $false }
+        }
+        if (-not $keyMatches) {
+            $valid = $false
+            continue
+        }
+
+        $totals = [ordered]@{
+            closed_minutes = 0L; spread_minutes = 0L; minutes_with_orderbook_quotes = 0L
+            minutes_with_quotes_without_spread = 0L; minutes_without_orderbook_quotes = 0L
+            orderbook_quotes = 0L; usable_orderbook_quotes = 0L; stale_quotes = 0L
+        }
+        $missingSpreadSamples = [System.Collections.Generic.List[object]]::new()
+        foreach ($minuteProperty in $watchProperty.Value.PSObject.Properties) {
+            $minute = $minuteProperty.Value
+            if ($null -eq $minute.PSObject.Properties['bar_closed'] -or -not [bool]$minute.bar_closed) {
+                continue
+            }
+            $rowMarket = [string]$minute.market
+            $rowSymbol = ([string]$minute.symbol).Trim().ToUpperInvariant()
+            $rowExchange = if ([string]::IsNullOrWhiteSpace([string]$minute.exchange)) {
+                $null
+            } else { ([string]$minute.exchange).Trim().ToUpperInvariant() }
+            if ($rowMarket -ne $market -or $rowSymbol -ne $symbol -or $rowExchange -ne $exchange) {
+                $valid = $false
+                continue
+            }
+            $parsedMinute = [DateTimeOffset]::MinValue
+            if (-not [DateTimeOffset]::TryParse([string]$minuteProperty.Name, [ref]$parsedMinute)) {
+                $valid = $false
+                continue
+            }
+            $spreadProperty = $minute.PSObject.Properties['bar_spread_present']
+            if (-not $spreadProperty) {
+                $valid = $false
+                continue
+            }
+            $counts = [ordered]@{}
+            foreach ($name in @(
+                'orderbook_quotes_received', 'usable_orderbook_quotes', 'stale_quotes'
+            )) {
+                $count = 0L
+                $countProperty = $minute.PSObject.Properties[$name]
+                if (-not $countProperty -or
+                    -not [long]::TryParse([string]$countProperty.Value, [ref]$count) -or $count -lt 0) {
+                    $valid = $false
+                    break
+                }
+                $counts[$name] = $count
+            }
+            if (-not $valid) { continue }
+
+            $totals.closed_minutes++
+            $totals.orderbook_quotes += $counts.orderbook_quotes_received
+            $totals.usable_orderbook_quotes += $counts.usable_orderbook_quotes
+            $totals.stale_quotes += $counts.stale_quotes
+            $hasSpread = [bool]$spreadProperty.Value
+            if ($hasSpread) {
+                $observedProperty = $minute.PSObject.Properties['bar_spread_observed_at']
+                $observedAt = [DateTimeOffset]::MinValue
+                $minuteStart = $parsedMinute.ToUniversalTime()
+                if (-not $observedProperty -or
+                    -not [DateTimeOffset]::TryParse([string]$observedProperty.Value, [ref]$observedAt) -or
+                    $observedAt.ToUniversalTime() -lt $minuteStart -or
+                    $observedAt.ToUniversalTime() -ge $minuteStart.AddMinutes(1)) {
+                    $valid = $false
+                    continue
+                }
+            }
+            if ($hasSpread) { $totals.spread_minutes++ }
+            if ($counts.orderbook_quotes_received -gt 0) {
+                $totals.minutes_with_orderbook_quotes++
+                if (-not $hasSpread) { $totals.minutes_with_quotes_without_spread++ }
+            } else {
+                $totals.minutes_without_orderbook_quotes++
+            }
+            if (-not $hasSpread -and $missingSpreadSamples.Count -lt 12) {
+                $missingSpreadSamples.Add([pscustomobject]@{
+                    minute = $parsedMinute.ToUniversalTime().ToString('o')
+                    orderbook_quotes = $counts.orderbook_quotes_received
+                    usable_orderbook_quotes = $counts.usable_orderbook_quotes
+                    stale_quotes = $counts.stale_quotes
+                })
+            }
+        }
+        $symbols.Add([pscustomobject]@{
+            market = $market
+            symbol = $symbol
+            exchange = $exchange
+            closed_minutes = $totals.closed_minutes
+            spread_minutes = $totals.spread_minutes
+            spread_coverage_percent = if ($totals.closed_minutes -gt 0) {
+                [Math]::Round(100.0 * $totals.spread_minutes / $totals.closed_minutes, 2)
+            } else { $null }
+            minutes_with_orderbook_quotes = $totals.minutes_with_orderbook_quotes
+            minutes_with_quotes_without_spread = $totals.minutes_with_quotes_without_spread
+            minutes_without_orderbook_quotes = $totals.minutes_without_orderbook_quotes
+            orderbook_quotes = $totals.orderbook_quotes
+            usable_orderbook_quotes = $totals.usable_orderbook_quotes
+            stale_quotes = $totals.stale_quotes
+            missing_spread_samples = @($missingSpreadSamples.ToArray())
+        })
+    }
+    return [pscustomobject]@{
+        available = $valid
+        reason = if ($valid) { $null } else { 'INVALID_MINUTE_QUALITY_DATA' }
+        symbols = if ($valid) { [object[]]$symbols.ToArray() } else { $null }
+    }
+}
+
 function Get-MonitorSymbolMarketDataDelta($InitialStatus, $CurrentStatus, [string]$SelectedFeed) {
     $initial = Get-MonitorSymbolMarketData $InitialStatus $SelectedFeed
     $current = Get-MonitorSymbolMarketData $CurrentStatus $SelectedFeed

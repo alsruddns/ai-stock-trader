@@ -460,6 +460,7 @@ $evidence = [ordered]@{
     feed_diagnostics_delta = Get-MonitorFeedDiagnosticsDelta $initial $latest $Feed
     symbol_market_data = Get-MonitorSymbolMarketData $latest $Feed
     symbol_market_data_delta = Get-MonitorSymbolMarketDataDelta $initial $latest $Feed
+    minute_quality_diagnostics = Get-MonitorMinuteQualityDiagnostics $latest $Feed
     stream_failure_diagnostic_available = (Get-MonitorStreamFailureDiagnostic $latest).stream_failure_diagnostic_available
     stream_failure_stage = (Get-MonitorStreamFailureDiagnostic $latest).stream_failure_stage
     stream_error_category = (Get-MonitorStreamFailureDiagnostic $latest).stream_error_category
@@ -496,6 +497,7 @@ Write-ProgressRecord ([ordered]@{
     feed_diagnostics_delta = Get-MonitorFeedDiagnosticsDelta $initial $latest $Feed
     symbol_market_data = Get-MonitorSymbolMarketData $latest $Feed
     symbol_market_data_delta = Get-MonitorSymbolMarketDataDelta $initial $latest $Feed
+    minute_quality_diagnostics = Get-MonitorMinuteQualityDiagnostics $latest $Feed
     orders_enabled = $false
     automation_state = $latest.automation_state
     result = 'passed'
@@ -534,6 +536,9 @@ Write-Output "Read-only KIS $validationLabel passed: feed=$(if ($Feed) { $Feed }
         feeds = if ($latest) { $latest.stream_connections } else { $null }
         feed_diagnostics = if ($latest) { Get-MonitorFeedDiagnostics $latest $Feed } else { $null }
         feed_diagnostics_delta = if ($latest) { Get-MonitorFeedDiagnosticsDelta $initial $latest $Feed } else { $null }
+        minute_quality_diagnostics = if ($latest) {
+            Get-MonitorMinuteQualityDiagnostics $latest $Feed
+        } else { [pscustomobject]@{ available = $false; reason = 'STATUS_UNAVAILABLE'; symbols = $null } }
         orders_enabled = if ($latest) { [bool]$latest.orders_enabled } else { $false }
         automation_state = if ($latest) { $latest.automation_state } else { $null }
         failure_type = $_.Exception.GetType().Name
