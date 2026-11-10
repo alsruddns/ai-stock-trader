@@ -13,16 +13,9 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
-from app.backtest_metrics import summarize_trades
+from app.backtest_metrics import summarize_spread_coverage, summarize_trades
 from app.market_scope import require_cli_operational_market
 from app.quant import QuantConfig, backtest_orb_vwap
-
-
-def spread_coverage(bars) -> tuple[int, float | None]:
-    """Return observed spread count and coverage without treating missing as zero."""
-    total = len(bars)
-    observed = sum(bar.spread_bps is not None for bar in bars)
-    return observed, round(100 * observed / total, 2) if total else None
 
 
 def main() -> int:
@@ -65,14 +58,21 @@ def main() -> int:
                      sell_tax_bps=args.sell_tax_bps, slippage_bps=args.slippage_bps,
                      minimum_turnover=args.minimum_turnover, maximum_spread_bps=args.maximum_spread_bps)
     session_results = [
-        (session, bars, backtest_orb_vwap(args.market, args.symbol, bars, config))
+        (session, bars, backtest_orb_vwap(args.market, args.symbol, bars, config),
+         summarize_spread_coverage(bars))
         for session, bars in sorted(sessions.items())
     ]
-    results = [result for _session, _bars, result in session_results]
+    results = [result for _session, _bars, result, _coverage in session_results]
     trades = [trade for result in results for trade in result.trades]
-    total_bars = sum(len(bars) for _session, bars, _result in session_results)
-    total_spread_bars = sum(spread_coverage(bars)[0] for _session, bars, _result in session_results)
+    total_bars = sum(len(bars) for _session, bars, _result, _coverage in session_results)
+    total_spread_bars = sum(coverage["spread_bars"] for _session, _bars, _result, coverage in session_results)
+    total_timestamped_spread_bars = sum(
+        coverage["spread_observation_time_bars"] for _session, _bars, _result, coverage in session_results
+    )
     spread_coverage_percent = round(100 * total_spread_bars / total_bars, 2) if total_bars else None
+    spread_observation_time_coverage_percent = (
+        round(100 * total_timestamped_spread_bars / total_bars, 2) if total_bars else None
+    )
     output = {
         "market": args.market,
         "symbol": args.symbol.strip().upper(),
@@ -81,18 +81,18 @@ def main() -> int:
         "data_provenance": provenance,
         "sessions": [{
             "date": result.session.isoformat(), "bars": result.data_points,
-            "spread_bars": spread_coverage(bars)[0],
-            "spread_coverage_percent": spread_coverage(bars)[1],
-            "spread_filter_has_complete_input": spread_coverage(bars)[0] == len(bars),
+            **coverage,
             "signals": result.signals, "trades": len(result.trades),
             "gross_pnl": str(result.gross_pnl),
             "estimated_costs": str(result.costs), "net_pnl": str(result.net_pnl),
-        } for _session, bars, result in session_results],
+        } for _session, _bars, result, coverage in session_results],
         "summary": {
             "session_count": len(results), "bar_count": total_bars,
             "spread_bars": total_spread_bars,
             "spread_coverage_percent": spread_coverage_percent,
-            "spread_filter_has_complete_input": total_spread_bars == total_bars,
+            "spread_observation_time_bars": total_timestamped_spread_bars,
+            "spread_observation_time_coverage_percent": spread_observation_time_coverage_percent,
+            "spread_filter_has_complete_input": total_bars > 0 and total_timestamped_spread_bars == total_bars,
             "signal_count": sum(result.signals for result in results), "trade_count": len(trades),
             "winning_trades": sum(trade.net_pnl > 0 for trade in trades),
             "gross_pnl": str(sum((result.gross_pnl for result in results), Decimal(0))),
@@ -112,7 +112,7 @@ def main() -> int:
             "Input data licensing, corrections, symbol mapping, and timestamp zone are the operator's responsibility.",
             "Each session is simulated independently at one share; results do not compound portfolio capital.",
             "Exchange fees and market impact must be reflected in the supplied assumptions where applicable.",
-            "Entries require observed spreads within the configured limit; missing spread data is reported and is not treated as zero or a passing filter.",
+            "Entries require timestamped observed spreads within the configured limit; missing or untimestamped spread data is reported and is not treated as zero or a passing filter.",
         ],
     }
     print(json.dumps(output, indent=2, ensure_ascii=False))

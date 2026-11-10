@@ -1,11 +1,11 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.backtest_metrics import summarize_trades
-from app.quant import Trade
+from app.backtest_metrics import summarize_spread_coverage, summarize_trades
+from app.quant import MinuteBar, Trade
 
 
 KR_TZ = ZoneInfo("Asia/Seoul")
@@ -57,3 +57,25 @@ def test_invalid_entry_notional_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="positive quantity and entry price"):
         summarize_trades([invalid])
+
+
+def test_spread_coverage_separates_numeric_values_from_timestamped_strategy_inputs() -> None:
+    start = datetime(2026, 11, 10, 9, 0, tzinfo=KR_TZ)
+    bars = [
+        MinuteBar(start, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"),
+                  100, Decimal("5"), start + timedelta(seconds=10)),
+        MinuteBar(start + timedelta(minutes=1), Decimal("100"), Decimal("101"), Decimal("99"),
+                  Decimal("100"), 100, Decimal("5")),
+        MinuteBar(start + timedelta(minutes=2), Decimal("100"), Decimal("101"), Decimal("99"),
+                  Decimal("100"), 100),
+    ]
+
+    coverage = summarize_spread_coverage(bars)
+
+    assert coverage == {
+        "spread_bars": 2,
+        "spread_coverage_percent": 66.67,
+        "spread_observation_time_bars": 1,
+        "spread_observation_time_coverage_percent": 33.33,
+        "spread_filter_has_complete_input": False,
+    }

@@ -6,7 +6,7 @@ from decimal import Decimal
 from statistics import median
 from typing import Sequence
 
-from .quant import Trade
+from .quant import MinuteBar, Trade
 
 
 def _mean(values: Sequence[Decimal]) -> Decimal | None:
@@ -56,4 +56,23 @@ def summarize_trades(trades: Sequence[Trade]) -> dict[str, object]:
         "median_net_return_bps": None if not returns_bps else str(median(returns_bps)),
         "worst_trade_net_return_bps": None if not returns_bps else str(min(returns_bps)),
         "return_basis": "arithmetic per trade: net PnL divided by entry price times quantity; not compounded",
+    }
+
+
+def summarize_spread_coverage(bars: Sequence[MinuteBar]) -> dict[str, object]:
+    """Separate numeric spreads from time-verified spread inputs used by the strategy."""
+    total = len(bars)
+    observed = sum(bar.spread_bps is not None for bar in bars)
+    timestamped = sum(
+        bar.spread_bps is not None and bar.spread_observed_at is not None
+        for bar in bars
+    )
+    return {
+        "spread_bars": observed,
+        "spread_coverage_percent": round(100 * observed / total, 2) if total else None,
+        "spread_observation_time_bars": timestamped,
+        "spread_observation_time_coverage_percent": (
+            round(100 * timestamped / total, 2) if total else None
+        ),
+        "spread_filter_has_complete_input": total > 0 and timestamped == total,
     }
