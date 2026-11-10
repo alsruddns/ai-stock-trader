@@ -77,7 +77,7 @@ jobs:
           }
 
           $restartResult = Invoke-Pester -Path 'scripts/tests/local-stack-restart-domestic.Tests.ps1' -PassThru
-          if ($restartResult.FailedCount -gt 0 -or $restartResult.PassedCount -ne 4) {
+          if ($restartResult.FailedCount -gt 0 -or $restartResult.PassedCount -ne 5) {
             throw "Domestic local stack restart tests failed: passed=$($restartResult.PassedCount), failed=$($restartResult.FailedCount)."
           }
 
