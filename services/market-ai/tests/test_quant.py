@@ -249,6 +249,28 @@ def test_minute_bar_rejects_non_finite_spread_and_non_integer_volume() -> None:
         MinuteBar(timestamp, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"), True)
 
 
+@pytest.mark.parametrize("observed_at", [
+    datetime(2026, 11, 5, 8, 59, 59, tzinfo=timezone(timedelta(hours=9))),
+    datetime(2026, 11, 5, 9, 1, 0, tzinfo=timezone(timedelta(hours=9))),
+])
+def test_minute_bar_rejects_spread_observation_outside_bar_interval(observed_at: datetime) -> None:
+    timestamp = datetime(2026, 11, 5, 9, 0, tzinfo=timezone(timedelta(hours=9)))
+
+    with pytest.raises(ValueError, match="within its bar minute"):
+        MinuteBar(timestamp, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"),
+                  100, Decimal("5"), observed_at)
+
+
+def test_minute_bar_accepts_spread_observation_at_last_second_of_bar() -> None:
+    timestamp = datetime(2026, 11, 5, 9, 0, tzinfo=timezone(timedelta(hours=9)))
+    observed_at = datetime(2026, 11, 5, 0, 0, 59, 999999, tzinfo=timezone.utc)
+
+    bar = MinuteBar(timestamp, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"),
+                    100, Decimal("5"), observed_at)
+
+    assert bar.spread_observed_at == observed_at
+
+
 @pytest.mark.parametrize("field", ["minimum_turnover", "commission_bps", "buy_commission_bps",
                                     "sell_commission_bps", "sell_tax_bps", "slippage_bps"])
 def test_quant_config_rejects_non_finite_numeric_settings(field: str) -> None:

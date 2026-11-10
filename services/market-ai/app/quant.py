@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Callable, Literal
 from zoneinfo import ZoneInfo
@@ -25,7 +25,7 @@ class MinuteBar:
     spread_observed_at: datetime | None = None
 
     def __post_init__(self) -> None:
-        if self.timestamp.tzinfo is None:
+        if self.timestamp.tzinfo is None or self.timestamp.utcoffset() is None:
             raise ValueError("bar timestamps must include a timezone")
         prices = (self.open, self.high, self.low, self.close)
         if any(not isinstance(price, Decimal) or not price.is_finite() for price in prices):
@@ -45,12 +45,10 @@ class MinuteBar:
             if (self.spread_bps is None or self.spread_observed_at.tzinfo is None
                     or self.spread_observed_at.utcoffset() is None):
                 raise ValueError("spread observation time requires a spread and timezone")
-            observed_minute = self.spread_observed_at.astimezone(self.timestamp.tzinfo).replace(
-                second=0, microsecond=0,
-            )
-            bar_minute = self.timestamp.replace(second=0, microsecond=0)
-            if observed_minute != bar_minute:
-                raise ValueError("spread observation time must belong to its bar minute")
+            bar_start = self.timestamp.astimezone(timezone.utc)
+            observed_at = self.spread_observed_at.astimezone(timezone.utc)
+            if not bar_start <= observed_at < bar_start + timedelta(minutes=1):
+                raise ValueError("spread observation time must fall within its bar minute")
 
 
 @dataclass(frozen=True)
