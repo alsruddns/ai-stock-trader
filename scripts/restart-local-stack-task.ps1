@@ -208,6 +208,19 @@ function Test-PaperMarketDataDiagnosticsReady($Session) {
     return $true
 }
 
+function Test-PaperMinuteQualityDiagnosticsReady($Session) {
+    if (-not $Session -or
+        $null -eq $Session.PSObject.Properties['market_data_minute_quality_by_watch_by_feed']) {
+        return $false
+    }
+    $feeds = $Session.market_data_minute_quality_by_watch_by_feed
+    if (-not $feeds) { return $false }
+    foreach ($feed in @('paper', 'real')) {
+        if ($null -eq $feeds.PSObject.Properties[$feed]) { return $false }
+    }
+    return $true
+}
+
 function Stop-TrackedProcessTree($Process) {
     if ($null -eq $Process) { return }
     $current = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$Process.ProcessId)" -ErrorAction SilentlyContinue
@@ -332,6 +345,9 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
     }
     if (-not (Test-PaperMarketDataDiagnosticsReady $paperSession)) {
         throw 'The restarted Python API did not expose the expected market-data processing diagnostics.'
+    }
+    if (-not (Test-PaperMinuteQualityDiagnosticsReady $paperSession)) {
+        throw 'The restarted Python API did not expose the expected per-minute quote and spread diagnostics.'
     }
     $closedSessionScope = if ($DomesticOnly) { 'KRX' } else { 'both exchanges' }
     Write-Output "Local APIs restarted after $closedSessionScope closed; frame/quote/processing diagnostics and monitor/storage were restored and all trading locks remain enabled."

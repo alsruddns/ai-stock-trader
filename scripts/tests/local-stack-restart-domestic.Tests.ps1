@@ -10,7 +10,8 @@ foreach ($functionName in @(
     'Get-RequiredSessionMarkets',
     'Test-SessionResponsesFreshAndClosed',
     'Test-TrackedProcessParentage',
-    'Test-LocalTaskRestartable'
+    'Test-LocalTaskRestartable',
+    'Test-PaperMinuteQualityDiagnosticsReady'
 )) {
     $functionAst = $restartAst.Find({
         param($node)
@@ -47,5 +48,18 @@ Describe 'Domestic local stack restart guards' {
         (Test-LocalTaskRestartable 'Running') | Should Be $true
         (Test-LocalTaskRestartable 'Ready') | Should Be $true
         (Test-LocalTaskRestartable 'Disabled') | Should Be $false
+    }
+
+    It 'requires the restarted API to expose domestic per-minute quote diagnostics' {
+        $status = [pscustomobject]@{
+            market_data_minute_quality_by_watch_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{}
+                real = [pscustomobject]@{}
+            }
+        }
+        (Test-PaperMinuteQualityDiagnosticsReady $status) | Should Be $true
+        (Test-PaperMinuteQualityDiagnosticsReady ([pscustomobject]@{})) | Should Be $false
+        $status.market_data_minute_quality_by_watch_by_feed = [pscustomobject]@{ paper = [pscustomobject]@{} }
+        (Test-PaperMinuteQualityDiagnosticsReady $status) | Should Be $false
     }
 }
