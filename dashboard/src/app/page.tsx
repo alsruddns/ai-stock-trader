@@ -27,7 +27,7 @@ type Model = { model_id: string; market?: string; model_type?: string; approved?
 type Decision = { market: string; symbol: string; exchange: string | null; signal: string; reason: string; bars_in_session: number; evaluated_at: string | null; model_id?: string | null; executable: false };
 type MinuteMarketQuality = { market: string; symbol: string; exchange: string | null; trade_ticks_received: number; orderbook_quotes_received: number; usable_orderbook_quotes: number; empty_or_nonpositive_quotes: number; crossed_quotes: number; stale_quotes: number; bar_closed?: boolean; bar_spread_present?: boolean };
 type MarketSession = { market: "KR" | "US"; session_date: string; is_session: boolean; is_open: boolean; open_at: string | null; close_at: string | null; evaluated_at: string };
-type SessionQuality = { market: string; symbol: string; session_date: string; status: string; expected_bars: number; observed_bars: number; missing_bars: number; spread_bars: number; spread_coverage_percent: number | null; source_counts?: Record<string, number>; missing_bar_timestamps?: string[]; bars_without_spread_timestamps?: string[]; full_session_complete: boolean };
+type SessionQuality = { market: string; symbol: string; session_date: string; status: string; expected_bars: number; observed_bars: number; missing_bars: number; spread_bars: number; spread_coverage_percent: number | null; spread_observation_time_bars?: number; spread_observation_time_coverage_percent?: number | null; source_counts?: Record<string, number>; missing_bar_timestamps?: string[]; bars_without_spread_timestamps?: string[]; bars_without_spread_observation_timestamps?: string[]; full_session_complete: boolean };
 type SessionQualityBatch = { market: string; session_date: string; sessions: SessionQuality[] };
 type CostAssumptionStatus = { configured: boolean; missing: string[]; invalid: string[] };
 type MarketAiHealth = Record<string, unknown> & { strategy_cost_assumptions?: Partial<Record<"KR" | "US", CostAssumptionStatus>> };
@@ -36,7 +36,7 @@ type ScheduledTask = { kind: string; market: string | null; symbol: string | nul
 type LocalSchedule = { state: string; registeredCount: number; enabledCount?: number; krRegisteredCount?: number; usRegisteredCount?: number; krEnabledCount?: number; usEnabledCount?: number; paperLifecycleCount?: number; modelTrainingCount?: number; modelHoldoutCount?: number; tasks: ScheduledTask[] };
 type DomesticSymbolMarketData = { symbol: string; tradeTicksReceived: number; barsClosed: number; orderbookQuotesReceived: number; usableOrderbookQuotes: number };
 type LocalOperationsReport = { generatedAt: string; reportSchemaVersion: number; localStackTask: { state: string; principalLogonType: string; requiresInteractiveLogon: boolean | null; enabled: boolean | null; nextRunTime: string | null; lastRunTime: string | null; lastTaskResult: number | null } | null; sessionMonitorSchedule: LocalSchedule | null; domesticSessionMonitor: { state: string; recordedAt: string | null; sessionDate: string | null; validationScope: string | null; sessionCloseReached: boolean | null; sessionQualityStatus: string | null; ticksDelta: number | null; barsDelta: number | null; orderbookFramesDelta: number | null; orderbookUpdatesDelta: number | null; maxNoTickSeconds: number | null; failureStage: string | null; failureCode: string | null; symbolMarketDataStatus: string; symbolMarketData: DomesticSymbolMarketData[] } | null; validationTaskSchedule: LocalSchedule | null };
-type TrainingReadiness = { market: string; symbol: string; from_date: string; to_date: string; minimum_required_sessions: number; eligible_sessions: number; additional_sessions_needed: number; minimum_met: boolean; sessions?: { status?: string; observed_bars?: number; expected_bars?: number; spread_bars?: number; source_counts?: Record<string, number>; ineligibility_reasons?: string[] }[] };
+type TrainingReadiness = { market: string; symbol: string; from_date: string; to_date: string; minimum_required_sessions: number; eligible_sessions: number; additional_sessions_needed: number; minimum_met: boolean; sessions?: { status?: string; observed_bars?: number; expected_bars?: number; spread_bars?: number; spread_observation_time_bars?: number; source_counts?: Record<string, number>; ineligibility_reasons?: string[] }[] };
 type Payload = { generatedAt: string; springConnected: boolean; pythonConnected: boolean; operations: Ops | null; marketAi: MarketAiHealth | null; paperSession: { state: string; enabled: boolean; subscriptions: number; ticks_received: number; ticks_received_by_feed?: Record<string, number>; bars_closed: number; orderbook_updates_by_feed?: Record<string, number>; market_data_by_watch_by_feed?: Record<string, Record<string, { trade_ticks_received?: number; bars_closed?: number; orderbook_quotes_received?: number; usable_orderbook_quotes?: number; last_trade_at?: string; last_trade_received_at?: string; last_orderbook_at?: string; last_orderbook_received_at?: string }>>; market_data_minute_quality_by_watch_by_feed?: Record<string, Record<string, Record<string, MinuteMarketQuality>>>; orderbook_quote_quality_by_feed?: Record<string, { usable: number; empty_or_nonpositive: number; crossed: number; stale_rejected: number }>; last_orderbook_received_at_by_feed?: Record<string, string | null>; frames_received_by_feed?: Record<string, number>; frame_transaction_counts_by_feed?: Record<string, Record<string, number>>; stream_failures_by_feed?: Record<string, number>; orders_enabled: false; mode?: string; real_signal_state?: string; real_signal_error?: string | null; last_real_signal?: { market: string; symbol: string; order_status?: string; idempotency_key?: string; submitted_at?: string; executable: false } | null; paper_reconciliation_required?: boolean; paper_unknown_idempotency_key?: string | null; kr_calendar_compatibility?: string; stream_connections?: Record<string, string>; subscription_acknowledgements_by_feed?: Record<string, { accepted_count: number; required_count: number; complete: boolean }>; last_subscription_error_code?: string | null; last_stream_failure_stage?: string | null; last_stream_error_category?: string | null; last_stream_failure_at?: string | null; last_stream_failure_environment?: string | null; automation_state?: string; automation_error?: string | null; daily_baseline?: { state?: string; currency?: string; equity?: string; reason?: string } | null; candidate_refresh_by_market?: Record<string, CandidateRefresh>; decisions?: Record<string, Decision> } | null; marketSessions?: { KR: MarketSession | null; US: MarketSession | null }; marketDataQuality?: { KR: SessionQualityBatch | null; US: SessionQualityBatch | null }; localOperationsReport?: LocalOperationsReport | null; localOperationsReportFresh?: boolean; trainingReadiness?: Record<string, TrainingReadiness | null>; aiModels: { models: Model[]; governance_events: Record<string, string>[]; governance_audit?: { integrity_verified: boolean; event_count: number }; executable: false } | null };
 
 const money = (value: string | number, currency: string) => new Intl.NumberFormat("ko-KR", { style: "currency", currency, maximumFractionDigits: currency === "KRW" ? 0 : 2 }).format(Number(value));
@@ -118,16 +118,22 @@ export default function Dashboard() {
       const reasonLabels: Record<string, string> = {
         incomplete_session: "분봉 누락",
         incomplete_spread_coverage: "호가 스프레드 누락",
+        missing_spread_observation_time: "호가 관측시각 누락",
         unapproved_data_source: "승인된 시세 출처 아님",
       };
       const expectedSource = item.market === "KR" ? "KIS_PAPER_WEBSOCKET" : "KIS_REAL_US_WEBSOCKET";
       const sessionReasons = (session: NonNullable<typeof item.sessions>[number]) => {
-        if (session.ineligibility_reasons) return session.ineligibility_reasons;
-        const reasons: string[] = [];
+        const reasons: string[] = [...(session.ineligibility_reasons ?? [])];
         if (session.status !== "COMPLETE" || session.observed_bars !== session.expected_bars) {
-          reasons.push("incomplete_session");
+          if (!reasons.includes("incomplete_session")) reasons.push("incomplete_session");
         }
-        if (session.spread_bars !== session.expected_bars) reasons.push("incomplete_spread_coverage");
+        if (session.spread_bars !== session.expected_bars && !reasons.includes("incomplete_spread_coverage")) {
+          reasons.push("incomplete_spread_coverage");
+        }
+        if (session.spread_observation_time_bars !== session.expected_bars
+            && !reasons.includes("missing_spread_observation_time")) {
+          reasons.push("missing_spread_observation_time");
+        }
         const sources = session.source_counts ?? {};
         if (Object.keys(sources).length !== 1 || sources[expectedSource] !== session.expected_bars) {
           reasons.push("unapproved_data_source");
@@ -151,16 +157,23 @@ export default function Dashboard() {
   ];
   const qualityBySymbol = new Map(qualitySessions.map((item) => [`${item.market}:${item.symbol}`, item]));
   const completeQualityCount = qualitySessions.filter((item) => item.full_session_complete
-    && item.spread_coverage_percent === 100 && hasApprovedSessionSource(item)).length;
+    && item.spread_coverage_percent === 100
+    && item.spread_observation_time_coverage_percent === 100
+    && hasApprovedSessionSource(item)).length;
   const qualitySummary = qualitySessions.length
-    ? `${completeQualityCount}/${qualitySessions.length}개 종목이 완전한 봉·스프레드·승인 출처 확인`
+    ? `${completeQualityCount}/${qualitySessions.length}개 종목이 분봉·스프레드·호가시각·출처 조건 충족`
     : "저장 품질을 확인할 수 없음";
   const qualityDetails = qualitySessions.slice(0, 3).map((item) => {
     const missingBars = item.missing_bar_timestamps ?? [];
     const missingSpread = item.bars_without_spread_timestamps ?? [];
+    const missingSpreadObservationTime = item.bars_without_spread_observation_timestamps ?? [];
     const gapDetail = missingBars.length ? ` · 분봉누락 ${missingBars.slice(0, 3).map(value => marketMinute(value, item.market)).join(",")}${missingBars.length > 3 ? ` 외 ${missingBars.length - 3}개` : ""}` : "";
     const spreadDetail = missingSpread.length ? ` · 호가누락 ${missingSpread.slice(0, 3).map(value => marketMinute(value, item.market)).join(",")}${missingSpread.length > 3 ? ` 외 ${missingSpread.length - 3}개` : ""}` : "";
-    return `${item.market} ${item.session_date} ${item.symbol} ${item.status} · ${item.observed_bars}/${item.expected_bars}봉 · spread ${item.spread_coverage_percent ?? "—"}% · ${sessionSourceSummary(item)}${gapDetail}${spreadDetail}`;
+    const observationTimeDetail = missingSpreadObservationTime.length ? ` · 호가시각누락 ${missingSpreadObservationTime.slice(0, 3).map(value => marketMinute(value, item.market)).join(",")}${missingSpreadObservationTime.length > 3 ? ` 외 ${missingSpreadObservationTime.length - 3}개` : ""}` : "";
+    const observationCoverage = item.spread_observation_time_coverage_percent == null
+      ? "미확인"
+      : `${item.spread_observation_time_coverage_percent}%`;
+    return `${item.market} ${item.session_date} ${item.symbol} ${item.status} · ${item.observed_bars}/${item.expected_bars}봉 · spread ${item.spread_coverage_percent ?? "—"}% · 호가시각 ${observationCoverage} · ${sessionSourceSummary(item)}${gapDetail}${spreadDetail}${observationTimeDetail}`;
   }).join(" / ");
   const minuteQualityRows = Object.entries(data?.paperSession?.market_data_minute_quality_by_watch_by_feed?.paper ?? {})
     .flatMap(([watchKey, minutes]) => Object.entries(minutes).map(([minute, quality]) => ({ watchKey, minute, ...quality })))
