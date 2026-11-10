@@ -345,9 +345,11 @@ function Get-MonitorMinuteQualityDiagnostics($Status, [string]$SelectedFeed) {
         }
 
         $totals = [ordered]@{
-            closed_minutes = 0L; spread_minutes = 0L; minutes_with_orderbook_quotes = 0L
+            closed_minutes = 0L; spread_minutes = 0L; minutes_with_trade_ticks = 0L
+            minutes_with_orderbook_quotes = 0L
             minutes_with_quotes_without_spread = 0L; minutes_without_orderbook_quotes = 0L
-            orderbook_quotes = 0L; usable_orderbook_quotes = 0L; stale_quotes = 0L
+            trade_ticks = 0L; orderbook_quotes = 0L; usable_orderbook_quotes = 0L
+            empty_or_nonpositive_quotes = 0L; crossed_quotes = 0L; stale_quotes = 0L
         }
         $missingSpreadSamples = [System.Collections.Generic.List[object]]::new()
         foreach ($minuteProperty in $watchProperty.Value.PSObject.Properties) {
@@ -376,7 +378,8 @@ function Get-MonitorMinuteQualityDiagnostics($Status, [string]$SelectedFeed) {
             }
             $counts = [ordered]@{}
             foreach ($name in @(
-                'orderbook_quotes_received', 'usable_orderbook_quotes', 'stale_quotes'
+                'trade_ticks_received', 'orderbook_quotes_received', 'usable_orderbook_quotes',
+                'empty_or_nonpositive_quotes', 'crossed_quotes', 'stale_quotes'
             )) {
                 $count = 0L
                 $countProperty = $minute.PSObject.Properties[$name]
@@ -390,8 +393,11 @@ function Get-MonitorMinuteQualityDiagnostics($Status, [string]$SelectedFeed) {
             if (-not $valid) { continue }
 
             $totals.closed_minutes++
+            $totals.trade_ticks += $counts.trade_ticks_received
             $totals.orderbook_quotes += $counts.orderbook_quotes_received
             $totals.usable_orderbook_quotes += $counts.usable_orderbook_quotes
+            $totals.empty_or_nonpositive_quotes += $counts.empty_or_nonpositive_quotes
+            $totals.crossed_quotes += $counts.crossed_quotes
             $totals.stale_quotes += $counts.stale_quotes
             $hasSpread = [bool]$spreadProperty.Value
             if ($hasSpread) {
@@ -407,6 +413,7 @@ function Get-MonitorMinuteQualityDiagnostics($Status, [string]$SelectedFeed) {
                 }
             }
             if ($hasSpread) { $totals.spread_minutes++ }
+            if ($counts.trade_ticks_received -gt 0) { $totals.minutes_with_trade_ticks++ }
             if ($counts.orderbook_quotes_received -gt 0) {
                 $totals.minutes_with_orderbook_quotes++
                 if (-not $hasSpread) { $totals.minutes_with_quotes_without_spread++ }
@@ -416,8 +423,11 @@ function Get-MonitorMinuteQualityDiagnostics($Status, [string]$SelectedFeed) {
             if (-not $hasSpread -and $missingSpreadSamples.Count -lt 12) {
                 $missingSpreadSamples.Add([pscustomobject]@{
                     minute = $parsedMinute.ToUniversalTime().ToString('o')
+                    trade_ticks = $counts.trade_ticks_received
                     orderbook_quotes = $counts.orderbook_quotes_received
                     usable_orderbook_quotes = $counts.usable_orderbook_quotes
+                    empty_or_nonpositive_quotes = $counts.empty_or_nonpositive_quotes
+                    crossed_quotes = $counts.crossed_quotes
                     stale_quotes = $counts.stale_quotes
                 })
             }
@@ -431,11 +441,15 @@ function Get-MonitorMinuteQualityDiagnostics($Status, [string]$SelectedFeed) {
             spread_coverage_percent = if ($totals.closed_minutes -gt 0) {
                 [Math]::Round(100.0 * $totals.spread_minutes / $totals.closed_minutes, 2)
             } else { $null }
+            minutes_with_trade_ticks = $totals.minutes_with_trade_ticks
             minutes_with_orderbook_quotes = $totals.minutes_with_orderbook_quotes
             minutes_with_quotes_without_spread = $totals.minutes_with_quotes_without_spread
             minutes_without_orderbook_quotes = $totals.minutes_without_orderbook_quotes
+            trade_ticks = $totals.trade_ticks
             orderbook_quotes = $totals.orderbook_quotes
             usable_orderbook_quotes = $totals.usable_orderbook_quotes
+            empty_or_nonpositive_quotes = $totals.empty_or_nonpositive_quotes
+            crossed_quotes = $totals.crossed_quotes
             stale_quotes = $totals.stale_quotes
             missing_spread_samples = @($missingSpreadSamples.ToArray())
         })

@@ -41,19 +41,22 @@ Describe 'Domestic minute-level spread diagnostics' {
                             market = 'KR'; symbol = '005930'; exchange = $null
                             bar_closed = $true; bar_spread_present = $true
                             bar_spread_observed_at = '2026-11-10T09:00:20+09:00'
-                            orderbook_quotes_received = 2; usable_orderbook_quotes = 2; stale_quotes = 0
+                            trade_ticks_received = 4; orderbook_quotes_received = 2; usable_orderbook_quotes = 2
+                            empty_or_nonpositive_quotes = 0; crossed_quotes = 0; stale_quotes = 0
                         }
                         '2026-11-10T09:01:00+09:00' = [pscustomobject]@{
                             market = 'KR'; symbol = '005930'; exchange = $null
                             bar_closed = $true; bar_spread_present = $false
                             bar_spread_observed_at = $null
-                            orderbook_quotes_received = 1; usable_orderbook_quotes = 1; stale_quotes = 0
+                            trade_ticks_received = 3; orderbook_quotes_received = 1; usable_orderbook_quotes = 1
+                            empty_or_nonpositive_quotes = 1; crossed_quotes = 0; stale_quotes = 0
                         }
                         '2026-11-10T09:02:00+09:00' = [pscustomobject]@{
                             market = 'KR'; symbol = '005930'; exchange = $null
                             bar_closed = $true; bar_spread_present = $false
                             bar_spread_observed_at = $null
-                            orderbook_quotes_received = 0; usable_orderbook_quotes = 0; stale_quotes = 0
+                            trade_ticks_received = 2; orderbook_quotes_received = 0; usable_orderbook_quotes = 0
+                            empty_or_nonpositive_quotes = 0; crossed_quotes = 0; stale_quotes = 0
                         }
                     }
                 }
@@ -69,9 +72,12 @@ Describe 'Domestic minute-level spread diagnostics' {
         $diagnostics.symbols[0].closed_minutes | Should Be 3
         $diagnostics.symbols[0].spread_minutes | Should Be 1
         $diagnostics.symbols[0].spread_coverage_percent | Should Be 33.33
+        $diagnostics.symbols[0].minutes_with_trade_ticks | Should Be 3
         $diagnostics.symbols[0].minutes_with_orderbook_quotes | Should Be 2
         $diagnostics.symbols[0].minutes_with_quotes_without_spread | Should Be 1
         $diagnostics.symbols[0].minutes_without_orderbook_quotes | Should Be 1
+        $diagnostics.symbols[0].trade_ticks | Should Be 9
+        $diagnostics.symbols[0].empty_or_nonpositive_quotes | Should Be 1
         $diagnostics.symbols[0].missing_spread_samples.Count | Should Be 2
     }
 
@@ -86,7 +92,9 @@ Describe 'Domestic minute-level spread diagnostics' {
                             market = 'KR'; symbol = '005930'; exchange = $null
                             bar_closed = $true; bar_spread_present = $false
                             bar_spread_observed_at = $null
-                            orderbook_quotes_received = 0; usable_orderbook_quotes = 0; stale_quotes = 0
+                            trade_ticks_received = 0; orderbook_quotes_received = 0
+                            usable_orderbook_quotes = 0; empty_or_nonpositive_quotes = 0
+                            crossed_quotes = 0; stale_quotes = 0
                         }
                     }
                 }
