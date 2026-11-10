@@ -394,6 +394,7 @@ def test_finalizer_persists_ended_domestic_minute_without_order_queue(monkeypatc
     bar = runtime.bars(watch)[0]
     assert bar.timestamp == tick_at.replace(second=0, microsecond=0)
     assert bar.spread_bps == Decimal("28.57142857142857142857142857")
+    assert bar.spread_observed_at == tick_at + timedelta(seconds=20)
     assert stored == [(("KR", "005930", [bar]), {"source": "KIS_PAPER_WEBSOCKET"})]
     assert runtime._automation_queue.empty()
     assert runtime._real_signal_queue.empty()
@@ -401,7 +402,9 @@ def test_finalizer_persists_ended_domestic_minute_without_order_queue(monkeypatc
     assert status["bars_closed"] == 1
     assert status["bars_closed_by_feed"]["paper"] == 1
     quality = status["market_data_minute_quality_by_watch_by_feed"]["paper"][watch.key]
-    assert quality[tick_at.replace(second=0, microsecond=0).isoformat()]["bar_closed"] is True
+    minute_quality = quality[tick_at.replace(second=0, microsecond=0).isoformat()]
+    assert minute_quality["bar_closed"] is True
+    assert minute_quality["bar_spread_observed_at"] == (tick_at + timedelta(seconds=20)).isoformat()
 
 
 def test_stop_waits_for_inflight_domestic_final_bar_storage(monkeypatch) -> None:

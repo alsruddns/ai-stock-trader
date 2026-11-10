@@ -390,12 +390,22 @@ class PaperSessionFeedMonitor:
         category: str | None = None,
         stale: bool = False,
         spread_present: bool | None = None,
+        spread_observed_at: datetime | None = None,
     ) -> None:
         """Keep a full KRX session of per-watch receipt and bar-quality counts."""
         if feed not in {"paper", "real"}:
             return
         if exchange_timestamp.tzinfo is None or exchange_timestamp.utcoffset() is None:
             raise ValueError("market-data timestamp must include a timezone")
+        if spread_observed_at is not None:
+            if (metric != "bar" or spread_present is not True
+                    or spread_observed_at.tzinfo is None or spread_observed_at.utcoffset() is None):
+                raise ValueError("bar spread observation time requires a spread and timezone-aware bar metric")
+            observed_minute = spread_observed_at.astimezone(exchange_timestamp.tzinfo).replace(
+                second=0, microsecond=0,
+            )
+            if observed_minute != exchange_timestamp.replace(second=0, microsecond=0):
+                raise ValueError("bar spread observation time must belong to its exchange minute")
         minute = exchange_timestamp.replace(second=0, microsecond=0).isoformat()
         with self._lock:
             by_feed = self._status["market_data_minute_quality_by_watch_by_feed"]
@@ -423,6 +433,9 @@ class PaperSessionFeedMonitor:
             elif metric == "bar":
                 values["bar_closed"] = True
                 values["bar_spread_present"] = bool(spread_present)
+                values["bar_spread_observed_at"] = (
+                    spread_observed_at.isoformat() if spread_observed_at is not None else None
+                )
             else:
                 raise ValueError("market-data minute metric is invalid")
             if len(by_watch) > MINUTE_QUALITY_RETENTION:
@@ -1010,6 +1023,7 @@ class PaperSessionFeedMonitor:
                 self._record_watch_market_data(feed, watch, "bar")
                 self._record_watch_minute_quality(
                     feed, watch, "bar", bar.timestamp, spread_present=bar.spread_bps is not None,
+                    spread_observed_at=bar.spread_observed_at,
                 )
                 self._record_closed_bar(watch, bar)
                 with self._lock:
@@ -1433,6 +1447,7 @@ class PaperSessionFeedMonitor:
         self._record_watch_market_data(feed, watch, "bar")
         self._record_watch_minute_quality(
             feed, watch, "bar", bar.timestamp, spread_present=bar.spread_bps is not None,
+            spread_observed_at=bar.spread_observed_at,
         )
         with self._lock:
             self._record_closed_bar(watch, bar)
