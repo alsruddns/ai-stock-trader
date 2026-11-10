@@ -241,6 +241,7 @@ class PaperSessionFeedMonitor:
             tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]
         ] | None = None
         self._bar_storage_task: asyncio.Task | None = None
+        self._bar_finalizer_task: asyncio.Task | None = None
         self._latest_quotes: dict[tuple[str, str], tuple[Decimal, datetime]] = {}
 
     def status(self) -> dict[str, object]:
@@ -557,6 +558,7 @@ class PaperSessionFeedMonitor:
                 return
             self._bar_storage_queue = asyncio.Queue(maxsize=5_000)
             self._bar_storage_task = asyncio.create_task(self._bar_storage_loop())
+            self._bar_finalizer_task = asyncio.create_task(self._bar_finalizer_loop())
             self._set_status(
                 bar_storage_state="RUNNING", bar_storage_error=None,
                 restored_bars=restored_count,
@@ -775,6 +777,8 @@ class PaperSessionFeedMonitor:
         self._candidate_tasks = []
         stream_tasks = self._stream_tasks
         self._stream_tasks = []
+        finalizer_task = self._bar_finalizer_task
+        self._bar_finalizer_task = None
         automation_task = self._automation_task
         self._automation_task = None
         real_signal_task = self._real_signal_task
@@ -795,6 +799,14 @@ class PaperSessionFeedMonitor:
                 await task
             except asyncio.CancelledError:
                 pass
+        if finalizer_task is not None:
+            finalizer_task.cancel()
+            try:
+                await finalizer_task
+            except asyncio.CancelledError:
+                pass
+        if storage_task is not None:
+            await self._flush_closed_pending_bars(datetime.now(timezone.utc))
         if automation_task is not None:
             automation_task.cancel()
             try:
@@ -951,6 +963,58 @@ class PaperSessionFeedMonitor:
                         self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
             finally:
                 queue.task_done()
+
+    async def _bar_finalizer_loop(self) -> None:
+        """Close ended exchange minutes even when no later trade tick arrives."""
+        while True:
+            await asyncio.sleep(1)
+            await self._flush_closed_pending_bars(datetime.now(timezone.utc))
+
+    async def _flush_closed_pending_bars(self, now: datetime) -> None:
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("finalizer time must include a timezone")
+        now_utc = now.astimezone(timezone.utc)
+        for watches in tuple(self._watches_by_feed.values()):
+            for watch in tuple(watches):
+                aggregator = self._aggregators.get(watch.key)
+                pending_minute = aggregator.pending_minute if aggregator is not None else None
+                if pending_minute is None:
+                    continue
+                minute_end = pending_minute.astimezone(timezone.utc) + timedelta(minutes=1)
+                if now_utc < minute_end:
+                    continue
+                try:
+                    window = exchange_continuous_session_window(watch.market, pending_minute)
+                except RuntimeError:
+                    continue
+                bar = aggregator.flush()
+                if bar is None:
+                    continue
+                if window is None or not window[0] <= bar.timestamp.astimezone(timezone.utc) < window[1]:
+                    self._record_closed_bar(watch, bar)
+                    continue
+
+                feed = self._feed_by_watch.get(watch.key, self._feed_for_watch(watch))
+                self._record_watch_market_data(feed, watch, "bar")
+                self._record_watch_minute_quality(
+                    feed, watch, "bar", bar.timestamp, spread_present=bar.spread_bps is not None,
+                )
+                self._record_closed_bar(watch, bar)
+                with self._lock:
+                    self._status["bars_closed"] = int(self._status["bars_closed"]) + 1
+                    by_feed = dict(self._status["bars_closed_by_feed"])
+                    by_feed[feed] = int(by_feed.get(feed, 0)) + 1
+                    self._status["bars_closed_by_feed"] = by_feed
+                # Persist directly: a final bar must not enter PAPER/REAL signal queues.
+                try:
+                    await asyncio.to_thread(
+                        snapshot_store.store_minute_bars, watch.market, watch.symbol, [bar],
+                        source=("KIS_PAPER_WEBSOCKET" if watch.market == "KR" else "KIS_REAL_US_WEBSOCKET"),
+                    )
+                except Exception:
+                    self._set_status(bar_storage_state="ERROR", bar_storage_error="POSTGRES_WRITE_FAILED")
+                    if self._automation_queue is not None:
+                        self._set_status(automation_state="BLOCKED", automation_error="BAR_PERSISTENCE_UNAVAILABLE")
 
     async def _run(self, watches: tuple[PaperWatch, ...], settings: StreamSettings) -> None:
         environment = settings.kis.environment

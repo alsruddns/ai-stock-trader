@@ -155,6 +155,7 @@ def test_minute_aggregator_emits_closed_bar_and_rejects_out_of_order_ticks() -> 
     same_minute = TradeTick("KR", "005930", first.timestamp + timedelta(seconds=40), Decimal("101"), 3, Decimal("100.9"), Decimal("101.1"))
     next_minute = TradeTick("KR", "005930", first.timestamp + timedelta(minutes=1), Decimal("100.5"), 4, Decimal("100.4"), Decimal("100.6"))
     assert aggregate.add(first) is None
+    assert aggregate.pending_minute == first.timestamp.replace(second=0, microsecond=0)
     assert aggregate.add(same_minute) is None
     completed = aggregate.add(next_minute)
     assert completed is not None
@@ -164,6 +165,7 @@ def test_minute_aggregator_emits_closed_bar_and_rejects_out_of_order_ticks() -> 
     with pytest.raises(ValueError, match="chronological"):
         aggregate.add(first)
     assert aggregate.flush().volume == 4
+    assert aggregate.pending_minute is None
 
 
 def test_minute_aggregator_uses_same_minute_orderbook_quote_for_spread() -> None:

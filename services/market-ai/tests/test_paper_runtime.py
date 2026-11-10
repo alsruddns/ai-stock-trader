@@ -357,6 +357,53 @@ def test_closed_paper_websocket_bars_are_written_off_loop_with_spread(monkeypatc
     assert runtime.status()["bar_storage_state"] == "RUNNING"
 
 
+def test_finalizer_persists_ended_domestic_minute_without_order_queue(monkeypatch) -> None:
+    from app import snapshot_store
+
+    stored = []
+    monkeypatch.setattr(snapshot_store, "store_minute_bars", lambda *args, **kwargs: stored.append((args, kwargs)))
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    runtime._watches_by_feed = {"paper": [watch]}
+    runtime._feed_by_watch = {watch.key: "paper"}
+    runtime._aggregators[watch.key] = MinuteBarAggregator()
+    runtime._bars[watch.key] = deque()
+    runtime._decisions[watch.key] = {"signal": "HOLD", "executable": False}
+    runtime._automation_queue = asyncio.Queue()
+    runtime._real_signal_queue = asyncio.Queue()
+    runtime._set_status(bar_storage_state="RUNNING")
+    zone = ZoneInfo("Asia/Seoul")
+    tick_at = datetime(2026, 11, 6, 15, 19, 15, tzinfo=zone)
+    tick = TradeTick("KR", "005930", tick_at, Decimal("70000"), 12, None, None)
+    aggregator = runtime._aggregators[watch.key]
+    aggregator.add(tick)
+    aggregator.update_quote(OrderBookQuote(
+        "KR", "005930", tick_at + timedelta(seconds=20), Decimal("69900"), Decimal("70100"),
+    ))
+
+    async def finalize():
+        await runtime._flush_closed_pending_bars(datetime(2026, 11, 6, 15, 19, 59, tzinfo=zone))
+        assert aggregator.pending_minute == tick_at.replace(second=0, microsecond=0)
+        assert stored == []
+        await runtime._flush_closed_pending_bars(datetime(2026, 11, 6, 15, 20, 0, tzinfo=zone))
+
+    asyncio.run(finalize())
+
+    assert aggregator.pending_minute is None
+    assert len(runtime.bars(watch)) == 1
+    bar = runtime.bars(watch)[0]
+    assert bar.timestamp == tick_at.replace(second=0, microsecond=0)
+    assert bar.spread_bps == Decimal("28.57142857142857142857142857")
+    assert stored == [(("KR", "005930", [bar]), {"source": "KIS_PAPER_WEBSOCKET"})]
+    assert runtime._automation_queue.empty()
+    assert runtime._real_signal_queue.empty()
+    status = runtime.status()
+    assert status["bars_closed"] == 1
+    assert status["bars_closed_by_feed"]["paper"] == 1
+    quality = status["market_data_minute_quality_by_watch_by_feed"]["paper"][watch.key]
+    assert quality[tick_at.replace(second=0, microsecond=0).isoformat()]["bar_closed"] is True
+
+
 def test_partial_session_restore_cannot_create_a_buy_candidate(monkeypatch) -> None:
     _set_quant_cost_settings(monkeypatch, "KR")
     runtime = PaperSessionFeedMonitor()

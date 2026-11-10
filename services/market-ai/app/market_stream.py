@@ -254,6 +254,11 @@ class MinuteBarAggregator:
         self._bid = self._ask = None
         return bar
 
+    @property
+    def pending_minute(self) -> datetime | None:
+        """Return the timestamp of the currently open minute, if any."""
+        return self._minute
+
     def _build_bar(self) -> MinuteBar:
         spread: Decimal | None = None
         if (self._quote_minute == self._minute and self._bid is not None and self._ask is not None
