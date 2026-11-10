@@ -45,6 +45,7 @@ from .paper_ops import PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate,
 from .paper_risk import baseline_capture_open, daily_loss_percent, paper_equity_snapshot
 
 SUBSCRIPTION_ACK_TIMEOUT_SECONDS = 15
+MINUTE_QUALITY_RETENTION = 400
 
 
 def _market_quant_config_result(market: str) -> tuple[QuantConfig | None, list[str], list[str]]:
@@ -388,7 +389,7 @@ class PaperSessionFeedMonitor:
         stale: bool = False,
         spread_present: bool | None = None,
     ) -> None:
-        """Keep the latest 60 minutes of per-watch receipt and bar-quality counts."""
+        """Keep a full KRX session of per-watch receipt and bar-quality counts."""
         if feed not in {"paper", "real"}:
             return
         if exchange_timestamp.tzinfo is None or exchange_timestamp.utcoffset() is None:
@@ -422,8 +423,8 @@ class PaperSessionFeedMonitor:
                 values["bar_spread_present"] = bool(spread_present)
             else:
                 raise ValueError("market-data minute metric is invalid")
-            if len(by_watch) > 60:
-                for oldest in sorted(by_watch)[:-60]:
+            if len(by_watch) > MINUTE_QUALITY_RETENTION:
+                for oldest in sorted(by_watch)[:-MINUTE_QUALITY_RETENTION]:
                     del by_watch[oldest]
 
     def decisions(self) -> dict[str, dict[str, object]]:

@@ -531,21 +531,21 @@ def test_runtime_preinitializes_domestic_watch_market_data_before_first_event() 
         assert "last_orderbook_at" not in row
 
 
-def test_runtime_keeps_only_latest_60_exchange_minutes_of_market_data_quality() -> None:
+def test_runtime_keeps_only_latest_400_exchange_minutes_of_market_data_quality() -> None:
     runtime = PaperSessionFeedMonitor()
     (watch,) = parse_watchlist("KR:005930")
     first_minute = datetime.fromisoformat("2026-11-10T09:00:00+09:00")
 
-    for offset in range(61):
+    for offset in range(401):
         runtime._record_watch_minute_quality(
             "paper", watch, "trade", first_minute + timedelta(minutes=offset),
         )
 
     minutes = runtime.status()["market_data_minute_quality_by_watch_by_feed"]["paper"][watch.key]
-    assert len(minutes) == 60
+    assert len(minutes) == 400
     assert first_minute.isoformat() not in minutes
     assert (first_minute + timedelta(minutes=1)).isoformat() in minutes
-    assert (first_minute + timedelta(minutes=60)).isoformat() in minutes
+    assert (first_minute + timedelta(minutes=400)).isoformat() in minutes
 
 
 def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch) -> None:
