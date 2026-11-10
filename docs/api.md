@@ -64,6 +64,8 @@ Python health의 `broker_connected=true`는 모니터가 활성화되어 있고 
 
 Python health의 `strategy_cost_assumptions`는 KR/US별 백테스트·학습 비용 설정 상태와 누락되거나 유효하지 않은 환경변수 이름만 반환합니다. 비용 숫자와 자격정보는 반환하지 않습니다. 왕복 라벨 비용이 매수·매도 수수료, 매도세금, 양쪽 체결 슬리피지 합보다 작으면 미준비로 표시합니다. 대시보드는 이 상태를 사용해 `.env_local`에서 확인할 항목을 보여주며, 이 진단 자체는 비용을 승인하거나 PAPER/REAL 주문을 활성화하지 않습니다.
 
+`paper_strategy_cost_model`은 국내·미국 전략 평가에 별도로 필요한 PAPER 비용 모델 상태를 `enabled`, `ready`, 누락·오류 환경변수 이름으로 반환합니다. `strategy_cost_assumptions.configured=true`여도 PAPER 비용 모델이 꺼져 있거나 PAPER 원장 매수·매도 비용이 빠져 있으면 전략 평가가 `STRATEGY_COST_ASSUMPTIONS_UNAVAILABLE`로 차단될 수 있습니다. 이 상태 조회는 비용 설정을 바꾸거나 자동매매를 켜지 않습니다.
+
 `GET /api/v1/market/sessions/{market}`는 `market`이 `KR` 또는 `US`일 때 거래소 캘린더가 확인한 현지 세션 날짜와 UTC 개장·폐장 시각, 조회 시점의 장중 여부를 반환합니다. 휴장일에는 `is_session=false`와 빈 개장·폐장 시각을 돌려줍니다. 캘린더를 검증할 수 없으면 HTTP 503으로 닫습니다. 이 endpoint는 읽기 전용 세션 정보이며 주문 승인이 아닙니다.
 
 Next.js `GET /api/operations`는 이 endpoint를 KR·US 각각 조회해 `marketSessions.KR` 및 `marketSessions.US`로 대시보드에 전달합니다. 한쪽 캘린더를 확인할 수 없으면 해당 값은 `null`이고 UI에는 "판정 불가"가 표시됩니다.

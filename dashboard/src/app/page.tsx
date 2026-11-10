@@ -30,7 +30,11 @@ type MarketSession = { market: "KR" | "US"; session_date: string; is_session: bo
 type SessionQuality = { market: string; symbol: string; session_date: string; status: string; expected_bars: number; observed_bars: number; missing_bars: number; spread_bars: number; spread_coverage_percent: number | null; spread_observation_time_bars?: number; spread_observation_time_coverage_percent?: number | null; source_counts?: Record<string, number>; missing_bar_timestamps?: string[]; bars_without_spread_timestamps?: string[]; bars_without_spread_observation_timestamps?: string[]; full_session_complete: boolean };
 type SessionQualityBatch = { market: string; session_date: string; sessions: SessionQuality[] };
 type CostAssumptionStatus = { configured: boolean; missing: string[]; invalid: string[] };
-type MarketAiHealth = Record<string, unknown> & { strategy_cost_assumptions?: Partial<Record<"KR" | "US", CostAssumptionStatus>> };
+type PaperStrategyCostStatus = { enabled: boolean; ready: boolean; missing: string[]; invalid: string[] };
+type MarketAiHealth = Record<string, unknown> & {
+  strategy_cost_assumptions?: Partial<Record<"KR" | "US", CostAssumptionStatus>>;
+  paper_strategy_cost_model?: Partial<Record<"KR" | "US", PaperStrategyCostStatus>>;
+};
 type CandidateRefresh = { state: string; reason?: string; session_open?: string; selected?: number; added?: string[]; removed?: string[]; preserved?: number };
 type ScheduledTask = { kind: string; market: string | null; symbol: string | null; taskDate: string; state: string; enabled: boolean; principalLogonType: string; requiresInteractiveLogon: boolean | null; wakeToRun: boolean; startWhenAvailable: boolean; nextRunTime: string | null; lastRunTime: string | null; lastTaskResult: number | null };
 type LocalSchedule = { state: string; registeredCount: number; enabledCount?: number; krRegisteredCount?: number; usRegisteredCount?: number; krEnabledCount?: number; usEnabledCount?: number; paperLifecycleCount?: number; modelTrainingCount?: number; modelHoldoutCount?: number; tasks: ScheduledTask[] };
@@ -99,6 +103,21 @@ export default function Dashboard() {
   const missingCostDetails = (["KR", "US"] as const).flatMap((market) => {
     const status = costReadiness?.[market];
     if (!status || status.configured) return [];
+    const keys = [...status.missing, ...status.invalid];
+    return keys.length ? [`${market}: ${keys.join(", ")}`] : [];
+  }).join(" · ");
+  const paperStrategyCostReadiness = data?.marketAi?.paper_strategy_cost_model;
+  const paperStrategyCostStatus = (market: "KR" | "US") => {
+    const status = paperStrategyCostReadiness?.[market];
+    if (!status) return "조회 불가";
+    if (status.ready) return "준비 완료";
+    if (status.invalid.length) return `값 확인 필요 ${status.invalid.length}개`;
+    if (!status.enabled) return "비활성";
+    return `미설정 ${status.missing.length}개`;
+  };
+  const missingPaperStrategyCostDetails = (["KR", "US"] as const).flatMap((market) => {
+    const status = paperStrategyCostReadiness?.[market];
+    if (!status || status.ready) return [];
     const keys = [...status.missing, ...status.invalid];
     return keys.length ? [`${market}: ${keys.join(", ")}`] : [];
   }).join(" · ");
@@ -237,6 +256,8 @@ export default function Dashboard() {
         <div className="risk-list"><RiskRow label="운영 허용 시장" value={ops?.operationalMarkets?.join(" · ") || "KR (국내만)"} /><RiskRow label="운영 모드" value={ops?.tradingMode.toUpperCase() ?? "PAPER"} /><RiskRow label="실거래 허용" value={ops?.liveTrading.toUpperCase() ?? "DISABLED"} /><RiskRow label="KIS 실주문 스위치" value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="KIS 실계좌 조회" value={ops?.kisRealAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="REAL 체결 자동대조" value={ops?.kisRealReconciliationEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="보호청산 준비" value={ops?.realProtectiveExitManagerEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="REAL 자동 보호매도" value={ops?.kisRealProtectiveExitAutomationEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="REAL 비용률 형식 KR / US" value={`${ops?.kisRealKrCostsConfigured ? "유효" : "미설정"} / ${ops?.kisRealUsCostsConfigured ? "유효" : "미설정"}`} /><RiskRow label="KIS 공통 계좌 조회" value={ops?.kisAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="KIS 모의 주문" value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="국내 PAPER 취소" value={ops?.kisPaperDomesticCancelSupported ? "지원 확인" : "미지원·잠금"} /><RiskRow label="WebSocket 최근 실패" value={streamFailureDetail(data?.paperSession?.last_stream_failure_stage, data?.paperSession?.last_stream_error_category, data?.paperSession != null && "last_stream_failure_stage" in data.paperSession, data?.paperSession?.last_stream_failure_at, data?.paperSession?.last_stream_failure_environment)} /><RiskRow label="국내 PAPER WebSocket 재연결 실패" value={domesticStreamFailureCount(data?.paperSession?.stream_failures_by_feed)} /><RiskRow label="paper 거래비용" value={ops?.paperCostModelEnabled ? "설정 적용" : "비활성"} /><RiskRow label="paper 자동매매" value={automationLabel(data?.paperSession?.automation_state)} /><RiskRow label="연속 손실 주문" value={`${ops?.consecutiveLosingTrades ?? 0}회`} /></div>
         <div className="risk-list"><RiskRow label="P3/P4 백테스트 비용 입력" value={`KR ${costStatus("KR")} · US ${costStatus("US")}`} /></div>
         {missingCostDetails && <p className="audit-note">누락 또는 확인할 `.env_local` 항목: {missingCostDetails}</p>}
+        <div className="risk-list"><RiskRow label="PAPER 전략 평가 비용모델" value={`KR ${paperStrategyCostStatus("KR")} · US ${paperStrategyCostStatus("US")}`} /></div>
+        {missingPaperStrategyCostDetails && <p className="audit-note">PAPER 전략 평가 비용 입력: {missingPaperStrategyCostDetails}</p>}
       </div>
     </section>
     <section className="two-col lower">

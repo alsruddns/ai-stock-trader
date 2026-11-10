@@ -26,7 +26,10 @@ from .paper_ops import exchange_session_window, korean_calendar_compatibility
 from .paper_automation import PaperAutomationReadiness
 from .market_calendar import exchange_continuous_session_window, latest_closed_session_date
 from .market_scope import require_operational_market
-from .paper_runtime import PaperWatch, market_cost_assumptions_status, paper_session_monitor
+from .paper_runtime import (
+    PaperWatch, market_cost_assumptions_status, paper_session_monitor,
+    paper_strategy_cost_model_status,
+)
 from .session_quality import audit_minute_bar_session
 
 _KIS_CLIENTS: dict[str, KisReadOnlyClient] = {}
@@ -320,6 +323,9 @@ def health() -> dict[str, object]:
         "live_trading_enabled": False,
         "strategy_cost_assumptions": {
             market: market_cost_assumptions_status(market) for market in ("KR", "US")
+        },
+        "paper_strategy_cost_model": {
+            market: paper_strategy_cost_model_status(market) for market in ("KR", "US")
         },
     }
 

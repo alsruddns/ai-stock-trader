@@ -101,6 +101,41 @@ def test_health_reports_cost_assumptions_ready_only_when_cost_floor_is_valid(mon
     }
 
 
+def test_health_separates_backtest_costs_from_paper_strategy_cost_model(monkeypatch) -> None:
+    backtest_values = {
+        "BUY_COMMISSION_BPS": "2",
+        "SELL_COMMISSION_BPS": "3",
+        "SELL_TAX_BPS": "4",
+        "SLIPPAGE_BPS": "5",
+        "ROUND_TRIP_COST_BPS": "19",
+    }
+    for market in ("KR", "US"):
+        for suffix, value in backtest_values.items():
+            monkeypatch.setenv(f"BACKTEST_{market}_{suffix}", value)
+        paper_prefix = f"PAPER_{market}"
+        monkeypatch.delenv(f"{paper_prefix}_COMMISSION_BPS", raising=False)
+        monkeypatch.delenv(f"{paper_prefix}_SELL_COST_BPS", raising=False)
+    monkeypatch.setenv("PAPER_COST_MODEL_ENABLED", "false")
+
+    response = client.get("/api/v1/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy_cost_assumptions"]["KR"]["configured"] is True
+    assert body["paper_strategy_cost_model"]["KR"] == {
+        "enabled": False,
+        "ready": False,
+        "missing": ["PAPER_KR_COMMISSION_BPS", "PAPER_KR_SELL_COST_BPS"],
+        "invalid": [],
+    }
+
+    monkeypatch.setenv("PAPER_KR_COMMISSION_BPS", "2")
+    monkeypatch.setenv("PAPER_KR_SELL_COST_BPS", "7")
+    monkeypatch.setenv("PAPER_COST_MODEL_ENABLED", "true")
+    ready = client.get("/api/v1/health").json()["paper_strategy_cost_model"]["KR"]
+    assert ready == {"enabled": True, "ready": True, "missing": [], "invalid": []}
+
+
 def test_health_reports_connected_only_when_all_kis_feeds_are_running(monkeypatch) -> None:
     monkeypatch.setattr(main.paper_session_monitor, "status", lambda: {
         "state": "RUNNING", "enabled": True,

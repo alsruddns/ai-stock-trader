@@ -97,6 +97,43 @@ def market_cost_assumptions_status(market: str) -> dict[str, object]:
     return {"configured": config is not None, "missing": missing, "invalid": invalid}
 
 
+def paper_strategy_cost_model_status(market: str) -> dict[str, object]:
+    """Report paper strategy cost readiness without exposing configured values."""
+    normalized_market = market.strip().upper()
+    if normalized_market not in {"KR", "US"}:
+        return {"enabled": False, "ready": False, "missing": [], "invalid": ["market"]}
+
+    _, missing, invalid = _market_quant_config_result(normalized_market)
+    prefix = "PAPER_KR" if normalized_market == "KR" else "PAPER_US"
+    paper_fields = {
+        "commission": f"{prefix}_COMMISSION_BPS",
+        "sell_cost": f"{prefix}_SELL_COST_BPS",
+    }
+    paper_missing = [key for key in paper_fields.values() if not os.getenv(key, "").strip()]
+    paper_invalid: list[str] = []
+    for key in paper_fields.values():
+        raw = os.getenv(key, "").strip()
+        if not raw:
+            continue
+        try:
+            value = Decimal(raw)
+        except (ArithmeticError, TypeError, ValueError):
+            paper_invalid.append(key)
+            continue
+        if not value.is_finite() or value < 0 or value > 10000:
+            paper_invalid.append(key)
+    enabled = os.getenv("PAPER_COST_MODEL_ENABLED", "false").strip().lower() == "true"
+    all_missing = sorted(set(missing + paper_missing))
+    all_invalid = sorted(set(invalid + paper_invalid))
+    paper_total = Decimal("0")
+    if not paper_missing and not paper_invalid:
+        paper_total = sum(
+            (Decimal(os.environ[key]) for key in paper_fields.values()), Decimal("0")
+        )
+    ready = enabled and not all_missing and not all_invalid and paper_total > 0
+    return {"enabled": enabled, "ready": ready, "missing": all_missing, "invalid": all_invalid}
+
+
 def _market_quant_config(market: str) -> QuantConfig | None:
     if os.getenv("PAPER_COST_MODEL_ENABLED", "false").strip().lower() != "true":
         return None
