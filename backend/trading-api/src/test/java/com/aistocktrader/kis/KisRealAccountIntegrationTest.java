@@ -42,6 +42,11 @@ class KisRealAccountIntegrationTest {
         assertEquals(KisEnvironment.REAL, snapshot.environment());
         assertEquals(Market.KR, snapshot.market());
         assertEquals("KRW", snapshot.currency());
+        assertNotNull(snapshot.cashBalance(), "Domestic REAL cash balance must be mapped.");
+        assertTrue(snapshot.cashBalance().signum() >= 0, "Domestic REAL cash balance cannot be negative.");
+        assertNull(snapshot.orderableCash(), "Generic balance reads must not infer orderable cash without an order context.");
+        assertNotNull(snapshot.positions(), "Domestic REAL positions must be present even when the account is empty.");
+        assertNotNull(snapshot.retrievedAt(), "Domestic REAL account snapshot must have a retrieval timestamp.");
     }
 
     @Test
