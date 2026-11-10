@@ -154,6 +154,28 @@ def test_paper_session_status_is_monitor_only() -> None:
     }
 
 
+def test_paper_session_status_preserves_domestic_bar_quote_observation_time(monkeypatch) -> None:
+    quote_time = "2026-11-06T10:01:30+09:00"
+    monkeypatch.setattr(main.paper_session_monitor, "status", lambda: {
+        "orders_enabled": False,
+        "market_data_minute_quality_by_watch_by_feed": {
+            "paper": {"KR:005930:": {"2026-11-06T10:01:00+09:00": {
+                "market": "KR", "symbol": "005930", "bar_closed": True,
+                "bar_spread_present": True, "bar_spread_observed_at": quote_time,
+            }}},
+            "real": {},
+        },
+    })
+
+    response = client.get("/api/v1/paper/session")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["orders_enabled"] is False
+    assert (payload["market_data_minute_quality_by_watch_by_feed"]["paper"]["KR:005930:"]
+            ["2026-11-06T10:01:00+09:00"]["bar_spread_observed_at"] == quote_time)
+
+
 def test_market_session_endpoint_reports_calendar_verified_open_window(monkeypatch) -> None:
     from datetime import timedelta
 
