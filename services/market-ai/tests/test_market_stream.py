@@ -290,6 +290,33 @@ def test_minute_aggregator_rejects_older_quote_within_same_minute() -> None:
     assert completed.spread_observed_at == latest_quote.timestamp
 
 
+def test_minute_aggregator_does_not_replace_newer_book_quote_with_older_trade_quote() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo("Asia/Seoul")
+    aggregate = MinuteBarAggregator()
+    aggregate.add(TradeTick(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 1, tzinfo=zone), Decimal("100"), 2, None, None,
+    ))
+    latest_quote = OrderBookQuote(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 40, tzinfo=zone), Decimal("99"), Decimal("101"),
+    )
+    assert aggregate.update_quote(latest_quote)
+
+    aggregate.add(TradeTick(
+        "KR", "005930", datetime(2026, 11, 6, 10, 1, 30, tzinfo=zone), Decimal("100.5"), 1,
+        Decimal("90"), Decimal("110"),
+    ))
+    completed = aggregate.add(TradeTick(
+        "KR", "005930", datetime(2026, 11, 6, 10, 2, 1, tzinfo=zone), Decimal("101"), 3, None, None,
+    ))
+
+    assert completed is not None
+    assert completed.spread_bps == Decimal("200")
+    assert completed.spread_observed_at == latest_quote.timestamp
+
+
 @pytest.mark.parametrize(
     ("bid", "ask"),
     [(Decimal("0"), Decimal("101")), (Decimal("102"), Decimal("101")), (None, Decimal("101"))],

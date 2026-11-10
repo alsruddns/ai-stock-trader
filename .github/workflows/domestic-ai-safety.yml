@@ -94,6 +94,7 @@ jobs:
           tests/test_quant.py::test_spread_observation_time_must_be_timezone_aware_and_within_bar_minute
           tests/test_market_stream.py::test_minute_aggregator_uses_same_minute_orderbook_quote_for_spread
           tests/test_market_stream.py::test_minute_aggregator_rejects_older_quote_within_same_minute
+          tests/test_market_stream.py::test_minute_aggregator_does_not_replace_newer_book_quote_with_older_trade_quote
           tests/test_market_stream.py::test_minute_aggregator_closes_prior_bar_before_later_minute_quote
           tests/test_snapshot_store.py::test_domestic_minute_bar_persistence_keeps_quote_observation_time
           tests/test_snapshot_store.py::test_domestic_session_restore_preserves_spread_observation_timestamp
