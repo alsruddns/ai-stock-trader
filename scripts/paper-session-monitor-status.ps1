@@ -440,10 +440,12 @@ function Get-MonitorMinuteQualityDiagnostics($Status, [string]$SelectedFeed) {
             missing_spread_samples = @($missingSpreadSamples.ToArray())
         })
     }
+    $symbolRows = $null
+    if ($valid) { $symbolRows = [object[]]$symbols.ToArray() }
     return [pscustomobject]@{
         available = $valid
         reason = if ($valid) { $null } else { 'INVALID_MINUTE_QUALITY_DATA' }
-        symbols = if ($valid) { [object[]]$symbols.ToArray() } else { $null }
+        symbols = $symbolRows
     }
 }
 

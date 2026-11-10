@@ -64,6 +64,7 @@ Describe 'Domestic minute-level spread diagnostics' {
         $diagnostics = Get-MonitorMinuteQualityDiagnostics $status 'paper'
 
         $diagnostics.available | Should Be $true
+        ($diagnostics.symbols -is [array]) | Should Be $true
         $diagnostics.symbols.Count | Should Be 1
         $diagnostics.symbols[0].closed_minutes | Should Be 3
         $diagnostics.symbols[0].spread_minutes | Should Be 1
