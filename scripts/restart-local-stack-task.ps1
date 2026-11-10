@@ -126,6 +126,18 @@ function Test-LocalTradingLocks($PythonHealth, $SpringSummary) {
         $SpringSummary.kisRealProtectiveExitAutomationEnabled -eq $false
 }
 
+function Test-LocalCostModelsReady($PythonHealth, $SpringSummary) {
+    if (-not $PythonHealth -or -not $SpringSummary -or
+        $null -eq $PythonHealth.PSObject.Properties['paper_strategy_cost_model']) {
+        return $false
+    }
+    $domesticPaperCosts = $PythonHealth.paper_strategy_cost_model.KR
+    return $domesticPaperCosts -and
+        $domesticPaperCosts.enabled -eq $true -and
+        $domesticPaperCosts.ready -eq $true -and
+        $SpringSummary.paperCostModelEnabled -eq $true
+}
+
 function Test-PaperFrameDiagnosticsReady($Session) {
     if (-not $Session -or
         $null -eq $Session.PSObject.Properties['frames_received_by_feed'] -or
@@ -333,6 +345,9 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
     }
     if (-not (Test-LocalTradingLocks $pythonHealth $springSummary)) {
         throw 'The restarted APIs did not report the required trading locks.'
+    }
+    if (-not (Test-LocalCostModelsReady $pythonHealth $springSummary)) {
+        throw 'The restarted APIs did not load the configured domestic PAPER cost models.'
     }
     if (-not (Test-PaperSessionRestored $paperSession $previousPaperSession)) {
         throw 'The paper session monitor or bar storage did not recover to its prior enabled state.'

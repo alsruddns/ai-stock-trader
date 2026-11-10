@@ -11,6 +11,7 @@ foreach ($functionName in @(
     'Test-SessionResponsesFreshAndClosed',
     'Test-TrackedProcessParentage',
     'Test-LocalTaskRestartable',
+    'Test-LocalCostModelsReady',
     'Test-PaperMinuteQualityDiagnosticsReady'
 )) {
     $functionAst = $restartAst.Find({
@@ -48,6 +49,23 @@ Describe 'Domestic local stack restart guards' {
         (Test-LocalTaskRestartable 'Running') | Should Be $true
         (Test-LocalTaskRestartable 'Ready') | Should Be $true
         (Test-LocalTaskRestartable 'Disabled') | Should Be $false
+    }
+
+    It 'requires domestic PAPER costs ready in Python and enabled in Spring after restart' {
+        $health = [pscustomobject]@{
+            paper_strategy_cost_model = [pscustomobject]@{
+                KR = [pscustomobject]@{ enabled = $true; ready = $true }
+            }
+        }
+        $summary = [pscustomobject]@{ paperCostModelEnabled = $true }
+        (Test-LocalCostModelsReady $health $summary) | Should Be $true
+
+        $health.paper_strategy_cost_model.KR.ready = $false
+        (Test-LocalCostModelsReady $health $summary) | Should Be $false
+
+        $health.paper_strategy_cost_model.KR.ready = $true
+        $summary.paperCostModelEnabled = $false
+        (Test-LocalCostModelsReady $health $summary) | Should Be $false
     }
 
     It 'requires the restarted API to expose domestic per-minute quote diagnostics' {
