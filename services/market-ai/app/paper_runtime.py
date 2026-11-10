@@ -210,6 +210,7 @@ class PaperSessionFeedMonitor:
             },
             "last_orderbook_received_at_by_feed": {"paper": None, "real": None},
             "market_data_by_watch_by_feed": {"paper": {}, "real": {}},
+            "market_data_minute_quality_by_watch_by_feed": {"paper": {}, "real": {}},
             "bars_closed_by_feed": {"paper": 0, "real": 0},
             "stream_failures_by_feed": {"paper": 0, "real": 0},
             "last_error": None, "last_stream_failure_stage": None,
@@ -267,6 +268,13 @@ class PaperSessionFeedMonitor:
             result["market_data_by_watch_by_feed"] = {
                 feed: {key: dict(metrics) for key, metrics in watches.items()}
                 for feed, watches in self._status["market_data_by_watch_by_feed"].items()
+            }
+            result["market_data_minute_quality_by_watch_by_feed"] = {
+                feed: {
+                    key: {minute: dict(metrics) for minute, metrics in minutes.items()}
+                    for key, minutes in watches.items()
+                }
+                for feed, watches in self._status["market_data_minute_quality_by_watch_by_feed"].items()
             }
             result["bars_closed_by_feed"] = dict(self._status["bars_closed_by_feed"])
             result["stream_failures_by_feed"] = dict(self._status["stream_failures_by_feed"])
@@ -368,6 +376,55 @@ class PaperSessionFeedMonitor:
                 "trade_ticks_received", "bars_closed", "orderbook_quotes_received", "usable_orderbook_quotes",
             ):
                 values.setdefault(field, 0)
+
+    def _record_watch_minute_quality(
+        self,
+        feed: str,
+        watch: PaperWatch,
+        metric: str,
+        exchange_timestamp: datetime,
+        *,
+        category: str | None = None,
+        stale: bool = False,
+        spread_present: bool | None = None,
+    ) -> None:
+        """Keep the latest 60 minutes of per-watch receipt and bar-quality counts."""
+        if feed not in {"paper", "real"}:
+            return
+        if exchange_timestamp.tzinfo is None or exchange_timestamp.utcoffset() is None:
+            raise ValueError("market-data timestamp must include a timezone")
+        minute = exchange_timestamp.replace(second=0, microsecond=0).isoformat()
+        with self._lock:
+            by_feed = self._status["market_data_minute_quality_by_watch_by_feed"]
+            by_watch = by_feed[feed].setdefault(watch.key, {})
+            values = by_watch.setdefault(minute, {
+                "market": watch.market, "symbol": watch.symbol, "exchange": watch.exchange,
+                "trade_ticks_received": 0, "orderbook_quotes_received": 0,
+                "usable_orderbook_quotes": 0, "empty_or_nonpositive_quotes": 0,
+                "crossed_quotes": 0, "stale_quotes": 0,
+            })
+            if metric == "trade":
+                values["trade_ticks_received"] = int(values["trade_ticks_received"]) + 1
+            elif metric == "orderbook":
+                values["orderbook_quotes_received"] = int(values["orderbook_quotes_received"]) + 1
+                field = {
+                    "usable": "usable_orderbook_quotes",
+                    "empty_or_nonpositive": "empty_or_nonpositive_quotes",
+                    "crossed": "crossed_quotes",
+                }.get(category or "")
+                if field is None:
+                    raise ValueError("orderbook quote category is invalid")
+                values[field] = int(values[field]) + 1
+                if stale:
+                    values["stale_quotes"] = int(values["stale_quotes"]) + 1
+            elif metric == "bar":
+                values["bar_closed"] = True
+                values["bar_spread_present"] = bool(spread_present)
+            else:
+                raise ValueError("market-data minute metric is invalid")
+            if len(by_watch) > 60:
+                for oldest in sorted(by_watch)[:-60]:
+                    del by_watch[oldest]
 
     def decisions(self) -> dict[str, dict[str, object]]:
         """Return latest advisory quant decisions; none are executable orders."""
@@ -1224,6 +1281,10 @@ class PaperSessionFeedMonitor:
                     aggregator = self._aggregators[watch.key]
                     stale = aggregator.quote_is_stale(quote)
                     accepted = aggregator.update_quote(quote)
+                    self._record_watch_minute_quality(
+                        feed, watch, "orderbook", quote.timestamp,
+                        category=quote_class, stale=stale,
+                    )
                     with self._lock:
                         quality = {
                             key: dict(value)
@@ -1270,9 +1331,13 @@ class PaperSessionFeedMonitor:
                     mismatch_recorded = True
             for tick in matching_ticks:
                 self._record_watch_market_data(feed, watch, "trade", tick.timestamp)
+                self._record_watch_minute_quality(feed, watch, "trade", tick.timestamp)
                 bar = self._aggregators[watch.key].add(tick)
                 if bar is not None:
                     self._record_watch_market_data(feed, watch, "bar")
+                    self._record_watch_minute_quality(
+                        feed, watch, "bar", bar.timestamp, spread_present=bar.spread_bps is not None,
+                    )
                 with self._lock:
                     received_at = datetime.now().astimezone().isoformat()
                     feed_ticks = dict(self._status["ticks_received_by_feed"])

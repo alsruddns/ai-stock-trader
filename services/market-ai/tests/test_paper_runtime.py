@@ -496,8 +496,18 @@ def test_runtime_reports_domestic_market_data_receipts_per_symbol(monkeypatch) -
     assert "trade_ticks_received" not in per_symbol[hynix.key]
     assert status["market_data_diagnostics_by_feed"]["paper"]["trade_symbol_mismatches"] == 0
     assert status["market_data_diagnostics_by_feed"]["paper"]["orderbook_symbol_mismatches"] == 0
+    minute_quality = status["market_data_minute_quality_by_watch_by_feed"]["paper"]
+    minute = timestamp.replace(second=0, microsecond=0).isoformat()
+    assert minute_quality[samsung.key][minute]["trade_ticks_received"] == 1
+    assert minute_quality[samsung.key][minute]["orderbook_quotes_received"] == 0
+    assert minute_quality[hynix.key][minute]["trade_ticks_received"] == 0
+    assert minute_quality[hynix.key][minute]["orderbook_quotes_received"] == 1
+    assert minute_quality[hynix.key][minute]["usable_orderbook_quotes"] == 1
+    assert "bid" not in minute_quality[hynix.key][minute]
     per_symbol[samsung.key]["trade_ticks_received"] = 999
     assert runtime.status()["market_data_by_watch_by_feed"]["paper"][samsung.key]["trade_ticks_received"] == 1
+    minute_quality[hynix.key][minute]["usable_orderbook_quotes"] = 999
+    assert runtime.status()["market_data_minute_quality_by_watch_by_feed"]["paper"][hynix.key][minute]["usable_orderbook_quotes"] == 1
 
 
 def test_runtime_preinitializes_domestic_watch_market_data_before_first_event() -> None:
