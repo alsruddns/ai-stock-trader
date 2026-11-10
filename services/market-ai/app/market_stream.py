@@ -184,7 +184,13 @@ class MinuteBarAggregator:
         if quote.timestamp.tzinfo is None or quote.timestamp.utcoffset() is None:
             raise ValueError("orderbook timestamp must include a timezone")
         minute = quote.timestamp.replace(second=0, microsecond=0)
-        return self._minute is not None and minute < self._minute
+        if self._minute is not None and minute < self._minute:
+            return True
+        return (
+            self._quote_minute == minute
+            and self._quote_timestamp is not None
+            and quote.timestamp < self._quote_timestamp
+        )
 
     def update_quote(self, quote: OrderBookQuote) -> bool:
         if quote.timestamp.tzinfo is None or quote.timestamp.utcoffset() is None:
