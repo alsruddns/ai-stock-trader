@@ -27,6 +27,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -664,6 +665,48 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(brokerNumber, reloadedPaper.getBrokerOrderNumber());
         } finally {
             repository.deleteAllById(List.of(realKey, paperKey));
+        }
+    }
+
+    @Test
+    void paperReconciliationQueryPagesDomesticOrdersInStableUpdatedOrder() {
+        UUID earlierKey = UUID.randomUUID();
+        UUID laterKey = UUID.randomUUID();
+        UUID usPaperKey = UUID.randomUUID();
+        UUID realKey = UUID.randomUUID();
+        try {
+            store.prepare(earlierKey, hash("paper-page-earlier"), KisEnvironment.PAPER, request(), null);
+            store.accept(earlierKey, receipt("paper", "PG" + UUID.randomUUID().toString().replace("-", "").substring(0, 16)));
+            store.prepare(laterKey, hash("paper-page-later"), KisEnvironment.PAPER, request(), null);
+            store.accept(laterKey, receipt("paper", "PG" + UUID.randomUUID().toString().replace("-", "").substring(0, 16)));
+
+            OrderRequest usRequest = new OrderRequest(Market.US, "AAPL", OrderSide.BUY, 1,
+                    new BigDecimal("100"), Currency.USD);
+            store.prepare(usPaperKey, hash("paper-page-us"), KisEnvironment.PAPER, usRequest, "NASD");
+            store.accept(usPaperKey, new KisOrderReceipt("paper", "US", "AAPL", "BUY",
+                    "PG" + UUID.randomUUID().toString().replace("-", "").substring(0, 16),
+                    "ITORG01", "0", Instant.now()));
+
+            store.prepare(realKey, hash("real-page-domestic"), KisEnvironment.REAL, request(), null);
+            store.accept(realKey, receipt("real", "RG" + UUID.randomUUID().toString().replace("-", "").substring(0, 16)));
+
+            jdbcTemplate.update("UPDATE kis_order_intent SET updated_at = ? WHERE idempotency_key = ?",
+                    Timestamp.from(Instant.parse("2026-11-13T01:00:00Z")), earlierKey);
+            jdbcTemplate.update("UPDATE kis_order_intent SET updated_at = ? WHERE idempotency_key = ?",
+                    Timestamp.from(Instant.parse("2026-11-13T02:00:00Z")), laterKey);
+            entityManager.clear();
+
+            var firstPage = repository.findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdempotencyKeyAsc(
+                    KisEnvironment.PAPER, List.of(Market.KR), List.of(KisOrderStatus.ACCEPTED), PageRequest.of(0, 1));
+            var secondPage = repository.findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdempotencyKeyAsc(
+                    KisEnvironment.PAPER, List.of(Market.KR), List.of(KisOrderStatus.ACCEPTED), PageRequest.of(1, 1));
+
+            assertEquals(2, firstPage.getTotalElements());
+            assertEquals(2, firstPage.getTotalPages());
+            assertEquals(earlierKey, firstPage.getContent().getFirst().getIdempotencyKey());
+            assertEquals(laterKey, secondPage.getContent().getFirst().getIdempotencyKey());
+        } finally {
+            repository.deleteAllById(List.of(earlierKey, laterKey, usPaperKey, realKey));
         }
     }
 
