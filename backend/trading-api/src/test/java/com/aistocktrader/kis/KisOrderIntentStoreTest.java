@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 
 @ExtendWith(MockitoExtension.class)
 class KisOrderIntentStoreTest {
@@ -116,5 +117,27 @@ class KisOrderIntentStoreTest {
         assertEquals(1, updated.getFilledQuantity());
         assertEquals(2, updated.getRemainingQuantity());
         verify(realFillSnapshots).record(intent, snapshot);
+    }
+
+    @Test
+    void contradictoryBrokerSnapshotKeepsOrderUnknownAndDoesNotPersistFill() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null);
+        intent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "7001", "ORG01", "0",
+                Instant.now()));
+        KisBrokerOrderSnapshot contradictory = new KisBrokerOrderSnapshot(1, 3,
+                new BigDecimal("70000"), false, false);
+        when(repository.findById(key)).thenReturn(Optional.of(intent));
+
+        KisOrderIntent updated = new KisOrderIntentStore(repository, realFillSnapshots)
+                .reconcile(key, contradictory);
+
+        assertEquals(KisOrderStatus.UNKNOWN, updated.getStatus());
+        assertEquals(0, updated.getFilledQuantity());
+        assertEquals(3, updated.getRemainingQuantity());
+        assertNull(updated.getAverageFillPrice());
+        verify(realFillSnapshots, never()).record(intent, contradictory);
     }
 }

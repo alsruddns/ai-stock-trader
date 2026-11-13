@@ -6,6 +6,8 @@ on:
     paths:
       - 'backend/trading-api/src/main/java/**'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealDailyRiskBaselineServiceTest.java'
+      - 'backend/trading-api/src/main/java/com/aistocktrader/kis/KisOrderIntentStore.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisOrderIntentStoreTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealExecutionNoticeClientTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealOrderReconciliationJobTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealProtectiveExitMonitorTest.java'
@@ -88,6 +90,9 @@ jobs:
       - name: Run domestic-only scheduled baseline scope test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=KisRealDailyRiskBaselineServiceTest#domesticOnlyScopeSkipsOutOfScopeScheduledBaselineBeforeExternalAccess test
+      - name: Run KIS broker snapshot validation before order persistence
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode -Dtest=KisOrderIntentStoreTest test
       - name: Run domestic-only execution notice subscription scope test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=KisRealExecutionNoticeClientTest#domesticOperationalScopeSubscribesOnlyToDomesticExecutionNotices test
