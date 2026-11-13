@@ -30,6 +30,10 @@ $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'lib\domestic-only-validation.ps1')
 Assert-DomesticOnlyValidation -Market $Market -Operation 'LEAN historical backtest validation'
+$sessionDate = [datetime]::ParseExact($Session, 'yyyy-MM-dd', [cultureinfo]::InvariantCulture)
+if ($sessionDate -ge [DateTime]::UtcNow.Date) {
+    throw 'LEAN historical replay requires a completed session earlier than the current UTC date. Re-run after the UTC date changes.'
+}
 $sourceCsv = (Resolve-Path -LiteralPath $CsvFile).Path
 $python = Join-Path $repository 'services\market-ai\.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python)) {
@@ -171,18 +175,20 @@ if ($summary.Count -ne 1 -or (Select-String -LiteralPath $engineLog -Pattern 'Ru
     Get-Content -LiteralPath $engineLog -Tail 60
     throw 'LEAN did not complete a clean strategy replay; see .local/logs/lean-backtest.log.'
 }
-$match = [regex]::Match($summary[0].Line, 'KIS_LEAN_ORB_VWAP market=(?<market>\w+) symbol=(?<symbol>\S+) bars=(?<bars>\d+) signals=(?<signals>\d+) quant_signals=(?<quant_signals>\d+) trades=(?<trades>\d+) orders=(?<orders>\d+) ai_model_id=(?<model_id>\S*) ai_threshold=(?<threshold>\S*) net_liquidation=(?<equity>[-\d.]+) net_pnl=(?<pnl>[-\d.]+)')
+$match = [regex]::Match($summary[0].Line, 'KIS_LEAN_ORB_VWAP market=(?<market>\w+) symbol=(?<symbol>\S+) bars=(?<bars>\d+) signals=(?<signals>\d+) quant_signals=(?<quant_signals>\d+) trades=(?<trades>\d+) orders=(?<orders>\d+) filled_orders=(?<filled_orders>\d+) failed_orders=(?<failed_orders>\d+) ai_model_id=(?<model_id>\S*) ai_threshold=(?<threshold>\S*) net_liquidation=(?<equity>[-\d.]+) net_pnl=(?<pnl>[-\d.]+)')
 if (-not $match.Success) { throw 'LEAN strategy result line has an unexpected format.' }
 $leanBars = [int]::Parse($match.Groups['bars'].Value, [cultureinfo]::InvariantCulture)
 $leanSignals = [int]::Parse($match.Groups['signals'].Value, [cultureinfo]::InvariantCulture)
 $leanQuantSignals = [int]::Parse($match.Groups['quant_signals'].Value, [cultureinfo]::InvariantCulture)
 $leanTrades = [int]::Parse($match.Groups['trades'].Value, [cultureinfo]::InvariantCulture)
 $leanOrders = [int]::Parse($match.Groups['orders'].Value, [cultureinfo]::InvariantCulture)
+$leanFilledOrders = [int]::Parse($match.Groups['filled_orders'].Value, [cultureinfo]::InvariantCulture)
+$leanFailedOrders = [int]::Parse($match.Groups['failed_orders'].Value, [cultureinfo]::InvariantCulture)
 $leanPnl = [decimal]::Parse($match.Groups['pnl'].Value, [cultureinfo]::InvariantCulture)
 $pythonPnl = [decimal]::Parse([string]$prepared.net_pnl, [cultureinfo]::InvariantCulture)
 $pnlDelta = [math]::Abs($leanPnl - $pythonPnl)
-if ($leanBars -ne $prepared.bars -or $leanSignals -ne $prepared.signals -or $leanQuantSignals -ne $prepared.quant_signals -or $leanTrades -ne $prepared.trades -or $leanOrders -ne (2 * $leanTrades) -or $pnlDelta -gt [decimal]0.01 -or $match.Groups['model_id'].Value -ne [string]$prepared.model_id) {
-    throw "LEAN/Python parity check failed: bars=$leanBars/$($prepared.bars), signals=$leanSignals/$($prepared.signals), quant_signals=$leanQuantSignals/$($prepared.quant_signals), trades=$leanTrades/$($prepared.trades), order_count=$leanOrders, net_delta=$pnlDelta. See .local/logs/lean-backtest.log."
+if ($leanBars -ne $prepared.bars -or $leanSignals -ne $prepared.signals -or $leanQuantSignals -ne $prepared.quant_signals -or $leanTrades -ne $prepared.trades -or $leanOrders -ne (2 * $leanTrades) -or $leanFilledOrders -ne $leanOrders -or $leanFailedOrders -ne 0 -or $pnlDelta -gt [decimal]0.01 -or $match.Groups['model_id'].Value -ne [string]$prepared.model_id) {
+    throw "LEAN/Python parity check failed: bars=$leanBars/$($prepared.bars), signals=$leanSignals/$($prepared.signals), quant_signals=$leanQuantSignals/$($prepared.quant_signals), trades=$leanTrades/$($prepared.trades), orders=$leanOrders, filled=$leanFilledOrders, failed=$leanFailedOrders, net_delta=$pnlDelta. See .local/logs/lean-backtest.log."
 }
 [ordered]@{
     market = $Market
@@ -193,6 +199,8 @@ if ($leanBars -ne $prepared.bars -or $leanSignals -ne $prepared.signals -or $lea
     quant_signals = $leanQuantSignals
     trades = $leanTrades
     orders = $leanOrders
+    filled_orders = $leanFilledOrders
+    failed_orders = $leanFailedOrders
     python_net_pnl = $pythonPnl.ToString([cultureinfo]::InvariantCulture)
     lean_net_pnl = $leanPnl.ToString([cultureinfo]::InvariantCulture)
     pnl_delta = $pnlDelta.ToString([cultureinfo]::InvariantCulture)

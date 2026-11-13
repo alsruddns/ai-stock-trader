@@ -154,6 +154,8 @@ namespace QuantConnect.Algorithm.CSharp
         private int _signals;
         private int _quantSignals;
         private int _trades;
+        private int _filledOrders;
+        private int _failedOrders;
         private int _expectedBars;
         private int _expectedAiScoreCount;
         private string _market;
@@ -212,7 +214,10 @@ namespace QuantConnect.Algorithm.CSharp
             SetStartDate(session.Year, session.Month, session.Day);
             SetEndDate(session.Year, session.Month, session.Day);
             SetAccountCurrency(_currency);
-            SetCash(100_000m);
+            // The reference replay is a one-share strategy. Seed enough cash for
+            // one share plus modeled fees; the previous 100k rejected KR fills
+            // above that price and silently compared an unexecuted LEAN run.
+            SetCash(_market == "KR" ? 10_000_000m : 100_000m);
             _symbol = AddData<KisCsvMinuteBar>("KISCSV", Resolution.Minute, TimeZones.Utc).Symbol;
             Securities[_symbol].SetFillModel(new KisCsvCostFillModel(_slippageBps));
             Securities[_symbol].SetFeeModel(new KisCsvCommissionFeeModel(
@@ -296,12 +301,22 @@ namespace QuantConnect.Algorithm.CSharp
         public override void OnEndOfAlgorithm()
         {
             var orderCount = Transactions.GetOrders().Count();
-            var netPnl = Portfolio.TotalPortfolioValue - 100_000m;
-            Debug($"KIS_LEAN_ORB_VWAP market={_market} symbol={_sourceSymbol} bars={_bars.Count} signals={_signals} quant_signals={_quantSignals} trades={_trades} orders={orderCount} ai_model_id={(_aiModelId ?? "")} ai_threshold={(_aiThreshold?.ToString(CultureInfo.InvariantCulture) ?? "")} net_liquidation={Portfolio.TotalPortfolioValue.ToString(CultureInfo.InvariantCulture)} net_pnl={netPnl.ToString(CultureInfo.InvariantCulture)}");
+            var startingCash = _market == "KR" ? 10_000_000m : 100_000m;
+            var netPnl = Portfolio.TotalPortfolioValue - startingCash;
+            Debug($"KIS_LEAN_ORB_VWAP market={_market} symbol={_sourceSymbol} bars={_bars.Count} signals={_signals} quant_signals={_quantSignals} trades={_trades} orders={orderCount} filled_orders={_filledOrders} failed_orders={_failedOrders} ai_model_id={(_aiModelId ?? "")} ai_threshold={(_aiThreshold?.ToString(CultureInfo.InvariantCulture) ?? "")} net_liquidation={Portfolio.TotalPortfolioValue.ToString(CultureInfo.InvariantCulture)} net_pnl={netPnl.ToString(CultureInfo.InvariantCulture)}");
             if (_bars.Count != _expectedBars) throw new InvalidOperationException($"Expected {_expectedBars} bars for a complete {_market} session, received {_bars.Count}");
             if (_aiScores != null && _aiScores.Count != _expectedAiScoreCount)
                 throw new InvalidOperationException($"Expected {_expectedAiScoreCount} timestamp-aligned AI scores, received {_aiScores.Count}");
+            if (_failedOrders != 0 || _filledOrders != orderCount)
+                throw new InvalidOperationException($"Expected all {orderCount} LEAN orders to fill; filled={_filledOrders}, failed={_failedOrders}");
             if (Portfolio.Invested || _entryPending) throw new InvalidOperationException("Backtest ended with an open or pending position");
+        }
+
+        public override void OnOrderEvent(OrderEvent orderEvent)
+        {
+            if (orderEvent.Status == OrderStatus.Filled) _filledOrders++;
+            else if (orderEvent.Status == OrderStatus.Invalid || orderEvent.Status == OrderStatus.Canceled)
+                _failedOrders++;
         }
 
         private static Dictionary<DateTime, decimal> LoadAiScores(string path)
