@@ -432,6 +432,15 @@ def test_ai_candidate_metrics_apply_the_same_quant_gate_as_paper_runtime() -> No
     assert metrics["candidate_mean_forward_net_bps"] == 2.5
 
 
+def test_ai_metrics_leave_roc_auc_unavailable_for_single_class_evaluation() -> None:
+    model = SimpleNamespace(classes_=[0, 1], predict_proba=lambda _features: [[0.2, 0.8]])
+    samples = [TrainingSample(date(2026, 10, 1), "t1", (0.0,), 1, True, 10.0)]
+
+    metrics = _metrics(model, samples)
+
+    assert metrics["roc_auc"] is None
+
+
 def test_ai_candidate_metrics_reject_malformed_binary_probabilities() -> None:
     samples = [
         TrainingSample(date(2026, 10, 1), "t1", (0.0,), 1, True, 10.0),

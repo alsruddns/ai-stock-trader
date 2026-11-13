@@ -101,8 +101,8 @@ class ModelTrainingResult:
     market: str
     model_type: str
     threshold: float
-    validation_metrics: dict[str, float]
-    test_metrics: dict[str, float]
+    validation_metrics: dict[str, float | None]
+    test_metrics: dict[str, float | None]
     quant_baseline_test_metrics: dict[str, float]
     quant_backtest_test_metrics: dict[str, Any]
     ai_quant_backtest_test_metrics: dict[str, Any]
@@ -310,7 +310,7 @@ def assess_training_samples(samples: list[TrainingSample]) -> dict[str, Any]:
     return result
 
 
-def _metrics(model: Any, samples: list[TrainingSample]) -> dict[str, float]:
+def _metrics(model: Any, samples: list[TrainingSample]) -> dict[str, float | None]:
     from sklearn.metrics import accuracy_score, brier_score_loss, roc_auc_score
 
     x = [sample.features for sample in samples]
@@ -318,7 +318,9 @@ def _metrics(model: Any, samples: list[TrainingSample]) -> dict[str, float]:
     probabilities = _positive_probabilities(model, x)
     predictions = (probabilities >= 0.5).astype(int)
     metrics = {"accuracy": float(accuracy_score(y, predictions)), "brier": float(brier_score_loss(y, probabilities))}
-    metrics["roc_auc"] = float(roc_auc_score(y, probabilities)) if len(set(y)) == 2 else 0.5
+    # ROC-AUC is undefined for a single-class evaluation set. Keep it unavailable
+    # instead of emitting 0.5, which looks like a measured neutral result.
+    metrics["roc_auc"] = float(roc_auc_score(y, probabilities)) if len(set(y)) == 2 else None
     # P5 runs inference only after ORB/VWAP passes, so evaluate the same hybrid candidate here.
     predicted_candidates = [
         sample.label for sample, prediction in zip(samples, predictions)
