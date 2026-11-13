@@ -1439,10 +1439,18 @@ class KisOrderIntentPostgresIntegrationTest {
             entityManager.clear();
             KisOrderIntent stale = kisOrderRepository.findById(staleKey).orElseThrow();
             KisOrderIntent recent = kisOrderRepository.findById(recentKey).orElseThrow();
+            boolean recoveryIndexExists = Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
+                    SELECT EXISTS (
+                        SELECT 1 FROM pg_indexes
+                         WHERE schemaname = 'public'
+                           AND indexname = 'idx_kis_order_intent_stale_submitting'
+                    )
+                    """, Boolean.class));
 
             assertEquals(KisOrderStatus.UNKNOWN, stale.getStatus());
             assertNull(stale.getBrokerOrderNumber());
             assertEquals(KisOrderStatus.SUBMITTING, recent.getStatus());
+            assertTrue(recoveryIndexExists);
         } finally {
             kisOrderRepository.deleteAllById(List.of(staleKey, recentKey));
         }
