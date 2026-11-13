@@ -13,6 +13,8 @@ param(
     [ValidatePattern('^\d{4}-\d{2}-\d{2}$')]
     [string]$Session,
 
+    [datetime]$ReplayDate,
+
     [int]$ExpectedBars = 0,
 
     [string]$ModelId,
@@ -31,8 +33,24 @@ $repository = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'lib\domestic-only-validation.ps1')
 Assert-DomesticOnlyValidation -Market $Market -Operation 'LEAN historical backtest validation'
 $sessionDate = [datetime]::ParseExact($Session, 'yyyy-MM-dd', [cultureinfo]::InvariantCulture)
-if ($sessionDate -ge [DateTime]::UtcNow.Date) {
-    throw 'LEAN historical replay requires a completed session earlier than the current UTC date. Re-run after the UTC date changes.'
+if ($sessionDate.Date -gt [DateTime]::UtcNow.Date) {
+    throw 'LEAN replay source session cannot be in the future.'
+}
+$latestLeanDate = [DateTime]::UtcNow.Date.AddDays(-1)
+if ($PSBoundParameters.ContainsKey('ReplayDate')) {
+    $replayDate = $ReplayDate.Date
+    if ($replayDate -gt $latestLeanDate) {
+        throw 'Requested LEAN replay date must be earlier than the current UTC date.'
+    }
+    if ($replayDate.DayOfWeek -eq [DayOfWeek]::Saturday -or $replayDate.DayOfWeek -eq [DayOfWeek]::Sunday) {
+        throw 'Requested LEAN replay date must be a weekday.'
+    }
+} else {
+    $replayDate = $sessionDate.Date
+    if ($replayDate -gt $latestLeanDate) { $replayDate = $latestLeanDate }
+    while ($replayDate.DayOfWeek -eq [DayOfWeek]::Saturday -or $replayDate.DayOfWeek -eq [DayOfWeek]::Sunday) {
+        $replayDate = $replayDate.AddDays(-1)
+    }
 }
 $sourceCsv = (Resolve-Path -LiteralPath $CsvFile).Path
 $python = Join-Path $repository 'services\market-ai\.venv\Scripts\python.exe'
@@ -89,6 +107,7 @@ if (Test-Path -LiteralPath $legacyAlgorithm) {
 $dataFolder = Join-Path $leanRepo 'Data'
 $prepareArguments = @((Join-Path $repository 'scripts\prepare-lean-data.py'), $sourceCsv,
     '--market', $Market, '--symbol', $Symbol, '--data-folder', $dataFolder,
+    '--replay-date', $replayDate.ToString('yyyy-MM-dd', [cultureinfo]::InvariantCulture),
     '--buy-commission-bps', $costValues.buy_commission,
     '--sell-commission-bps', $costValues.sell_commission,
     '--sell-tax-bps', $costValues.sell_tax,
@@ -99,6 +118,9 @@ if (-not [string]::IsNullOrWhiteSpace($ModelId)) {
 $preparedJson = & $python @prepareArguments | Out-String
 if ($LASTEXITCODE -ne 0) { throw 'KIS data provenance or complete-session validation failed.' }
 $prepared = $preparedJson | ConvertFrom-Json
+if ($prepared.session -ne $Session -or $prepared.replay_session -ne $replayDate.ToString('yyyy-MM-dd', [cultureinfo]::InvariantCulture)) {
+    throw 'Prepared source or LEAN replay session does not match the requested dates.'
+}
 
 $configPath = Join-Path $leanRepo 'Launcher\config.json'
 $config = [System.IO.File]::ReadAllText($configPath)
@@ -108,7 +130,7 @@ $config = [regex]::Replace($config, '"data-folder"\s*:\s*"[^"]+"', '"data-folder
 $parameters = @{
     market = $Market
     symbol = $Symbol.Trim().ToUpperInvariant()
-    session = $Session
+    session = [string]$prepared.replay_session
     currency = $currency
     'expected-bars' = [string]$ExpectedBars
     'buy-commission-bps' = $costValues.buy_commission
@@ -194,6 +216,7 @@ if ($leanBars -ne $prepared.bars -or $leanSignals -ne $prepared.signals -or $lea
     market = $Market
     symbol = $Symbol.Trim().ToUpperInvariant()
     session = $Session
+    replay_session = [string]$prepared.replay_session
     bars = $leanBars
     signals = $leanSignals
     quant_signals = $leanQuantSignals

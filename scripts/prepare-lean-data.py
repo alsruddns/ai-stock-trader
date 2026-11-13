@@ -4,9 +4,8 @@ import argparse
 import hashlib
 import json
 import os
-import shutil
 import sys
-from datetime import timezone
+from datetime import date, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -16,6 +15,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
 from app.ai_pipeline import LocalModelRegistry, predict_probability_series
+from app.lean_replay import map_utc_timestamp_to_replay_date, write_lean_replay_csv
 from app.market_scope import require_cli_operational_market
 from app.quant import QuantConfig, backtest_orb_vwap
 
@@ -29,6 +29,7 @@ def main() -> int:
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--data-folder", type=Path, default=repository / ".local" / "lean-data")
     parser.add_argument("--model-id", help="fixed LightGBM/XGBoost candidate ID for AI+quant parity replay")
+    parser.add_argument("--replay-date", help="LEAN-only calendar date; source session and UTC time-of-day remain recorded")
     parser.add_argument("--registry", type=Path, default=repository / ".local" / "models")
     parser.add_argument("--buy-commission-bps", type=Decimal, default=Decimal("5"))
     parser.add_argument("--sell-commission-bps", type=Decimal, default=Decimal("5"))
@@ -54,11 +55,13 @@ def main() -> int:
     )
 
     try:
+        replay_date = date.fromisoformat(args.replay_date) if args.replay_date else None
         provenance = load_data_provenance(args.csv_file, purpose="backtesting")
         sessions = load_minute_bar_sessions(args.csv_file, market=args.market, expected_symbol=args.symbol)
         if len(sessions) != 1:
             raise ValueError("LEAN adapter accepts exactly one exchange-local session per import")
         session, bars = next(iter(sessions.items()))
+        replay_date = replay_date or session
         quant_result = backtest_orb_vwap(args.market, args.symbol, bars, quant_config)
         model_metadata = None
         score_by_timestamp = None
@@ -106,7 +109,9 @@ def main() -> int:
         for bar in bars:
             probability = score_by_timestamp.get(bar.timestamp.isoformat())
             if probability is not None:
-                timestamp_utc = bar.timestamp.astimezone(timezone.utc).isoformat()
+                timestamp_utc = map_utc_timestamp_to_replay_date(
+                    bar.timestamp.astimezone(timezone.utc).isoformat(), replay_date,
+                )
                 lines.append(f"{timestamp_utc},{probability:.17g}")
         score_bytes = ("\n".join(lines) + "\n").encode("utf-8")
         score_digest = hashlib.sha256(score_bytes).hexdigest()
@@ -115,12 +120,14 @@ def main() -> int:
         "market": args.market,
         "symbol": args.symbol.strip().upper(),
         "session": session.isoformat(),
+        "replay_session": replay_date.isoformat(),
         "bars": len(bars),
         "signals": ai_result.signals,
         "quant_signals": quant_result.signals,
         "trades": len(ai_result.trades),
         "net_pnl": str(ai_result.net_pnl),
         "dataset_sha256": digest,
+        "staged_dataset_sha256": None,
         "rights_reviewed": provenance["rights_reviewed"],
         "cost_assumptions_bps": {
             "buy_commission": str(quant_config.effective_buy_commission_bps),
@@ -146,8 +153,27 @@ def main() -> int:
         })
     if not args.dry_run:
         args.data_folder.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(args.csv_file, destination)
-        shutil.copyfile(args.csv_file.with_name(args.csv_file.name + ".provenance.json"), sidecar_destination)
+        staged_digest = write_lean_replay_csv(args.csv_file, destination, replay_date)
+        summary["staged_dataset_sha256"] = staged_digest
+        staged_provenance = dict(provenance)
+        staged_provenance["lean_replay"] = {
+            "source_session": session.isoformat(),
+            "replay_session": replay_date.isoformat(),
+            "source_dataset_sha256": digest,
+            "staged_dataset_sha256": staged_digest,
+            "calendar_date_shifted": replay_date != session,
+            "utc_time_of_day_preserved": True,
+        }
+        temporary_provenance = sidecar_destination.with_suffix(sidecar_destination.suffix + ".tmp")
+        try:
+            with temporary_provenance.open("w", encoding="utf-8", newline="\n") as stream:
+                json.dump(staged_provenance, stream, ensure_ascii=False, sort_keys=True, indent=2)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_provenance, sidecar_destination)
+        finally:
+            temporary_provenance.unlink(missing_ok=True)
         if model_metadata is not None and score_bytes is not None:
             temporary = score_destination.with_suffix(score_destination.suffix + ".tmp")
             try:
@@ -165,6 +191,7 @@ def main() -> int:
                 "market": args.market,
                 "symbol": args.symbol.strip().upper(),
                 "session": session.isoformat(),
+                "replay_session": replay_date.isoformat(),
                 "dataset_sha256": digest,
                 "dataset_rights_verified": True,
                 "score_sha256": score_digest,
