@@ -4,6 +4,17 @@ function Assert-MonitorSafetyLocks($Status) {
     }
 }
 
+function Test-MonitorStatusUnavailableExpired(
+    [DateTimeOffset]$UnavailableSince,
+    [DateTimeOffset]$Now,
+    [int]$GraceSeconds
+) {
+    if ($GraceSeconds -lt 1 -or $Now -lt $UnavailableSince) {
+        throw 'Status endpoint recovery limits or timestamps are invalid.'
+    }
+    return ($Now - $UnavailableSince).TotalSeconds -gt $GraceSeconds
+}
+
 function Get-MonitorBarStorageDiagnostic($Status) {
     $allowedStates = @('RUNNING', 'DISABLED', 'ERROR', 'DRAIN_TIMEOUT', 'STARTING', 'RECOVERING')
     $stateProperty = if ($Status) { $Status.PSObject.Properties['bar_storage_state'] } else { $null }

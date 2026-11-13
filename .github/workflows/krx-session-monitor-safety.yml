@@ -80,6 +80,11 @@ jobs:
             throw "Domestic PAPER reconnect tolerance tests failed: passed=$($reconnectResult.PassedCount), failed=$($reconnectResult.FailedCount)."
           }
 
+          $statusRecoveryResult = Invoke-Pester -Path 'scripts/tests/paper-session-monitor-status.Tests.ps1' -TestName 'Domestic PAPER monitor status recovery window' -PassThru
+          if ($statusRecoveryResult.FailedCount -gt 0 -or $statusRecoveryResult.PassedCount -ne 2) {
+            throw "Domestic PAPER monitor status recovery tests failed: passed=$($statusRecoveryResult.PassedCount), failed=$($statusRecoveryResult.FailedCount)."
+          }
+
           $storageResult = Invoke-Pester -Path 'scripts/tests/paper-session-monitor-status.Tests.ps1' -TestName 'Domestic PAPER bar storage readiness' -PassThru
           if ($storageResult.FailedCount -gt 0 -or $storageResult.PassedCount -ne 3) {
             throw "Domestic PAPER bar storage readiness tests failed: passed=$($storageResult.PassedCount), failed=$($storageResult.FailedCount)."

@@ -1,5 +1,31 @@
 . (Join-Path $PSScriptRoot '../paper-session-monitor-status.ps1')
 
+Describe 'Domestic PAPER monitor status recovery window' {
+    It 'tolerates short local status outages but expires after the configured grace period' {
+        $start = [DateTimeOffset]::Parse('2026-11-12T01:00:00Z')
+        $afterGrace = $start.AddSeconds(61)
+
+        (Test-MonitorStatusUnavailableExpired $start $start.AddSeconds(45) 60) | Should Be $false
+        (Test-MonitorStatusUnavailableExpired $start $start.AddSeconds(60) 60) | Should Be $false
+        (Test-MonitorStatusUnavailableExpired $start $afterGrace 60) | Should Be $true
+    }
+
+    It 'rejects invalid grace windows and backwards timestamps' {
+        $start = [DateTimeOffset]::Parse('2026-11-12T01:00:00Z')
+        $afterStart = $start.AddSeconds(1)
+        $beforeStart = $start.AddSeconds(-1)
+
+        $invalidGraceThrew = $false
+        $backwardsTimeThrew = $false
+        try { Test-MonitorStatusUnavailableExpired $start $afterStart 0 | Out-Null }
+        catch { $invalidGraceThrew = $true }
+        try { Test-MonitorStatusUnavailableExpired $start $beforeStart 60 | Out-Null }
+        catch { $backwardsTimeThrew = $true }
+        $invalidGraceThrew | Should Be $true
+        $backwardsTimeThrew | Should Be $true
+    }
+}
+
 Describe 'Domestic PAPER monitor reconnect tolerance' {
     It 'continues read-only observation during a selected feed reconnect with no aggregate error code' {
         $status = [pscustomobject]@{

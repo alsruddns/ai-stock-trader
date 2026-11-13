@@ -3,6 +3,7 @@ param(
     [ValidateRange(10, 36000)] [int]$DurationSeconds = 60,
     [ValidateRange(1, 60)] [int]$PollIntervalSeconds = 15,
     [ValidateRange(30, 3600)] [int]$MaxNoTickSeconds = 300,
+    [ValidateRange(1, 600)] [int]$MaxStatusUnavailableSeconds = 60,
     [ValidateRange(0, 36000)] [int]$MinimumBarsDelta = 0,
     [ValidateRange(1, 300)] [int]$StartupTimeoutSeconds = 120,
     [ValidateRange(0, 600)] [int]$PostCloseGraceSeconds = 180,
@@ -177,6 +178,8 @@ $sessionQualityDiagnostics = @()
 $sessionQualityDiagnosticsRecordedAtUtc = $null
 $sessionQualityStatus = 'not_checked'
 $sessionStatusAvailable = $true
+$statusUnavailableSince = $null
+$maxStatusUnavailableSecondsObserved = 0.0
 $postCloseWaitSeconds = 0.0
 $monitorStage = 'stream_monitoring'
 $validationScope = Get-ExchangeSessionValidationScope ([bool]$RequireSessionClose)
@@ -212,12 +215,61 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
     $sampledAtUtc = [DateTimeOffset]::UtcNow
     $sessionPhase = Get-ExchangeSessionPhase $sampledAtUtc $exchangeSession
     if ($sessionPhase -eq 'CLOSED') {
-        $latest = Get-SessionStatus
-        Assert-SafeRunningStatus $latest $Feed ([bool]$RequireBothFeeds)
         $sessionCloseReached = $true
         break
     }
-    $latest = Get-SessionStatus
+    try {
+        $latest = Get-SessionStatus
+        if ($null -ne $statusUnavailableSince) {
+            $recoveredAtUtc = [DateTimeOffset]::UtcNow
+            $recoveredSeconds = ($recoveredAtUtc - $statusUnavailableSince).TotalSeconds
+            $maxStatusUnavailableSecondsObserved = [Math]::Max(
+                $maxStatusUnavailableSecondsObserved, $recoveredSeconds
+            )
+        }
+        $sessionStatusAvailable = $true
+        $statusUnavailableSince = $null
+    } catch {
+        $sessionStatusAvailable = $false
+        if ($null -eq $statusUnavailableSince) { $statusUnavailableSince = $sampledAtUtc }
+        $unavailableAtUtc = [DateTimeOffset]::UtcNow
+        $unavailableSeconds = ($unavailableAtUtc - $statusUnavailableSince).TotalSeconds
+        $maxStatusUnavailableSecondsObserved = [Math]::Max(
+            $maxStatusUnavailableSecondsObserved, $unavailableSeconds
+        )
+        $noTickSeconds = ($unavailableAtUtc - $lastTickReceivedAt).TotalSeconds
+        if ($sessionPhase -eq 'PRE_OPEN') {
+            $preOpenSilenceSeconds = [Math]::Max($preOpenSilenceSeconds,
+                ($unavailableAtUtc - $startedAtUtc).TotalSeconds)
+        } elseif ($sessionPhase -eq 'CLOSING_AUCTION') {
+            $closingAuctionSilenceSeconds = [Math]::Max($closingAuctionSilenceSeconds, $noTickSeconds)
+        } else {
+            $maxObservedNoTickSeconds = [Math]::Max($maxObservedNoTickSeconds, $noTickSeconds)
+        }
+        if (Test-MonitorStatusUnavailableExpired $statusUnavailableSince $unavailableAtUtc `
+                $MaxStatusUnavailableSeconds) {
+            throw 'Could not read the local paper-session status endpoint.'
+        }
+        $latest = $null
+        Write-ProgressRecord ([ordered]@{
+            validation_scope = $validationScope
+            recorded_at_utc = $unavailableAtUtc.ToString('o')
+            requested_seconds = $DurationSeconds
+            elapsed_seconds = [int]$stopwatch.Elapsed.TotalSeconds
+            selected_feed = if ($Feed) { $Feed } else { 'any' }
+            session_phase = $sessionPhase
+            market_session = if ($exchangeSession) { $exchangeSession.market } else { $null }
+            market_session_date = if ($exchangeSession) { $exchangeSession.session_date } else { $null }
+            session_status_available = $false
+            status_unavailable_seconds = [Math]::Round($unavailableSeconds, 1)
+            max_observed_no_tick_seconds = [Math]::Round($maxObservedNoTickSeconds, 1)
+            feeds = $null
+            orders_enabled = $null
+            automation_state = 'UNKNOWN'
+            result = 'running'
+        }) $null
+        continue
+    }
     Assert-SafeRunningStatus $latest $Feed ([bool]$RequireBothFeeds) ([bool]$Feed)
 
     $currentTicks = if ($Feed) { [int]$latest.ticks_received_by_feed.$Feed } else { [int]$latest.ticks_received }
@@ -316,6 +368,9 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
 
 if ($RequireSessionClose -and -not $sessionCloseReached) {
     throw 'The monitored exchange session did not reach its calendar-confirmed close.'
+}
+if (-not $RequireSessionClose -and -not $latest) {
+    throw 'Could not read the local paper-session status endpoint.'
 }
 if ($RequireSessionClose) {
     $monitorStage = 'post_close_validation'
@@ -485,6 +540,7 @@ $evidence = [ordered]@{
     market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
     session_close_reached = $sessionCloseReached
     session_status_available = $sessionStatusAvailable
+    max_status_unavailable_seconds = [Math]::Round($maxStatusUnavailableSecondsObserved, 1)
     status_read_retry_count = [int]$script:statusReadRetryCount
     status_read_failure_categories = [ordered]@{}
     status_read_last_failure_category = $script:statusReadLastFailureCategory
@@ -586,6 +642,7 @@ Write-Output "Read-only KIS $validationLabel passed: feed=$(if ($Feed) { $Feed }
         market_session_open_utc = if ($exchangeSession) { $exchangeSession.open_utc.ToString('o') } else { $null }
         market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
         session_status_available = $sessionStatusAvailable
+        max_status_unavailable_seconds = [Math]::Round($maxStatusUnavailableSecondsObserved, 1)
         session_quality_status = $sessionQualityStatus
         session_quality_diagnostics = $sessionQualityDiagnostics
         session_quality_diagnostics_recorded_at_utc = $sessionQualityDiagnosticsRecordedAtUtc
