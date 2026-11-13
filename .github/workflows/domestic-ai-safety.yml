@@ -12,6 +12,7 @@ on:
       - 'services/market-ai/app/main.py'
       - 'services/market-ai/app/market_stream.py'
       - 'services/market-ai/app/market_scope.py'
+      - 'services/market-ai/app/kis.py'
       - 'services/market-ai/app/paper_runtime.py'
       - 'services/market-ai/app/portfolio_backtest.py'
       - 'services/market-ai/app/quant.py'
@@ -27,6 +28,7 @@ on:
       - 'services/market-ai/tests/test_data_provenance.py'
       - 'services/market-ai/tests/test_market_stream.py'
       - 'services/market-ai/tests/test_market_scope.py'
+      - 'services/market-ai/tests/test_kis.py'
       - 'services/market-ai/tests/test_paper_runtime.py'
       - 'services/market-ai/tests/test_quant.py'
       - 'services/market-ai/tests/test_session_quality.py'
@@ -67,6 +69,9 @@ jobs:
       - name: Install AI pipeline test dependencies
         working-directory: services/market-ai
         run: python -m pip install -e ".[dev,ai,ops]"
+      - name: Run domestic KIS transient authentication tests only
+        working-directory: services/market-ai
+        run: python -m pytest -q tests/test_kis.py -k "egw00002_auth_error"
       - name: Run domestic PAPER cancel preflight probe tests (mocked)
         working-directory: services/market-ai
         run: python -m pytest -q tests/test_probe_kis_paper_cancel_preflight.py

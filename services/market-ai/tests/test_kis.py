@@ -279,7 +279,8 @@ def test_authentication_error_category_is_allowlisted_and_description_is_never_e
     client.close()
 
 
-def test_kis_egw00002_auth_error_is_classified_as_broker_server_error() -> None:
+def test_kis_egw00002_auth_error_is_classified_as_broker_server_error(monkeypatch) -> None:
+    token_slots: list[bool] = []
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(403, headers={"content-type": "application/json"}, json={
             "error_code": "EGW00002", "error_description": "private detail",
@@ -290,13 +291,42 @@ def test_kis_egw00002_auth_error_is_classified_as_broker_server_error() -> None:
                     shared_rate_limit_enabled=False),
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
+    monkeypatch.setattr(client, "_wait_for_token_slot", lambda: token_slots.append(True))
 
     with pytest.raises(KisApiError) as captured:
         client._access_token()
 
+    assert len(token_slots) == 2
     assert captured.value.response_error_code == "EGW00002"
     assert captured.value.response_error_category == "broker_server_error"
     assert "private detail" not in str(captured.value)
+    client.close()
+
+
+def test_kis_egw00002_auth_error_retries_once_after_token_slot(monkeypatch) -> None:
+    token_slots: list[bool] = []
+    requests_seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests_seen.append(request)
+        if len(requests_seen) == 1:
+            return httpx.Response(403, headers={"content-type": "application/json"}, json={
+                "error_code": "EGW00002", "error_description": "private detail",
+            })
+        return httpx.Response(200, json=_token_response())
+
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", "1234567801",
+                    shared_rate_limit_enabled=False),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setattr(client, "_wait_for_token_slot", lambda: token_slots.append(True))
+
+    assert client._access_token() == "test-token"
+    assert len(requests_seen) == 2
+    assert len(token_slots) == 2
+    assert all(request.url.path == "/oauth2/tokenP" for request in requests_seen)
+    assert "paper-secret" not in str(requests_seen)
     client.close()
 
 

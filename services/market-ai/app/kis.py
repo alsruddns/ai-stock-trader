@@ -411,34 +411,45 @@ class KisReadOnlyClient:
             now = datetime.now(timezone.utc)
             if self._token and self._token_expires_at and now + timedelta(minutes=5) < self._token_expires_at:
                 return self._token
-            try:
-                self._wait_for_token_slot()
-                response = self._http.post(
-                    f"{self.settings.base_url}/oauth2/tokenP",
-                    json={
-                        "grant_type": "client_credentials",
-                        "appkey": self.settings.app_key,
-                        "appsecret": self.settings.app_secret,
-                    },
-                    headers={"content-type": "application/json"},
-                )
-                _ensure_kis_http_success(response, "authentication")
-                payload = _response_json(response)
-                token = payload.get("access_token")
-                expiry = payload.get("access_token_token_expired")
-                if not token or not expiry:
-                    raise KisApiError("KIS token response was missing required fields")
-                # KIS token expiry strings are supplied in Korea local time (UTC+09:00).
-                local_expiry = datetime.strptime(expiry, "%Y-%m-%d %H:%M:%S").replace(
-                    tzinfo=timezone(timedelta(hours=9))
-                )
-                self._token = token
-                self._token_expires_at = local_expiry.astimezone(timezone.utc)
-                return token
-            except KisApiError:
-                raise
-            except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
-                raise _safe_kis_request_failure("authentication", exc) from exc
+            for attempt in range(READ_ONLY_GET_RETRY_LIMIT + 1):
+                try:
+                    # Re-reserve the shared token slot on a retry; failed token requests
+                    # still count toward KIS's conservative one-per-minute pacing.
+                    self._wait_for_token_slot()
+                    response = self._http.post(
+                        f"{self.settings.base_url}/oauth2/tokenP",
+                        json={
+                            "grant_type": "client_credentials",
+                            "appkey": self.settings.app_key,
+                            "appsecret": self.settings.app_secret,
+                        },
+                        headers={"content-type": "application/json"},
+                    )
+                    _ensure_kis_http_success(response, "authentication")
+                    payload = _response_json(response)
+                    token = payload.get("access_token")
+                    expiry = payload.get("access_token_token_expired")
+                    if not token or not expiry:
+                        raise KisApiError("KIS token response was missing required fields")
+                    # KIS token expiry strings are supplied in Korea local time (UTC+09:00).
+                    local_expiry = datetime.strptime(expiry, "%Y-%m-%d %H:%M:%S").replace(
+                        tzinfo=timezone(timedelta(hours=9))
+                    )
+                    self._token = token
+                    self._token_expires_at = local_expiry.astimezone(timezone.utc)
+                    return token
+                except KisApiError as exc:
+                    transient_server_error = (
+                        exc.broker_code == "EGW00002" or exc.response_error_code == "EGW00002"
+                    )
+                    if not transient_server_error or attempt >= READ_ONLY_GET_RETRY_LIMIT:
+                        raise
+                    _logger.warning(
+                        "KIS token endpoint returned a transient server error; retrying after shared token pacing (code EGW00002)."
+                    )
+                except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
+                    raise _safe_kis_request_failure("authentication", exc) from exc
+            raise KisApiError("KIS authentication failed after one transient server-error retry.")
 
     def get_quote(self, market: Market, symbol: str, exchange: Exchange | None = None) -> Quote:
         normalized_symbol = symbol.strip().upper()
