@@ -158,10 +158,17 @@ def backtest_domestic_portfolio(
             bar = bars_index[symbol].get(timestamp)
             if bar is None:
                 continue
-            liquidation_bps = (config.effective_sell_commission_bps + config.sell_tax_bps
-                               + config.slippage_bps + config.maximum_spread_bps / Decimal(2))
-            estimated_exit = bar.close * (Decimal(1) - liquidation_bps / Decimal(10_000)) * position.quantity
-            unrealized += estimated_exit - position.entry_equity_debit
+            candidate_exit = next((trade for exit_symbol, trade in trades_at_exit.get(timestamp, [])
+                                   if exit_symbol == symbol), None)
+            if candidate_exit is not None:
+                # Use the candidate's actual bar-level exit result for positions closing now;
+                # a later bar close must not overwrite an already-executed exit mark.
+                unrealized += candidate_exit.net_pnl * position.quantity
+            else:
+                liquidation_bps = (config.effective_sell_commission_bps + config.sell_tax_bps
+                                   + config.slippage_bps + config.maximum_spread_bps / Decimal(2))
+                estimated_exit = bar.close * (Decimal(1) - liquidation_bps / Decimal(10_000)) * position.quantity
+                unrealized += estimated_exit - position.entry_equity_debit
         if realized + unrealized <= -daily_loss_budget:
             daily_loss_hit = True
 

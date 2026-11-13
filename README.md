@@ -96,6 +96,22 @@ LightGBM·XGBoost 학습용 선택 의존성은 `python -m pip install -e ".[dev
 
 퀀트 백테스트도 같은 권리 manifest가 필요하며, 예를 들어 `python .\scripts\backtest-quant.py .\data\licensed\005930.csv --market KR --symbol 005930`으로 실행합니다. CSV 내용이 바뀌어 SHA-256이 달라지면 기존 manifest는 사용할 수 없습니다.
 
+여러 국내 종목을 공통 자본으로 재생하려면 각 CSV와 SHA-256에 연결된 권리 sidecar를 준비한 후 `scripts/backtest-portfolio.py`를 사용합니다. 모든 종목 CSV는 같은 날짜 범위를 포함하고, 그 날짜의 정규장 1분봉 380개가 완전해야 합니다. 아래 수수료는 입력 형식 예시이며 실제 확인한 비용으로 바꾸세요. 명령은 계좌 잔고를 조회하거나 주문하지 않으며, 각 세션을 서로 독립적으로 재생합니다.
+
+```powershell
+python .\scripts\backtest-portfolio.py `
+  --dataset 005930=.\data\licensed\005930.csv `
+  --dataset 000660=.\data\licensed\000660.csv `
+  --starting-equity 10000000 `
+  --max-order-notional 1000000 `
+  --buy-commission-bps 5 `
+  --sell-commission-bps 5 `
+  --sell-tax-bps 0 `
+  --slippage-bps 5
+```
+
+비용값 5/5/0/5는 설명용 진단 입력입니다. 결과 JSON에 데이터 해시와 provenance, 종목별 후보 신호·거래, 위험 제한으로 수락·거부된 진입 및 실현 순손익이 기록되며 `executable`은 항상 `false`입니다. 독립 종목별 후보 신호는 포트폴리오 보유 종목에 따라 다시 계산하지 않으므로 해당 한계를 성과로 오해하지 마세요.
+
 백테스트 요약에는 거래별 진입금액 대비 총수익률, 비용, 순수익률(bps), 중앙값·최악 거래, 승률과 손익비를 추가합니다. 여러 거래의 수익률은 단순 산술 평균이며 복리나 실계좌 성과로 해석하지 않습니다. 거래가 없거나 손실 거래가 없는 경우 손익비는 임의의 0 대신 미정으로 표시합니다.
 
 ### LEAN 로컬 전략 백테스트

@@ -1,0 +1,72 @@
+import hashlib
+import json
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+
+REPOSITORY = Path(__file__).resolve().parents[3]
+CLI = REPOSITORY / "scripts" / "backtest-portfolio.py"
+
+
+def _dataset(path: Path, session_date: str = "2026-11-05") -> Path:
+    start = datetime.fromisoformat(f"{session_date}T09:00:00+09:00")
+    lines = ["timestamp,open,high,low,close,volume,spread_bps,spread_observed_at,symbol"]
+    for index in range(380):
+        stamp = start + timedelta(minutes=index)
+        observed = stamp + timedelta(seconds=30)
+        lines.append(f"{stamp.isoformat()},100,101,99,100,1000,5,{observed.isoformat()},{path.stem}")
+    content = ("\n".join(lines) + "\n").encode()
+    path.write_bytes(content)
+    digest = hashlib.sha256(content).hexdigest()
+    sidecar = {
+        "schema_version": 1,
+        "provider": "test-provider",
+        "dataset_name": path.stem,
+        "source_reference": "test fixture",
+        "license_or_terms": "test rights",
+        "terms_reference": "test reference",
+        "retrieved_at": "2026-11-05T16:00:00+09:00",
+        "verified_by": "test",
+        "verified_at": "2026-11-05T16:00:00+09:00",
+        "rights_reviewed": True,
+        "permissions": {"local_storage": True, "backtesting": True, "model_training": True},
+        "dataset_sha256": digest,
+    }
+    path.with_name(path.name + ".provenance.json").write_text(json.dumps(sidecar), encoding="utf-8")
+    return path
+
+
+def _command(*datasets: Path) -> list[str]:
+    command = [sys.executable, str(CLI), "--starting-equity", "1000000", "--max-order-notional", "1000000",
+               "--buy-commission-bps", "5", "--sell-commission-bps", "5", "--sell-tax-bps", "0",
+               "--slippage-bps", "5", "--minimum-turnover", "0"]
+    for path in datasets:
+        command.extend(["--dataset", f"{path.stem}={path}"])
+    return command
+
+
+def test_portfolio_cli_requires_reviewed_multi_symbol_inputs_and_reports_non_executable(tmp_path: Path) -> None:
+    first = _dataset(tmp_path / "005930.csv")
+    second = _dataset(tmp_path / "000660.csv")
+
+    completed = subprocess.run(_command(first, second), cwd=REPOSITORY, capture_output=True, text=True, check=False)
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["market"] == "KR"
+    assert set(payload["datasets"]) == {"005930", "000660"}
+    assert payload["sessions"][0]["input_bars_by_symbol"] == {"000660": 380, "005930": 380}
+    assert payload["summary"]["executable"] is False
+    assert payload["executable"] is False
+
+
+def test_portfolio_cli_rejects_symbol_session_mismatch(tmp_path: Path) -> None:
+    first = _dataset(tmp_path / "005930.csv", "2026-11-05")
+    second = _dataset(tmp_path / "000660.csv", "2026-11-06")
+
+    completed = subprocess.run(_command(first, second), cwd=REPOSITORY, capture_output=True, text=True, check=False)
+
+    assert completed.returncode == 2
+    assert "same non-empty set of KR session dates" in completed.stderr
