@@ -116,7 +116,7 @@ KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는
 
 ### KIS PAPER 주문 수명주기 통합 확인
 
-KIS PAPER 주문·취소 lifecycle 스크립트는 구현되어 있지만, 현재 허용된 브로커 검증은 국내 읽기 전용 GET뿐입니다. 국내 취소 가능수량 조회의 PAPER 지원이 확인되지 않아 `KR -ConfirmPaperOrderAndCancel`은 네트워크 요청 전에 거부됩니다. 미국 주문·취소 검증은 현재 수행하지 않습니다. `-PreflightOnly`도 사용자가 별도 국내 확인을 요청한 경우에만 읽기 전용으로 실행합니다.
+KIS PAPER 주문·취소 lifecycle 스크립트는 구현되어 있지만, 현재 허용된 브로커 검증은 국내 읽기 전용 GET뿐입니다. KIS 공식 저장소의 모의투자 API 지원표는 국내 `주식정정취소가능주문조회`를 모의투자 미지원으로 표시합니다. 같은 공식 API 예제는 정정·취소 POST 전에 이 조회를 호출해 `psbl_qty`를 확인하라고 요구하므로, 취소 가능수량을 다른 API 값으로 추정하거나 우회하지 않습니다. 따라서 `KR -ConfirmPaperOrderAndCancel`은 네트워크 요청 전에 거부되며, KIS가 PAPER 지원을 공식적으로 추가하기 전까지 이 lifecycle 검증은 막힌 상태입니다. [KIS 공식 모의투자 API 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#3-api-%EC%A0%9C%EA%B3%B5-%EB%AA%A9%EB%A1%9D) · [KIS 공식 취소가능수량 조회 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_psbl_rvsecncl/inquire_psbl_rvsecncl.py). 미국 주문·취소 검증은 현재 수행하지 않습니다. `-PreflightOnly`도 사용자가 별도 국내 확인을 요청한 경우에만 읽기 전용으로 실행합니다.
 
 주문 제출 모드는 Python 거래소 캘린더를 확인하지만, 현재 KIS PAPER lifecycle 검증 범위에서는 주문 제출을 실행하지 않습니다. 읽기 전용 국내 `-PreflightOnly`는 장외에서도 실행할 수 있습니다.
 
