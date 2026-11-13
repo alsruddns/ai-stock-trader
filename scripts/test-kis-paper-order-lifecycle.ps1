@@ -11,6 +11,10 @@ param(
 )
 
 $originalEnvironment = @{}
+$preflightEvidencePath = $null
+$preflightEvidenceStage = 'Configuration'
+$quoteFreshnessCheckPassed = $null
+$orderableFundsCheckPassed = $null
 foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerator()) {
     $originalEnvironment[[string]$entry.Key] = [string]$entry.Value
 }
@@ -33,6 +37,8 @@ if ($Market -eq 'KR' -and $ConfirmPaperOrderAndCancel) {
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'lib/kis-paper-order-preflight.ps1')
 . (Join-Path $PSScriptRoot 'lib/kis-paper-order-lifecycle.ps1')
+$preflightEvidencePath = Join-Path $repoRoot '.local/validation/paper-preflight-latest.json'
+$preflightEvidenceStage = 'Configuration'
 $envPath = Join-Path $repoRoot '.env_local'
 if (-not (Test-Path -LiteralPath $envPath)) { $envPath = Join-Path $repoRoot '.env' }
 if (-not (Test-Path -LiteralPath $envPath)) { throw 'Missing ignored .env_local or .env file.' }
@@ -100,6 +106,7 @@ function Get-Intent([string]$Id) {
     return Get-LocalApi "$SpringApiBaseUrl/api/v1/kis/orders/paper/$Id"
 }
 
+$preflightEvidenceStage = 'LocalServiceState'
 $operations = Get-LocalApi "$SpringApiBaseUrl/api/v1/operations/summary"
 $expectedPaperOrdersEnabled = $env:KIS_PAPER_ORDERS_ENABLED -eq 'true'
 if ($operations.tradingMode -ne 'paper' -or $operations.liveTrading -ne 'disabled' -or
@@ -109,13 +116,16 @@ if ($operations.tradingMode -ne 'paper' -or $operations.liveTrading -ne 'disable
 }
 
 $normalizedSymbol = $Symbol.ToUpperInvariant()
+$preflightEvidenceStage = 'Quote'
 $quotePath = if ($Market -eq 'KR') { "/api/v1/market/quotes/KR/$normalizedSymbol" }
     else { "/api/v1/market/quotes/US/$normalizedSymbol`?exchange=$(ConvertTo-KisQuoteExchange -Exchange $Exchange)" }
 $quote = Get-LocalApi "$MarketAiApiBaseUrl$quotePath"
 if ([decimal]$quote.price -le 0 -or $quote.market -ne $Market -or $quote.symbol -ne $normalizedSymbol) {
     throw 'Fresh market quote did not match the requested instrument.'
 }
+$preflightEvidenceStage = 'QuoteValidation'
 Assert-KisPaperQuoteFresh -Quote $quote
+$quoteFreshnessCheckPassed = $true
 if ($LimitPrice -gt ([decimal]$quote.price * [decimal]0.95)) {
     throw 'LimitPrice must be at least 5% below the latest quote to reduce immediate-fill risk.'
 }
@@ -138,11 +148,17 @@ $escapedExchange = [Uri]::EscapeDataString($Exchange)
 $accountPath = "/api/v1/kis/accounts/paper/$Market/balance`?symbol=$escapedSymbol`&unitPrice=$escapedPrice`&exchange=$escapedExchange"
 # KIS token issuance is paced across Spring and Python by a shared one-per-minute slot.
 # This read-only call can wait for that slot before the broker request starts.
+$preflightEvidenceStage = 'Account'
 $account = Get-LocalApi "$SpringApiBaseUrl$accountPath" -TimeoutSec 180
+$preflightEvidenceStage = 'OrderableFunds'
 Assert-KisPaperOrderableFunds -Account $account -Market $Market -Currency $currency -MinimumNotional $notional
+$orderableFundsCheckPassed = $true
 
 if ($PreflightOnly) {
-    Write-Output "Read-only PAPER preflight passed for market=$Market symbol=$normalizedSymbol; quote and orderable funds are fresh and sufficient. No order was sent."
+    Write-KisPaperPreflightEvidence -Path $preflightEvidencePath -Market $Market -Symbol $normalizedSymbol `
+        -Currency $currency -Result PASSED -Stage Complete `
+        -QuoteFreshnessCheckPassed $quoteFreshnessCheckPassed -OrderableFundsCheckPassed $orderableFundsCheckPassed
+    Write-Output "Read-only PAPER preflight passed for market=$Market symbol=$normalizedSymbol; quote and orderable funds are fresh and sufficient. No order was sent. Evidence: .local/validation/paper-preflight-latest.json"
     exit 0
 }
 
@@ -216,6 +232,19 @@ $lifecycleResult = Get-KisPaperOrderLifecycleResult -Intent $intent
 Write-Output "PAPER lifecycle result: market=$Market symbol=$normalizedSymbol quantity=1 status=$($intent.status) filled=$($lifecycleResult.filledQuantity) key=$idempotencyKey"
 Write-Output $lifecycleResult.message
 if ($lifecycleResult.exitCode -ne 0) { exit $lifecycleResult.exitCode }
+} catch {
+    if ($PreflightOnly -and $preflightEvidencePath -and
+        (Get-Command -Name Write-KisPaperPreflightEvidence -ErrorAction SilentlyContinue)) {
+        try {
+            Write-KisPaperPreflightEvidence -Path $preflightEvidencePath -Market $Market -Symbol $Symbol `
+                -Currency $(if ($Market -eq 'KR') { 'KRW' } else { 'USD' }) -Result FAILED `
+                -Stage $preflightEvidenceStage -QuoteFreshnessCheckPassed $quoteFreshnessCheckPassed `
+                -OrderableFundsCheckPassed $orderableFundsCheckPassed
+        } catch {
+            # Evidence failure must not replace the sanitized preflight failure.
+        }
+    }
+    throw
 }
 finally {
     $currentEnvironment = [Environment]::GetEnvironmentVariables('Process')

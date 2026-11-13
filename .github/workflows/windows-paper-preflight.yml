@@ -85,6 +85,11 @@ jobs:
             throw "Domestic-only operational scope tests failed: passed=$($domesticScopeResult.PassedCount), failed=$($domesticScopeResult.FailedCount)."
           }
 
+          $paperPreflightResult = Invoke-Pester -Path 'scripts/tests/kis-paper-order-preflight.Tests.ps1' -PassThru
+          if ($paperPreflightResult.FailedCount -gt 0 -or $paperPreflightResult.PassedCount -ne 43) {
+            throw "KIS PAPER preflight tests failed: passed=$($paperPreflightResult.PassedCount), failed=$($paperPreflightResult.FailedCount)."
+          }
+
           $holdoutDateResult = Invoke-Pester -Path 'scripts/tests/model-holdout-date-gate.Tests.ps1' -PassThru
           if ($holdoutDateResult.FailedCount -gt 0 -or $holdoutDateResult.PassedCount -ne 5) {
             throw "Independent model holdout date tests failed: passed=$($holdoutDateResult.PassedCount), failed=$($holdoutDateResult.FailedCount)."

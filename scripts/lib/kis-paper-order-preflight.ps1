@@ -182,3 +182,47 @@ function Assert-KisPaperSessionOpen {
         throw 'PAPER smoke order is blocked within five minutes of the exchange close.'
     }
 }
+
+function Write-KisPaperPreflightEvidence {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$Path,
+        [Parameter(Mandatory)] [ValidateSet('KR', 'US')] [string]$Market,
+        [Parameter(Mandatory)] [string]$Symbol,
+        [Parameter(Mandatory)] [ValidateSet('KRW', 'USD')] [string]$Currency,
+        [Parameter(Mandatory)] [ValidateSet('PASSED', 'FAILED')] [string]$Result,
+        [Parameter(Mandatory)] [ValidateSet('Configuration', 'LocalServiceState', 'Quote', 'QuoteValidation', 'Account', 'OrderableFunds', 'Complete')] [string]$Stage,
+        [AllowNull()] [object]$QuoteFreshnessCheckPassed,
+        [AllowNull()] [object]$OrderableFundsCheckPassed,
+        [DateTimeOffset]$Now = [DateTimeOffset]::UtcNow
+    )
+
+    $record = [ordered]@{
+        schema_version = 1
+        checked_at_utc = $Now.ToUniversalTime().ToString('o')
+        mode = 'PAPER_READ_ONLY_PREFLIGHT'
+        market = $Market
+        symbol = $Symbol.Trim().ToUpperInvariant()
+        currency = $Currency
+        result = $Result
+        stage = $Stage
+        quote_freshness_check_passed = $QuoteFreshnessCheckPassed
+        orderable_funds_check_passed = $OrderableFundsCheckPassed
+        order_sent = $false
+        cancel_sent = $false
+    }
+
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $directory = [IO.Path]::GetDirectoryName($fullPath)
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    $temporary = Join-Path $directory ('.paper-preflight-' + [guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        $json = ConvertTo-Json -InputObject $record -Depth 4 -Compress
+        [IO.File]::WriteAllText($temporary, $json, [Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $temporary -Destination $fullPath -Force
+    } finally {
+        if (Test-Path -LiteralPath $temporary) {
+            Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+        }
+    }
+}

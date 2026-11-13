@@ -130,7 +130,7 @@ PAPER lifecycle 스크립트의 1주 제한·가격 신선도·주문가능액 �
 
 해당 lifecycle 구현은 1주 수량·가격 신선도·주문가능액·멱등 대조·취소를 검사하지만, 이 장벽을 우회해 주문 테스트를 실행하지 않습니다. 실제 KIS PAPER 주문은 현 단계에서 전송하지 않습니다.
 
-주문을 보내지 않고 현재 PAPER 시세와 종목별 주문가능금액만 읽기 전용으로 확인하려면 `.env_local`의 주문 잠금을 그대로 둔 채 `scripts/test-kis-paper-order-lifecycle.ps1`에 `-PreflightOnly`를 전달합니다. 예: `-Market KR -Symbol 069500 -LimitPrice 75000 -PreflightOnly`. 이 모드는 주문 잠금이 꺼져 있는 Spring 설정만 허용하고, 시세와 계좌 확인이 모두 최신·충분할 때만 통과합니다.
+주문을 보내지 않고 현재 PAPER 시세와 종목별 주문가능금액만 읽기 전용으로 확인하려면 `.env_local`의 주문 잠금을 그대로 둔 채 `scripts/test-kis-paper-order-lifecycle.ps1`에 `-PreflightOnly`를 전달합니다. 예: `-Market KR -Symbol 069500 -LimitPrice 75000 -PreflightOnly`. 이 모드는 주문 잠금이 꺼져 있는 Spring 설정만 허용하고, 시세와 계좌 확인이 모두 최신·충분할 때만 통과합니다. 마지막 실행 결과는 Git 무시 경로 `.local/validation/paper-preflight-latest.json`에 원자적으로 기록하며 결과·실패 단계·시세 freshness 및 주문가능금액 검사 통과 여부, 주문·취소 미전송 여부만 포함합니다. 실제 가격, 주문가능 잔액, 계좌번호, API 키·시크릿, 오류 원문은 저장하지 않습니다. 실패한 사전점검도 같은 파일을 최신 실패 결과로 교체합니다.
 
 현재 국내 세션 검증에 사용하는 집중 테스트는 `Invoke-Pester -Path scripts/tests/krx-session-monitor-domestic.Tests.ps1`입니다. 해외 fixture를 포함한 공용 주문 preflight·세션 테스트 묶음은 현재 실행하지 않습니다.
 

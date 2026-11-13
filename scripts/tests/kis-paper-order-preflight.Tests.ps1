@@ -333,3 +333,54 @@ Describe 'KIS PAPER exchange session preflight' {
         Test-SessionAssertionThrows -Session $localCloseTime -Market KR -Now $now | Should Be $true
     }
 }
+
+Describe 'KIS PAPER read-only preflight evidence' {
+    It 'writes a minimal passed result without account amounts or secrets' {
+        $directory = Join-Path ([IO.Path]::GetTempPath()) ('kis-paper-preflight-' + [guid]::NewGuid().ToString('N'))
+        $path = Join-Path $directory 'latest.json'
+        try {
+            Write-KisPaperPreflightEvidence -Path $path -Market KR -Symbol '069500' -Currency KRW `
+                -Result PASSED -Stage Complete -QuoteFreshnessCheckPassed $true `
+                -OrderableFundsCheckPassed $true -Now ([DateTimeOffset]::Parse('2026-11-13T14:29:00Z'))
+
+            $evidence = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            $evidence.mode | Should Be 'PAPER_READ_ONLY_PREFLIGHT'
+            $evidence.result | Should Be 'PASSED'
+            $evidence.market | Should Be 'KR'
+            $evidence.symbol | Should Be '069500'
+            $evidence.currency | Should Be 'KRW'
+            $evidence.quote_freshness_check_passed | Should Be $true
+            $evidence.orderable_funds_check_passed | Should Be $true
+            $evidence.order_sent | Should Be $false
+            $evidence.cancel_sent | Should Be $false
+            $evidence.PSObject.Properties.Name -join ',' | Should Not Match 'account|cash|amount|price|secret|key|number'
+            ([DateTimeOffset]$evidence.checked_at_utc).ToUniversalTime().ToString('o') | Should Be '2026-11-13T14:29:00.0000000+00:00'
+        } finally {
+            Remove-Item -LiteralPath $directory -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'records a failed checkpoint without copying the error text' {
+        $directory = Join-Path ([IO.Path]::GetTempPath()) ('kis-paper-preflight-' + [guid]::NewGuid().ToString('N'))
+        $path = Join-Path $directory 'latest.json'
+        try {
+            Write-KisPaperPreflightEvidence -Path $path -Market KR -Symbol '069500' -Currency KRW `
+                -Result PASSED -Stage Complete -QuoteFreshnessCheckPassed $true `
+                -OrderableFundsCheckPassed $true
+            Write-KisPaperPreflightEvidence -Path $path -Market KR -Symbol '069500' -Currency KRW `
+                -Result FAILED -Stage OrderableFunds -QuoteFreshnessCheckPassed $true `
+                -OrderableFundsCheckPassed $false
+
+            $evidence = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            $evidence.result | Should Be 'FAILED'
+            $evidence.stage | Should Be 'OrderableFunds'
+            $evidence.quote_freshness_check_passed | Should Be $true
+            $evidence.orderable_funds_check_passed | Should Be $false
+            $evidence.order_sent | Should Be $false
+            $evidence.cancel_sent | Should Be $false
+            ($evidence.PSObject.Properties.Name -contains 'error') | Should Be $false
+        } finally {
+            Remove-Item -LiteralPath $directory -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
