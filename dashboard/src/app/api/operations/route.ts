@@ -79,6 +79,7 @@ type LocalOperationsReport = {
     orderbookFramesDelta: number | null;
     orderbookUpdatesDelta: number | null;
     maxNoTickSeconds: number | null;
+    maxStatusUnavailableSeconds: number | null;
     failureStage: string | null;
     failureCode: string | null;
     statusReadRetryCount: number | null;
@@ -133,6 +134,11 @@ function nonNegativeInteger(value: unknown): number | null {
 function boundedNonNegativeInteger(value: unknown, maximum: number): number | null {
   const parsed = nonNegativeInteger(value);
   return parsed !== null && parsed <= maximum ? parsed : null;
+}
+
+function boundedNonNegativeNumber(value: unknown, maximum: number): number | null {
+  const parsed = optionalNumber(value);
+  return parsed !== null && parsed >= 0 && parsed <= maximum ? parsed : null;
 }
 
 function statusReadFailureCategory(value: unknown): string | null {
@@ -327,6 +333,7 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
       orderbookFramesDelta: optionalNumber(rawMonitor.orderbookFramesDelta),
       orderbookUpdatesDelta: optionalNumber(rawMonitor.orderbookUpdatesDelta),
       maxNoTickSeconds: optionalNumber(rawMonitor.maxNoTickSeconds),
+      maxStatusUnavailableSeconds: boundedNonNegativeNumber(rawMonitor.maxStatusUnavailableSeconds, 600),
       failureStage: optionalString(rawMonitor.failureStage),
       failureCode: optionalString(rawMonitor.failureCode),
       statusReadRetryCount: boundedNonNegativeInteger(rawMonitor.statusReadRetryCount, 1000),

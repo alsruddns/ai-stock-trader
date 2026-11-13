@@ -378,6 +378,7 @@ function domesticMonitorStatusReadDetail(monitor: LocalOperationsReport["domesti
   if (!monitor) return "진단 기록 없음";
   const details: string[] = [];
   if (monitor.maxStatusUnavailableSeconds != null) details.push(`최대 상태조회 공백 ${monitor.maxStatusUnavailableSeconds.toFixed(1)}초`);
+  else details.push("최대 상태조회 공백 미기록");
   if (monitor.statusReadRetryCount != null) details.push(`재시도 ${monitor.statusReadRetryCount}회`);
   if (monitor.statusReadFailureCategories.length > 0) {
     details.push(monitor.statusReadFailureCategories.map(({ category, count }) => `${statusReadFailureLabel(category)} ${count}회`).join(", "));
