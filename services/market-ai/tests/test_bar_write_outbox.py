@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
+import subprocess
+import sys
 
 import pytest
 
@@ -33,6 +35,33 @@ def test_outbox_survives_reopen_and_preserves_bar_provenance(tmp_path) -> None:
     assert bar.spread_bps == Decimal("4.25")
     assert bar.spread_observed_at == timestamp.replace(second=59)
     assert reopened.acknowledge(market, symbol, bar.timestamp) == 0
+
+
+def test_outbox_recovers_after_writer_process_exits_abruptly(tmp_path) -> None:
+    path = tmp_path / "crash-recovery.sqlite3"
+    writer = """
+import os
+import sys
+from datetime import datetime
+from decimal import Decimal
+from app.bar_write_outbox import BarWriteOutbox
+from app.quant import MinuteBar
+
+at = datetime.fromisoformat('2026-11-13T09:00:00+09:00')
+bar = MinuteBar(at, Decimal('100'), Decimal('101'), Decimal('99'), Decimal('100.5'), 500,
+                Decimal('4.5'), at.replace(second=59))
+BarWriteOutbox(sys.argv[1]).enqueue('KR', '005930', bar, source='KIS_PAPER_WEBSOCKET')
+os._exit(23)
+"""
+
+    result = subprocess.run([sys.executable, "-c", writer, str(path)], timeout=10, check=False)
+
+    assert result.returncode == 23
+    recovered = BarWriteOutbox(path).pending()
+    assert len(recovered) == 1
+    assert recovered[0][0:2] == ("KR", "005930")
+    assert recovered[0][2].close == Decimal("100.5")
+    assert recovered[0][3] == "KIS_PAPER_WEBSOCKET"
 
 
 def test_outbox_deduplicates_equivalent_utc_timestamps(tmp_path) -> None:
