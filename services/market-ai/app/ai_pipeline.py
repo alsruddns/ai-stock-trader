@@ -55,18 +55,31 @@ def _session_progress(timestamp: datetime, market: str) -> Decimal:
     return min(Decimal(1), max(Decimal(0), Decimal(seconds) / Decimal(duration_seconds)))
 
 
-def _positive_probability(model: Any, features: tuple[float, ...] | list[float]) -> float:
-    """Validate a binary classifier's positive-class output before it can affect a signal."""
+def _positive_probabilities(model: Any, features: Any) -> Any:
+    """Validate binary classifier output shape, class order, and probabilities."""
     import numpy as np
 
-    probabilities = np.asarray(model.predict_proba(np.asarray([features], dtype=np.float32)))
-    if probabilities.shape != (1, 2):
-        raise ValueError("model must return one binary-class probability row")
+    matrix = np.asarray(features, dtype=np.float32)
+    if matrix.ndim == 1:
+        matrix = matrix.reshape(1, -1)
+    if matrix.ndim != 2 or matrix.shape[0] == 0 or not np.isfinite(matrix).all():
+        raise ValueError("model features must be a non-empty finite matrix")
+    classes = getattr(model, "classes_", None)
+    if classes is not None and not np.array_equal(np.asarray(classes), np.asarray([0, 1])):
+        raise ValueError("model classes must be ordered as [0, 1]")
+    probabilities = np.asarray(model.predict_proba(matrix))
+    if probabilities.shape != (matrix.shape[0], 2):
+        raise ValueError("model must return one binary-class probability row per sample")
     if (not np.isfinite(probabilities).all() or np.any(probabilities < 0)
             or np.any(probabilities > 1)
-            or not np.isclose(float(probabilities[0].sum()), 1.0, rtol=1e-5, atol=1e-6)):
+            or not np.allclose(probabilities.sum(axis=1), 1.0, rtol=1e-5, atol=1e-6)):
         raise ValueError("model returned invalid binary-class probabilities")
-    return float(probabilities[0][1])
+    return probabilities[:, 1]
+
+
+def _positive_probability(model: Any, features: tuple[float, ...] | list[float]) -> float:
+    """Validate a binary classifier's positive-class output before it can affect a signal."""
+    return float(_positive_probabilities(model, features)[0])
 
 
 @dataclass(frozen=True)
@@ -206,8 +219,6 @@ def latest_features(bars: list[MinuteBar], *, market: str, minimum_bars: int = 2
 def predict_probability_series(model: Any, bars: list[MinuteBar], *, market: str,
                                minimum_bars: int = 21) -> dict[str, float]:
     """Score each bar using only data through that bar close for offline engine parity."""
-    import numpy as np
-
     if not isinstance(minimum_bars, int) or isinstance(minimum_bars, bool) or minimum_bars < 21:
         raise ValueError("minimum_bars must be an integer of at least 21")
     if not bars:
@@ -217,15 +228,7 @@ def predict_probability_series(model: Any, bars: list[MinuteBar], *, market: str
     for index in range(minimum_bars - 1, len(bars)):
         history = bars[:index + 1]
         features = latest_features(history, market=market, minimum_bars=minimum_bars)
-        probabilities = np.asarray(model.predict_proba(np.asarray([features], dtype=np.float32)))
-        if probabilities.shape != (1, 2):
-            raise ValueError("model must return one binary-class probability row per bar")
-        if (not np.isfinite(probabilities).all()
-                or np.any(probabilities < 0)
-                or np.any(probabilities > 1)
-                or not np.isclose(float(probabilities[0].sum()), 1.0, rtol=1e-5, atol=1e-6)):
-            raise ValueError("model returned invalid binary-class probabilities")
-        probability = float(probabilities[0][1])
+        probability = _positive_probability(model, features)
         scores[bars[index].timestamp.isoformat()] = probability
     return scores
 
@@ -269,7 +272,7 @@ def _metrics(model: Any, samples: list[TrainingSample]) -> dict[str, float]:
 
     x = [sample.features for sample in samples]
     y = [sample.label for sample in samples]
-    probabilities = model.predict_proba(x)[:, 1]
+    probabilities = _positive_probabilities(model, x)
     predictions = (probabilities >= 0.5).astype(int)
     metrics = {"accuracy": float(accuracy_score(y, predictions)), "brier": float(brier_score_loss(y, probabilities))}
     metrics["roc_auc"] = float(roc_auc_score(y, probabilities)) if len(set(y)) == 2 else 0.5
@@ -1068,7 +1071,7 @@ class LocalModelRegistry:
             quant_baseline_test_metrics = _quant_baseline_metrics(test)
             def ai_entry_filter(history: list[MinuteBar]) -> bool:
                 features = latest_features(history, market=market)
-                probability = float(model.predict_proba(np.asarray([features], dtype=np.float32))[0][1])
+                probability = _positive_probability(model, features)
                 return probability >= 0.5
 
             ai_quant_backtest_test_metrics = _backtest_metrics([
@@ -1120,7 +1123,6 @@ class LocalModelRegistry:
                            dataset_provenance: dict[str, Any]) -> dict[str, Any]:
         """Attach independent, later-session evidence to a fixed unapproved candidate."""
         import joblib
-        import numpy as np
 
         market = market.strip().upper()
         symbol = symbol.strip().upper()
@@ -1208,7 +1210,7 @@ class LocalModelRegistry:
 
             def ai_entry_filter(history: list[MinuteBar]) -> bool:
                 features = latest_features(history, market=market)
-                probability = float(model.predict_proba(np.asarray([features], dtype=np.float32))[0][1])
+                probability = _positive_probability(model, features)
                 return probability >= float(metadata["threshold"])
 
             quant_metrics = _backtest_metrics([

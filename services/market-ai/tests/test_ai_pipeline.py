@@ -393,6 +393,28 @@ def test_ai_candidate_metrics_apply_the_same_quant_gate_as_paper_runtime() -> No
     assert metrics["candidate_mean_forward_net_bps"] == 2.5
 
 
+def test_ai_candidate_metrics_reject_malformed_binary_probabilities() -> None:
+    samples = [
+        TrainingSample(date(2026, 10, 1), "t1", (0.0,), 1, True, 10.0),
+        TrainingSample(date(2026, 10, 1), "t2", (0.0,), 0, True, -5.0),
+    ]
+    invalid_outputs = (
+        [[0.2, 0.9], [0.3, 0.7]],
+        [[0.5, 0.5]],
+        [[0.5, 0.5], [float("nan"), float("nan")]],
+    )
+    for output in invalid_outputs:
+        model = SimpleNamespace(predict_proba=lambda _features, result=output: result)
+        with pytest.raises(ValueError, match="binary-class probability|invalid binary-class probabilities"):
+            _metrics(model, samples)
+
+    reversed_classes = SimpleNamespace(
+        classes_=[1, 0], predict_proba=lambda _features: [[0.5, 0.5]],
+    )
+    with pytest.raises(ValueError, match="classes must be ordered"):
+        ai_pipeline._positive_probability(reversed_classes, (0.0,))
+
+
 def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path, monkeypatch) -> None:
     sessions = _sample_sessions()
     generated_from = []
