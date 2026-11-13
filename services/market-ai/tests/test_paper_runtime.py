@@ -757,6 +757,84 @@ def test_bar_storage_recovers_after_transient_postgres_write_failure(monkeypatch
     assert "transient database detail" not in str(runtime.status())
 
 
+def test_bar_storage_retries_idempotent_upsert_when_outbox_acknowledgement_fails(monkeypatch) -> None:
+    from app import snapshot_store
+    from app.bar_write_outbox import BarWriteOutbox
+
+    store_attempts = []
+    acknowledge_attempts = 0
+    original_acknowledge = BarWriteOutbox.acknowledge
+
+    def store_idempotently(*args, **kwargs):
+        store_attempts.append((args, kwargs))
+
+    def fail_first_acknowledgement(self, market, symbol, timestamp):
+        nonlocal acknowledge_attempts
+        acknowledge_attempts += 1
+        if acknowledge_attempts == 1:
+            raise RuntimeError("private SQLite path detail")
+        return original_acknowledge(self, market, symbol, timestamp)
+
+    monkeypatch.setattr(snapshot_store, "store_minute_bars", store_idempotently)
+    monkeypatch.setattr(BarWriteOutbox, "acknowledge", fail_first_acknowledgement)
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    bar = MinuteBar(
+        datetime.fromisoformat("2026-11-13T09:00:00+09:00"), Decimal("100"), Decimal("101"),
+        Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
+    )
+    runtime._set_status(bar_storage_state="RUNNING")
+
+    persisted = asyncio.run(runtime._persist_bar_with_retry(watch, bar))
+
+    assert persisted is True
+    assert len(store_attempts) == 2
+    assert all(call[0][2] == [bar] for call in store_attempts)
+    assert acknowledge_attempts == 2
+    assert runtime._bar_write_outbox.count() == 0
+    assert runtime.status()["bar_storage_pending_count"] == 0
+    assert runtime.status()["bar_storage_state"] == "RUNNING"
+    assert runtime.status()["bar_storage_retry_count"] == 1
+    assert "private SQLite path detail" not in str(runtime.status())
+
+
+def test_bar_storage_keeps_durable_outbox_pending_when_acknowledgement_stays_unavailable(monkeypatch) -> None:
+    from app import snapshot_store
+    from app.bar_write_outbox import BarWriteOutbox
+
+    store_attempts = 0
+
+    def store_idempotently(*_args, **_kwargs):
+        nonlocal store_attempts
+        store_attempts += 1
+
+    def fail_acknowledgement(*_args, **_kwargs):
+        raise RuntimeError("private SQLite path detail")
+
+    monkeypatch.setattr(snapshot_store, "store_minute_bars", store_idempotently)
+    monkeypatch.setattr(BarWriteOutbox, "acknowledge", fail_acknowledgement)
+    runtime = PaperSessionFeedMonitor()
+    runtime._automation_queue = asyncio.Queue()
+    watch = parse_watchlist("KR:005930")[0]
+    bar = MinuteBar(
+        datetime.fromisoformat("2026-11-13T09:00:00+09:00"), Decimal("100"), Decimal("101"),
+        Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
+    )
+    runtime._set_status(bar_storage_state="RUNNING")
+
+    persisted = asyncio.run(runtime._persist_bar_with_retry(watch, bar))
+
+    assert persisted is False
+    assert store_attempts == 3
+    assert runtime._bar_write_outbox.count() == 1
+    assert runtime.status()["bar_storage_state"] == "ERROR"
+    assert runtime.status()["bar_storage_error"] == "BAR_OUTBOX_ACK_FAILED"
+    assert runtime.status()["bar_storage_pending_count"] == 1
+    assert runtime.status()["automation_state"] == "BLOCKED"
+    assert runtime.status()["automation_error"] == "BAR_PERSISTENCE_UNAVAILABLE"
+    assert "private SQLite path detail" not in str(runtime.status())
+
+
 def test_later_bar_write_does_not_clear_unrecovered_bar_storage_error(monkeypatch) -> None:
     from app import snapshot_store
 
