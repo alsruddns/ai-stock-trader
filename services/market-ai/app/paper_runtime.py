@@ -24,6 +24,7 @@ from fastapi import HTTPException
 
 from . import snapshot_store
 from .ai_pipeline import LocalModelRegistry
+from .bar_write_outbox import BarWriteOutbox, BarWriteOutboxFull
 from .kis_stream import (
     StreamSettings, SubscriptionAckTracker, SubscriptionAcknowledgementError,
     SubscriptionAcknowledgementTimeoutError, approval_key,
@@ -208,7 +209,7 @@ def parse_watchlist(value: str) -> tuple[PaperWatch, ...]:
 class PaperSessionFeedMonitor:
     """Reconnectable paper WebSocket collector with bounded in-memory bar history."""
 
-    MAX_PENDING_BAR_WRITES = 5_000
+    MAX_PENDING_BAR_WRITES = 10_000
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -284,6 +285,7 @@ class PaperSessionFeedMonitor:
         self._bar_storage_queue: asyncio.Queue[
             tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]
         ] | None = None
+        self._bar_write_outbox = BarWriteOutbox()
         self._pending_bar_writes: deque[
             tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]
         ] = deque()
@@ -617,6 +619,16 @@ class PaperSessionFeedMonitor:
                     automation_state="BLOCKED", automation_error="BAR_HISTORY_RESTORE_FAILED",
                 )
                 return
+            try:
+                pending_bar_count = await self._restore_bar_write_outbox()
+            except Exception:
+                self._set_status(
+                    state="BLOCKED", enabled=False, last_error="BAR_OUTBOX_RESTORE_FAILED",
+                    bar_storage_state="ERROR", bar_storage_error="BAR_OUTBOX_RESTORE_FAILED",
+                    automation_state="BLOCKED", automation_error="BAR_OUTBOX_RESTORE_FAILED",
+                    real_signal_state="BLOCKED_BAR_OUTBOX_RESTORE_FAILED",
+                )
+                return
             self._bar_storage_queue = asyncio.Queue(maxsize=5_000)
             self._bar_storage_task = asyncio.create_task(self._bar_storage_loop())
             self._bar_finalizer_stop = asyncio.Event()
@@ -624,14 +636,23 @@ class PaperSessionFeedMonitor:
                 self._bar_finalizer_loop(self._bar_finalizer_stop),
             )
             self._set_status(
-                bar_storage_state="RUNNING", bar_storage_error=None,
+                bar_storage_state="ERROR" if pending_bar_count else "RUNNING",
+                bar_storage_error="BAR_OUTBOX_RECOVERY_PENDING" if pending_bar_count else None,
+                bar_storage_pending_count=pending_bar_count,
                 restored_bars=restored_count,
             )
         else:
             self._set_status(bar_storage_state="DISABLED", bar_storage_error=None)
         readiness = PaperAutomationReadiness.from_environment()
+        bar_storage_ready = (
+            not persistence_enabled
+            or (self.status().get("bar_storage_state") == "RUNNING"
+                and int(self.status().get("bar_storage_pending_count", 0)) == 0)
+        )
         if os.getenv("PAPER_AUTOTRADING_ENABLED", "false").strip().lower() == "true":
-            if not readiness.enabled:
+            if not bar_storage_ready:
+                self._set_status(automation_state="BLOCKED", automation_error="BAR_OUTBOX_RECOVERY_PENDING")
+            elif not readiness.enabled:
                 self._set_status(automation_state="BLOCKED", automation_error="PAPER_AUTOMATION_SAFETY_SWITCH")
             else:
                 self._paper_entry_queue_blocked = False
@@ -647,7 +668,9 @@ class PaperSessionFeedMonitor:
                     self._automation_task = asyncio.create_task(self._automation_loop(limits))
                     self._set_status(automation_state="EXIT_MONITORING", automation_error=None)
         if self._real_monitor_mode:
-            if (real_submission_ready and re.fullmatch(r"\d{10}", settings.kis.account_number)
+            if not bar_storage_ready:
+                self._set_status(real_signal_state="BLOCKED_BAR_OUTBOX_RECOVERY_PENDING")
+            elif (real_submission_ready and re.fullmatch(r"\d{10}", settings.kis.account_number)
                     and settings.kis.app_key and settings.kis.app_secret):
                 self._real_signal_queue = asyncio.Queue(maxsize=100)
                 self._real_signal_client = SpringRealSignalOrderClient()
@@ -676,6 +699,25 @@ class PaperSessionFeedMonitor:
                 for market in ("KR", "US")
                 if any(watch.market == market for group_watches, _ in feed_groups.values() for watch in group_watches)
             ]
+
+    async def _restore_bar_write_outbox(self) -> int:
+        pending = await asyncio.to_thread(self._bar_write_outbox.pending)
+        self._pending_bar_writes.clear()
+        self._pending_bar_writes.extend(
+            (PaperWatch(market, symbol), bar, {}, {})
+            for market, symbol, bar, _source in pending
+        )
+        pending_count = len(pending)
+        if pending_count:
+            self._set_status(
+                bar_storage_state="ERROR", bar_storage_error="BAR_OUTBOX_RECOVERY_PENDING",
+                bar_storage_pending_count=pending_count,
+                automation_state="BLOCKED", automation_error="BAR_OUTBOX_RECOVERY_PENDING",
+                real_signal_state="BLOCKED_BAR_OUTBOX_RECOVERY_PENDING",
+            )
+        else:
+            self._set_status(bar_storage_pending_count=0)
+        return pending_count
 
     async def add_watches(
         self, watches: tuple[PaperWatch, ...], *, discovered: bool = False,
@@ -904,9 +946,12 @@ class PaperSessionFeedMonitor:
                 try:
                     await asyncio.wait_for(queue.join(), timeout=5)
                     drain_deadline = asyncio.get_running_loop().time() + 5
-                    while self._pending_bar_writes and asyncio.get_running_loop().time() < drain_deadline:
+                    while ((self._pending_bar_writes
+                            or int(self.status().get("bar_storage_pending_count", 0)) > 0)
+                           and asyncio.get_running_loop().time() < drain_deadline):
                         await asyncio.sleep(0.1)
-                    if self._pending_bar_writes:
+                    if (self._pending_bar_writes
+                            or int(self.status().get("bar_storage_pending_count", 0)) > 0):
                         raise TimeoutError
                 except TimeoutError:
                     self._set_status(bar_storage_state="DRAIN_TIMEOUT", bar_storage_error="PENDING_BARS_NOT_FLUSHED")
@@ -1013,29 +1058,55 @@ class PaperSessionFeedMonitor:
             self._status["candidate_refresh_by_market"] = statuses
 
     async def _persist_bar_with_retry(self, watch: PaperWatch, bar: MinuteBar) -> bool:
-        """Retry idempotent minute-bar upserts before declaring storage unavailable."""
+        """Journal the bar locally, then retry its idempotent PostgreSQL upsert."""
         source = "KIS_PAPER_WEBSOCKET" if watch.market == "KR" else "KIS_REAL_US_WEBSOCKET"
         retry_delays = (0.25, 0.5)
+        try:
+            pending_count = await asyncio.to_thread(
+                self._bar_write_outbox.enqueue, watch.market, watch.symbol, bar, source=source,
+            )
+            self._set_status(bar_storage_pending_count=pending_count)
+        except BarWriteOutboxFull:
+            self._set_status(bar_storage_state="ERROR", bar_storage_error="BAR_OUTBOX_FULL")
+            if self._automation_queue is not None:
+                self._set_status(automation_state="BLOCKED", automation_error="BAR_PERSISTENCE_UNAVAILABLE")
+            return False
+        except Exception:
+            self._set_status(bar_storage_state="ERROR", bar_storage_error="BAR_OUTBOX_WRITE_FAILED")
+            if self._automation_queue is not None:
+                self._set_status(automation_state="BLOCKED", automation_error="BAR_PERSISTENCE_UNAVAILABLE")
+            return False
+
+        failure_code = "POSTGRES_WRITE_FAILED"
         for attempt in range(len(retry_delays) + 1):
             try:
                 await asyncio.to_thread(
                     snapshot_store.store_minute_bars, watch.market, watch.symbol, [bar], source=source,
                 )
             except Exception:
-                if attempt < len(retry_delays):
-                    with self._lock:
-                        self._status["bar_storage_retry_count"] = int(
-                            self._status.get("bar_storage_retry_count", 0)
-                        ) + 1
-                    await asyncio.sleep(retry_delays[attempt])
-                    continue
-                self._set_status(bar_storage_state="ERROR", bar_storage_error="POSTGRES_WRITE_FAILED")
-                if self._automation_queue is not None:
-                    self._set_status(automation_state="BLOCKED", automation_error="BAR_PERSISTENCE_UNAVAILABLE")
-                return False
+                failure_code = "POSTGRES_WRITE_FAILED"
+            else:
+                try:
+                    pending_count = await asyncio.to_thread(
+                        self._bar_write_outbox.acknowledge, watch.market, watch.symbol, bar.timestamp,
+                    )
+                except Exception:
+                    failure_code = "BAR_OUTBOX_ACK_FAILED"
+                else:
+                    self._set_status(bar_storage_pending_count=pending_count)
+                    return True
 
-            # A later bar succeeding does not prove a previously failed bar was stored.
-            return True
+            if attempt < len(retry_delays):
+                with self._lock:
+                    self._status["bar_storage_retry_count"] = int(
+                        self._status.get("bar_storage_retry_count", 0)
+                    ) + 1
+                await asyncio.sleep(retry_delays[attempt])
+                continue
+            self._set_status(bar_storage_state="ERROR", bar_storage_error=failure_code)
+            if self._automation_queue is not None:
+                self._set_status(automation_state="BLOCKED", automation_error="BAR_PERSISTENCE_UNAVAILABLE")
+            return False
         return False
 
     def _defer_bar_write(
@@ -1051,18 +1122,23 @@ class PaperSessionFeedMonitor:
         self._pending_bar_writes.append(item)
         self._set_status(
             bar_storage_state="ERROR", bar_storage_error=error_code,
-            bar_storage_pending_count=len(self._pending_bar_writes),
+            bar_storage_pending_count=max(
+                int(self._status.get("bar_storage_pending_count", 0)), len(self._pending_bar_writes),
+            ),
         )
         if self._automation_queue is not None:
             self._set_status(automation_state="BLOCKED", automation_error="BAR_PERSISTENCE_UNAVAILABLE")
         return True
 
     def _finish_bar_write_recovery(self) -> None:
-        if self._pending_bar_writes:
+        if (self._pending_bar_writes
+                or int(self._status.get("bar_storage_pending_count", 0)) > 0):
             return
         with self._lock:
             if self._status.get("bar_storage_error") in {
                 "POSTGRES_WRITE_FAILED", "BAR_STORAGE_QUEUE_BACKPRESSURE",
+                "BAR_OUTBOX_RECOVERY_PENDING", "BAR_OUTBOX_ACK_FAILED",
+                "BAR_OUTBOX_FULL", "BAR_OUTBOX_WRITE_FAILED",
             }:
                 self._status["bar_storage_state"] = "RUNNING"
                 self._status["bar_storage_error"] = None
@@ -1078,7 +1154,6 @@ class PaperSessionFeedMonitor:
                 watch, bar, _decision, _quotes = item
                 if await self._persist_bar_with_retry(watch, bar):
                     self._pending_bar_writes.popleft()
-                    self._set_status(bar_storage_pending_count=len(self._pending_bar_writes))
                     self._finish_bar_write_recovery()
                     continue
                 await asyncio.sleep(5)
@@ -1088,6 +1163,7 @@ class PaperSessionFeedMonitor:
                 if not await self._persist_bar_with_retry(watch, bar):
                     self._defer_bar_write((watch, bar, decision, quotes))
                     continue
+                self._finish_bar_write_recovery()
                 if self._automation_queue is not None:
                     try:
                         self._automation_queue.put_nowait((watch, bar, decision, quotes))
@@ -1146,6 +1222,8 @@ class PaperSessionFeedMonitor:
                 # Persist directly: a final bar must not enter PAPER/REAL signal queues.
                 if not await self._persist_bar_with_retry(watch, bar):
                     self._defer_bar_write((watch, bar, {}, {}))
+                else:
+                    self._finish_bar_write_recovery()
 
     async def _run(self, watches: tuple[PaperWatch, ...], settings: StreamSettings) -> None:
         environment = settings.kis.environment
@@ -1981,10 +2059,21 @@ class PaperSessionFeedMonitor:
         if queue is None:
             return
         try:
+            source = "KIS_PAPER_WEBSOCKET" if watch.market == "KR" else "KIS_REAL_US_WEBSOCKET"
+            pending_count = self._bar_write_outbox.enqueue(watch.market, watch.symbol, bar, source=source)
+            self._set_status(bar_storage_pending_count=pending_count)
             queue.put_nowait((watch, bar, decision, quotes))
+        except BarWriteOutboxFull:
+            self._defer_bar_write(
+                (watch, bar, decision, quotes), error_code="BAR_OUTBOX_FULL",
+            )
         except asyncio.QueueFull:
             self._defer_bar_write(
                 (watch, bar, decision, quotes), error_code="BAR_STORAGE_QUEUE_BACKPRESSURE",
+            )
+        except Exception:
+            self._defer_bar_write(
+                (watch, bar, decision, quotes), error_code="BAR_OUTBOX_WRITE_FAILED",
             )
 
     def _set_status(self, **values: object) -> None:

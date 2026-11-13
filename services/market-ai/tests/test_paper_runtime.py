@@ -19,6 +19,11 @@ from app.quant import MinuteBar
 from app.real_signal_orders import RealSignalOrderOutcomeUnknown, real_signal_idempotency_key
 
 
+@pytest.fixture(autouse=True)
+def isolate_bar_write_outbox(tmp_path, monkeypatch):
+    monkeypatch.setenv("AI_STOCK_TRADER_BAR_OUTBOX_PATH", str(tmp_path / "bar-write-outbox.sqlite3"))
+
+
 def _set_quant_cost_settings(monkeypatch, market: str) -> None:
     prefix = f"BACKTEST_{market}"
     paper_prefix = "PAPER_KR" if market == "KR" else "PAPER_US"
@@ -803,6 +808,44 @@ def test_deferred_bar_write_is_retried_and_recovered_without_replaying_stale_sig
     assert runtime.status()["bar_storage_state"] == "RUNNING"
     assert runtime.status()["automation_state"] == "BLOCKED"
     assert runtime._automation_queue.empty()
+
+
+def test_durable_bar_outbox_restores_and_drains_before_automation_can_resume(monkeypatch) -> None:
+    from app import snapshot_store
+
+    stored = []
+    monkeypatch.setattr(snapshot_store, "store_minute_bars", lambda *args, **kwargs: stored.append((args, kwargs)))
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    bar = MinuteBar(
+        datetime.fromisoformat("2026-11-13T09:00:00+09:00"), Decimal("100"), Decimal("101"),
+        Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
+    )
+    assert runtime._bar_write_outbox.enqueue(
+        watch.market, watch.symbol, bar, source="KIS_PAPER_WEBSOCKET",
+    ) == 1
+    runtime._bar_storage_queue = asyncio.Queue()
+
+    async def recover():
+        assert await runtime._restore_bar_write_outbox() == 1
+        assert runtime.status()["automation_state"] == "BLOCKED"
+        assert runtime.status()["real_signal_state"] == "BLOCKED_BAR_OUTBOX_RECOVERY_PENDING"
+        worker = asyncio.create_task(runtime._bar_storage_loop())
+        deadline = asyncio.get_running_loop().time() + 1
+        while runtime.status()["bar_storage_pending_count"] and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.01)
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+
+    asyncio.run(recover())
+
+    assert len(stored) == 1
+    assert stored[0][0][2] == [bar]
+    assert runtime._bar_write_outbox.count() == 0
+    assert runtime.status()["bar_storage_pending_count"] == 0
+    assert runtime.status()["bar_storage_state"] == "RUNNING"
+    assert runtime._automation_queue is None
 
 
 def test_websocket_reconnect_backoff_survives_short_lived_connections() -> None:
