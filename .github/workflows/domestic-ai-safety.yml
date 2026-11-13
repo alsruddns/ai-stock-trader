@@ -163,6 +163,12 @@ jobs:
           tests/test_paper_runtime.py::test_exit_worker_rejects_stale_bar_before_reading_positions
           tests/test_paper_runtime.py::test_exit_worker_rejects_future_bar_before_reading_positions
           tests/test_paper_runtime.py::test_paper_worker_does_not_reenter_on_bar_that_submitted_an_exit
+      - name: Run domestic PAPER fill response-loss recovery tests only
+        working-directory: services/market-ai
+        run: >-
+          python -m pytest -q
+          tests/test_paper_automation.py::test_entry_reconciles_fill_committed_before_response_timeout
+          tests/test_paper_automation.py::test_paper_exit_resumes_partial_fill_after_committed_fill_response_timeout
       - name: Run domestic PAPER protective stop behavior only
         working-directory: services/market-ai
         run: >-

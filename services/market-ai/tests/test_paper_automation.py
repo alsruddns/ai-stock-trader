@@ -87,6 +87,35 @@ def test_automation_uses_local_paper_order_and_deterministic_fill_once(monkeypat
     assert broker.order["targetPrice"] == Decimal("102000")
 
 
+def test_entry_reconciles_fill_committed_before_response_timeout(monkeypatch) -> None:
+    _enable_paper_automation(monkeypatch)
+
+    class CommitThenUnknownFillBroker(FakeBroker):
+        def __init__(self):
+            super().__init__()
+            self.unknown_once = True
+
+        def record_fill(self, *args, **kwargs):
+            result = super().record_fill(*args, **kwargs)
+            if self.unknown_once:
+                self.unknown_once = False
+                raise PaperBrokerOutcomeUnknown("response lost after committed fill")
+            return result
+
+    broker = CommitThenUnknownFillBroker()
+    trader = PaperAutoTrader(broker)
+
+    first = trader.submit_entry(_decision(exit_ready=True))
+    second = trader.submit_entry(_decision(exit_ready=True))
+
+    assert first["state"] == "UNKNOWN"
+    assert second["state"] == "FILLED"
+    assert first["idempotency_key"] == second["idempotency_key"]
+    assert broker.submit_calls == 1
+    assert broker.fill_calls == 1
+    assert broker.order["filledQuantity"] == broker.order["quantity"] == 2
+
+
 def test_kis_paper_order_switch_blocks_local_automation(monkeypatch) -> None:
     _enable_paper_automation(monkeypatch)
     monkeypatch.setenv("KIS_PAPER_ORDERS_ENABLED", "true")
@@ -157,6 +186,53 @@ def test_paper_exit_reconciles_unknown_fill_without_creating_a_second_sell_order
     assert broker.order["side"] == "SELL"
     assert broker.submit_calls == 1
     assert broker.fill_calls == 2
+    assert broker.order["fillPrice"] == Decimal("98000")
+
+
+def test_paper_exit_resumes_partial_fill_after_committed_fill_response_timeout(monkeypatch) -> None:
+    _enable_paper_automation(monkeypatch)
+
+    class PartialCommitThenUnknownFillBroker(FakeBroker):
+        def __init__(self):
+            super().__init__()
+            self.unknown_once = True
+
+        def submit_order(self, **kwargs):
+            order = super().submit_order(**kwargs)
+            order["quantity"] = 3
+            return order
+
+        def record_fill(self, order_id, *, fill_key, quantity, fill_price, stop_price=None, target_price=None):
+            self.fill_calls += 1
+            filled = int(self.order["filledQuantity"])
+            committed_quantity = 1 if self.unknown_once else quantity
+            new_filled = filled + committed_quantity
+            self.order.update({"id": order_id, "status": "FILLED" if new_filled == 3 else "PARTIALLY_FILLED",
+                               "filledQuantity": new_filled, "fillKey": fill_key, "fillPrice": fill_price,
+                               "stopPrice": stop_price, "targetPrice": target_price})
+            if self.unknown_once:
+                self.unknown_once = False
+                raise PaperBrokerOutcomeUnknown("response lost after partial fill commit")
+            return self.order
+
+    broker = PartialCommitThenUnknownFillBroker()
+    trader = PaperAutoTrader(broker)
+    args = {"market": "KR", "symbol": "005930", "currency": "KRW", "quantity": 3,
+            "position_opened_at": "2026-11-05T00:00:00Z",
+            "bar_timestamp": datetime(2026, 11, 5, 10, 1, tzinfo=timezone.utc),
+            "exit_price": Decimal("98000"), "reason": "ATR_STOP"}
+
+    first = trader.submit_exit(**args)
+    second = trader.submit_exit(**{**args, "quantity": 2,
+                                   "bar_timestamp": datetime(2026, 11, 5, 10, 2, tzinfo=timezone.utc),
+                                   "exit_price": Decimal("97000")})
+
+    assert first["state"] == "UNKNOWN"
+    assert second["state"] == "FILLED"
+    assert first["idempotency_key"] == second["idempotency_key"]
+    assert broker.submit_calls == 1
+    assert broker.fill_calls == 2
+    assert broker.order["quantity"] == broker.order["filledQuantity"] == 3
     assert broker.order["fillPrice"] == Decimal("98000")
 
 
