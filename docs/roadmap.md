@@ -769,3 +769,5 @@ P1/P2 판정은 읽기 전용 연결과 격리 로컬 주문 엔진의 검증 �
 - **P3 세션 수익률 계산 공통화 (2026-11-13 17:28 KST):** CLI의 세션별 수익률과 전체 세션 통계가 같은 `session_net_return_bps` 계산기를 사용하도록 통합했습니다. 거래가 없는 세션은 `null`을 반환하며, 잘못된 수량·가격·명목금액은 거부합니다. 국내 P3 집중 pytest 6/6, CLI 구문 컴파일 및 `git diff --check` 통과. 실거래·KIS API는 호출하지 않았습니다.
 
 - **P6 PAPER 취소 사전조회 probe 응답 검증 강화 (2026-11-13 17:38 KST):** PAPER 조회가 `rt_cd=0`만 반환하고 실제 `psbl_qty`가 없거나 형식이 잘못돼도 기존 probe가 성공으로 오인할 수 있던 문제를 수정했습니다. 이제 0 이상 정수 또는 숫자 문자열 `psbl_qty`가 있을 때만 `valid_preflight_response`를 반환하며, 빈 응답·누락·불리언·음수·비숫자는 `response_incomplete`로 fail-closed 처리합니다. 유효한 필드가 있어도 API의 PAPER 지원이나 특정 주문과의 일치가 입증된 것은 아닙니다. 주문·취소는 계속 보내지 않습니다. 국내 집중 pytest 15/15, Python 구문 컴파일, `git diff --check`를 통과했습니다. KIS 주문·취소 API를 호출하지 않았습니다.
+
+- **P4/P5 국내 수집 watchlist 확인 (2026-11-13 17:45 KST):** 실행 중인 로컬 FastAPI의 PAPER 상태 GET에서 `RUNNING`, 국내 구독 2개, 주문 비활성 및 자동화 `DISABLED`를 확인했고, ignored `.env_local`의 watchlist는 `KR:005930;KR:000660`입니다. README의 이전 단일종목 표기를 바로잡았습니다. 두 종목 각각 2/13 학습 적격 세션이며 새 KIS 계좌·주문 API 호출은 하지 않았습니다. 11월 16일 08:45 KST로 등록된 전체 세션 감시가 두 종목의 추가 데이터를 모으는 다음 검증 기회입니다.
