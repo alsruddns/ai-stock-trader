@@ -340,7 +340,7 @@ function domesticMonitorRunDetail(monitor: LocalOperationsReport["domesticSessio
   if (monitor.sessionDate) parts.push(monitor.sessionDate);
   if (monitor.state === "FAILED" && monitor.maxNoTickSeconds != null) parts.push(`무틱 ${Math.round(monitor.maxNoTickSeconds)}초`);
   if (monitor.state === "PASSED" && monitor.ticksDelta != null) {
-    parts.push(`틱 ${monitor.ticksDelta}건 / 분봉 ${monitor.barsDelta ?? "—"}개`);
+    parts.push(`체결 틱 ${monitor.ticksDelta}건 / 생성 집계봉 ${monitor.barsDelta ?? "—"}개`);
   }
   if (monitor.orderbookFramesDelta != null || monitor.orderbookUpdatesDelta != null) {
     parts.push(`호가 프레임 ${monitor.orderbookFramesDelta ?? "—"} / 분봉 반영 ${monitor.orderbookUpdatesDelta ?? "—"}`);
@@ -374,7 +374,7 @@ function domesticMonitorSymbolDetail(monitor: LocalOperationsReport["domesticSes
     return monitor?.symbolMarketDataStatus === "UNVERIFIED" ? "종목별 진단 검증 불가" : "저장된 종목별 진단 없음";
   }
   return monitor.symbolMarketData.map((item) =>
-    `${item.symbol} 체결 ${item.tradeTicksReceived} · 봉 ${item.barsClosed} · 호가 ${item.orderbookQuotesReceived} (유효 ${item.usableOrderbookQuotes})`,
+    `${item.symbol} 체결 ${item.tradeTicksReceived} · 생성 집계봉 ${item.barsClosed} · 호가 ${item.orderbookQuotesReceived} (유효 ${item.usableOrderbookQuotes})`,
   ).join(" / ");
 }
 function paperPreflightDetail(preflight: PaperPreflight | null) {
