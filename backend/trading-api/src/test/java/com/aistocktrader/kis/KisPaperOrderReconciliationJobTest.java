@@ -64,14 +64,14 @@ class KisPaperOrderReconciliationJobTest {
         KisOrderIntent missingBroker = new KisOrderIntent(missingBrokerKey, "missing-broker",
                 KisEnvironment.PAPER, request(Market.KR, "000660"), null);
         missingBroker.markUnknown();
-        when(intents.findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdempotencyKeyAsc(
+        when(intents.findReconciliationCandidates(
                 eq(KisEnvironment.PAPER), anyCollection(), anyCollection(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(foreign, missingBroker, domestic)));
 
         job(new KisOrderProperties(false, true), kisProperties(true, true, true),
                 paperSafety(), intents, orchestrator).reconcileKnownBrokerOrders();
 
-        verify(intents).findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdempotencyKeyAsc(
+        verify(intents).findReconciliationCandidates(
                 eq(KisEnvironment.PAPER), eq(List.of(Market.KR)), anyCollection(), any(Pageable.class));
         verify(orchestrator).reconcilePaperOrder(domesticKey);
         verify(orchestrator, never()).reconcilePaperOrder(foreignKey);
@@ -86,7 +86,7 @@ class KisPaperOrderReconciliationJobTest {
         UUID secondKey = UUID.randomUUID();
         KisOrderIntent first = acceptedOrder(firstKey, Market.KR, "005930", "9103");
         KisOrderIntent second = acceptedOrder(secondKey, Market.KR, "000660", "9104");
-        when(intents.findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdempotencyKeyAsc(
+        when(intents.findReconciliationCandidates(
                 eq(KisEnvironment.PAPER), anyCollection(), anyCollection(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(first, second)));
         doThrow(new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "safe failure"))
@@ -103,7 +103,7 @@ class KisPaperOrderReconciliationJobTest {
     void enabledPollingRotatesThroughAllDomesticPagesInsteadOfStarvingOrdersAfterFirstFifty() {
         KisOrderIntentRepository intents = mock(KisOrderIntentRepository.class);
         KisOrderOrchestrator orchestrator = mock(KisOrderOrchestrator.class);
-        when(intents.findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdempotencyKeyAsc(
+        when(intents.findReconciliationCandidates(
                 eq(KisEnvironment.PAPER), anyCollection(), anyCollection(), any(Pageable.class)))
                 .thenAnswer(invocation -> {
                     Pageable pageable = invocation.getArgument(3);
@@ -118,7 +118,7 @@ class KisPaperOrderReconciliationJobTest {
         job.reconcileKnownBrokerOrders();
 
         var pageCaptor = forClass(Pageable.class);
-        verify(intents, times(4)).findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdempotencyKeyAsc(
+        verify(intents, times(4)).findReconciliationCandidates(
                 eq(KisEnvironment.PAPER), eq(List.of(Market.KR)), anyCollection(), pageCaptor.capture());
         assertEquals(List.of(0, 1, 2, 0), pageCaptor.getAllValues().stream().map(Pageable::getPageNumber).toList());
         verifyNoInteractions(orchestrator);

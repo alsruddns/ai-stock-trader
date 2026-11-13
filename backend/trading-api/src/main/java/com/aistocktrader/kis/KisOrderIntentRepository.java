@@ -1,12 +1,11 @@
 package com.aistocktrader.kis;
 
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.data.jpa.repository.Query;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
@@ -18,9 +17,19 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
     List<KisOrderIntent> findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment environment);
     List<KisOrderIntent> findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(
             KisEnvironment environment, Collection<KisOrderStatus> statuses);
-    Page<KisOrderIntent> findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdempotencyKeyAsc(
-            KisEnvironment environment, Collection<com.aistocktrader.order.Market> markets,
-            Collection<KisOrderStatus> statuses, Pageable pageable);
+    @Query("""
+            select intent from KisOrderIntent intent
+             where intent.environment = :environment
+               and intent.market in :markets
+               and intent.status in :statuses
+               and intent.brokerOrderNumber is not null
+               and trim(intent.brokerOrderNumber) <> ''
+             order by intent.updatedAt asc, intent.idempotencyKey asc
+            """)
+    Page<KisOrderIntent> findReconciliationCandidates(@Param("environment") KisEnvironment environment,
+                                                       @Param("markets") Collection<com.aistocktrader.order.Market> markets,
+                                                       @Param("statuses") Collection<KisOrderStatus> statuses,
+                                                       Pageable pageable);
     List<KisOrderIntent> findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(
             KisEnvironment environment, Collection<KisRealExitStatus> statuses);
     List<KisOrderIntent> findByEnvironmentAndMarketAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(

@@ -673,6 +673,7 @@ class KisOrderIntentPostgresIntegrationTest {
         UUID earlierKey = UUID.randomUUID();
         UUID laterKey = UUID.randomUUID();
         UUID usPaperKey = UUID.randomUUID();
+        UUID unknownWithoutBrokerKey = UUID.randomUUID();
         UUID realKey = UUID.randomUUID();
         try {
             store.prepare(earlierKey, hash("paper-page-earlier"), KisEnvironment.PAPER, request(), null);
@@ -687,6 +688,11 @@ class KisOrderIntentPostgresIntegrationTest {
                     "PG" + UUID.randomUUID().toString().replace("-", "").substring(0, 16),
                     "ITORG01", "0", Instant.now()));
 
+            KisOrderIntent unknownWithoutBroker = new KisOrderIntent(unknownWithoutBrokerKey,
+                    hash("paper-page-unknown"), KisEnvironment.PAPER, request(), null);
+            unknownWithoutBroker.markUnknown();
+            repository.saveAndFlush(unknownWithoutBroker);
+
             store.prepare(realKey, hash("real-page-domestic"), KisEnvironment.REAL, request(), null);
             store.accept(realKey, receipt("real", "RG" + UUID.randomUUID().toString().replace("-", "").substring(0, 16)));
 
@@ -696,17 +702,19 @@ class KisOrderIntentPostgresIntegrationTest {
                     Timestamp.from(Instant.parse("2026-11-13T02:00:00Z")), laterKey);
             entityManager.clear();
 
-            var firstPage = repository.findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdempotencyKeyAsc(
-                    KisEnvironment.PAPER, List.of(Market.KR), List.of(KisOrderStatus.ACCEPTED), PageRequest.of(0, 1));
-            var secondPage = repository.findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdempotencyKeyAsc(
-                    KisEnvironment.PAPER, List.of(Market.KR), List.of(KisOrderStatus.ACCEPTED), PageRequest.of(1, 1));
+            var firstPage = repository.findReconciliationCandidates(
+                    KisEnvironment.PAPER, List.of(Market.KR),
+                    List.of(KisOrderStatus.ACCEPTED, KisOrderStatus.UNKNOWN), PageRequest.of(0, 1));
+            var secondPage = repository.findReconciliationCandidates(
+                    KisEnvironment.PAPER, List.of(Market.KR),
+                    List.of(KisOrderStatus.ACCEPTED, KisOrderStatus.UNKNOWN), PageRequest.of(1, 1));
 
             assertEquals(2, firstPage.getTotalElements());
             assertEquals(2, firstPage.getTotalPages());
             assertEquals(earlierKey, firstPage.getContent().getFirst().getIdempotencyKey());
             assertEquals(laterKey, secondPage.getContent().getFirst().getIdempotencyKey());
         } finally {
-            repository.deleteAllById(List.of(earlierKey, laterKey, usPaperKey, realKey));
+            repository.deleteAllById(List.of(earlierKey, laterKey, usPaperKey, unknownWithoutBrokerKey, realKey));
         }
     }
 
