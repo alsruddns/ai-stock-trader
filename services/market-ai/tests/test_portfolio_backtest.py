@@ -81,6 +81,26 @@ def test_portfolio_generates_real_orb_vwap_signals_on_shared_timeline() -> None:
     assert result.executable is False
 
 
+def test_ai_filter_only_allows_quant_candidate_and_records_rejection() -> None:
+    data = {"005930": _strategy_bars(0), "000660": _strategy_bars(1)}
+    config = QuantConfig(
+        commission_bps=Decimal(0), slippage_bps=Decimal(0),
+        minimum_turnover=Decimal(0), minimum_relative_volume=Decimal("1.5"),
+    )
+
+    result = backtest_domestic_portfolio(
+        data, starting_equity=Decimal("1000000"), max_order_notional=Decimal("1000000"),
+        config=config, entry_filter=lambda symbol, _history: symbol == "005930",
+    )
+
+    assert result.quant_signals_by_symbol["000660"] > 0
+    assert result.quant_signals_by_symbol["005930"] == 1
+    assert result.signals_by_symbol == {"000660": 0, "005930": 1}
+    assert result.ai_rejections_by_symbol["000660"] == result.quant_signals_by_symbol["000660"]
+    assert result.ai_rejections_by_symbol["005930"] == 0
+    assert [trade.symbol for trade in result.trades] == ["005930"]
+
+
 def test_portfolio_enforces_three_slots_and_blocks_same_minute_slot_reuse(monkeypatch) -> None:
     _signals_at_lengths(monkeypatch, {0: {21}, 1: {21}, 2: {21}, 3: {21, 25}})
     data = {f"00000{index + 1}": _bars(index) for index in range(4)}

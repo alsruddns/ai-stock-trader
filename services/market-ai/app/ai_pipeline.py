@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 from .data_provenance import MIN_MODEL_TRAINING_SESSIONS, validate_data_provenance
@@ -488,6 +488,72 @@ class LocalModelRegistry:
                 or not self._has_durable_holdout_evaluation(metadata)
                 or not self._has_durable_approval_event(metadata)):
             return None
+        return metadata
+
+    def active_approved_entry_filter(
+        self, market: str, symbol: str,
+    ) -> tuple[str, Callable[[list[MinuteBar]], bool]] | None:
+        """Load a scoped, approved active classifier once for quant-entry filtering."""
+        metadata = self.active_approved_model(market, symbol)
+        if metadata is None:
+            return None
+        try:
+            import joblib
+            import numpy as np
+        except ImportError as exc:
+            raise RuntimeError("Install the optional ai dependencies to run inference") from exc
+        # Re-read the manifest so the artifact digest is verified immediately before load.
+        verified = self.manifest(metadata["model_id"])
+        if (verified.get("artifact_sha256") != metadata.get("artifact_sha256")
+                or verified.get("market") != market.strip().upper()
+                or str(verified.get("training_config", {}).get("symbol", "")).strip().upper()
+                != symbol.strip().upper()):
+            raise ValueError("active model scope or artifact changed during inference setup")
+        model = joblib.load(self.root / verified["artifact"])
+        threshold = float(verified["threshold"])
+        normalized_market = market.strip().upper()
+
+        def entry_filter(bars: list[MinuteBar]) -> bool:
+            features = latest_features(bars, market=normalized_market)
+            probabilities = np.asarray(model.predict_proba(np.asarray([features], dtype=np.float32)))
+            if probabilities.shape != (1, 2):
+                raise ValueError("active model must return one binary-class probability row")
+            if (not np.isfinite(probabilities).all() or np.any(probabilities < 0)
+                    or np.any(probabilities > 1)
+                    or not np.isclose(float(probabilities[0].sum()), 1.0, rtol=1e-5, atol=1e-6)):
+                raise ValueError("active model returned invalid binary-class probabilities")
+            return bool(float(probabilities[0][1]) >= threshold)
+
+        return metadata["model_id"], entry_filter
+
+    def validate_model_backtest_sessions(self, model_id: str, sessions: set[date]) -> dict[str, Any]:
+        """Return a model manifest only when every inference session is strictly out of sample."""
+        if not sessions:
+            raise ValueError("out-of-sample portfolio sessions are required")
+        metadata = self.manifest(model_id)
+        model_dates: set[date] = set()
+        for field in ("train_sessions", "validation_sessions", "test_sessions"):
+            values = metadata.get(field)
+            if (not isinstance(values, list) or not values
+                    or any(not isinstance(value, str) for value in values)
+                    or len(set(values)) != len(values)):
+                raise ValueError(f"model {field} are invalid")
+            try:
+                model_dates.update(date.fromisoformat(value) for value in values)
+            except ValueError as exc:
+                raise ValueError(f"model {field} contain an invalid date") from exc
+        evaluation = metadata.get("heldout_evaluation")
+        holdout_values = evaluation.get("sessions") if isinstance(evaluation, dict) else None
+        if (not isinstance(holdout_values, list) or not holdout_values
+                or any(not isinstance(value, str) for value in holdout_values)
+                or len(set(holdout_values)) != len(holdout_values)):
+            raise ValueError("model holdout sessions are invalid")
+        try:
+            model_dates.update(date.fromisoformat(value) for value in holdout_values)
+        except ValueError as exc:
+            raise ValueError("model holdout sessions contain an invalid date") from exc
+        if max(model_dates) >= min(sessions):
+            raise ValueError("portfolio backtest sessions must be strictly later than all model training and holdout data")
         return metadata
 
     def _read_active_models(self) -> dict[str, dict[str, Any]]:

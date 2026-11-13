@@ -14,6 +14,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
+from app.ai_pipeline import LocalModelRegistry
 from app.market_scope import require_cli_operational_market
 from app.portfolio_backtest import backtest_domestic_portfolio
 from app.quant import QuantConfig
@@ -44,6 +45,10 @@ def main() -> int:
                         help="estimated slippage for each fill")
     parser.add_argument("--minimum-turnover", type=Decimal, default=Decimal("1000000"))
     parser.add_argument("--maximum-spread-bps", type=Decimal, default=Decimal("15"))
+    parser.add_argument("--with-active-ai-models", action="store_true",
+                        help="require approved active KR models for every supplied symbol")
+    parser.add_argument("--registry", type=Path, default=Path(".local/models"),
+                        help="local model registry used with --with-active-ai-models")
     args = parser.parse_args()
     try:
         require_cli_operational_market("KR", "portfolio quant backtest")
@@ -93,17 +98,39 @@ def main() -> int:
                      sell_commission_bps=args.sell_commission_bps,
                      sell_tax_bps=args.sell_tax_bps, slippage_bps=args.slippage_bps,
                      minimum_turnover=args.minimum_turnover, maximum_spread_bps=args.maximum_spread_bps)
+    active_filters = {}
+    active_model_ids = {}
+    if args.with_active_ai_models:
+        registry = LocalModelRegistry(args.registry)
+        for symbol in sorted(data):
+            active = registry.active_approved_entry_filter("KR", symbol)
+            if active is None:
+                parser.error(f"no approved active KR AI model is available for {symbol}")
+            model_id, entry_filter = active
+            try:
+                registry.validate_model_backtest_sessions(model_id, reference_sessions)
+            except (OSError, ValueError, KeyError) as exc:
+                parser.error(str(exc))
+            active_filters[symbol] = entry_filter
+            active_model_ids[symbol] = model_id
+
+    def ai_entry_filter(symbol: str, history: list) -> bool:
+        return active_filters[symbol](history)
+
     results = []
     for session in sorted(reference_sessions):
         bars = {symbol: data[symbol][session] for symbol in sorted(data)}
         portfolio = backtest_domestic_portfolio(
             bars, starting_equity=args.starting_equity,
             max_order_notional=args.max_order_notional, config=config,
+            entry_filter=ai_entry_filter if args.with_active_ai_models else None,
         )
         results.append({
             "date": session.isoformat(),
             "input_bars_by_symbol": {symbol: len(bars[symbol]) for symbol in sorted(bars)},
+            "quant_signals": portfolio.quant_signals_by_symbol,
             "strategy_signals": portfolio.signals_by_symbol,
+            "ai_rejections": portfolio.ai_rejections_by_symbol,
             "accepted_trades": [{
                 "symbol": trade.symbol, "entry_time": trade.entry_time.isoformat(),
                 "exit_time": trade.exit_time.isoformat(), "quantity": trade.quantity,
@@ -125,6 +152,10 @@ def main() -> int:
     print(json.dumps({
         "market": "KR",
         "datasets": dataset_records,
+        "ai": {
+            "enabled": args.with_active_ai_models,
+            "active_model_ids": active_model_ids,
+        },
         "sessions": results,
         "summary": {
             "session_count": len(results),

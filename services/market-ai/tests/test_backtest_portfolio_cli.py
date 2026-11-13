@@ -56,10 +56,22 @@ def test_portfolio_cli_requires_reviewed_multi_symbol_inputs_and_reports_non_exe
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
     assert payload["market"] == "KR"
+    assert payload["ai"]["enabled"] is False
     assert set(payload["datasets"]) == {"005930", "000660"}
     assert payload["sessions"][0]["input_bars_by_symbol"] == {"000660": 380, "005930": 380}
     assert payload["summary"]["executable"] is False
     assert payload["executable"] is False
+
+
+def test_portfolio_cli_fails_closed_when_active_ai_models_are_required_but_missing(tmp_path: Path) -> None:
+    first = _dataset(tmp_path / "005930.csv")
+    second = _dataset(tmp_path / "000660.csv")
+    command = _command(first, second) + ["--with-active-ai-models", "--registry", str(tmp_path / "registry")]
+
+    completed = subprocess.run(command, cwd=REPOSITORY, capture_output=True, text=True, check=False)
+
+    assert completed.returncode == 2
+    assert "no approved active KR AI model is available" in completed.stderr
 
 
 def test_portfolio_cli_rejects_symbol_session_mismatch(tmp_path: Path) -> None:

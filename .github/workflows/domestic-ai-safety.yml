@@ -12,10 +12,13 @@ on:
       - 'services/market-ai/app/market_stream.py'
       - 'services/market-ai/app/market_scope.py'
       - 'services/market-ai/app/paper_runtime.py'
+      - 'services/market-ai/app/portfolio_backtest.py'
       - 'services/market-ai/app/quant.py'
       - 'services/market-ai/app/session_quality.py'
       - 'services/market-ai/app/snapshot_store.py'
       - 'services/market-ai/tests/test_ai_pipeline.py'
+      - 'services/market-ai/tests/test_ai_portfolio_integration.py'
+      - 'services/market-ai/tests/test_portfolio_backtest.py'
       - 'services/market-ai/tests/test_api.py'
       - 'services/market-ai/tests/test_data_export.py'
       - 'services/market-ai/tests/test_data_import.py'
@@ -29,6 +32,7 @@ on:
       - 'services/market-ai/tests/test_probe_kis_paper_cancel_preflight.py'
       - 'services/market-ai/scripts/validate_domestic_ai_pipeline_selection.py'
       - 'scripts/probe-kis-paper-cancel-preflight.py'
+      - 'scripts/backtest-portfolio.py'
       - 'scripts/audit-market-session.py'
       - 'scripts/export-market-data.py'
       - 'backend/trading-api/src/main/resources/db/migration/V26__market_minute_bar_spread_observation_time.sql'
@@ -76,6 +80,12 @@ jobs:
           and not test_model_prediction_rejects_market_scope_mismatch
           and not test_us_model_governance_is_scoped_to_us_symbol
           and not test_us_active_model_registry_selection_is_independent"
+      - name: Run domestic active AI portfolio filter tests
+        working-directory: services/market-ai
+        run: >-
+          python -m pytest -q
+          tests/test_ai_portfolio_integration.py
+          tests/test_portfolio_backtest.py::test_ai_filter_only_allows_quant_candidate_and_records_rejection
       - name: Run domestic training-readiness API tests only
         working-directory: services/market-ai
         run: >-

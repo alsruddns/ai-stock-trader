@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Callable
 
 from .quant import (
     MinuteBar, QuantConfig, _atr, _cost, _validate_session, _vwap,
@@ -32,7 +33,9 @@ class PortfolioBacktestResult:
     ending_equity: Decimal
     net_pnl: Decimal
     trades: tuple[PortfolioTrade, ...]
+    quant_signals_by_symbol: dict[str, int]
     signals_by_symbol: dict[str, int]
+    ai_rejections_by_symbol: dict[str, int]
     rejected_entries: tuple[tuple[str, str], ...]
     maximum_open_positions: int
     daily_loss_limit_hit: bool
@@ -62,6 +65,7 @@ def backtest_domestic_portfolio(
     max_order_notional: Decimal, config: QuantConfig = QuantConfig(),
     max_open_positions: int = 3, max_daily_loss_pct: Decimal = Decimal("1"),
     max_consecutive_losses: int = 3,
+    entry_filter: Callable[[str, list[MinuteBar]], bool] | None = None,
 ) -> PortfolioBacktestResult:
     """Generate synchronized symbol signals and replay them against shared portfolio state.
 
@@ -105,6 +109,8 @@ def backtest_domestic_portfolio(
     pending: dict[str, _PendingEntry] = {}
     positions: dict[str, _OpenPosition] = {}
     signals = {symbol: 0 for symbol in ordered_symbols}
+    quant_signals = {symbol: 0 for symbol in ordered_symbols}
+    ai_rejections = {symbol: 0 for symbol in ordered_symbols}
     rejected: list[tuple[str, str]] = []
     completed: list[PortfolioTrade] = []
     cash = starting_equity
@@ -234,6 +240,14 @@ def backtest_domestic_portfolio(
                 history = normalized_bars[symbol][:index + 1]
                 if len(history) < minimum_history or not orb_vwap_entry_candidate(history, config, market="KR"):
                     continue
+                quant_signals[symbol] += 1
+                if entry_filter is not None:
+                    ai_approved = entry_filter(symbol, history)
+                    if not isinstance(ai_approved, bool):
+                        raise ValueError("AI entry filter must return a boolean decision")
+                    if not ai_approved:
+                        ai_rejections[symbol] += 1
+                        continue
                 signal_bar = history[-1]
                 if signal_bar.spread_bps is None or signal_bar.spread_observed_at is None:
                     continue
@@ -248,7 +262,8 @@ def backtest_domestic_portfolio(
     return PortfolioBacktestResult(
         market="KR", session=session, starting_equity=starting_equity,
         ending_equity=starting_equity + realized, net_pnl=realized,
-        trades=tuple(completed), signals_by_symbol=signals,
+        trades=tuple(completed), quant_signals_by_symbol=quant_signals,
+        signals_by_symbol=signals, ai_rejections_by_symbol=ai_rejections,
         rejected_entries=tuple(rejected), maximum_open_positions=maximum_open,
         daily_loss_limit_hit=daily_loss_hit, consecutive_loss_limit_hit=streak_hit,
         executable=False,
