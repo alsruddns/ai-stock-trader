@@ -65,7 +65,7 @@ def _positive_probabilities(model: Any, features: Any) -> Any:
     if matrix.ndim != 2 or matrix.shape[0] == 0 or not np.isfinite(matrix).all():
         raise ValueError("model features must be a non-empty finite matrix")
     classes = getattr(model, "classes_", None)
-    if classes is not None and not np.array_equal(np.asarray(classes), np.asarray([0, 1])):
+    if classes is None or not np.array_equal(np.asarray(classes), np.asarray([0, 1])):
         raise ValueError("model classes must be ordered as [0, 1]")
     probabilities = np.asarray(model.predict_proba(matrix))
     if probabilities.shape != (matrix.shape[0], 2):

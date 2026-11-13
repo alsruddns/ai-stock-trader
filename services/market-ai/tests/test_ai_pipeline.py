@@ -136,6 +136,7 @@ def test_probability_series_uses_only_current_and_prior_bars() -> None:
     class RecordingModel:
         def __init__(self) -> None:
             self.features = []
+            self.classes_ = [0, 1]
 
         def predict_proba(self, values):
             self.features.append(tuple(float(value) for value in values[0]))
@@ -156,6 +157,8 @@ def test_probability_series_rejects_invalid_model_outputs(probability: float) ->
     bars = _sample_sessions()[date(2026, 10, 1)][:21]
 
     class InvalidModel:
+        classes_ = [0, 1]
+
         def predict_proba(self, _values):
             return [[1 - probability, probability]]
 
@@ -167,6 +170,8 @@ def test_probability_series_rejects_non_normalized_model_outputs() -> None:
     bars = _sample_sessions()[date(2026, 10, 1)][:21]
 
     class InvalidModel:
+        classes_ = [0, 1]
+
         def predict_proba(self, _values):
             return [[0.1, 0.5]]
 
@@ -374,6 +379,8 @@ def test_quant_baseline_reports_candidate_coverage_and_cost_adjusted_label_rate(
 
 def test_ai_candidate_metrics_apply_the_same_quant_gate_as_paper_runtime() -> None:
     class FixedModel:
+        classes_ = [0, 1]
+
         def predict_proba(self, _features):
             import numpy as np
             return np.asarray([[0.1, 0.9], [0.2, 0.8], [0.01, 0.99], [0.9, 0.1]])
@@ -404,7 +411,7 @@ def test_ai_candidate_metrics_reject_malformed_binary_probabilities() -> None:
         [[0.5, 0.5], [float("nan"), float("nan")]],
     )
     for output in invalid_outputs:
-        model = SimpleNamespace(predict_proba=lambda _features, result=output: result)
+        model = SimpleNamespace(classes_=[0, 1], predict_proba=lambda _features, result=output: result)
         with pytest.raises(ValueError, match="binary-class probability|invalid binary-class probabilities"):
             _metrics(model, samples)
 
@@ -413,6 +420,9 @@ def test_ai_candidate_metrics_reject_malformed_binary_probabilities() -> None:
     )
     with pytest.raises(ValueError, match="classes must be ordered"):
         ai_pipeline._positive_probability(reversed_classes, (0.0,))
+    missing_classes = SimpleNamespace(predict_proba=lambda _features: [[0.5, 0.5]])
+    with pytest.raises(ValueError, match="classes must be ordered"):
+        ai_pipeline._positive_probability(missing_classes, (0.0,))
 
 
 def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path, monkeypatch) -> None:

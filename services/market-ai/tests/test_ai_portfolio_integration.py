@@ -28,6 +28,7 @@ def test_active_approved_entry_filter_loads_once_and_uses_model_threshold(tmp_pa
     }
     class Model:
         calls = 0
+        classes_ = [0, 1]
 
         def predict_proba(self, _features):
             self.calls += 1
@@ -68,7 +69,8 @@ def test_active_model_rejects_invalid_probability_distribution(tmp_path, monkeyp
         "threshold": 0.5,
         "training_config": {"symbol": "005930"},
     }
-    model = SimpleNamespace(predict_proba=lambda _features: np.asarray([[0.2, 0.9]], dtype=np.float32))
+    model = SimpleNamespace(classes_=[0, 1],
+                            predict_proba=lambda _features: np.asarray([[0.2, 0.9]], dtype=np.float32))
     registry = LocalModelRegistry(tmp_path)
     monkeypatch.setattr(registry, "active_approved_model", lambda _market, _symbol: metadata)
     monkeypatch.setattr(registry, "manifest", lambda _model_id: metadata)
