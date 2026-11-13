@@ -166,6 +166,9 @@ jobs:
       - name: Verify PAPER cash settlement includes buy and sell costs in PostgreSQL
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#paperBuyAndSellPersistCostAdjustedCashPositionAndNetResult' test
+      - name: Verify accepted PAPER KIS order intents recover after application restart
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#acceptedKisPaperIntentSurvivesSpringApplicationContextRestartWithoutResubmission' test
 
   dashboard-domestic-operations:
     runs-on: ubuntu-latest

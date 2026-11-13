@@ -1345,6 +1345,44 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    void acceptedKisPaperIntentSurvivesSpringApplicationContextRestartWithoutResubmission() {
+        UUID key = UUID.randomUUID();
+        String requestHash = hash("restart-paper-intent");
+        String brokerNumber = "P" + UUID.randomUUID().toString().replace("-", "").substring(0, 15);
+        try {
+            store.prepare(key, requestHash, KisEnvironment.PAPER, request(), null);
+            store.accept(key, receipt("paper", brokerNumber));
+
+            try (ConfigurableApplicationContext restarted = new SpringApplicationBuilder(TradingApiApplication.class)
+                    .web(WebApplicationType.NONE)
+                    .properties("spring.main.banner-mode=off", "spring.task.scheduling.enabled=false",
+                            "trading.mode=paper", "trading.live-trading-enabled=false",
+                            "kis.orders.paper-enabled=false", "kis.orders.paper-reconciliation-enabled=false",
+                            "kis.account-read-enabled=false", "kis.paper-account-read-enabled=false",
+                            "kis.real-account-read-enabled=false", "kis.real-reconciliation-enabled=false",
+                            "kis.paper.app-key=", "kis.paper.app-secret=", "kis.paper.account-number=",
+                            "kis.real.app-key=", "kis.real.app-secret=", "kis.real.account-number=")
+                    .run()) {
+                KisOrderIntentRepository restartedRepository = restarted.getBean(KisOrderIntentRepository.class);
+                KisOrderIntent recovered = restartedRepository.findById(key).orElseThrow();
+                var duplicate = restarted.getBean(KisOrderIntentStore.class)
+                        .prepare(key, requestHash, KisEnvironment.PAPER, request(), null);
+
+                assertEquals(key, recovered.getIdempotencyKey());
+                assertEquals(KisEnvironment.PAPER, recovered.getEnvironment());
+                assertEquals(KisOrderStatus.ACCEPTED, recovered.getStatus());
+                assertEquals(brokerNumber, recovered.getBrokerOrderNumber());
+                assertEquals("ITORG01", recovered.getBrokerOrganizationNumber());
+                assertEquals(false, duplicate.createdNow());
+                assertEquals(key, duplicate.intent().getIdempotencyKey());
+                assertEquals(brokerNumber, duplicate.intent().getBrokerOrderNumber());
+            }
+        } finally {
+            kisOrderRepository.deleteById(key);
+        }
+    }
+
+    @Test
     @Transactional
     void contradictoryBrokerSnapshotPersistsUnknownLockWithoutCreatingFillHistory() {
         UUID key = UUID.randomUUID();
