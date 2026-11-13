@@ -521,6 +521,32 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path,
                 _sample_sessions()[date(2026, 10, 8)][:21], market="KR", symbol="000660")
 
 
+def test_model_training_removes_first_candidate_if_comparison_fails(tmp_path, monkeypatch) -> None:
+    sessions = _sample_sessions()
+    registry = LocalModelRegistry(tmp_path)
+    original_metrics = ai_pipeline._metrics
+    calls = 0
+
+    def fail_while_evaluating_second_model(model, samples):
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise RuntimeError("second model validation failed")
+        return original_metrics(model, samples)
+
+    monkeypatch.setattr(ai_pipeline, "_metrics", fail_while_evaluating_second_model)
+    with pytest.raises(RuntimeError, match="second model validation failed"):
+        registry.train_compare(
+            market="KR", symbol="005930", sessions=sessions,
+            label_horizon_bars=5, label_round_trip_cost_bps=Decimal("20"),
+            dataset_sha256="a" * 64, dataset_provenance=_provenance("a" * 64),
+        )
+
+    assert list(tmp_path.glob("*.joblib")) == []
+    assert list(tmp_path.glob("lightgbm-*.json")) == []
+    assert registry.list_models() == []
+
+
 def test_model_prediction_rejects_market_scope_mismatch(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)
     model_id = "lightgbm-" + "c" * 32

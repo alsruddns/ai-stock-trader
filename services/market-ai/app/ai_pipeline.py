@@ -1082,6 +1082,7 @@ class LocalModelRegistry:
             "xgboost": XGBClassifier(n_estimators=80, max_depth=3, learning_rate=0.05, subsample=0.8, colsample_bytree=0.8, eval_metric="logloss", random_state=42, n_jobs=1),
         }
         results: list[ModelTrainingResult] = []
+        created_paths: list[Path] = []
         train_dates = tuple(sorted({sample.session.isoformat() for sample in train}))
         validation_dates = tuple(sorted({sample.session.isoformat() for sample in validation}))
         test_dates = tuple(sorted({sample.session.isoformat() for sample in test}))
@@ -1111,58 +1112,63 @@ class LocalModelRegistry:
             "backtest_atr_stop_multiple": str(quant_config.atr_stop_multiple),
             "backtest_reward_risk_multiple": str(quant_config.reward_risk_multiple),
         }
-        for name, model in candidates.items():
-            model.fit(x_train, y_train)
-            validation_metrics = _metrics(model, validation)
-            test_metrics = _metrics(model, test)
-            quant_baseline_test_metrics = _quant_baseline_metrics(test)
-            def ai_entry_filter(history: list[MinuteBar]) -> bool:
-                features = latest_features(history, market=market)
-                probability = _positive_probability(model, features)
-                return probability >= 0.5
+        try:
+            for name, model in candidates.items():
+                model.fit(x_train, y_train)
+                validation_metrics = _metrics(model, validation)
+                test_metrics = _metrics(model, test)
+                quant_baseline_test_metrics = _quant_baseline_metrics(test)
+                def ai_entry_filter(history: list[MinuteBar]) -> bool:
+                    features = latest_features(history, market=market)
+                    probability = _positive_probability(model, features)
+                    return probability >= 0.5
 
-            ai_quant_backtest_test_metrics = _backtest_metrics([
-                backtest_orb_vwap(market, normalized_symbol, test_bars[session], quant_config,
-                                  entry_filter=ai_entry_filter)
-                for session in sorted(test_bars)
-            ])
-            model_id = f"{name}-{uuid4().hex}"
-            artifact_name = f"{model_id}.joblib"
-            artifact_path = self.root / artifact_name
-            if artifact_path.parent != self.root:
-                raise ValueError("invalid model artifact path")
-            fd, temporary = tempfile.mkstemp(prefix=".model-", suffix=".tmp", dir=self.root)
-            os.close(fd)
-            try:
-                joblib.dump(model, temporary)
-                os.replace(temporary, artifact_path)
-            finally:
-                if os.path.exists(temporary):
-                    os.unlink(temporary)
-            digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
-            manifest = {
-                "model_id": model_id, "market": market, "model_type": name, "artifact": artifact_name,
-                "artifact_sha256": digest, "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION,
-                "threshold": 0.5, "approved": False,
-                "dataset_sha256": dataset_sha256,
-                "data_provenance": provenance,
-                "validation_metrics": validation_metrics, "test_metrics": test_metrics,
-                "quant_baseline_test_metrics": quant_baseline_test_metrics,
-                "quant_backtest_test_metrics": quant_backtest_test_metrics,
-                "ai_quant_backtest_test_metrics": ai_quant_backtest_test_metrics,
-                "training_config": training_config,
-                "train_sessions": train_dates, "validation_sessions": validation_dates,
-                "test_sessions": test_dates,
-            }
-            manifest_path = self.root / f"{model_id}.json"
-            manifest_tmp = manifest_path.with_suffix(".json.tmp")
-            manifest_tmp.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-            os.replace(manifest_tmp, manifest_path)
-            results.append(ModelTrainingResult(model_id, market, name, 0.5, validation_metrics, test_metrics,
-                                               quant_baseline_test_metrics, quant_backtest_test_metrics,
-                                               ai_quant_backtest_test_metrics, training_config,
-                                               train_dates, validation_dates,
-                                               test_dates, digest))
+                ai_quant_backtest_test_metrics = _backtest_metrics([
+                    backtest_orb_vwap(market, normalized_symbol, test_bars[session], quant_config,
+                                      entry_filter=ai_entry_filter)
+                    for session in sorted(test_bars)
+                ])
+                model_id = f"{name}-{uuid4().hex}"
+                artifact_name = f"{model_id}.joblib"
+                artifact_path = self.root / artifact_name
+                if artifact_path.parent != self.root:
+                    raise ValueError("invalid model artifact path")
+                fd, temporary = tempfile.mkstemp(prefix=".model-", suffix=".tmp", dir=self.root)
+                os.close(fd)
+                try:
+                    joblib.dump(model, temporary)
+                    os.replace(temporary, artifact_path)
+                    created_paths.append(artifact_path)
+                finally:
+                    if os.path.exists(temporary):
+                        os.unlink(temporary)
+                digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+                manifest = {
+                    "model_id": model_id, "market": market, "model_type": name, "artifact": artifact_name,
+                    "artifact_sha256": digest, "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION,
+                    "threshold": 0.5, "approved": False,
+                    "dataset_sha256": dataset_sha256,
+                    "data_provenance": provenance,
+                    "validation_metrics": validation_metrics, "test_metrics": test_metrics,
+                    "quant_baseline_test_metrics": quant_baseline_test_metrics,
+                    "quant_backtest_test_metrics": quant_backtest_test_metrics,
+                    "ai_quant_backtest_test_metrics": ai_quant_backtest_test_metrics,
+                    "training_config": training_config,
+                    "train_sessions": train_dates, "validation_sessions": validation_dates,
+                    "test_sessions": test_dates,
+                }
+                manifest_path = self.root / f"{model_id}.json"
+                self._write_json_atomic(manifest_path, manifest)
+                created_paths.append(manifest_path)
+                results.append(ModelTrainingResult(model_id, market, name, 0.5, validation_metrics, test_metrics,
+                                                   quant_baseline_test_metrics, quant_backtest_test_metrics,
+                                                   ai_quant_backtest_test_metrics, training_config,
+                                                   train_dates, validation_dates,
+                                                   test_dates, digest))
+        except Exception:
+            for path in created_paths:
+                path.unlink(missing_ok=True)
+            raise
         return results
 
     def evaluate_candidate(self, model_id: str, sessions: dict[date, list[MinuteBar]], *,
