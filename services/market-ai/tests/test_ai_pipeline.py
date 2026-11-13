@@ -1136,6 +1136,34 @@ def test_model_approval_rejects_zero_cost_backtests(tmp_path) -> None:
         registry.approve(model_id, approved_by="operator", note="Zero-cost evidence cannot approve a trading model.")
 
 
+@pytest.mark.parametrize("trade_count", [4, 4.9, 5.5, True, float("nan"), float("inf")])
+def test_holdout_approval_criteria_rejects_invalid_trade_counts(trade_count) -> None:
+    ai_metrics = {"trade_count": trade_count, "net_pnl": "12"}
+    quant_metrics = {"net_pnl": "5"}
+
+    assert ai_pipeline._meets_holdout_approval_criteria(ai_metrics, quant_metrics) is False
+
+
+def test_holdout_approval_criteria_accepts_five_finite_integer_trades() -> None:
+    assert ai_pipeline._meets_holdout_approval_criteria(
+        {"trade_count": 5.0, "net_pnl": "12"}, {"net_pnl": "5"}
+    ) is True
+
+
+@pytest.mark.parametrize("trade_count", [5.5, True, float("nan")])
+def test_model_approval_rejects_noninteger_ai_trade_count(tmp_path, trade_count) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "8" * 32
+    _write_candidate(registry, model_id)
+    manifest_path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    metadata["ai_quant_backtest_test_metrics"]["trade_count"] = trade_count
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="trade count must be a finite integer"):
+        registry.approve(model_id, approved_by="operator", note="Reject an invalid held-out trade count safely.")
+
+
 def test_model_approval_enforces_five_ai_quant_trades_as_the_exact_minimum(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)
     model_id = "lightgbm-" + "7" * 32

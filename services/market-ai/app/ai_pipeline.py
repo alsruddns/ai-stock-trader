@@ -43,6 +43,23 @@ _GOVERNANCE_GENESIS_SHA256 = "0" * 64
 _MARKETS = {"KR", "US"}
 
 
+def _meets_holdout_approval_criteria(ai_metrics: dict[str, Any], quant_metrics: dict[str, Any]) -> bool:
+    """Check approval metrics without truncating fractional or non-finite trade counts."""
+    try:
+        raw_trade_count = ai_metrics["trade_count"]
+        if isinstance(raw_trade_count, bool):
+            return False
+        trade_count = Decimal(str(raw_trade_count))
+        ai_net = Decimal(str(ai_metrics["net_pnl"]))
+        quant_net = Decimal(str(quant_metrics["net_pnl"]))
+        return (trade_count.is_finite() and trade_count == trade_count.to_integral_value()
+                and trade_count >= MIN_MODEL_APPROVAL_TEST_TRADES
+                and ai_net.is_finite() and quant_net.is_finite()
+                and ai_net > 0 and ai_net > quant_net)
+    except (ArithmeticError, KeyError, TypeError, ValueError):
+        return False
+
+
 def _session_progress(timestamp: datetime, market: str) -> Decimal:
     """Fraction of the local regular session elapsed, clamped to [0, 1]."""
     normalized_market = market.strip().upper()
@@ -903,12 +920,19 @@ class LocalModelRegistry:
             quant_backtest = metadata.get("quant_backtest_test_metrics")
             if not isinstance(ai_backtest, dict) or not isinstance(quant_backtest, dict):
                 raise ValueError("held-out AI+quant and quant-only strategy backtests are required for approval")
+            raw_trade_count = ai_backtest.get("trade_count")
+            if isinstance(raw_trade_count, bool):
+                raise ValueError("held-out strategy trade count must be a finite integer")
             try:
-                ai_trade_count = int(ai_backtest["trade_count"])
+                if raw_trade_count is None:
+                    raise KeyError("trade_count")
+                ai_trade_count = Decimal(str(raw_trade_count))
                 ai_net_pnl = Decimal(str(ai_backtest["net_pnl"]))
                 quant_net_pnl = Decimal(str(quant_backtest["net_pnl"]))
             except (KeyError, ArithmeticError, TypeError, ValueError) as exc:
                 raise ValueError("held-out strategy backtest metrics are incomplete") from exc
+            if not ai_trade_count.is_finite() or ai_trade_count != ai_trade_count.to_integral_value():
+                raise ValueError("held-out strategy trade count must be a finite integer")
             if ai_trade_count < MIN_MODEL_APPROVAL_TEST_TRADES:
                 raise ValueError("at least five held-out AI+quant strategy trades are required for model approval")
             if not ai_net_pnl.is_finite() or not quant_net_pnl.is_finite():
@@ -1320,11 +1344,7 @@ class LocalModelRegistry:
                 "test_sessions": list(test_dates), "test_metrics": test_metrics,
                 "quant_backtest_test_metrics": quant_metrics,
                 "ai_quant_backtest_test_metrics": ai_metrics,
-                "approval_criteria_met": (
-                    int(ai_metrics["trade_count"]) >= MIN_MODEL_APPROVAL_TEST_TRADES
-                    and Decimal(ai_metrics["net_pnl"]) > 0
-                    and Decimal(ai_metrics["net_pnl"]) > Decimal(quant_metrics["net_pnl"])
-                ),
+                "approval_criteria_met": _meets_holdout_approval_criteria(ai_metrics, quant_metrics),
             }
 
     def manifest(self, model_id: str) -> dict[str, Any]:
