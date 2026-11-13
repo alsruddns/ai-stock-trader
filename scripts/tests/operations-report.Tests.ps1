@@ -1,6 +1,31 @@
 . (Join-Path $PSScriptRoot '..\lib\operations-report.ps1')
 . (Join-Path $PSScriptRoot '..\lib\model-retraining-report.ps1')
 
+Describe 'Domestic PAPER session status failure summary' {
+    It 'allows only bounded retry categories and omits transport details' {
+        $path = Join-Path $TestDrive 'domestic-session-monitor.jsonl'
+        @{
+            result = 'failed'; recorded_at_utc = '2026-11-12T07:10:00Z'; market_session = 'KR'
+            selected_feed = 'paper'; market_session_date = '2026-11-12';
+            status_read_retry_count = 2
+            status_read_failure_categories = @{ TIMEOUT = 1; HTTP_503 = 1; appSecret = 9 }
+            status_read_last_failure_category = 'HTTP_503'
+            failure_stage = 'stream_monitoring'; failure_code = 'SESSION_STATUS_UNAVAILABLE'
+            exception_detail = 'must-not-leak'
+        } | ConvertTo-Json -Depth 5 -Compress | Set-Content -LiteralPath $path -Encoding utf8
+
+        $summary = Get-AiTraderDomesticSessionMonitorSummary -Path $path
+        $json = $summary | ConvertTo-Json -Compress -Depth 5
+
+        $summary.state | Should Be 'FAILED'
+        $summary.statusReadRetryCount | Should Be 2
+        $summary.statusReadLastFailureCategory | Should Be 'HTTP_503'
+        @($summary.statusReadFailureCategories | Where-Object { $_.category -eq 'TIMEOUT' })[0].count | Should Be 1
+        @($summary.statusReadFailureCategories | Where-Object { $_.category -eq 'HTTP_503' })[0].count | Should Be 1
+        $json | Should Not Match 'appSecret|must-not-leak|exception_detail'
+    }
+}
+
 Describe 'Operations report run archive paths' {
     It 'creates unique UTC timestamped JSON filenames without overwriting prior runs' {
         $directory = Join-Path $TestDrive 'reports'

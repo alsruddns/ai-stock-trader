@@ -80,7 +80,7 @@ jobs:
           }
 
           $statusReadResult = Invoke-Pester -Path 'scripts/tests/paper-session-status-read.Tests.ps1' -PassThru
-          if ($statusReadResult.FailedCount -gt 0 -or $statusReadResult.PassedCount -ne 2) {
+          if ($statusReadResult.FailedCount -gt 0 -or $statusReadResult.PassedCount -ne 3) {
             throw "Domestic PAPER session status read retry tests failed: passed=$($statusReadResult.PassedCount), failed=$($statusReadResult.FailedCount)."
           }
 

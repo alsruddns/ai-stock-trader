@@ -230,6 +230,7 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         sessionCloseReached = $null; sessionQualityStatus = $null; ticksDelta = $null; barsDelta = $null
         orderbookFramesDelta = $null; orderbookUpdatesDelta = $null
         maxNoTickSeconds = $null; failureStage = $null; failureCode = $null
+        statusReadRetryCount = $null; statusReadFailureCategories = @(); statusReadLastFailureCategory = $null
         symbolMarketDataStatus = 'UNAVAILABLE'; symbolMarketData = @()
     }
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $unverified }
@@ -263,6 +264,30 @@ function Get-AiTraderDomesticSessionMonitorSummary {
     $hasMaxNoTick = [double]::TryParse([string]$record.max_observed_no_tick_seconds,
         [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$maxNoTick) -and
         $maxNoTick -ge 0
+    $statusReadRetryCount = 0
+    $hasStatusReadRetryCount = [int]::TryParse([string]$record.status_read_retry_count, [ref]$statusReadRetryCount) -and
+        $statusReadRetryCount -ge 0 -and $statusReadRetryCount -le 1000
+    $knownStatusReadFailureCategories = @(
+        'TIMEOUT', 'CONNECTION_FAILURE', 'DNS_FAILURE', 'TLS_FAILURE', 'CONNECTION_CLOSED',
+        'NETWORK_FAILURE', 'REQUEST_FAILURE'
+    )
+    $statusReadFailureCategories = [System.Collections.Generic.List[object]]::new()
+    $statusReadCounts = $record.status_read_failure_categories
+    if ($statusReadCounts) {
+        foreach ($property in $statusReadCounts.PSObject.Properties) {
+            if ($property.Name -notin $knownStatusReadFailureCategories -and
+                $property.Name -notmatch '^HTTP_[45]\d\d$') { continue }
+            $count = 0
+            if ([int]::TryParse([string]$property.Value, [ref]$count) -and $count -gt 0 -and $count -le 1000) {
+                $statusReadFailureCategories.Add([pscustomobject]@{ category = $property.Name; count = $count })
+            }
+        }
+    }
+    $statusReadLastFailureCategory = [string]$record.status_read_last_failure_category
+    if ($statusReadLastFailureCategory -notin $knownStatusReadFailureCategories -and
+        $statusReadLastFailureCategory -notmatch '^HTTP_[45]\d\d$') {
+        $statusReadLastFailureCategory = $null
+    }
     $symbolMarketDataStatus = 'UNAVAILABLE'
     $symbolMarketData = @()
     $symbolDelta = $record.symbol_market_data_delta
@@ -356,6 +381,9 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         maxNoTickSeconds = if ($hasMaxNoTick) { [Math]::Round($maxNoTick, 1) } else { $null }
         failureStage = if ($record.failure_stage -in $knownStages) { [string]$record.failure_stage } else { $null }
         failureCode = if ($record.failure_code -in $knownFailureCodes) { [string]$record.failure_code } else { $null }
+        statusReadRetryCount = if ($hasStatusReadRetryCount) { $statusReadRetryCount } else { $null }
+        statusReadFailureCategories = @($statusReadFailureCategories.ToArray())
+        statusReadLastFailureCategory = $statusReadLastFailureCategory
         symbolMarketDataStatus = $symbolMarketDataStatus
         symbolMarketData = $symbolMarketData
     }

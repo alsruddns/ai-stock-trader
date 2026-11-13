@@ -21,6 +21,8 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'lib\exchange-session-monitor.ps1')
 . (Join-Path $PSScriptRoot 'lib\paper-session-status-read.ps1')
 $script:statusReadRetryCount = 0
+$script:statusReadFailureCounts = [ordered]@{}
+$script:statusReadLastFailureCategory = $null
 if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
     $EvidencePath = Join-Path $repoRoot '.local\validation\paper-websocket-samples.jsonl'
 }
@@ -30,6 +32,11 @@ $ProgressPath = Join-Path $evidenceDirectory $progressName
 
 function Write-ProgressRecord($Record, $Status = $null) {
     $Record.status_read_retry_count = [int]$script:statusReadRetryCount
+    $Record.status_read_failure_categories = [ordered]@{}
+    foreach ($category in $script:statusReadFailureCounts.Keys) {
+        $Record.status_read_failure_categories[$category] = [int]$script:statusReadFailureCounts[$category]
+    }
+    $Record.status_read_last_failure_category = $script:statusReadLastFailureCategory
     if ($evidenceDirectory) { New-Item -ItemType Directory -Force -Path $evidenceDirectory | Out-Null }
     $streamFailureDiagnostic = Get-MonitorStreamFailureDiagnostic $Status
     foreach ($name in $streamFailureDiagnostic.Keys) {
@@ -52,7 +59,14 @@ function Write-ProgressRecord($Record, $Status = $null) {
 function Get-SessionStatus {
     return Invoke-PaperSessionStatusRead -Request {
         return Invoke-RestMethod -Uri "$ApiBaseUrl/api/v1/paper/session" -TimeoutSec 5
-    } -OnRetry { $script:statusReadRetryCount++ }
+    } -OnRetry { $script:statusReadRetryCount++ } -OnFailure {
+        param($attemptNumber, $category)
+        $script:statusReadLastFailureCategory = [string]$category
+        if (-not $script:statusReadFailureCounts.Contains($category)) {
+            $script:statusReadFailureCounts[$category] = 0
+        }
+        $script:statusReadFailureCounts[$category] = [int]$script:statusReadFailureCounts[$category] + 1
+    }
 }
 
 function Get-SessionQualityEvidence($Status, $Session, [string]$BaseUrl, [string]$SelectedFeed, [int]$ExpectedBars) {
@@ -450,6 +464,8 @@ $evidence = [ordered]@{
     session_close_reached = $sessionCloseReached
     session_status_available = $sessionStatusAvailable
     status_read_retry_count = [int]$script:statusReadRetryCount
+    status_read_failure_categories = [ordered]@{}
+    status_read_last_failure_category = $script:statusReadLastFailureCategory
     session_bars_baseline = $sessionBarCount.baseline
     selected_feed = if ($Feed) { $Feed } else { 'any' }
     ticks_delta = $tickDelta
@@ -478,6 +494,9 @@ $evidence = [ordered]@{
     orders_enabled = $false
     automation_state = $latest.automation_state
     result = 'passed'
+}
+foreach ($category in $script:statusReadFailureCounts.Keys) {
+    $evidence.status_read_failure_categories[$category] = [int]$script:statusReadFailureCounts[$category]
 }
 Write-ProgressRecord ([ordered]@{
     validation_scope = $evidence.validation_scope
