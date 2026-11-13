@@ -64,6 +64,7 @@ class PortfolioBacktestResult:
     maximum_open_positions: int
     daily_loss_limit_hit: bool
     consecutive_loss_limit_hit: bool
+    ending_consecutive_losses: int
     max_bar_marked_drawdown_amount: Decimal
     max_bar_marked_drawdown_percent: Decimal
     bar_marked_equity_observations: int
@@ -93,7 +94,7 @@ def backtest_domestic_portfolio(
     bars_by_symbol: dict[str, list[MinuteBar]], *, starting_equity: Decimal,
     max_order_notional: Decimal, config: QuantConfig = QuantConfig(),
     max_open_positions: int = 3, max_daily_loss_pct: Decimal = Decimal("1"),
-    max_consecutive_losses: int = 3,
+    max_consecutive_losses: int = 3, initial_consecutive_losses: int = 0,
     entry_filter: Callable[[str, list[MinuteBar]], bool] | None = None,
 ) -> PortfolioBacktestResult:
     """Generate synchronized symbol signals and replay them against shared portfolio state.
@@ -110,6 +111,10 @@ def backtest_domestic_portfolio(
         raise ValueError("maximum order notional must be a positive finite decimal")
     if not 1 <= max_open_positions <= 3 or not 1 <= max_consecutive_losses <= 3:
         raise ValueError("portfolio position and loss-streak limits may not exceed approved limits")
+    if (not isinstance(initial_consecutive_losses, int)
+            or isinstance(initial_consecutive_losses, bool)
+            or not 0 <= initial_consecutive_losses <= max_consecutive_losses):
+        raise ValueError("initial consecutive losses must be between zero and the configured limit")
     if not isinstance(max_daily_loss_pct, Decimal) or not max_daily_loss_pct.is_finite() or not Decimal(0) < max_daily_loss_pct <= Decimal("1"):
         raise ValueError("daily loss limit must be positive and no more than one percent")
     if not bars_by_symbol:
@@ -149,9 +154,9 @@ def backtest_domestic_portfolio(
     completed: list[PortfolioTrade] = []
     cash = starting_equity
     realized = Decimal(0)
-    loss_streak = 0
+    loss_streak = initial_consecutive_losses
     daily_loss_hit = False
-    streak_hit = False
+    streak_hit = loss_streak >= max_consecutive_losses
     maximum_open = 0
     daily_loss_budget = starting_equity * max_daily_loss_pct / Decimal(100)
     high_water_equity = starting_equity
@@ -356,6 +361,7 @@ def backtest_domestic_portfolio(
         signals_by_symbol=signals, ai_rejections_by_symbol=ai_rejections,
         rejected_entries=tuple(rejected), maximum_open_positions=maximum_open,
         daily_loss_limit_hit=daily_loss_hit, consecutive_loss_limit_hit=streak_hit,
+        ending_consecutive_losses=loss_streak,
         max_bar_marked_drawdown_amount=max_drawdown_amount,
         max_bar_marked_drawdown_percent=max_drawdown_percent,
         bar_marked_equity_observations=equity_observations,

@@ -228,6 +228,34 @@ def test_three_consecutive_losses_stop_later_entries(monkeypatch) -> None:
     assert result.rejected_entries == tuple((symbol, "CONSECUTIVE_LOSS_LIMIT")
                                             for symbol in sorted(data))
     assert result.daily_loss_limit_hit is False
+    assert result.ending_consecutive_losses == 3
+
+
+def test_compounded_session_continues_consecutive_loss_streak(monkeypatch) -> None:
+    _signals_at_lengths(monkeypatch, {index: {21} for index in range(2)})
+    monkeypatch.setattr("app.portfolio_backtest._atr", lambda _bars, _period: Decimal("10"))
+    first_session = {f"00000{index + 1}": _bars(index) for index in range(2)}
+    second_session = {f"00000{index + 1}": _bars(index, session_date=6) for index in range(2)}
+    for dataset in (first_session, second_session):
+        for bars in dataset.values():
+            stamp = bars[22].timestamp
+            bars[22] = MinuteBar(stamp, Decimal("100"), Decimal("101"), Decimal("95"), Decimal("96"),
+                                 1000, Decimal("5"), stamp + timedelta(seconds=30))
+
+    first = _run(first_session)
+    _signals_at_lengths(monkeypatch, {0: {21}, 1: {24}})
+    second = backtest_domestic_portfolio(
+        second_session, starting_equity=first.ending_equity, max_order_notional=Decimal("1000000"),
+        config=QuantConfig(commission_bps=Decimal(0), slippage_bps=Decimal(0)),
+        initial_consecutive_losses=first.ending_consecutive_losses,
+    )
+
+    assert len(first.trades) == 2
+    assert first.ending_consecutive_losses == 2
+    assert len(second.trades) == 1
+    assert second.consecutive_loss_limit_hit is True
+    assert second.ending_consecutive_losses == 3
+    assert second.rejected_entries == (("000002", "CONSECUTIVE_LOSS_LIMIT"),)
 
 
 def test_rejects_mismatched_session_timestamps_and_executable_market_data() -> None:

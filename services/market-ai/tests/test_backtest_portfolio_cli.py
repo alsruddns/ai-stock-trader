@@ -127,6 +127,8 @@ def test_portfolio_cli_can_carry_completed_equity_forward_between_sessions(tmp_p
     assert len(payload["sessions"]) == 2
     assert payload["sessions"][0]["starting_equity"] == "1000000"
     assert payload["sessions"][1]["starting_equity"] == payload["sessions"][0]["ending_equity"]
+    assert payload["sessions"][0]["starting_consecutive_losses"] == 0
+    assert payload["sessions"][1]["starting_consecutive_losses"] == payload["sessions"][0]["ending_consecutive_losses"]
     assert payload["summary"]["ending_equity"] == payload["sessions"][1]["ending_equity"]
     assert Decimal(payload["summary"]["starting_equity"]) + Decimal(payload["summary"]["net_pnl"]) == Decimal(
         payload["summary"]["ending_equity"]

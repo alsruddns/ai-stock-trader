@@ -121,11 +121,13 @@ def main() -> int:
 
     results = []
     session_equity = args.starting_equity
+    session_consecutive_losses = 0
     for session in sorted(reference_sessions):
         bars = {symbol: data[symbol][session] for symbol in sorted(data)}
         portfolio = backtest_domestic_portfolio(
             bars, starting_equity=session_equity if args.carry_equity_between_sessions else args.starting_equity,
             max_order_notional=args.max_order_notional, config=config,
+            initial_consecutive_losses=session_consecutive_losses if args.carry_equity_between_sessions else 0,
             entry_filter=ai_entry_filter if args.with_active_ai_models else None,
         )
         results.append({
@@ -157,6 +159,8 @@ def main() -> int:
             "maximum_open_positions": portfolio.maximum_open_positions,
             "daily_loss_limit_hit": portfolio.daily_loss_limit_hit,
             "consecutive_loss_limit_hit": portfolio.consecutive_loss_limit_hit,
+            "starting_consecutive_losses": session_consecutive_losses if args.carry_equity_between_sessions else 0,
+            "ending_consecutive_losses": portfolio.ending_consecutive_losses,
             "max_bar_marked_drawdown_amount": str(portfolio.max_bar_marked_drawdown_amount),
             "max_bar_marked_drawdown_percent": str(portfolio.max_bar_marked_drawdown_percent),
             "bar_marked_equity_observations": portfolio.bar_marked_equity_observations,
@@ -165,6 +169,7 @@ def main() -> int:
         })
         if args.carry_equity_between_sessions:
             session_equity = portfolio.ending_equity
+            session_consecutive_losses = portfolio.ending_consecutive_losses
 
     gross_pnl = sum((Decimal(row["gross_pnl"]) for row in results), Decimal(0))
     estimated_costs = sum((Decimal(row["estimated_costs"]) for row in results), Decimal(0))
@@ -224,7 +229,8 @@ def main() -> int:
         "simulation_scope": (
             "Independent symbol candidate signals are combined under shared capital; candidate signal generation "
             "does not condition on other open positions. "
-            + ("Completed session equity carries into the next session; daily loss limits reset each session."
+            + ("Completed session equity and consecutive losing-trade count carry into the next session; "
+               "daily loss limits reset each session."
                if args.carry_equity_between_sessions else
                "Each date is an independent, non-compounded session.")
         ),
