@@ -648,7 +648,11 @@ def test_runtime_keeps_only_latest_400_exchange_minutes_of_market_data_quality()
 def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch) -> None:
     from app import snapshot_store
 
+    write_attempts = 0
+
     def fail_write(*_args, **_kwargs):
+        nonlocal write_attempts
+        write_attempts += 1
         raise RuntimeError("database details must not be exposed")
 
     monkeypatch.setattr(snapshot_store, "store_minute_bars", fail_write)
@@ -679,7 +683,43 @@ def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch)
     assert runtime.status()["bar_storage_error"] == "POSTGRES_WRITE_FAILED"
     assert runtime.status()["automation_state"] == "BLOCKED"
     assert runtime.status()["automation_error"] == "BAR_PERSISTENCE_UNAVAILABLE"
+    assert write_attempts == 3
+    assert runtime.status()["bar_storage_retry_count"] == 2
+    assert runtime._automation_queue.empty()
     assert "database details" not in str(runtime.status())
+
+
+def test_bar_storage_recovers_after_transient_postgres_write_failure(monkeypatch) -> None:
+    from app import snapshot_store
+
+    write_attempts = 0
+    stored = []
+
+    def fail_once_then_store(*args, **kwargs):
+        nonlocal write_attempts
+        write_attempts += 1
+        if write_attempts == 1:
+            raise RuntimeError("transient database detail must not be exposed")
+        stored.append((args, kwargs))
+
+    monkeypatch.setattr(snapshot_store, "store_minute_bars", fail_once_then_store)
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    bar = MinuteBar(
+        datetime.fromisoformat("2026-11-05T09:00:00+09:00"), Decimal("100"), Decimal("101"),
+        Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
+    )
+    runtime._set_status(bar_storage_state="RUNNING")
+
+    persisted = asyncio.run(runtime._persist_bar_with_retry(watch, bar))
+
+    assert persisted is True
+    assert write_attempts == 2
+    assert len(stored) == 1
+    assert runtime.status()["bar_storage_state"] == "RUNNING"
+    assert runtime.status()["bar_storage_error"] is None
+    assert runtime.status()["bar_storage_retry_count"] == 1
+    assert "transient database detail" not in str(runtime.status())
 
 
 def test_websocket_reconnect_backoff_survives_short_lived_connections() -> None:
