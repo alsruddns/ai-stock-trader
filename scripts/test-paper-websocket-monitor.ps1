@@ -20,6 +20,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'paper-session-monitor-status.ps1')
 . (Join-Path $PSScriptRoot 'lib\exchange-session-monitor.ps1')
 . (Join-Path $PSScriptRoot 'lib\paper-session-status-read.ps1')
+$script:statusReadRetryCount = 0
 if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
     $EvidencePath = Join-Path $repoRoot '.local\validation\paper-websocket-samples.jsonl'
 }
@@ -28,6 +29,7 @@ $progressName = '{0}.progress.jsonl' -f [IO.Path]::GetFileNameWithoutExtension($
 $ProgressPath = Join-Path $evidenceDirectory $progressName
 
 function Write-ProgressRecord($Record, $Status = $null) {
+    $Record.status_read_retry_count = [int]$script:statusReadRetryCount
     if ($evidenceDirectory) { New-Item -ItemType Directory -Force -Path $evidenceDirectory | Out-Null }
     $streamFailureDiagnostic = Get-MonitorStreamFailureDiagnostic $Status
     foreach ($name in $streamFailureDiagnostic.Keys) {
@@ -46,7 +48,7 @@ function Write-ProgressRecord($Record, $Status = $null) {
 function Get-SessionStatus {
     return Invoke-PaperSessionStatusRead -Request {
         return Invoke-RestMethod -Uri "$ApiBaseUrl/api/v1/paper/session" -TimeoutSec 5
-    }
+    } -OnRetry { $script:statusReadRetryCount++ }
 }
 
 function Get-SessionQualityEvidence($Status, $Session, [string]$BaseUrl, [string]$SelectedFeed, [int]$ExpectedBars) {
@@ -443,6 +445,7 @@ $evidence = [ordered]@{
     market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
     session_close_reached = $sessionCloseReached
     session_status_available = $sessionStatusAvailable
+    status_read_retry_count = [int]$script:statusReadRetryCount
     session_bars_baseline = $sessionBarCount.baseline
     selected_feed = if ($Feed) { $Feed } else { 'any' }
     ticks_delta = $tickDelta
