@@ -119,13 +119,14 @@ def main(transaction_id: str = "TTTC0084R") -> int:
         result["status"] = (
             "valid_preflight_response" if successful and result["cancel_quantity_field_observed"] else
             "response_incomplete" if successful else
+            "temporary_server_error" if result["broker_code"] == "EGW00002" else
             "unsupported_or_rejected"
         )
+        if result["status"] == "temporary_server_error":
+            result["reason"] = "TEMPORARY_BROKER_SERVER_ERROR"
         print(json.dumps(result, ensure_ascii=False))
         return 0 if result["status"] == "valid_preflight_response" else 3
     except Exception as exception:
-        result["status"] = "request_failed"
-        result["reason"] = "AUTH_OR_READ_ONLY_REQUEST_FAILED"
         # The exception class is useful for distinguishing transport, HTTP, and
         # shared-rate-limit failures without emitting the exception text or secrets.
         result["failure_type"] = type(exception).__name__
@@ -144,6 +145,12 @@ def main(transaction_id: str = "TTTC0084R") -> int:
             result["response_fields"] = list(exception.response_fields)
             result["response_error_category"] = exception.response_error_category
             result["response_error_code"] = exception.response_error_code
+        if result.get("broker_code") == "EGW00002":
+            result["status"] = "temporary_server_error"
+            result["reason"] = "TEMPORARY_BROKER_SERVER_ERROR"
+        else:
+            result["status"] = "request_failed"
+            result["reason"] = "AUTH_OR_READ_ONLY_REQUEST_FAILED"
         print(json.dumps(result, ensure_ascii=False))
         return 3
     finally:

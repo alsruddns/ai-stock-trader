@@ -165,6 +165,24 @@ def test_unsupported_paper_service_code_is_not_treated_as_cancelable(
     assert client.closed
 
 
+def test_egw00002_is_reported_as_temporary_server_error_not_permanent_rejection(
+    monkeypatch: pytest.MonkeyPatch, capsys,
+) -> None:
+    client = _configure_safe_probe(monkeypatch, {
+        "rt_cd": "1", "msg_cd": "EGW00002", "msg1": "private temporary server detail",
+    })
+
+    assert probe.main() == 3
+
+    output = capsys.readouterr().out
+    assert '"status": "temporary_server_error"' in output
+    assert '"reason": "TEMPORARY_BROKER_SERVER_ERROR"' in output
+    assert '"broker_code": "EGW00002"' in output
+    assert '"order_or_cancel_sent": false' in output
+    assert "private temporary server detail" not in output
+    assert client.closed
+
+
 @pytest.mark.parametrize("rows", [
     [],
     [{"odno": "private-order-number"}],
