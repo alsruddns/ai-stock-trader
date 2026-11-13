@@ -26,6 +26,7 @@ def audit_minute_bar_session(
     bars: list[MinuteBar],
     *,
     evaluated_at: datetime | None = None,
+    continuous_session_window: tuple[datetime, datetime] | None = None,
 ) -> dict[str, object]:
     """Measure expected closed one-minute bars without filling or changing stored data."""
     normalized_market = market.upper()
@@ -35,7 +36,7 @@ def audit_minute_bar_session(
 
     zone = ZoneInfo("Asia/Seoul" if normalized_market == "KR" else "America/New_York")
     session_noon = datetime.combine(session_date, time(hour=12), tzinfo=zone)
-    window = exchange_continuous_session_window(normalized_market, session_noon)
+    window = continuous_session_window or exchange_continuous_session_window(normalized_market, session_noon)
     if window is None:
         return {
             "market": normalized_market, "symbol": normalized_symbol,

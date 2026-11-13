@@ -6,7 +6,8 @@ import pytest
 from app.paper_ops import (PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate,
                            exchange_session_window, size_paper_order, size_paper_order_diagnostic)
 from app.quant import MinuteBar
-from app.market_calendar import exchange_continuous_session_window, exchange_session_dates, latest_closed_session_date
+from app.market_calendar import (exchange_continuous_session_window, exchange_session_dates,
+                                 exchange_session_schedule, latest_closed_session_date)
 
 
 def _good_gate(now: datetime, quote_at: datetime | None = None, **overrides):
@@ -33,6 +34,9 @@ def test_domestic_session_range_uses_exchange_days_and_skips_weekend() -> None:
     assert exchange_session_dates("KR", date(2026, 11, 5), date(2026, 11, 9)) == (
         date(2026, 11, 5), date(2026, 11, 6), date(2026, 11, 9),
     )
+    schedule = exchange_session_schedule("KR", date(2026, 11, 5), date(2026, 11, 9))
+    assert [item[0] for item in schedule] == [date(2026, 11, 5), date(2026, 11, 6), date(2026, 11, 9)]
+    assert all(item[1].tzinfo is not None and item[2].tzinfo is not None for item in schedule)
 
 
 def test_latest_closed_session_uses_each_market_local_calendar_date() -> None:

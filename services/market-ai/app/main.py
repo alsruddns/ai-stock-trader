@@ -24,7 +24,8 @@ from .data_provenance import MIN_MODEL_TRAINING_SESSIONS
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from .paper_ops import exchange_session_window, korean_calendar_compatibility
 from .paper_automation import PaperAutomationReadiness
-from .market_calendar import exchange_continuous_session_window, exchange_session_dates, latest_closed_session_date
+from .market_calendar import (exchange_continuous_session_window, exchange_session_schedule,
+                              latest_closed_session_date)
 from .market_scope import require_operational_market
 from .paper_runtime import (
     PaperWatch, _market_quant_config_result, market_cost_assumptions_status, paper_session_monitor,
@@ -291,9 +292,13 @@ class AccountBalanceResponse(BaseModel):
 
 def _session_quality_report(
     market: str, symbol: str, session_date: date, bars: list[MinuteBar], evaluated_at: datetime,
+    continuous_session_window: tuple[datetime, datetime] | None = None,
 ) -> dict[str, object]:
     try:
-        return audit_minute_bar_session(market, symbol, session_date, bars, evaluated_at=evaluated_at)
+        return audit_minute_bar_session(
+            market, symbol, session_date, bars, evaluated_at=evaluated_at,
+            continuous_session_window=continuous_session_window,
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="Exchange calendar is unavailable") from exc
     except ValueError as exc:
@@ -535,12 +540,17 @@ async def market_training_readiness(
     stored_session_count = 0
     eligible_history: dict[date, list[MinuteBar]] = {}
     try:
-        expected_session_dates = await asyncio.to_thread(
-            exchange_session_dates, normalized_market, selected_from, selected_to,
+        session_schedule = await asyncio.to_thread(
+            exchange_session_schedule, normalized_market, selected_from, selected_to,
         )
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail="Exchange session calendar is unavailable") from exc
 
+    continuous_windows = {
+        session_date: (opened, closed - timedelta(minutes=10) if normalized_market == "KR" else closed)
+        for session_date, opened, closed in session_schedule
+    }
+    expected_session_dates = tuple(continuous_windows)
     for session_date in expected_session_dates:
         value = history.get(session_date, {"bars": [], "source_counts": {}})
         if not isinstance(value, dict):
@@ -552,6 +562,7 @@ async def market_training_readiness(
         stored_session_count += int(bool(bars))
         quality = _session_quality_report(
             normalized_market, normalized_symbol, session_date, bars, evaluated_at,
+            continuous_windows[session_date],
         )
         expected_bars = int(quality["expected_bars"])
         ineligibility_reasons = []

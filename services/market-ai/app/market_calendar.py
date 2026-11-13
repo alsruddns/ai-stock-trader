@@ -47,8 +47,10 @@ def exchange_session_window(market: Market, now: datetime) -> tuple[datetime, da
 
 
 @lru_cache(maxsize=128)
-def exchange_session_dates(market: Market, start_date: date, end_date: date) -> tuple[date, ...]:
-    """Return verified exchange dates for a bounded range using one calendar schedule."""
+def exchange_session_schedule(
+    market: Market, start_date: date, end_date: date,
+) -> tuple[tuple[date, datetime, datetime], ...]:
+    """Return verified exchange dates and UTC open/close times using one schedule."""
     if start_date > end_date:
         raise ValueError("session date range must be ordered")
     calendar_name = "XKRX" if market == "KR" else "XNYS" if market == "US" else None
@@ -71,9 +73,20 @@ def exchange_session_dates(market: Market, start_date: date, end_date: date) -> 
         calendar = calendars.get_calendar(
             calendar_name, start=start_label - pd.Timedelta(days=7), end=end_label + pd.Timedelta(days=7),
         )
-        return tuple(session.date() for session in calendar.sessions_in_range(start_label, end_label))
+        schedule = calendar.schedule.loc[start_label:end_label]
+        return tuple(
+            (session.date(), row["open"].to_pydatetime().astimezone(timezone.utc),
+             row["close"].to_pydatetime().astimezone(timezone.utc))
+            for session, row in schedule.iterrows()
+        )
     except (KeyError, ValueError, IndexError) as exc:
         raise RuntimeError("market calendar could not verify this date range") from exc
+
+
+def exchange_session_dates(market: Market, start_date: date, end_date: date) -> tuple[date, ...]:
+    """Return verified exchange dates for a bounded range."""
+    return tuple(session_date for session_date, _opened, _closed in
+                 exchange_session_schedule(market, start_date, end_date))
 
 
 def latest_closed_session_date(market: Market, now: datetime, lookback_days: int = 30) -> date:

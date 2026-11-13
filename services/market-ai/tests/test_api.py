@@ -591,7 +591,11 @@ def test_training_readiness_counts_only_complete_approved_websocket_sessions(mon
 def test_training_readiness_includes_exchange_sessions_with_no_stored_bars(monkeypatch) -> None:
     zone = ZoneInfo("Asia/Seoul")
     stored_days = (date(2026, 11, 5), date(2026, 11, 9))
-    expected_days = (date(2026, 11, 5), date(2026, 11, 6), date(2026, 11, 9))
+    expected_days = (
+        (date(2026, 11, 5), datetime(2026, 11, 5, 0, 0, tzinfo=timezone.utc), datetime(2026, 11, 5, 6, 30, tzinfo=timezone.utc)),
+        (date(2026, 11, 6), datetime(2026, 11, 6, 0, 0, tzinfo=timezone.utc), datetime(2026, 11, 6, 6, 30, tzinfo=timezone.utc)),
+        (date(2026, 11, 9), datetime(2026, 11, 9, 0, 0, tzinfo=timezone.utc), datetime(2026, 11, 9, 6, 30, tzinfo=timezone.utc)),
+    )
     history = {}
     for session_date in stored_days:
         opened = datetime.combine(session_date, datetime.min.time(), tzinfo=zone).replace(hour=9)
@@ -605,7 +609,7 @@ def test_training_readiness_includes_exchange_sessions_with_no_stored_bars(monke
 
     monkeypatch.setattr(main.snapshot_store, "enabled", lambda: True)
     monkeypatch.setattr(main.snapshot_store, "load_minute_bar_training_history", lambda *args: history)
-    monkeypatch.setattr(main, "exchange_session_dates", lambda market, start, end: expected_days)
+    monkeypatch.setattr(main, "exchange_session_schedule", lambda market, start, end: expected_days)
     response = client.get(
         "/api/v1/market/training-readiness/KR/005930"
         "?from_date=2026-11-05&to_date=2026-11-09",
