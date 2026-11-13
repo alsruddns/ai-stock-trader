@@ -849,6 +849,58 @@ def test_durable_bar_outbox_restores_and_drains_before_automation_can_resume(mon
     assert runtime._automation_queue is None
 
 
+def test_startup_keeps_paper_automation_blocked_while_durable_outbox_recovers(monkeypatch) -> None:
+    from app import snapshot_store
+
+    for name, value in {
+        "MARKET_OPERATIONAL_SCOPE": "KR",
+        "PAPER_SESSION_MONITOR_ENABLED": "true",
+        "TRADING_MODE": "paper",
+        "LIVE_TRADING_ENABLED": "false",
+        "PAPER_AUTOTRADING_ENABLED": "true",
+        "KIS_PAPER_ORDERS_ENABLED": "false",
+        "KIS_WEBSOCKET_ENABLED": "true",
+        "KIS_PAPER_APP_KEY": "paper-key",
+        "KIS_PAPER_APP_SECRET": "paper-secret",
+        "PAPER_WATCHLIST": "KR:005930",
+    }.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(snapshot_store, "enabled", lambda: True)
+    monkeypatch.setattr(snapshot_store, "load_session_minute_bars", lambda *_args: ())
+    monkeypatch.setattr(snapshot_store, "store_minute_bars", lambda *_args, **_kwargs: None)
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    bar_at = datetime.fromisoformat("2026-11-13T09:00:00+09:00")
+    bar = MinuteBar(
+        bar_at, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100.5"), 1000,
+        Decimal("4.5"), bar_at.replace(second=59),
+    )
+    runtime._bar_write_outbox.enqueue(watch.market, watch.symbol, bar, source="KIS_PAPER_WEBSOCKET")
+
+    async def hold_feed(_watches, _settings):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(runtime, "_run", hold_feed)
+
+    async def scenario():
+        await runtime.start()
+        startup_status = runtime.status()
+        await asyncio.sleep(0)
+        await runtime.stop()
+        return startup_status
+
+    status = asyncio.run(scenario())
+
+    assert status["bar_storage_state"] == "ERROR"
+    assert status["bar_storage_error"] == "BAR_OUTBOX_RECOVERY_PENDING"
+    assert status["bar_storage_pending_count"] == 1
+    assert status["automation_state"] == "BLOCKED"
+    assert status["automation_error"] == "BAR_OUTBOX_RECOVERY_PENDING"
+    assert runtime._automation_task is None
+    assert status["orders_enabled"] is False
+    assert runtime._bar_write_outbox.count() == 0
+
+
 def test_websocket_reconnect_backoff_survives_short_lived_connections() -> None:
     delay = 1
     delays = []

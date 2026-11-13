@@ -149,6 +149,7 @@ jobs:
           python -m pytest -q
           tests/test_bar_write_outbox.py
           tests/test_paper_runtime.py::test_durable_bar_outbox_restores_and_drains_before_automation_can_resume
+          tests/test_paper_runtime.py::test_startup_keeps_paper_automation_blocked_while_durable_outbox_recovers
       - name: Verify domestic-only runtime operational scope
         working-directory: services/market-ai
         env:
