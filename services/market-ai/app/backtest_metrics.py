@@ -59,6 +59,22 @@ def summarize_trades(trades: Sequence[Trade]) -> dict[str, object]:
     }
 
 
+def session_net_return_bps(session: BacktestResult) -> Decimal | None:
+    """Return a session's net PnL over its traded entry notional, or None if flat."""
+    if not session.trades:
+        return None
+    traded_notional = Decimal(0)
+    for trade in session.trades:
+        if (isinstance(trade.quantity, bool) or not isinstance(trade.quantity, int)
+                or trade.quantity <= 0 or not isinstance(trade.entry_price, Decimal)
+                or not trade.entry_price.is_finite() or trade.entry_price <= 0):
+            raise ValueError("backtest session trades require positive quantity and entry price")
+        traded_notional += trade.entry_price * trade.quantity
+    if traded_notional <= 0 or not traded_notional.is_finite():
+        raise ValueError("backtest session traded notional must be finite and positive")
+    return session.net_pnl * Decimal(10_000) / traded_notional
+
+
 def summarize_sessions(sessions: Sequence[BacktestResult]) -> dict[str, object]:
     """Summarize per-session PnL, including no-trade sessions as zero outcomes."""
     if len({(session.market, session.symbol, session.session) for session in sessions}) != len(sessions):
@@ -84,14 +100,10 @@ def summarize_sessions(sessions: Sequence[BacktestResult]) -> dict[str, object]:
         net_values.append(session.net_pnl)
         if session.trades:
             traded_sessions += 1
-            traded_notional = Decimal(0)
-            for trade in session.trades:
-                if (isinstance(trade.quantity, bool) or not isinstance(trade.quantity, int)
-                        or trade.quantity <= 0 or not isinstance(trade.entry_price, Decimal)
-                        or not trade.entry_price.is_finite() or trade.entry_price <= 0):
-                    raise ValueError("backtest session trades require positive quantity and entry price")
-                traded_notional += trade.entry_price * trade.quantity
-            return_bps_values.append(session.net_pnl * Decimal(10_000) / traded_notional)
+            return_bps = session_net_return_bps(session)
+            if return_bps is None:
+                raise ValueError("traded sessions must have a calculated net return")
+            return_bps_values.append(return_bps)
 
     return {
         "session_count": len(sessions),

@@ -13,9 +13,14 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
-from app.backtest_metrics import summarize_sessions, summarize_spread_coverage, summarize_trades
+from app.backtest_metrics import session_net_return_bps, summarize_sessions, summarize_spread_coverage, summarize_trades
 from app.market_scope import require_cli_operational_market
-from app.quant import QuantConfig, backtest_orb_vwap
+from app.quant import BacktestResult, QuantConfig, backtest_orb_vwap
+
+
+def _session_net_return_value(result: BacktestResult) -> str | None:
+    return_bps = session_net_return_bps(result)
+    return None if return_bps is None else str(return_bps)
 
 
 def main() -> int:
@@ -85,11 +90,7 @@ def main() -> int:
             "signals": result.signals, "trades": len(result.trades),
             "gross_pnl": str(result.gross_pnl),
             "estimated_costs": str(result.costs), "net_pnl": str(result.net_pnl),
-            "net_return_bps_on_traded_notional": (
-                str(result.net_pnl * Decimal(10_000) / sum(
-                    (trade.entry_price * trade.quantity for trade in result.trades), Decimal(0)
-                )) if result.trades else None
-            ),
+            "net_return_bps_on_traded_notional": _session_net_return_value(result),
         } for _session, _bars, result, coverage in session_results],
         "summary": {
             "session_count": len(results), "bar_count": total_bars,

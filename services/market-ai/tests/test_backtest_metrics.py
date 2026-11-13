@@ -4,7 +4,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.backtest_metrics import summarize_sessions, summarize_spread_coverage, summarize_trades
+from app.backtest_metrics import (
+    session_net_return_bps, summarize_sessions, summarize_spread_coverage, summarize_trades,
+)
 from app.quant import BacktestResult, MinuteBar, Trade
 
 
@@ -113,6 +115,8 @@ def test_session_performance_keeps_no_trade_sessions_and_bad_days_visible() -> N
     assert Decimal(summary["median_net_return_bps_on_traded_notional"]) == 0
     assert Decimal(summary["worst_session_net_return_bps_on_traded_notional"]) < 0
     assert Decimal(summary["best_session_net_return_bps_on_traded_notional"]) > 0
+    assert session_net_return_bps(sessions[0]) == Decimal("1500")
+    assert session_net_return_bps(sessions[2]) is None
 
 
 def test_session_performance_rejects_duplicate_dates_and_inconsistent_net_pnl() -> None:
