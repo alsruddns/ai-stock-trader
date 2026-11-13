@@ -2,6 +2,8 @@ package com.aistocktrader.kis;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.Query;
@@ -16,6 +18,9 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
     List<KisOrderIntent> findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment environment);
     List<KisOrderIntent> findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(
             KisEnvironment environment, Collection<KisOrderStatus> statuses);
+    Page<KisOrderIntent> findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdAsc(
+            KisEnvironment environment, Collection<com.aistocktrader.order.Market> markets,
+            Collection<KisOrderStatus> statuses, Pageable pageable);
     List<KisOrderIntent> findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(
             KisEnvironment environment, Collection<KisRealExitStatus> statuses);
     List<KisOrderIntent> findByEnvironmentAndMarketAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(

@@ -5,6 +5,8 @@ import com.aistocktrader.order.Currency;
 import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderRequest;
 import com.aistocktrader.order.OrderSide;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -14,6 +16,9 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentCaptor.forClass;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -59,13 +64,15 @@ class KisPaperOrderReconciliationJobTest {
         KisOrderIntent missingBroker = new KisOrderIntent(missingBrokerKey, "missing-broker",
                 KisEnvironment.PAPER, request(Market.KR, "000660"), null);
         missingBroker.markUnknown();
-        when(intents.findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.PAPER), anyCollection()))
-                .thenReturn(List.of(foreign, missingBroker, domestic));
+        when(intents.findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdAsc(
+                eq(KisEnvironment.PAPER), anyCollection(), anyCollection(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(foreign, missingBroker, domestic)));
 
         job(new KisOrderProperties(false, true), kisProperties(true, true, true),
                 paperSafety(), intents, orchestrator).reconcileKnownBrokerOrders();
 
-        verify(intents).findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.PAPER), anyCollection());
+        verify(intents).findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdAsc(
+                eq(KisEnvironment.PAPER), eq(List.of(Market.KR)), anyCollection(), any(Pageable.class));
         verify(orchestrator).reconcilePaperOrder(domesticKey);
         verify(orchestrator, never()).reconcilePaperOrder(foreignKey);
         verify(orchestrator, never()).reconcilePaperOrder(missingBrokerKey);
@@ -79,8 +86,9 @@ class KisPaperOrderReconciliationJobTest {
         UUID secondKey = UUID.randomUUID();
         KisOrderIntent first = acceptedOrder(firstKey, Market.KR, "005930", "9103");
         KisOrderIntent second = acceptedOrder(secondKey, Market.KR, "000660", "9104");
-        when(intents.findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.PAPER), anyCollection()))
-                .thenReturn(List.of(first, second));
+        when(intents.findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdAsc(
+                eq(KisEnvironment.PAPER), anyCollection(), anyCollection(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(first, second)));
         doThrow(new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "safe failure"))
                 .when(orchestrator).reconcilePaperOrder(firstKey);
 
@@ -89,6 +97,31 @@ class KisPaperOrderReconciliationJobTest {
 
         verify(orchestrator).reconcilePaperOrder(firstKey);
         verify(orchestrator).reconcilePaperOrder(secondKey);
+    }
+
+    @Test
+    void enabledPollingRotatesThroughAllDomesticPagesInsteadOfStarvingOrdersAfterFirstFifty() {
+        KisOrderIntentRepository intents = mock(KisOrderIntentRepository.class);
+        KisOrderOrchestrator orchestrator = mock(KisOrderOrchestrator.class);
+        when(intents.findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdAsc(
+                eq(KisEnvironment.PAPER), anyCollection(), anyCollection(), any(Pageable.class)))
+                .thenAnswer(invocation -> {
+                    Pageable pageable = invocation.getArgument(3);
+                    return new PageImpl<KisOrderIntent>(List.of(), pageable, 120);
+                });
+        KisPaperOrderReconciliationJob job = job(new KisOrderProperties(false, true),
+                kisProperties(true, true, true), paperSafety(), intents, orchestrator);
+
+        job.reconcileKnownBrokerOrders();
+        job.reconcileKnownBrokerOrders();
+        job.reconcileKnownBrokerOrders();
+        job.reconcileKnownBrokerOrders();
+
+        var pageCaptor = forClass(Pageable.class);
+        verify(intents, times(4)).findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdAsc(
+                eq(KisEnvironment.PAPER), eq(List.of(Market.KR)), anyCollection(), pageCaptor.capture());
+        assertEquals(List.of(0, 1, 2, 0), pageCaptor.getAllValues().stream().map(Pageable::getPageNumber).toList());
+        verifyNoInteractions(orchestrator);
     }
 
     private static KisPaperOrderReconciliationJob job(KisOrderProperties orderProperties, KisProperties properties,
