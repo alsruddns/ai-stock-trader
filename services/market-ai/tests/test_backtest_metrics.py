@@ -131,3 +131,10 @@ def test_session_performance_rejects_duplicate_dates_and_inconsistent_net_pnl() 
         summarize_sessions([valid, valid])
     with pytest.raises(ValueError, match="gross PnL less costs"):
         summarize_sessions([inconsistent])
+
+
+def test_session_performance_allows_only_sub_atto_decimal_sum_rounding() -> None:
+    from app.backtest_metrics import _amounts_match
+
+    assert _amounts_match(Decimal("10"), Decimal("10.0000000000000000009"))
+    assert not _amounts_match(Decimal("10"), Decimal("10.000000000001"))

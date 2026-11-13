@@ -195,6 +195,46 @@ def _cost(price: Decimal, quantity: int, bps: Decimal) -> Decimal:
     return price * quantity * bps / Decimal(10_000)
 
 
+def risk_bounded_quantity(
+    *, entry_price: Decimal, stop_distance: Decimal, equity: Decimal, max_order_notional: Decimal,
+    trade_risk_equity_pct: Decimal = Decimal("0.25"), max_position_equity_pct: Decimal = Decimal("10"),
+    buy_commission_bps: Decimal = Decimal(0), sell_commission_bps: Decimal = Decimal(0),
+    sell_tax_bps: Decimal = Decimal(0), slippage_bps: Decimal = Decimal(0),
+    maximum_spread_bps: Decimal = Decimal(0),
+) -> int:
+    """Size one long entry under ATR-risk, single-symbol allocation, and order-notional caps."""
+    values = (
+        entry_price, stop_distance, equity, max_order_notional, trade_risk_equity_pct,
+        max_position_equity_pct, buy_commission_bps, sell_commission_bps,
+        sell_tax_bps, slippage_bps, maximum_spread_bps,
+    )
+    if any(not isinstance(value, Decimal) or not value.is_finite() for value in values):
+        raise ValueError("risk-sizing inputs must be finite decimals")
+    if min(entry_price, equity, max_order_notional) <= 0 or min(
+            stop_distance, buy_commission_bps, sell_commission_bps, sell_tax_bps,
+            slippage_bps, maximum_spread_bps) < 0:
+        raise ValueError("risk-sizing price, capital, notional, and costs are invalid")
+    if not Decimal(0) < trade_risk_equity_pct <= Decimal("0.25"):
+        raise ValueError("trade risk cannot exceed the approved 0.25 percent limit")
+    if not Decimal(0) < max_position_equity_pct <= Decimal("10"):
+        raise ValueError("position allocation cannot exceed the approved 10 percent limit")
+
+    stop_price = max(Decimal(0), entry_price - stop_distance)
+    estimated_exit_cost_bps = (
+        sell_commission_bps + sell_tax_bps + slippage_bps + maximum_spread_bps / Decimal(2)
+    )
+    all_in_stop_risk = (
+        stop_distance + _cost(entry_price, 1, buy_commission_bps)
+        + _cost(stop_price, 1, estimated_exit_cost_bps)
+    )
+    if all_in_stop_risk <= 0:
+        return 0
+    risk_quantity = equity * trade_risk_equity_pct / Decimal(100) / all_in_stop_risk
+    allocation_quantity = equity * max_position_equity_pct / Decimal(100) / entry_price
+    order_limit_quantity = max_order_notional / entry_price
+    return max(0, int(min(risk_quantity, allocation_quantity, order_limit_quantity)))
+
+
 def orb_vwap_entry_candidate(
     bars: list[MinuteBar], config: QuantConfig = QuantConfig(), *, market: Market,
 ) -> bool:
@@ -229,6 +269,7 @@ def backtest_orb_vwap(
     config: QuantConfig = QuantConfig(),
     *,
     quantity: int = 1,
+    quantity_sizer: Callable[[Decimal, Decimal], int] | None = None,
     entry_filter: Callable[[list[MinuteBar]], bool] | None = None,
 ) -> BacktestResult:
     """Long-only ORB/VWAP/EMA strategy. Signals use data available at each bar close;
@@ -246,7 +287,7 @@ def backtest_orb_vwap(
     minimum_history = max(config.ema_period, config.atr_period,
                           config.relative_volume_period + 1, config.opening_range_bars)
     trades: list[Trade] = []
-    entry: tuple[int, Decimal, Decimal, Decimal] | None = None  # index, fill, stop, target
+    entry: tuple[int, Decimal, Decimal, Decimal, int] | None = None  # index, fill, stop, target, quantity
     signals = 0
     gross_total = Decimal(0)
     cost_total = Decimal(0)
@@ -256,7 +297,7 @@ def backtest_orb_vwap(
         prior = bars[:index]
         history = bars[: index + 1]
         if entry is not None:
-            entry_index, fill_price, stop_price, target_price = entry
+            entry_index, fill_price, stop_price, target_price, position_quantity = entry
             exit_price: Decimal | None = None
             reason = ""
             # A close-based VWAP signal is only known after the prior bar ends,
@@ -286,15 +327,16 @@ def backtest_orb_vwap(
                 exit_cost_bps = config.slippage_bps + exit_spread_bps / Decimal(2)
                 slipped_exit = exit_price * (Decimal(1) - exit_cost_bps / Decimal(10_000))
                 raw_entry = bars[entry_index].open
-                gross = (exit_price - raw_entry) * quantity
-                execution_costs = ((fill_price - raw_entry) + (exit_price - slipped_exit)) * quantity
+                gross = (exit_price - raw_entry) * position_quantity
+                execution_costs = ((fill_price - raw_entry) + (exit_price - slipped_exit)) * position_quantity
                 commission_costs = (
-                    _cost(fill_price, quantity, config.effective_buy_commission_bps)
-                    + _cost(slipped_exit, quantity,
+                    _cost(fill_price, position_quantity, config.effective_buy_commission_bps)
+                    + _cost(slipped_exit, position_quantity,
                             config.effective_sell_commission_bps + config.sell_tax_bps)
                 )
                 costs = execution_costs + commission_costs
-                trades.append(Trade(bars[entry_index].timestamp, bar.timestamp, fill_price, slipped_exit, quantity, gross, costs, gross - costs, reason))
+                trades.append(Trade(bars[entry_index].timestamp, bar.timestamp, fill_price, slipped_exit,
+                                    position_quantity, gross, costs, gross - costs, reason))
                 gross_total += gross
                 cost_total += costs
                 entry = None
@@ -317,7 +359,11 @@ def backtest_orb_vwap(
                     risk = _atr(history, config.atr_period) * config.atr_stop_multiple
                     stop = fill - risk
                     target = fill + risk * config.reward_risk_multiple
-                    entry = (index + 1, fill, stop, target)
+                    position_quantity = quantity if quantity_sizer is None else quantity_sizer(fill, risk)
+                    if isinstance(position_quantity, bool) or not isinstance(position_quantity, int) or position_quantity < 0:
+                        raise ValueError("quantity sizer must return a non-negative integer")
+                    if position_quantity > 0:
+                        entry = (index + 1, fill, stop, target, position_quantity)
 
     return BacktestResult(
         market=market,

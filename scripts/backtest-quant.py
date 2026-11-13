@@ -15,7 +15,7 @@ from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
 from app.backtest_metrics import session_net_return_bps, summarize_sessions, summarize_spread_coverage, summarize_trades
 from app.market_scope import require_cli_operational_market
-from app.quant import BacktestResult, QuantConfig, backtest_orb_vwap
+from app.quant import BacktestResult, QuantConfig, backtest_orb_vwap, risk_bounded_quantity
 
 
 def _session_net_return_value(result: BacktestResult) -> str | None:
@@ -40,6 +40,14 @@ def main() -> int:
                         help="explicit slippage assumption per fill in basis points")
     parser.add_argument("--minimum-turnover", type=Decimal, default=Decimal("1000000"))
     parser.add_argument("--maximum-spread-bps", type=Decimal, default=Decimal("15"))
+    parser.add_argument("--sizing-equity", type=Decimal,
+                        help="optional single-symbol starting equity for risk and concentration sizing")
+    parser.add_argument("--max-position-notional", type=Decimal,
+                        help="required with --sizing-equity; maximum notional per position")
+    parser.add_argument("--trade-risk-equity-pct", type=Decimal, default=Decimal("0.25"),
+                        help="risk budget per entry as percent of the supplied sizing equity (maximum 0.25)")
+    parser.add_argument("--max-position-equity-pct", type=Decimal, default=Decimal("10"),
+                        help="maximum single-symbol allocation as percent of supplied equity (maximum 10)")
     args = parser.parse_args()
     try:
         require_cli_operational_market(args.market, "quant backtest")
@@ -50,6 +58,22 @@ def main() -> int:
         parser.error("cost assumptions cannot be negative")
     if sum(costs) <= 0:
         parser.error("at least one explicit trading cost must be positive")
+    if args.sizing_equity is not None:
+        required_sizing_values = (
+            args.sizing_equity, args.max_position_notional,
+            args.trade_risk_equity_pct, args.max_position_equity_pct,
+        )
+        if (any(value is None or not value.is_finite() for value in required_sizing_values)
+                or args.sizing_equity <= 0 or args.max_position_notional <= 0):
+            parser.error("--sizing-equity requires positive equity and --max-position-notional values")
+        if not Decimal(0) < args.trade_risk_equity_pct <= Decimal("0.25"):
+            parser.error("--trade-risk-equity-pct must be positive and no greater than the approved 0.25 percent")
+        if not Decimal(0) < args.max_position_equity_pct <= Decimal("10"):
+            parser.error("--max-position-equity-pct must be positive and no greater than the approved 10 percent")
+    elif (args.max_position_notional is not None
+            or args.trade_risk_equity_pct != Decimal("0.25")
+            or args.max_position_equity_pct != Decimal("10")):
+        parser.error("risk-sizing limits require --sizing-equity")
 
     try:
         provenance = load_data_provenance(args.csv_file, purpose="backtesting")
@@ -62,8 +86,24 @@ def main() -> int:
                      sell_commission_bps=args.sell_commission_bps,
                      sell_tax_bps=args.sell_tax_bps, slippage_bps=args.slippage_bps,
                      minimum_turnover=args.minimum_turnover, maximum_spread_bps=args.maximum_spread_bps)
+    quantity_sizer = None
+    if args.sizing_equity is not None:
+        def quantity_sizer(entry_price: Decimal, stop_distance: Decimal) -> int:
+            return risk_bounded_quantity(
+                entry_price=entry_price, stop_distance=stop_distance, equity=args.sizing_equity,
+                max_order_notional=args.max_position_notional,
+                trade_risk_equity_pct=args.trade_risk_equity_pct,
+                max_position_equity_pct=args.max_position_equity_pct,
+                buy_commission_bps=args.buy_commission_bps,
+                sell_commission_bps=args.sell_commission_bps,
+                sell_tax_bps=args.sell_tax_bps,
+                slippage_bps=args.slippage_bps,
+                maximum_spread_bps=args.maximum_spread_bps,
+            )
+
     session_results = [
-        (session, bars, backtest_orb_vwap(args.market, args.symbol, bars, config),
+        (session, bars, backtest_orb_vwap(args.market, args.symbol, bars, config,
+                                          quantity_sizer=quantity_sizer),
          summarize_spread_coverage(bars))
         for session, bars in sorted(sessions.items())
     ]
@@ -113,11 +153,22 @@ def main() -> int:
             "sell_tax_per_fill": str(config.sell_tax_bps),
             "slippage_per_fill": str(config.slippage_bps),
         },
-        "quantity_per_session": 1,
+        "position_sizing": {
+            "mode": "single_symbol_risk_bounded" if args.sizing_equity is not None else "fixed_one_share",
+            "sizing_equity": str(args.sizing_equity) if args.sizing_equity is not None else None,
+            "max_position_notional": (
+                str(args.max_position_notional) if args.max_position_notional is not None else None
+            ),
+            "trade_risk_equity_pct": str(args.trade_risk_equity_pct) if args.sizing_equity is not None else None,
+            "max_position_equity_pct": str(args.max_position_equity_pct) if args.sizing_equity is not None else None,
+            "scope": "Each symbol is simulated independently; combined portfolio exposure and daily loss are not modeled.",
+        },
         "executable": False,
         "limitations": [
             "Input data licensing, corrections, symbol mapping, and timestamp zone are the operator's responsibility.",
-            "Each session is simulated independently at one share; results do not compound portfolio capital.",
+            "Fixed-one-share mode does not compound portfolio capital across sessions.",
+            "Risk-based sizing is a single-symbol scenario; combined portfolio exposure, cash shared across symbols, and daily loss stops are not modeled.",
+            "Risk sizing uses ATR stop distance and conservative estimated entry/exit costs; actual slippage and losses can be larger.",
             "Exchange fees and market impact must be reflected in the supplied assumptions where applicable.",
             "Entries require timestamped observed spreads within the configured limit; missing or untimestamped spread data is reported and is not treated as zero or a passing filter.",
         ],

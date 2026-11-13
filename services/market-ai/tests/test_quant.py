@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.quant import MinuteBar, QuantConfig, _ema, backtest_orb_vwap, orb_vwap_entry_candidate
+from app.quant import MinuteBar, QuantConfig, _ema, backtest_orb_vwap, orb_vwap_entry_candidate, risk_bounded_quantity
 
 
 def _session_bars(bar_count: int = 380) -> list[MinuteBar]:
@@ -77,6 +77,69 @@ def test_orb_vwap_enters_on_next_bar_and_applies_costs() -> None:
     assert trade.costs > 0
     assert trade.net_pnl == trade.gross_pnl - trade.costs
     assert result.executable is False
+
+
+def test_optional_quantity_sizer_applies_risk_bounded_trade_quantity() -> None:
+    config = QuantConfig(
+        commission_bps=Decimal("5"), slippage_bps=Decimal("5"),
+        minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1.5"),
+    )
+    baseline = backtest_orb_vwap("KR", "005930", _session_bars(), config)
+    sized = backtest_orb_vwap(
+        "KR", "005930", _session_bars(), config,
+        quantity_sizer=lambda _entry_price, stop_distance: 4 if stop_distance > 0 else 0,
+    )
+
+    assert len(sized.trades) == 1
+    assert sized.trades[0].quantity == 4
+    assert sized.trades[0].gross_pnl == baseline.trades[0].gross_pnl * 4
+    assert sized.trades[0].costs == baseline.trades[0].costs * 4
+    assert sized.trades[0].net_pnl == baseline.trades[0].net_pnl * 4
+
+
+def test_quantity_sizer_zero_skips_position_and_invalid_result_fails_closed() -> None:
+    bars = _session_bars()
+    config = QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"))
+    skipped = backtest_orb_vwap("KR", "005930", bars, config, quantity_sizer=lambda _price, _risk: 0)
+    assert skipped.signals > 0
+    assert skipped.trades == ()
+
+    for invalid_quantity in (-1, True, Decimal("1")):
+        with pytest.raises(ValueError, match="non-negative integer"):
+            backtest_orb_vwap(
+                "KR", "005930", bars, config,
+                quantity_sizer=lambda _price, _risk, value=invalid_quantity: value,
+            )
+
+
+def test_risk_bounded_quantity_respects_risk_allocation_and_notional_caps() -> None:
+    base = dict(
+        entry_price=Decimal("100"), stop_distance=Decimal("5"), equity=Decimal("100000"),
+        max_order_notional=Decimal("100000"),
+    )
+    assert risk_bounded_quantity(**base) == 50
+    assert risk_bounded_quantity(**{**base, "max_position_equity_pct": Decimal("1")}) == 10
+    assert risk_bounded_quantity(**{**base, "max_order_notional": Decimal("900")}) == 9
+    assert risk_bounded_quantity(
+        **base, buy_commission_bps=Decimal("10"), sell_commission_bps=Decimal("10"),
+        sell_tax_bps=Decimal("20"), slippage_bps=Decimal("10"), maximum_spread_bps=Decimal("20"),
+    ) < 50
+
+
+@pytest.mark.parametrize("field,value", [
+    ("trade_risk_equity_pct", Decimal("0.2501")),
+    ("max_position_equity_pct", Decimal("10.01")),
+    ("entry_price", Decimal("NaN")),
+    ("stop_distance", Decimal("-1")),
+])
+def test_risk_bounded_quantity_rejects_unsafe_or_nonfinite_limits(field: str, value: Decimal) -> None:
+    params = dict(
+        entry_price=Decimal("100"), stop_distance=Decimal("5"), equity=Decimal("100000"),
+        max_order_notional=Decimal("100000"),
+    )
+    params[field] = value
+    with pytest.raises(ValueError):
+        risk_bounded_quantity(**params)
 
 
 def test_backtest_applies_direction_specific_commissions_and_sell_tax() -> None:

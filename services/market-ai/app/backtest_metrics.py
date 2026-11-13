@@ -8,9 +8,15 @@ from typing import Sequence
 
 from .quant import BacktestResult, MinuteBar, Trade
 
+_SESSION_TOTAL_TOLERANCE = Decimal("1e-18")
+
 
 def _mean(values: Sequence[Decimal]) -> Decimal | None:
     return sum(values, Decimal(0)) / Decimal(len(values)) if values else None
+
+
+def _amounts_match(left: Decimal, right: Decimal) -> bool:
+    return abs(left - right) <= _SESSION_TOTAL_TOLERANCE
 
 
 def summarize_trades(trades: Sequence[Trade]) -> dict[str, object]:
@@ -93,9 +99,14 @@ def summarize_sessions(sessions: Sequence[BacktestResult]) -> dict[str, object]:
             if (any(not isinstance(value, Decimal) or not value.is_finite() for value in trade_values)
                     or trade.net_pnl != trade.gross_pnl - trade.costs):
                 raise ValueError("backtest session contains inconsistent trade PnL")
-        if (sum((trade.gross_pnl for trade in session.trades), Decimal(0)) != session.gross_pnl
-                or sum((trade.costs for trade in session.trades), Decimal(0)) != session.costs
-                or sum((trade.net_pnl for trade in session.trades), Decimal(0)) != session.net_pnl):
+        trade_gross = sum((trade.gross_pnl for trade in session.trades), Decimal(0))
+        trade_costs = sum((trade.costs for trade in session.trades), Decimal(0))
+        trade_net = sum((trade.net_pnl for trade in session.trades), Decimal(0))
+        # Decimal operations are rounded at the active precision. Equivalent totals
+        # can therefore differ in sub-atto currency fractions after repeated trades.
+        if (not _amounts_match(trade_gross, session.gross_pnl)
+                or not _amounts_match(trade_costs, session.costs)
+                or not _amounts_match(trade_net, session.net_pnl)):
             raise ValueError("backtest session totals must match its trades")
         net_values.append(session.net_pnl)
         if session.trades:
