@@ -1,0 +1,57 @@
+name: Windows PAPER storage recovery safety
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'services/market-ai/app/bar_write_outbox.py'
+      - 'services/market-ai/app/paper_runtime.py'
+      - 'services/market-ai/tests/test_bar_write_outbox.py'
+      - 'services/market-ai/tests/test_paper_runtime.py'
+      - '.github/workflows/windows-paper-storage-safety.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'services/market-ai/app/bar_write_outbox.py'
+      - 'services/market-ai/app/paper_runtime.py'
+      - 'services/market-ai/tests/test_bar_write_outbox.py'
+      - 'services/market-ai/tests/test_paper_runtime.py'
+      - '.github/workflows/windows-paper-storage-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-paper-storage-recovery:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      TRADING_MODE: paper
+      LIVE_TRADING_ENABLED: "false"
+      PAPER_AUTOTRADING_ENABLED: "false"
+      KIS_PAPER_ORDERS_ENABLED: "false"
+      KIS_REAL_ORDERS_ENABLED: "false"
+      KIS_ACCOUNT_READ_ENABLED: "false"
+      KIS_PAPER_ACCOUNT_READ_ENABLED: "false"
+      KIS_REAL_ACCOUNT_READ_ENABLED: "false"
+      MARKET_OPERATIONAL_SCOPE: KR
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/market-ai/pyproject.toml
+      - name: Install storage recovery test dependencies
+        working-directory: services/market-ai
+        run: python -m pip install -e ".[dev,ops]"
+      - name: Verify abrupt writer termination preserves the Windows SQLite WAL outbox
+        working-directory: services/market-ai
+        run: python -m pytest -q tests/test_bar_write_outbox.py
+      - name: Verify outbox recovery blocks PAPER automation until PostgreSQL acknowledgement
+        working-directory: services/market-ai
+        run: >-
+          python -m pytest -q
+          tests/test_paper_runtime.py::test_durable_bar_outbox_restores_and_drains_before_automation_can_resume
+          tests/test_paper_runtime.py::test_startup_keeps_paper_automation_blocked_while_durable_outbox_recovers
