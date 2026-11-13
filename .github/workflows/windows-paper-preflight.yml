@@ -2,8 +2,15 @@ name: Windows PAPER preflight checks
 
 on:
   workflow_dispatch:
+  push:
+    branches: [develop]
+    paths:
+      - 'scripts/**/*.ps1'
+      - 'scripts/**/*.py'
+      - 'scripts/tests/**/*.ps1'
+      - '.github/workflows/windows-paper-preflight.yml'
   pull_request:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - 'scripts/**/*.ps1'
       - 'scripts/**/*.py'
@@ -53,6 +60,7 @@ jobs:
             'scripts/run-model-holdout-evaluation.ps1',
             'scripts/register-model-candidate-retraining-task.ps1',
             'scripts/register-model-holdout-evaluation-task.ps1',
+            'scripts/lib/model-holdout-date-gate.ps1',
             'scripts/lib/model-retraining-report.ps1',
             'scripts/lib/operations-report.ps1',
             'scripts/export-daily-report.ps1',
@@ -75,6 +83,11 @@ jobs:
           $domesticScopeResult = Invoke-Pester -Path 'scripts/tests/domestic-only-validation.Tests.ps1' -PassThru
           if ($domesticScopeResult.FailedCount -gt 0 -or $domesticScopeResult.PassedCount -ne 8) {
             throw "Domestic-only operational scope tests failed: passed=$($domesticScopeResult.PassedCount), failed=$($domesticScopeResult.FailedCount)."
+          }
+
+          $holdoutDateResult = Invoke-Pester -Path 'scripts/tests/model-holdout-date-gate.Tests.ps1' -PassThru
+          if ($holdoutDateResult.FailedCount -gt 0 -or $holdoutDateResult.PassedCount -ne 5) {
+            throw "Independent model holdout date tests failed: passed=$($holdoutDateResult.PassedCount), failed=$($holdoutDateResult.FailedCount)."
           }
 
           $credentialScanResult = Invoke-Pester -Path 'scripts/tests/tracked-credential-scan.Tests.ps1' -PassThru

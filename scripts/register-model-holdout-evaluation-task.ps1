@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory)] [ValidateSet('KR', 'US')] [string]$Market,
     [Parameter(Mandatory)] [string]$Symbol,
+    [Parameter(Mandatory)] [ValidatePattern('^\d{4}-\d{2}-\d{2}$')] [string]$TrainingToDate,
     [Parameter(Mandatory)] [ValidatePattern('^\d{4}-\d{2}-\d{2}$')] [string]$FromDate,
     [Parameter(Mandatory)] [ValidatePattern('^\d{4}-\d{2}-\d{2}$')] [string]$ToDate,
     [ValidatePattern('^([01]\d|2[0-3]):[0-5]\d$')] [string]$RunTime = '08:15'
@@ -10,13 +11,15 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'lib\domestic-only-validation.ps1')
+. (Join-Path $PSScriptRoot 'lib\model-holdout-date-gate.ps1')
 Assert-DomesticOnlyValidation -Market $Market -Operation 'model holdout task registration'
 $symbolValue = $Symbol.Trim().ToUpperInvariant()
 if ($Market -eq 'KR' -and $symbolValue -notmatch '^\d{6}$') { throw 'KR symbol must be a six-digit instrument code.' }
 if ($Market -eq 'US' -and $symbolValue -notmatch '^[A-Z][A-Z0-9.-]{0,15}$') { throw 'US symbol must contain 1 to 16 letters, digits, dots, or hyphens.' }
+$trainingTo = [DateTime]::ParseExact($TrainingToDate, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
 $from = [DateTime]::ParseExact($FromDate, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
 $to = [DateTime]::ParseExact($ToDate, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
-if ($from.Date -gt $to.Date) { throw 'FromDate must be on or before ToDate.' }
+Assert-AiTraderHoldoutRangeAfterTraining -TrainingToDate $trainingTo -FromDate $from -ToDate $to
 
 $envFile = Join-Path $repoRoot '.env_local'
 if (-not (Test-Path -LiteralPath $envFile)) { throw 'The ignored .env_local file is required.' }
