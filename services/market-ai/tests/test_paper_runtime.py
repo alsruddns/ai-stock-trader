@@ -1813,6 +1813,51 @@ def test_paper_worker_queue_overflow_blocks_entries_but_keeps_exit_checks(monkey
     assert runtime.status()["last_automation_result"]["reason"] == "PAPER_WORKER_QUEUE_FULL"
 
 
+def test_paper_worker_does_not_reenter_on_bar_that_submitted_an_exit(monkeypatch) -> None:
+    watch = parse_watchlist("KR:005930")[0]
+    timestamp = datetime(2026, 11, 6, 10, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+    bar = MinuteBar(timestamp, Decimal("70000"), Decimal("70100"), Decimal("69000"), Decimal("69500"),
+                    1000, Decimal("5"))
+    runtime = PaperSessionFeedMonitor()
+    runtime._automation_queue = asyncio.Queue()
+    runtime._automation_queue.put_nowait((watch, bar, {"signal": "BUY_CANDIDATE"}, {}))
+    calls = {"entry": 0}
+
+    class Broker:
+        def close(self):
+            pass
+
+    class Trader:
+        def close(self):
+            pass
+
+    def submit_exit(*_args):
+        return {"state": "FILLED", "order_id": 17, "idempotency_key": "paper-exit-key", "executable": False}
+
+    def submit_entry(*_args):
+        calls["entry"] += 1
+        raise AssertionError("a closed bar that exited a position must not also open a new one")
+
+    monkeypatch.setattr("app.paper_runtime.SpringPaperBrokerClient", Broker)
+    monkeypatch.setattr("app.paper_runtime.PaperAutoTrader", lambda _broker: Trader())
+    monkeypatch.setattr(runtime, "_capture_daily_baseline", lambda *_args: None)
+    monkeypatch.setattr(runtime, "_manage_strategy_exit", submit_exit)
+    monkeypatch.setattr(runtime, "_manage_strategy_entry", submit_entry)
+
+    async def scenario():
+        task = asyncio.create_task(runtime._automation_loop(PaperOpsLimits()))
+        await asyncio.wait_for(runtime._automation_queue.join(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+    assert calls["entry"] == 0
+    assert runtime.status()["automation_state"] == "BLOCKED"
+    assert runtime.status()["automation_error"] == "PAPER_EXIT_ORDER_SUBMITTED_FOR_BAR"
+
+
 def test_paper_unknown_order_blocks_later_entries_and_preserves_reconciliation_key(monkeypatch) -> None:
     watch = parse_watchlist("KR:005930")[0]
     timestamp = datetime(2026, 11, 6, 10, 0, tzinfo=ZoneInfo("Asia/Seoul"))

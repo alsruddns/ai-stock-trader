@@ -1795,6 +1795,7 @@ class PaperSessionFeedMonitor:
                     return
                 watch, bar, decision, quotes = await queue.get()
                 try:
+                    exit_order_submitted_for_bar = False
                     baseline_result = await asyncio.to_thread(
                         self._capture_daily_baseline, broker, watch, bar, quotes, limits
                     )
@@ -1804,6 +1805,9 @@ class PaperSessionFeedMonitor:
                                          daily_baseline=baseline_result)
                     result = await asyncio.to_thread(self._manage_strategy_exit, broker, trader, watch, bar, limits)
                     if result is not None:
+                        exit_order_submitted_for_bar = (
+                            bool(result.get("order_id")) or bool(result.get("idempotency_key"))
+                        )
                         if result.get("state") == "UNKNOWN":
                             self._require_paper_reconciliation(result)
                         self._set_status(automation_state=str(result.get("state", "EXIT_MONITORING")),
@@ -1817,6 +1821,9 @@ class PaperSessionFeedMonitor:
                                         "executable": False}
                     elif self._paper_reconciliation_required:
                         entry_result = {"state": "BLOCKED", "reason": "PAPER_ORDER_RECONCILIATION_REQUIRED",
+                                        "executable": False}
+                    elif exit_order_submitted_for_bar:
+                        entry_result = {"state": "BLOCKED", "reason": "PAPER_EXIT_ORDER_SUBMITTED_FOR_BAR",
                                         "executable": False}
                     else:
                         entry_result = await asyncio.to_thread(
