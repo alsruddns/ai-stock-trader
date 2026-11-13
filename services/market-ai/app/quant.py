@@ -107,6 +107,17 @@ class QuantConfig:
 
 
 @dataclass(frozen=True)
+class RiskQuantityBounds:
+    risk: int
+    allocation: int
+    order_notional: int
+
+    @property
+    def permitted_quantity(self) -> int:
+        return min(self.risk, self.allocation, self.order_notional)
+
+
+@dataclass(frozen=True)
 class Trade:
     entry_time: datetime
     exit_time: datetime
@@ -196,14 +207,14 @@ def _cost(price: Decimal, quantity: int, bps: Decimal) -> Decimal:
     return price * quantity * bps / Decimal(10_000)
 
 
-def risk_bounded_quantity(
+def risk_bounded_quantity_bounds(
     *, entry_price: Decimal, stop_distance: Decimal, equity: Decimal, max_order_notional: Decimal,
     trade_risk_equity_pct: Decimal = Decimal("0.25"), max_position_equity_pct: Decimal = Decimal("10"),
     buy_commission_bps: Decimal = Decimal(0), sell_commission_bps: Decimal = Decimal(0),
     sell_tax_bps: Decimal = Decimal(0), slippage_bps: Decimal = Decimal(0),
     maximum_spread_bps: Decimal = Decimal(0),
-) -> int:
-    """Size one long entry under ATR-risk, single-symbol allocation, and order-notional caps."""
+) -> RiskQuantityBounds:
+    """Return separate share limits so a backtest can explain which risk cap bound sizing."""
     values = (
         entry_price, stop_distance, equity, max_order_notional, trade_risk_equity_pct,
         max_position_equity_pct, buy_commission_bps, sell_commission_bps,
@@ -229,11 +240,33 @@ def risk_bounded_quantity(
         + _cost(stop_price, 1, estimated_exit_cost_bps)
     )
     if all_in_stop_risk <= 0:
-        return 0
-    risk_quantity = equity * trade_risk_equity_pct / Decimal(100) / all_in_stop_risk
+        risk_quantity = 0
+    else:
+        risk_quantity = equity * trade_risk_equity_pct / Decimal(100) / all_in_stop_risk
     allocation_quantity = equity * max_position_equity_pct / Decimal(100) / entry_price
     order_limit_quantity = max_order_notional / entry_price
-    return max(0, int(min(risk_quantity, allocation_quantity, order_limit_quantity)))
+    return RiskQuantityBounds(
+        risk=max(0, int(risk_quantity)),
+        allocation=max(0, int(allocation_quantity)),
+        order_notional=max(0, int(order_limit_quantity)),
+    )
+
+
+def risk_bounded_quantity(
+    *, entry_price: Decimal, stop_distance: Decimal, equity: Decimal, max_order_notional: Decimal,
+    trade_risk_equity_pct: Decimal = Decimal("0.25"), max_position_equity_pct: Decimal = Decimal("10"),
+    buy_commission_bps: Decimal = Decimal(0), sell_commission_bps: Decimal = Decimal(0),
+    sell_tax_bps: Decimal = Decimal(0), slippage_bps: Decimal = Decimal(0),
+    maximum_spread_bps: Decimal = Decimal(0),
+) -> int:
+    """Size one long entry under ATR-risk, single-symbol allocation, and order-notional caps."""
+    return risk_bounded_quantity_bounds(
+        entry_price=entry_price, stop_distance=stop_distance, equity=equity,
+        max_order_notional=max_order_notional, trade_risk_equity_pct=trade_risk_equity_pct,
+        max_position_equity_pct=max_position_equity_pct, buy_commission_bps=buy_commission_bps,
+        sell_commission_bps=sell_commission_bps, sell_tax_bps=sell_tax_bps,
+        slippage_bps=slippage_bps, maximum_spread_bps=maximum_spread_bps,
+    ).permitted_quantity
 
 
 def orb_vwap_entry_candidate(

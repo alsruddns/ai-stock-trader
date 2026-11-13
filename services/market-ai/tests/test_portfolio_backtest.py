@@ -64,6 +64,22 @@ def test_portfolio_sizes_entries_under_risk_allocation_and_shared_cash(monkeypat
     assert result.executable is False
 
 
+def test_portfolio_reports_trade_risk_as_the_one_share_entry_blocker(monkeypatch) -> None:
+    _signals_at_lengths(monkeypatch, {0: {21}})
+    monkeypatch.setattr("app.portfolio_backtest._atr", lambda _bars, _period: Decimal("100"))
+    data = {"005930": _bars(0), "000660": _bars(1)}
+
+    result = backtest_domestic_portfolio(
+        data, starting_equity=Decimal("10000"), max_order_notional=Decimal("1000000"),
+        config=QuantConfig(commission_bps=Decimal(0), slippage_bps=Decimal(0)),
+    )
+
+    assert result.quant_signals_by_symbol == {"000660": 0, "005930": 1}
+    assert result.rejected_entries == (("005930", "TRADE_RISK_LIMIT_BELOW_ONE_SHARE"),)
+    assert result.trades == ()
+    assert result.executable is False
+
+
 def test_portfolio_generates_real_orb_vwap_signals_on_shared_timeline() -> None:
     data = {"005930": _strategy_bars(0), "000660": _strategy_bars(1)}
     config = QuantConfig(

@@ -9,7 +9,7 @@ from typing import Callable
 
 from .quant import (
     MinuteBar, QuantConfig, _atr, _cost, _validate_session, _vwap,
-    exchange_session_date, orb_vwap_entry_candidate, risk_bounded_quantity,
+    exchange_session_date, orb_vwap_entry_candidate, risk_bounded_quantity_bounds,
 )
 
 _PORTFOLIO_TOTAL_TOLERANCE = Decimal("1e-18")
@@ -186,7 +186,7 @@ def backtest_domestic_portfolio(
             entry_cost_bps = config.slippage_bps + intent.signal_spread_bps / Decimal(2)
             fill = bar.open * (Decimal(1) + entry_cost_bps / Decimal(10_000))
             equity_now = max(Decimal(1), starting_equity + realized + marked_pnl(index, price_field="open"))
-            quantity = risk_bounded_quantity(
+            quantity_bounds = risk_bounded_quantity_bounds(
                 entry_price=fill, stop_distance=intent.stop_distance, equity=equity_now,
                 max_order_notional=max_order_notional,
                 buy_commission_bps=config.effective_buy_commission_bps,
@@ -195,9 +195,23 @@ def backtest_domestic_portfolio(
                 maximum_spread_bps=intent.signal_spread_bps,
             )
             debit_per_share = fill * (Decimal(1) + config.effective_buy_commission_bps / Decimal(10_000))
-            quantity = min(quantity, int(cash / debit_per_share))
+            quantity = quantity_bounds.permitted_quantity
+            cash_quantity = max(0, int(cash / debit_per_share))
             if quantity <= 0:
-                rejected.append((symbol, "NO_SHARES_WITHIN_RISK_OR_CASH_LIMIT"))
+                limiting_bounds = [
+                    name for name, value in (
+                        ("TRADE_RISK", quantity_bounds.risk),
+                        ("POSITION_ALLOCATION", quantity_bounds.allocation),
+                        ("ORDER_NOTIONAL", quantity_bounds.order_notional),
+                    ) if value == 0
+                ]
+                suffix = "LIMIT_BELOW_ONE_SHARE" if len(limiting_bounds) == 1 else "LIMITS_BELOW_ONE_SHARE"
+                reason = f"{'_AND_'.join(limiting_bounds)}_{suffix}"
+                rejected.append((symbol, reason))
+                continue
+            quantity = min(quantity, cash_quantity)
+            if quantity <= 0:
+                rejected.append((symbol, "SHARED_CASH_BELOW_ONE_SHARE"))
                 continue
             distance = intent.stop_distance
             debit = debit_per_share * quantity

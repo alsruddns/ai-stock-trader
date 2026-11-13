@@ -3,7 +3,10 @@ from decimal import Decimal
 
 import pytest
 
-from app.quant import MinuteBar, QuantConfig, _ema, backtest_orb_vwap, orb_vwap_entry_candidate, risk_bounded_quantity
+from app.quant import (
+    MinuteBar, QuantConfig, _ema, backtest_orb_vwap, orb_vwap_entry_candidate,
+    risk_bounded_quantity, risk_bounded_quantity_bounds,
+)
 
 
 def _session_bars(bar_count: int = 380) -> list[MinuteBar]:
@@ -124,6 +127,21 @@ def test_risk_bounded_quantity_respects_risk_allocation_and_notional_caps() -> N
         **base, buy_commission_bps=Decimal("10"), sell_commission_bps=Decimal("10"),
         sell_tax_bps=Decimal("20"), slippage_bps=Decimal("10"), maximum_spread_bps=Decimal("20"),
     ) < 50
+
+
+def test_risk_bounded_quantity_reports_each_independent_limit() -> None:
+    bounds = risk_bounded_quantity_bounds(
+        entry_price=Decimal("100000"), stop_distance=Decimal("50000"),
+        equity=Decimal("10000000"), max_order_notional=Decimal("1000000"),
+    )
+
+    assert bounds.risk == 0
+    assert bounds.allocation == 10
+    assert bounds.order_notional == 10
+    assert bounds.permitted_quantity == risk_bounded_quantity(
+        entry_price=Decimal("100000"), stop_distance=Decimal("50000"),
+        equity=Decimal("10000000"), max_order_notional=Decimal("1000000"),
+    ) == 0
 
 
 @pytest.mark.parametrize("field,value", [
