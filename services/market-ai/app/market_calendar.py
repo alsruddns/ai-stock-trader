@@ -46,6 +46,36 @@ def exchange_session_window(market: Market, now: datetime) -> tuple[datetime, da
     return _exchange_session_window_for_date(market, now.astimezone(exchange_zone).date())
 
 
+@lru_cache(maxsize=128)
+def exchange_session_dates(market: Market, start_date: date, end_date: date) -> tuple[date, ...]:
+    """Return verified exchange dates for a bounded range using one calendar schedule."""
+    if start_date > end_date:
+        raise ValueError("session date range must be ordered")
+    calendar_name = "XKRX" if market == "KR" else "XNYS" if market == "US" else None
+    if calendar_name is None:
+        raise ValueError("market must be KR or US")
+    if market == "KR":
+        compatibility = korean_calendar_compatibility()
+        if compatibility == "PANDAS_UNSUPPORTED":
+            raise RuntimeError("Korean market calendar requires pandas<3.1 until XKRX offset support is fixed")
+        if compatibility != "COMPATIBLE":
+            raise RuntimeError("Korean market calendar dependencies are unavailable or unsupported")
+    try:
+        import exchange_calendars as calendars
+        import pandas as pd
+    except ImportError as exc:
+        raise RuntimeError("Install the optional ops dependencies to use market sessions") from exc
+    start_label = pd.Timestamp(start_date)
+    end_label = pd.Timestamp(end_date)
+    try:
+        calendar = calendars.get_calendar(
+            calendar_name, start=start_label - pd.Timedelta(days=7), end=end_label + pd.Timedelta(days=7),
+        )
+        return tuple(session.date() for session in calendar.sessions_in_range(start_label, end_label))
+    except (KeyError, ValueError, IndexError) as exc:
+        raise RuntimeError("market calendar could not verify this date range") from exc
+
+
 def latest_closed_session_date(market: Market, now: datetime, lookback_days: int = 30) -> date:
     """Find the most recent exchange session whose close has passed, fail closed if unknown."""
     if now.tzinfo is None or now.utcoffset() is None:
