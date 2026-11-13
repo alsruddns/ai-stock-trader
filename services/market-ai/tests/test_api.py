@@ -588,6 +588,42 @@ def test_training_readiness_counts_only_complete_approved_websocket_sessions(mon
     assert missing_costs["training_preflight"]["reasons"] == ["cost_assumptions_missing_or_invalid"]
 
 
+def test_training_readiness_includes_exchange_sessions_with_no_stored_bars(monkeypatch) -> None:
+    zone = ZoneInfo("Asia/Seoul")
+    stored_days = (date(2026, 11, 5), date(2026, 11, 9))
+    history = {}
+    for session_date in stored_days:
+        opened = datetime.combine(session_date, datetime.min.time(), tzinfo=zone).replace(hour=9)
+        bars = [MinuteBar(
+            timestamp=opened + timedelta(minutes=index),
+            open=Decimal("100"), high=Decimal("101"), low=Decimal("99"), close=Decimal("100"),
+            volume=1000, spread_bps=Decimal("5"),
+            spread_observed_at=opened + timedelta(minutes=index, seconds=10),
+        ) for index in range(380)]
+        history[session_date] = {"bars": bars, "source_counts": {"KIS_PAPER_WEBSOCKET": 380}}
+
+    monkeypatch.setattr(main.snapshot_store, "enabled", lambda: True)
+    monkeypatch.setattr(main.snapshot_store, "load_minute_bar_training_history", lambda *args: history)
+    response = client.get(
+        "/api/v1/market/training-readiness/KR/005930"
+        "?from_date=2026-11-05&to_date=2026-11-09",
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["expected_session_count"] == 3
+    assert body["stored_session_count"] == 2
+    assert body["eligible_sessions"] == 2
+    assert body["consecutive_eligible_sessions"] == 1
+    assert [item["session_date"] for item in body["sessions"]] == [
+        "2026-11-05", "2026-11-06", "2026-11-09",
+    ]
+    assert body["sessions"][1]["ineligibility_reasons"] == [
+        "no_stored_data", "incomplete_session", "incomplete_spread_coverage",
+        "missing_spread_observation_time", "unapproved_data_source",
+    ]
+
+
 def test_kr_training_readiness_reports_incomplete_session_and_spread_reasons(monkeypatch) -> None:
     from datetime import time as datetime_time
 

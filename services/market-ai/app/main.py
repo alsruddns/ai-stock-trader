@@ -532,17 +532,35 @@ async def market_training_readiness(
     evaluated_at = datetime.now(timezone.utc)
     reports = []
     eligible_sessions = 0
+    stored_session_count = 0
     eligible_history: dict[date, list[MinuteBar]] = {}
-    for session_date, value in sorted(history.items()):
+    expected_session_dates = []
+    current_date = selected_from
+    while current_date <= selected_to:
+        session_noon = datetime.combine(current_date, time(hour=12), tzinfo=zone)
+        try:
+            if exchange_session_window(normalized_market, session_noon) is not None:
+                expected_session_dates.append(current_date)
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail="Exchange session calendar is unavailable") from exc
+        current_date += timedelta(days=1)
+
+    for session_date in expected_session_dates:
+        value = history.get(session_date, {"bars": [], "source_counts": {}})
+        if not isinstance(value, dict):
+            raise HTTPException(status_code=503, detail="Stored market-data provenance is invalid")
         bars = value["bars"]
         source_counts = value["source_counts"]
         if not isinstance(bars, list) or not isinstance(source_counts, dict):
             raise HTTPException(status_code=503, detail="Stored market-data provenance is invalid")
+        stored_session_count += int(bool(bars))
         quality = _session_quality_report(
             normalized_market, normalized_symbol, session_date, bars, evaluated_at,
         )
         expected_bars = int(quality["expected_bars"])
         ineligibility_reasons = []
+        if not bars:
+            ineligibility_reasons.append("no_stored_data")
         if quality["full_session_complete"] is not True:
             ineligibility_reasons.append("incomplete_session")
         if int(quality["spread_bars"]) != expected_bars:
@@ -568,6 +586,14 @@ async def market_training_readiness(
             "eligible_for_training": eligible,
             "ineligibility_reasons": ineligibility_reasons,
         })
+
+    consecutive_eligible_sessions = 0
+    for report in reversed(reports):
+        if report["status"] in {"PRE_OPEN", "COLLECTING"}:
+            continue
+        if report["eligible_for_training"] is not True:
+            break
+        consecutive_eligible_sessions += 1
 
     cost_config, cost_missing, cost_invalid = _market_quant_config_result(normalized_market)
     training_preflight: dict[str, object]
@@ -613,6 +639,9 @@ async def market_training_readiness(
         "eligible_sessions": eligible_sessions,
         "additional_sessions_needed": max(0, MIN_MODEL_TRAINING_SESSIONS - eligible_sessions),
         "minimum_met": eligible_sessions >= MIN_MODEL_TRAINING_SESSIONS,
+        "expected_session_count": len(expected_session_dates),
+        "stored_session_count": stored_session_count,
+        "consecutive_eligible_sessions": consecutive_eligible_sessions,
         "cost_assumptions": {"configured": cost_config is not None,
                               "missing": cost_missing, "invalid": cost_invalid},
         "training_preflight": training_preflight,
