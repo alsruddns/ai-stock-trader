@@ -117,6 +117,7 @@ class Trade:
     costs: Decimal
     net_pnl: Decimal
     exit_reason: str
+    stop_distance: Decimal = Decimal(0)
 
 
 @dataclass(frozen=True)
@@ -336,7 +337,8 @@ def backtest_orb_vwap(
                 )
                 costs = execution_costs + commission_costs
                 trades.append(Trade(bars[entry_index].timestamp, bar.timestamp, fill_price, slipped_exit,
-                                    position_quantity, gross, costs, gross - costs, reason))
+                                    position_quantity, gross, costs, gross - costs, reason,
+                                    max(Decimal(0), fill_price - stop_price)))
                 gross_total += gross
                 cost_total += costs
                 entry = None
