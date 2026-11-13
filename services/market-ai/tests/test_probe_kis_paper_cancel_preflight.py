@@ -186,6 +186,30 @@ def test_egw02006_is_unclassified_not_assumed_to_be_permanent_unsupported(
     assert client.closed
 
 
+def test_egw02006_exception_is_unclassified_without_emitting_exception_text(
+    monkeypatch: pytest.MonkeyPatch, capsys,
+) -> None:
+    client = _configure_safe_probe(monkeypatch, {})
+
+    def raise_broker_error(*_args: object, **_kwargs: object) -> None:
+        raise probe.KisApiError(
+            "private broker response", http_status=500, broker_code="EGW02006",
+        )
+
+    monkeypatch.setattr(client, "_get", raise_broker_error)
+
+    assert probe.main() == 3
+
+    output = capsys.readouterr().out
+    assert '"status": "broker_error_unclassified"' in output
+    assert '"reason": "BROKER_ERROR_NOT_CLASSIFIED"' in output
+    assert '"broker_code": "EGW02006"' in output
+    assert '"http_status": 500' in output
+    assert '"order_or_cancel_sent": false' in output
+    assert "private broker response" not in output
+    assert client.closed
+
+
 def test_egw00002_is_reported_as_temporary_server_error_not_permanent_rejection(
     monkeypatch: pytest.MonkeyPatch, capsys,
 ) -> None:
