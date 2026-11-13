@@ -13,6 +13,8 @@ final class KisBrokerOrderSnapshotValidator {
                 || snapshot.remainingQuantity() < 0 || snapshot.filledQuantity() > intent.getQuantity()
                 || snapshot.filledQuantity() + snapshot.remainingQuantity() > intent.getQuantity()
                 || (snapshot.averageFillPrice() != null && snapshot.averageFillPrice().signum() < 0)
+                || (snapshot.filledQuantity() == 0 && snapshot.averageFillPrice() != null
+                        && snapshot.averageFillPrice().signum() > 0)
                 || (snapshot.filledQuantity() > 0 && (snapshot.averageFillPrice() == null
                         || snapshot.averageFillPrice().signum() <= 0))
                 || (snapshot.cancelled() && snapshot.rejected())) {

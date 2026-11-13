@@ -70,6 +70,8 @@ class KisBrokerOrderSnapshotValidatorTest {
                 new KisBrokerOrderSnapshot(1, 1, new BigDecimal("-1"), false, false)));
         assertFalse(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
                 new KisBrokerOrderSnapshot(0, 2, new BigDecimal("-1"), false, false)));
+        assertFalse(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
+                new KisBrokerOrderSnapshot(0, 2, new BigDecimal("69900"), false, false)));
     }
 
     private boolean matches(KisOrderIntent intent, String json) throws Exception {
