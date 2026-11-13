@@ -60,7 +60,7 @@ def main() -> int:
         )
 
     selected_count = sum(_case_count(test) for test in tests if test.name not in EXCLUDED_TESTS)
-    if selected_count != 62:
+    if selected_count != 63:
         raise SystemExit(f"Expected 63 domestic AI pipeline tests, found {selected_count}.")
     api_source = API_TEST_FILE.read_text(encoding="utf-8")
     api_tree = ast.parse(api_source, filename=str(API_TEST_FILE))
