@@ -31,6 +31,45 @@ Describe 'Domestic PAPER monitor reconnect tolerance' {
     }
 }
 
+Describe 'Domestic PAPER bar storage readiness' {
+    It 'accepts a running PostgreSQL writer only when the durable outbox is empty' {
+        $status = [pscustomobject]@{ bar_storage_state = 'RUNNING'; bar_storage_pending_count = 0; bar_storage_retry_count = 2 }
+
+        $diagnostic = Get-MonitorBarStorageDiagnostic $status
+
+        $diagnostic.bar_storage_diagnostic_available | Should Be $true
+        $diagnostic.bar_storage_ready | Should Be $true
+        $diagnostic.bar_storage_pending_count | Should Be 0
+        $diagnostic.bar_storage_retry_count | Should Be 2
+        $diagnostic.bar_storage_reason | Should Be 'READY'
+    }
+
+    It 'keeps a pending outbox blocked while exposing only bounded counters' {
+        $status = [pscustomobject]@{ bar_storage_state = 'RUNNING'; bar_storage_pending_count = 3; bar_storage_retry_count = 4; bar_storage_error = 'private detail' }
+
+        $diagnostic = Get-MonitorBarStorageDiagnostic $status
+        $json = $diagnostic | ConvertTo-Json -Compress -Depth 3
+
+        $diagnostic.bar_storage_ready | Should Be $false
+        $diagnostic.bar_storage_pending_count | Should Be 3
+        $diagnostic.bar_storage_reason | Should Be 'PENDING_BARS'
+        $json | Should Not Match 'private detail|bar_storage_error'
+    }
+
+    It 'fails closed for missing or malformed storage status' {
+        $missing = Get-MonitorBarStorageDiagnostic ([pscustomobject]@{ state = 'RUNNING' })
+        $malformed = Get-MonitorBarStorageDiagnostic ([pscustomobject]@{
+            bar_storage_state = 'secret-bearing-state'; bar_storage_pending_count = -1
+        })
+
+        $missing.bar_storage_diagnostic_available | Should Be $false
+        $missing.bar_storage_ready | Should Be $false
+        $malformed.bar_storage_state | Should Be $null
+        $malformed.bar_storage_pending_count | Should Be $null
+        $malformed.bar_storage_ready | Should Be $false
+    }
+}
+
 Describe 'Domestic minute-level spread diagnostics' {
     It 'distinguishes quote gaps from quotes that did not produce a spread bar' {
         $status = [pscustomobject]@{

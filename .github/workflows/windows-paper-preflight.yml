@@ -120,7 +120,7 @@ jobs:
           }
 
           $monitorReportResult = Invoke-Pester -Path 'scripts/tests/domestic-session-monitor-report.Tests.ps1' -PassThru
-          if ($monitorReportResult.FailedCount -gt 0 -or $monitorReportResult.PassedCount -ne 5) {
+          if ($monitorReportResult.FailedCount -gt 0 -or $monitorReportResult.PassedCount -ne 6) {
             throw "Domestic session monitor report tests failed: passed=$($monitorReportResult.PassedCount), failed=$($monitorReportResult.FailedCount)."
           }
 

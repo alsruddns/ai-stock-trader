@@ -112,8 +112,9 @@ Describe 'Exchange session monitor calendar boundaries' {
     }
 
     It 'requires stored quality for full sessions and counter minimums for shorter samples' {
-        (Test-ExchangeSessionCompletion 389 390 $true $true) | Should Be $true
-        (Test-ExchangeSessionCompletion 389 390 $true $false) | Should Be $false
+        (Test-ExchangeSessionCompletion 389 390 $true $true 0 300 $true) | Should Be $true
+        (Test-ExchangeSessionCompletion 389 390 $true $true 0 300 $false) | Should Be $false
+        (Test-ExchangeSessionCompletion 389 390 $true $false 0 300 $true) | Should Be $false
         (Test-ExchangeSessionCompletion 389 390 $false $true) | Should Be $false
         (Test-ExchangeSessionCompletion 390 390 $false $false) | Should Be $true
     }
@@ -271,9 +272,10 @@ Describe 'Domestic full-session feed continuity gate' {
         (Test-ExchangeSessionMonitorShouldDeferNoTickFailure 301 300 $true) | Should Be $true
         (Test-ExchangeSessionMonitorShouldDeferNoTickFailure 301 300 $false) | Should Be $false
         (Test-ExchangeSessionMonitorShouldDeferNoTickFailure 300 300 $true) | Should Be $false
-        (Test-ExchangeSessionCompletion 380 380 $true $true 299 300) | Should Be $true
-        (Test-ExchangeSessionCompletion 380 380 $true $true 301 300) | Should Be $false
-        (Test-ExchangeSessionCompletion 380 380 $true $false 0 300) | Should Be $false
+        (Test-ExchangeSessionCompletion 380 380 $true $true 299 300 $true) | Should Be $true
+        (Test-ExchangeSessionCompletion 380 380 $true $true 299 300 $false) | Should Be $false
+        (Test-ExchangeSessionCompletion 380 380 $true $true 301 300 $true) | Should Be $false
+        (Test-ExchangeSessionCompletion 380 380 $true $false 0 300 $true) | Should Be $false
     }
 }
 

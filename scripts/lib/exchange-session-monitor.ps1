@@ -212,13 +212,15 @@ function Test-ExchangeSessionCompletion {
         [bool]$RequiresCompleteSession,
         [bool]$StoredSessionQualityVerified,
         [double]$MaxObservedNoTickSeconds = 0,
-        [int]$MaxNoTickSeconds = 300
+        [int]$MaxNoTickSeconds = 300,
+        [bool]$BarStorageReady = $false
     )
     if ($MaxObservedNoTickSeconds -lt 0 -or $MaxNoTickSeconds -lt 1) {
         throw 'Session completion no-tick limits must be positive and observed duration cannot be negative.'
     }
     if ($RequiresCompleteSession) {
-        return $StoredSessionQualityVerified -and $MaxObservedNoTickSeconds -le $MaxNoTickSeconds
+        return $StoredSessionQualityVerified -and $BarStorageReady -and
+            $MaxObservedNoTickSeconds -le $MaxNoTickSeconds
     }
     return $ObservedCounterBars -ge $MinimumCounterBars
 }

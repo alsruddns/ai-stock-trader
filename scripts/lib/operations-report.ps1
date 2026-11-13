@@ -231,6 +231,8 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         orderbookFramesDelta = $null; orderbookUpdatesDelta = $null
         maxNoTickSeconds = $null; failureStage = $null; failureCode = $null
         statusReadRetryCount = $null; statusReadFailureCategories = @(); statusReadLastFailureCategory = $null
+        barStorageDiagnosticAvailable = $false; barStorageReady = $null; barStorageState = $null
+        barStoragePendingCount = $null; barStorageRetryCount = $null; barStorageReason = 'STATUS_UNAVAILABLE'
         symbolMarketDataStatus = 'UNAVAILABLE'; symbolMarketData = @()
     }
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $unverified }
@@ -241,10 +243,11 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         'WEBSOCKET_NO_TICKS', 'NO_TICKS_IN_SAMPLE_WINDOW', 'EXCHANGE_SESSION_CLOSE_NOT_REACHED',
         'SESSION_FINALIZATION_TIMEOUT', 'FEED_TIMESTAMP_UNAVAILABLE', 'BAR_COUNTER_RESET',
         'FEED_NOT_READY', 'SESSION_STATUS_UNAVAILABLE', 'EXCHANGE_CALENDAR_UNAVAILABLE',
+        'BAR_STORAGE_NOT_DRAINED',
         'SAFETY_LOCK_VIOLATION', 'STORED_SESSION_QUALITY_INCOMPLETE',
         'MINIMUM_BAR_COUNT_NOT_MET', 'MONITOR_FAILED'
     )
-    $knownStages = @('startup_readiness', 'exchange_calendar', 'stream_monitoring', 'session_finalization', 'completion_validation')
+    $knownStages = @('startup_readiness', 'exchange_calendar', 'stream_monitoring', 'post_close_validation', 'session_finalization', 'completion_validation')
     if ($lines.Count -ne 1) { return $unverified }
     try { $record = $lines[0] | ConvertFrom-Json -ErrorAction Stop }
     catch { return $unverified }
@@ -288,6 +291,24 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         $statusReadLastFailureCategory -notmatch '^HTTP_[45]\d\d$') {
         $statusReadLastFailureCategory = $null
     }
+    $knownBarStorageStates = @('RUNNING', 'DISABLED', 'ERROR', 'DRAIN_TIMEOUT', 'STARTING', 'RECOVERING')
+    $barStorageState = if ([string]$record.bar_storage_state -in $knownBarStorageStates) {
+        [string]$record.bar_storage_state
+    } else { $null }
+    $barStoragePendingCount = 0L
+    $hasBarStoragePendingCount = [long]::TryParse([string]$record.bar_storage_pending_count, [ref]$barStoragePendingCount) -and
+        $barStoragePendingCount -ge 0 -and $barStoragePendingCount -le 1000000
+    $barStorageRetryCount = 0L
+    $hasBarStorageRetryCount = [long]::TryParse([string]$record.bar_storage_retry_count, [ref]$barStorageRetryCount) -and
+        $barStorageRetryCount -ge 0 -and $barStorageRetryCount -le 1000000
+    $barStorageAvailable = $null -ne $barStorageState -and $hasBarStoragePendingCount
+    $barStorageReady = if ($barStorageAvailable) {
+        $barStorageState -eq 'RUNNING' -and $barStoragePendingCount -eq 0
+    } else { $null }
+    $barStorageReason = if (-not $barStorageAvailable) { 'STATUS_UNAVAILABLE' }
+        elseif ($barStorageState -ne 'RUNNING') { 'STORAGE_NOT_RUNNING' }
+        elseif ($barStoragePendingCount -gt 0) { 'PENDING_BARS' }
+        else { 'READY' }
     $symbolMarketDataStatus = 'UNAVAILABLE'
     $symbolMarketData = @()
     $symbolDelta = $record.symbol_market_data_delta
@@ -384,6 +405,12 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         statusReadRetryCount = if ($hasStatusReadRetryCount) { $statusReadRetryCount } else { $null }
         statusReadFailureCategories = @($statusReadFailureCategories.ToArray())
         statusReadLastFailureCategory = $statusReadLastFailureCategory
+        barStorageDiagnosticAvailable = [bool]$barStorageAvailable
+        barStorageReady = $barStorageReady
+        barStorageState = $barStorageState
+        barStoragePendingCount = if ($hasBarStoragePendingCount) { $barStoragePendingCount } else { $null }
+        barStorageRetryCount = if ($hasBarStorageRetryCount) { $barStorageRetryCount } else { $null }
+        barStorageReason = $barStorageReason
         symbolMarketDataStatus = $symbolMarketDataStatus
         symbolMarketData = $symbolMarketData
     }

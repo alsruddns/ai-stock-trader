@@ -84,6 +84,12 @@ type LocalOperationsReport = {
     statusReadRetryCount: number | null;
     statusReadFailureCategories: StatusReadFailureCategory[];
     statusReadLastFailureCategory: string | null;
+    barStorageDiagnosticAvailable: boolean;
+    barStorageReady: boolean | null;
+    barStorageState: string | null;
+    barStoragePendingCount: number | null;
+    barStorageRetryCount: number | null;
+    barStorageReason: string;
     symbolMarketDataStatus: string;
     symbolMarketData: DomesticSymbolMarketData[];
   } | null;
@@ -296,6 +302,19 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
       rawSymbolMarketData.length > 0 && symbolMarketData.length === rawSymbolMarketData.length
       ? "AVAILABLE"
       : rawSymbolMarketDataStatus === "UNVERIFIED" ? "UNVERIFIED" : "UNAVAILABLE";
+    const knownBarStorageStates = ["RUNNING", "DISABLED", "ERROR", "DRAIN_TIMEOUT", "STARTING", "RECOVERING"];
+    const barStorageState = typeof rawMonitor?.barStorageState === "string" && knownBarStorageStates.includes(rawMonitor.barStorageState)
+      ? rawMonitor.barStorageState
+      : null;
+    const barStoragePendingCount = boundedNonNegativeInteger(rawMonitor?.barStoragePendingCount, 1000000);
+    const barStorageRetryCount = boundedNonNegativeInteger(rawMonitor?.barStorageRetryCount, 1000000);
+    const barStorageDiagnosticAvailable = barStorageState !== null && barStoragePendingCount !== null;
+    const barStorageReady = barStorageDiagnosticAvailable
+      ? barStorageState === "RUNNING" && barStoragePendingCount === 0
+      : null;
+    const barStorageReason = !barStorageDiagnosticAvailable ? "STATUS_UNAVAILABLE"
+      : barStorageState !== "RUNNING" ? "STORAGE_NOT_RUNNING"
+        : barStoragePendingCount > 0 ? "PENDING_BARS" : "READY";
     const domesticSessionMonitor = rawMonitor && typeof rawMonitor.state === "string" ? {
       state: rawMonitor.state,
       recordedAt: optionalString(rawMonitor.recordedAt),
@@ -320,6 +339,12 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
         })
         : [],
       statusReadLastFailureCategory: statusReadFailureCategory(rawMonitor.statusReadLastFailureCategory),
+      barStorageDiagnosticAvailable,
+      barStorageReady,
+      barStorageState,
+      barStoragePendingCount,
+      barStorageRetryCount,
+      barStorageReason,
       symbolMarketDataStatus,
       symbolMarketData: symbolMarketDataStatus === "AVAILABLE" ? symbolMarketData : [],
     } : null;

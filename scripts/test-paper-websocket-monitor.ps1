@@ -37,6 +37,14 @@ function Write-ProgressRecord($Record, $Status = $null) {
         $Record.status_read_failure_categories[$category] = [int]$script:statusReadFailureCounts[$category]
     }
     $Record.status_read_last_failure_category = $script:statusReadLastFailureCategory
+    $storageStatus = $Status
+    if ($Record.Contains('session_status_available') -and $Record.session_status_available -eq $false) {
+        $storageStatus = $null
+    }
+    $barStorageDiagnostic = Get-MonitorBarStorageDiagnostic $storageStatus
+    foreach ($name in $barStorageDiagnostic.Keys) {
+        $Record[$name] = $barStorageDiagnostic[$name]
+    }
     if ($evidenceDirectory) { New-Item -ItemType Directory -Force -Path $evidenceDirectory | Out-Null }
     $streamFailureDiagnostic = Get-MonitorStreamFailureDiagnostic $Status
     foreach ($name in $streamFailureDiagnostic.Keys) {
@@ -367,6 +375,8 @@ if ($RequireSessionClose) {
             $qualityStatus = 'unavailable'
             $sessionQualityStatus = $qualityStatus
         }
+        $barStorageDiagnostic = Get-MonitorBarStorageDiagnostic $status
+        $storageReady = [bool]$barStorageDiagnostic.bar_storage_ready
         $currentBars = if ($Feed) { [int]$status.bars_closed_by_feed.$Feed } else { [int]$status.bars_closed }
         $barCount = Get-ExchangeSessionBarsDelta $currentBars $initialBars $sessionOpenBarsBaseline
         Write-ProgressRecord ([ordered]@{
@@ -389,16 +399,19 @@ if ($RequireSessionClose) {
             feed_diagnostics_delta = Get-MonitorFeedDiagnosticsDelta $initial $status $Feed
             orders_enabled = [bool]$status.orders_enabled
             automation_state = $status.automation_state
-            result = if ($qualityEvidence.Count -gt 0) { 'post_close_ready' } else { 'finalizing' }
+            result = if ($qualityEvidence.Count -eq 0) { 'finalizing' }
+                elseif (-not $storageReady) { 'bar_storage_draining' }
+                else { 'post_close_ready' }
         }) $status
         return [pscustomobject]@{
-            ready = ($qualityEvidence.Count -gt 0)
+            ready = ($qualityEvidence.Count -gt 0 -and $storageReady)
             status = $status
             status_available = $true
             quality = $qualityEvidence
             quality_diagnostics = $qualityDiagnostics
             quality_diagnostics_recorded_at_utc = $sessionQualityDiagnosticsRecordedAtUtc
             quality_status = $qualityStatus
+            bar_storage_diagnostic = $barStorageDiagnostic
         }
     }.GetNewClosure()
     $finalization = Wait-ForExchangeSessionFinalization `
@@ -410,9 +423,13 @@ if ($RequireSessionClose) {
     $sessionQualityDiagnostics = @($finalization.result.quality_diagnostics)
     $sessionQualityDiagnosticsRecordedAtUtc = $finalization.result.quality_diagnostics_recorded_at_utc
     $sessionQualityStatus = [string]$finalization.result.quality_status
+    $barStorageDiagnostic = $finalization.result.bar_storage_diagnostic
     if (-not $finalization.ready) {
         if (-not $sessionStatusAvailable) {
             throw 'Could not read the local paper-session status endpoint.'
+        }
+        if ($sessionQualityEvidence.Count -gt 0 -and -not $barStorageDiagnostic.bar_storage_ready) {
+            throw 'The durable bar storage queue did not drain after the exchange session closed.'
         }
         throw 'The final stored session did not reach complete bars, spread, and source verification within the post-close grace period.'
     }
@@ -431,6 +448,10 @@ if (-not $hasReceiveTimestamp) {
 $latestBars = if ($Feed) { [int]$latest.bars_closed_by_feed.$Feed } else { [int]$latest.bars_closed }
 $sessionBarCount = Get-ExchangeSessionBarsDelta $latestBars $initialBars $sessionOpenBarsBaseline
 $barDelta = $sessionBarCount.delta
+$barStorageDiagnostic = Get-MonitorBarStorageDiagnostic $latest
+if ($RequireSessionClose -and -not $barStorageDiagnostic.bar_storage_ready) {
+    throw 'The durable bar storage queue did not drain after the exchange session closed.'
+}
 $verifiedSessionBars = 0
 if ($sessionQualityEvidence.Count -gt 0) {
     $verifiedSessionBars = [int](($sessionQualityEvidence | Measure-Object -Property observed_bars -Sum).Sum)
@@ -439,7 +460,8 @@ if ($RequireSessionClose -and $maxObservedNoTickSeconds -gt $MaxNoTickSeconds) {
     throw "No WebSocket ticks arrived for more than $MaxNoTickSeconds seconds during full-session validation."
 }
 if (-not (Test-ExchangeSessionCompletion $barDelta $MinimumBarsDelta ([bool]$RequireSessionClose) `
-        ($verifiedSessionBars -gt 0) $maxObservedNoTickSeconds $MaxNoTickSeconds)) {
+        ($verifiedSessionBars -gt 0) $maxObservedNoTickSeconds $MaxNoTickSeconds `
+        ([bool]$barStorageDiagnostic.bar_storage_ready))) {
     if ($RequireSessionClose) {
         throw 'Stored-session quality did not verify a complete session with full spread and source coverage.'
     }
@@ -473,6 +495,12 @@ $evidence = [ordered]@{
     minimum_bars_delta = $MinimumBarsDelta
     counter_bars_delta_matches_requirement = ($barDelta -ge $MinimumBarsDelta)
     stored_session_bars_verified = $verifiedSessionBars
+    bar_storage_diagnostic_available = $barStorageDiagnostic.bar_storage_diagnostic_available
+    bar_storage_ready = $barStorageDiagnostic.bar_storage_ready
+    bar_storage_state = $barStorageDiagnostic.bar_storage_state
+    bar_storage_pending_count = $barStorageDiagnostic.bar_storage_pending_count
+    bar_storage_retry_count = $barStorageDiagnostic.bar_storage_retry_count
+    bar_storage_reason = $barStorageDiagnostic.bar_storage_reason
     session_quality_status = $sessionQualityStatus
     session_quality_diagnostics = $sessionQualityDiagnostics
     session_quality_diagnostics_recorded_at_utc = $sessionQualityDiagnosticsRecordedAtUtc
@@ -535,7 +563,7 @@ Write-ProgressRecord ([ordered]@{
     ($evidence | ConvertTo-Json -Compress -Depth 5) + [Environment]::NewLine,
     [System.Text.UTF8Encoding]::new($false))
 $validationLabel = if ($RequireSessionClose) { 'full-session validation' } else { 'bounded sample' }
-Write-Output "Read-only KIS $validationLabel passed: feed=$(if ($Feed) { $Feed } else { 'any' }) seconds=$DurationSeconds ticks_delta=$tickDelta bars_delta=$barDelta max_no_tick_seconds=$([Math]::Round($maxObservedNoTickSeconds, 1)) orders=disabled automation=disabled evidence=$EvidencePath."
+Write-Output "Read-only KIS $validationLabel passed: feed=$(if ($Feed) { $Feed } else { 'any' }) seconds=$DurationSeconds ticks_delta=$tickDelta bars_delta=$barDelta bar_storage_ready=$($barStorageDiagnostic.bar_storage_ready) pending_bars=$($barStorageDiagnostic.bar_storage_pending_count) max_no_tick_seconds=$([Math]::Round($maxObservedNoTickSeconds, 1)) orders=disabled automation=disabled evidence=$EvidencePath."
 } catch {
     $elapsedSeconds = if ($stopwatch) {
         [int]$stopwatch.Elapsed.TotalSeconds

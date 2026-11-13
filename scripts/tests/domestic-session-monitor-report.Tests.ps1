@@ -1,5 +1,32 @@
 . (Join-Path $PSScriptRoot '..\lib\operations-report.ps1')
 
+Describe 'Domestic PAPER monitor bar storage readiness report' {
+    It 'reports a blocked pending outbox without exposing storage error text' {
+        $path = Join-Path $TestDrive 'paper-storage-pending.jsonl'
+        $record = [ordered]@{
+            recorded_at_utc = '2026-11-13T07:30:00Z'; market_session = 'KR'; market_session_date = '2026-11-13'
+            selected_feed = 'paper'; validation_scope = 'full_session'; result = 'failed'; failure_stage = 'post_close_validation'
+            failure_code = 'BAR_STORAGE_NOT_DRAINED'; bar_storage_state = 'RUNNING'
+            bar_storage_pending_count = 2; bar_storage_retry_count = 5; bar_storage_error = 'private connection detail'
+        }
+        [IO.File]::WriteAllText($path, ($record | ConvertTo-Json -Compress -Depth 5))
+
+        $summary = Get-AiTraderDomesticSessionMonitorSummary -Path $path
+        $json = $summary | ConvertTo-Json -Compress -Depth 5
+
+        $summary.state | Should Be 'FAILED'
+        $summary.failureStage | Should Be 'post_close_validation'
+        $summary.failureCode | Should Be 'BAR_STORAGE_NOT_DRAINED'
+        $summary.barStorageDiagnosticAvailable | Should Be $true
+        $summary.barStorageReady | Should Be $false
+        $summary.barStorageState | Should Be 'RUNNING'
+        $summary.barStoragePendingCount | Should Be 2
+        $summary.barStorageRetryCount | Should Be 5
+        $summary.barStorageReason | Should Be 'PENDING_BARS'
+        $json | Should Not Match 'private connection detail|bar_storage_error'
+    }
+}
+
 Describe 'Domestic KRX session monitor report summary' {
     It 'reports only the latest domestic PAPER run with a bounded sample label' {
         $path = Join-Path $TestDrive 'paper-progress.jsonl'

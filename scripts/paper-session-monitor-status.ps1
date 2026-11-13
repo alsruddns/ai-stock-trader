@@ -4,6 +4,36 @@ function Assert-MonitorSafetyLocks($Status) {
     }
 }
 
+function Get-MonitorBarStorageDiagnostic($Status) {
+    $allowedStates = @('RUNNING', 'DISABLED', 'ERROR', 'DRAIN_TIMEOUT', 'STARTING', 'RECOVERING')
+    $stateProperty = if ($Status) { $Status.PSObject.Properties['bar_storage_state'] } else { $null }
+    $pendingProperty = if ($Status) { $Status.PSObject.Properties['bar_storage_pending_count'] } else { $null }
+    $retryProperty = if ($Status) { $Status.PSObject.Properties['bar_storage_retry_count'] } else { $null }
+    $state = if ($stateProperty -and $stateProperty.Value -in $allowedStates) { [string]$stateProperty.Value } else { $null }
+    $pendingCount = 0L
+    $pendingAvailable = $null -ne $pendingProperty -and
+        [long]::TryParse([string]$pendingProperty.Value, [ref]$pendingCount) -and
+        $pendingCount -ge 0 -and $pendingCount -le 1000000
+    $retryCount = 0L
+    $retryAvailable = $null -ne $retryProperty -and
+        [long]::TryParse([string]$retryProperty.Value, [ref]$retryCount) -and
+        $retryCount -ge 0 -and $retryCount -le 1000000
+    $available = $null -ne $state -and $pendingAvailable
+    $ready = $available -and $state -eq 'RUNNING' -and $pendingCount -eq 0
+    $reason = if (-not $available) { 'STATUS_UNAVAILABLE' }
+        elseif ($state -ne 'RUNNING') { 'STORAGE_NOT_RUNNING' }
+        elseif ($pendingCount -gt 0) { 'PENDING_BARS' }
+        else { 'READY' }
+    return [ordered]@{
+        bar_storage_diagnostic_available = [bool]$available
+        bar_storage_ready = [bool]$ready
+        bar_storage_state = $state
+        bar_storage_pending_count = if ($pendingAvailable) { $pendingCount } else { $null }
+        bar_storage_retry_count = if ($retryAvailable) { $retryCount } else { $null }
+        bar_storage_reason = $reason
+    }
+}
+
 function Get-MonitorFailureCode([string]$Message) {
     if ([string]::IsNullOrWhiteSpace($Message)) { return 'MONITOR_FAILED' }
     switch -Regex ($Message) {
@@ -15,6 +45,7 @@ function Get-MonitorFailureCode([string]$Message) {
         'The closed bar counter moved backwards during the sample' { return 'BAR_COUNTER_RESET' }
         'Local market-data feed did not become ready' { return 'FEED_NOT_READY' }
         'Could not read the local paper-session status endpoint' { return 'SESSION_STATUS_UNAVAILABLE' }
+        'durable bar storage queue did not drain' { return 'BAR_STORAGE_NOT_DRAINED' }
         'Could not verify today.*exchange session' { return 'EXCHANGE_CALENDAR_UNAVAILABLE' }
         'Paper-session monitor is not running in read-only, automation-disabled mode' { return 'SAFETY_LOCK_VIOLATION' }
         'Stored-session quality did not verify' { return 'STORED_SESSION_QUALITY_INCOMPLETE' }
