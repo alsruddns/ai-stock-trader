@@ -16,7 +16,7 @@ from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
 from app.market_scope import require_cli_operational_market
 from app.portfolio_backtest import backtest_domestic_portfolio
-from app.quant import QuantConfig, backtest_orb_vwap
+from app.quant import QuantConfig
 
 
 def _dataset_argument(value: str) -> tuple[str, Path]:
@@ -96,19 +96,18 @@ def main() -> int:
     results = []
     for session in sorted(reference_sessions):
         bars = {symbol: data[symbol][session] for symbol in sorted(data)}
-        candidates = [backtest_orb_vwap("KR", symbol, bars[symbol], config) for symbol in sorted(bars)]
         portfolio = backtest_domestic_portfolio(
-            candidates, bars, starting_equity=args.starting_equity,
+            bars, starting_equity=args.starting_equity,
             max_order_notional=args.max_order_notional, config=config,
         )
         results.append({
             "date": session.isoformat(),
             "input_bars_by_symbol": {symbol: len(bars[symbol]) for symbol in sorted(bars)},
-            "candidate_signals": {result.symbol: result.signals for result in candidates},
-            "candidate_trades": {result.symbol: len(result.trades) for result in candidates},
+            "strategy_signals": portfolio.signals_by_symbol,
             "accepted_trades": [{
                 "symbol": trade.symbol, "entry_time": trade.entry_time.isoformat(),
                 "exit_time": trade.exit_time.isoformat(), "quantity": trade.quantity,
+                "gross_pnl": str(trade.gross_pnl), "estimated_costs": str(trade.costs),
                 "net_pnl": str(trade.net_pnl), "exit_reason": trade.exit_reason,
             } for trade in portfolio.trades],
             "rejected_entries": [
