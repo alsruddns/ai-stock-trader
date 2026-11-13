@@ -50,7 +50,7 @@ public class KisPaperOrderReconciliationJob {
         List<Market> allowedMarkets = marketScope.allowedMarkets().stream().sorted().toList();
         if (allowedMarkets.isEmpty()) return;
         int pageNumber = nextPage.get();
-        Page<KisOrderIntent> page = intents.findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdAsc(
+        Page<KisOrderIntent> page = intents.findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdempotencyKeyAsc(
                 KisEnvironment.PAPER, allowedMarkets, POLLABLE_STATUSES,
                 PageRequest.of(pageNumber, PAGE_SIZE));
         nextPage.set(page.getTotalPages() == 0 || pageNumber + 1 >= page.getTotalPages() ? 0 : pageNumber + 1);

@@ -18,7 +18,7 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
     List<KisOrderIntent> findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment environment);
     List<KisOrderIntent> findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(
             KisEnvironment environment, Collection<KisOrderStatus> statuses);
-    Page<KisOrderIntent> findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdAsc(
+    Page<KisOrderIntent> findByEnvironmentAndMarketInAndStatusInOrderByUpdatedAtAscIdempotencyKeyAsc(
             KisEnvironment environment, Collection<com.aistocktrader.order.Market> markets,
             Collection<KisOrderStatus> statuses, Pageable pageable);
     List<KisOrderIntent> findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(
