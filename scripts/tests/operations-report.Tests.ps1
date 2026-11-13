@@ -255,6 +255,55 @@ Describe 'Optional operations report endpoint diagnostics' {
 }
 
 Describe 'Daily operations report endpoint health summary' {
+    It 'reports missing PAPER preflight evidence without exposing extra local fields' {
+        $summary = Get-AiTraderPaperPreflightSummary -Path (Join-Path $TestDrive 'missing-paper-preflight.json')
+
+        $summary.state | Should Be 'MISSING'
+        $summary.orderSent | Should Be $false
+        $summary.cancelSent | Should Be $false
+        ($summary | ConvertTo-Json -Compress) | Should Not Match 'account|secret|amount'
+    }
+
+    It 'allowlists a valid PAPER preflight summary and omits sensitive source properties' {
+        $path = Join-Path $TestDrive 'paper-preflight.json'
+        @{
+            schema_version = 1; mode = 'PAPER_READ_ONLY_PREFLIGHT'; checked_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+            market = 'KR'; symbol = '069500'; currency = 'KRW'; result = 'PASSED'; stage = 'Complete'
+            quote_freshness_check_passed = $true; orderable_funds_check_passed = $true
+            order_sent = $false; cancel_sent = $false; accountNumber = '12345678'; appSecret = 'do-not-copy'
+        } | ConvertTo-Json | Set-Content -LiteralPath $path -Encoding utf8
+
+        $summary = Get-AiTraderPaperPreflightSummary -Path $path
+        $json = $summary | ConvertTo-Json -Compress
+
+        $summary.state | Should Be 'AVAILABLE'
+        $summary.result | Should Be 'PASSED'
+        $summary.stage | Should Be 'Complete'
+        $summary.market | Should Be 'KR'
+        $summary.symbol | Should Be '069500'
+        $summary.quoteFreshnessCheckPassed | Should Be $true
+        $summary.orderableFundsCheckPassed | Should Be $true
+        $summary.orderSent | Should Be $false
+        $summary.cancelSent | Should Be $false
+        $json | Should Not Match '12345678|do-not-copy|accountNumber|appSecret'
+    }
+
+    It 'rejects PAPER preflight evidence that claims an order was sent' {
+        $path = Join-Path $TestDrive 'forged-paper-preflight.json'
+        @{
+            schema_version = 1; mode = 'PAPER_READ_ONLY_PREFLIGHT'; checked_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+            market = 'KR'; symbol = '069500'; currency = 'KRW'; result = 'PASSED'; stage = 'Complete'
+            quote_freshness_check_passed = $true; orderable_funds_check_passed = $true
+            order_sent = $true; cancel_sent = $false
+        } | ConvertTo-Json | Set-Content -LiteralPath $path -Encoding utf8
+
+        $summary = Get-AiTraderPaperPreflightSummary -Path $path
+
+        $summary.state | Should Be 'INVALID'
+        $summary.result | Should Be $null
+        $summary.orderSent | Should Be $false
+    }
+
     It 'marks intentionally skipped market quality endpoints as incomplete' {
         Mock Invoke-RestMethod {
             if ($Uri -like '*api/v1/operations/summary') { return [pscustomobject]@{ tradingMode = 'paper' } }
@@ -270,12 +319,12 @@ Describe 'Daily operations report endpoint health summary' {
         $retrainingDirectory = Join-Path $TestDrive 'no-retraining-runs'
         & (Join-Path $PSScriptRoot '..\export-daily-report.ps1') `
             -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath `
-            -ArchiveOutputPath $archivePath `
+            -ArchiveOutputPath $archivePath -PaperPreflightEvidencePath (Join-Path $TestDrive 'no-paper-preflight.json') `
             -ModelRetrainingReportDirectory $retrainingDirectory -DomesticSessionEvidencePath (Join-Path $TestDrive 'no-monitor-progress.jsonl') | Out-Null
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
         $archivedReport = Get-Content -LiteralPath $archivePath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 13
+        $report.reportSchemaVersion | Should Be 14
         $archivedReport.generatedAt | Should Be $report.generatedAt
         $archivedReport.tradingMode | Should Be $report.tradingMode
         $report.pythonConnected | Should Be $true
@@ -293,6 +342,41 @@ Describe 'Daily operations report endpoint health summary' {
         $report.endpointStatus.'local.validation_task_schedule'.state | Should Be $report.validationTaskSchedule.state
         $report.endpointStatus.'local.validation_task_schedule'.registeredCount | Should Be $report.validationTaskSchedule.registeredCount
         $report.endpointStatus.'local.validation_task_schedule'.timeZoneId | Should Be $report.validationTaskSchedule.timeZoneId
+        $report.paperPreflight.state | Should Be 'MISSING'
+        $report.endpointStatus.'local.paper_preflight'.state | Should Be 'MISSING'
+    }
+
+    It 'includes only allowlisted latest PAPER preflight fields in the operations report' {
+        Mock Invoke-RestMethod {
+            if ($Uri -like '*api/v1/operations/summary') { return [pscustomobject]@{ tradingMode = 'paper' } }
+            if ($Uri -like '*api/v1/health') { return @{ status = 'ok' } }
+            if ($Uri -like '*api/v1/paper/session') { return @{ decisions = @{} } }
+            if ($Uri -like '*api/v1/ai/models') { return @{ models = @() } }
+            if ($Uri -like '*api/v1/market/sessions/*') { return @{ market = $Uri } }
+            throw 'Unexpected report endpoint.'
+        }
+        $evidencePath = Join-Path $TestDrive 'paper-preflight-integration.json'
+        @{
+            schema_version = 1; mode = 'PAPER_READ_ONLY_PREFLIGHT'; checked_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
+            market = 'KR'; symbol = '069500'; currency = 'KRW'; result = 'PASSED'; stage = 'Complete'
+            quote_freshness_check_passed = $true; orderable_funds_check_passed = $true
+            order_sent = $false; cancel_sent = $false; accountNumber = '98765432'; appSecret = 'must-not-leak'
+        } | ConvertTo-Json | Set-Content -LiteralPath $evidencePath -Encoding utf8
+
+        $outputPath = Join-Path $TestDrive 'paper-preflight-operations-report.json'
+        & (Join-Path $PSScriptRoot '..\export-daily-report.ps1') `
+            -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath `
+            -ModelRetrainingReportDirectory (Join-Path $TestDrive 'no-retraining-runs') `
+            -DomesticSessionEvidencePath (Join-Path $TestDrive 'no-monitor-progress.jsonl') `
+            -PaperPreflightEvidencePath $evidencePath | Out-Null
+        $json = Get-Content -LiteralPath $outputPath -Raw
+        $report = $json | ConvertFrom-Json
+
+        $report.paperPreflight.state | Should Be 'AVAILABLE'
+        $report.paperPreflight.result | Should Be 'PASSED'
+        $report.paperPreflight.symbol | Should Be '069500'
+        $report.endpointStatus.'local.paper_preflight'.state | Should Be 'AVAILABLE'
+        $json | Should Not Match '98765432|must-not-leak|accountNumber|appSecret'
     }
 
     It 'summarizes domestic incomplete market bars and spread coverage' {

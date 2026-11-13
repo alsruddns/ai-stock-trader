@@ -483,3 +483,72 @@ function Get-AiTraderValidationTaskScheduleSummary {
         tasks = @($rows | Sort-Object kind, market, symbol, taskName)
     }
 }
+
+function Get-AiTraderPaperPreflightSummary {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return [ordered]@{
+            state = 'MISSING'; checkedAtUtc = $null; result = $null; stage = $null
+            market = $null; symbol = $null; currency = $null
+            quoteFreshnessCheckPassed = $null; orderableFundsCheckPassed = $null
+            orderSent = $false; cancelSent = $false
+        }
+    }
+
+    try {
+        $jsonText = Get-Content -LiteralPath $Path -Raw
+        $raw = $jsonText | ConvertFrom-Json
+        $market = [string]$raw.market
+        $symbol = [string]$raw.symbol
+        $currency = [string]$raw.currency
+        $result = [string]$raw.result
+        $stage = [string]$raw.stage
+        # Windows PowerShell 5.1 ConvertFrom-Json eagerly converts ISO timestamps
+        # to local DateTime values and drops the original offset. Read this one
+        # allowlisted string from the JSON text so timezone validation stays strict.
+        $timestampMatch = [regex]::Match($jsonText, '"checked_at_utc"\s*:\s*"([^"]{1,64})"')
+        if (-not $timestampMatch.Success) { throw 'Paper preflight timestamp is missing.' }
+        $timestampText = $timestampMatch.Groups[1].Value
+        $timestamp = [DateTimeOffset]::MinValue
+        $validSymbol = if ($market -eq 'KR') { $symbol -match '^\d{6}$' } else { $symbol -match '^[A-Z][A-Z0-9.-]{0,15}$' }
+        $valid = $raw.schema_version -eq 1 -and $raw.mode -eq 'PAPER_READ_ONLY_PREFLIGHT' `
+            -and $market -in @('KR', 'US') -and $validSymbol `
+            -and (($market -eq 'KR' -and $currency -eq 'KRW') -or ($market -eq 'US' -and $currency -eq 'USD')) `
+            -and $result -in @('PASSED', 'FAILED') `
+            -and $stage -in @('Configuration', 'LocalServiceState', 'Quote', 'QuoteValidation', 'Account', 'OrderableFunds', 'Complete') `
+            -and $raw.order_sent -is [bool] -and -not $raw.order_sent `
+            -and $raw.cancel_sent -is [bool] -and -not $raw.cancel_sent `
+            -and ($null -eq $raw.quote_freshness_check_passed -or $raw.quote_freshness_check_passed -is [bool]) `
+            -and ($null -eq $raw.orderable_funds_check_passed -or $raw.orderable_funds_check_passed -is [bool]) `
+            -and $timestampText -match '(Z|[+-]\d{2}:\d{2})$' `
+            -and [DateTimeOffset]::TryParse($timestampText, [Globalization.CultureInfo]::InvariantCulture, `
+                [Globalization.DateTimeStyles]::None, [ref]$timestamp) `
+            -and $timestamp -le [DateTimeOffset]::UtcNow.AddMinutes(2)
+        if (-not $valid -or ($result -eq 'PASSED' -and
+                ($stage -ne 'Complete' -or -not $raw.quote_freshness_check_passed -or -not $raw.orderable_funds_check_passed))) {
+            throw 'Paper preflight evidence failed allowlist validation.'
+        }
+        return [ordered]@{
+            state = 'AVAILABLE'
+            checkedAtUtc = $timestamp.ToUniversalTime().ToString('o')
+            result = $result
+            stage = $stage
+            market = $market
+            symbol = $symbol
+            currency = $currency
+            quoteFreshnessCheckPassed = $raw.quote_freshness_check_passed
+            orderableFundsCheckPassed = $raw.orderable_funds_check_passed
+            orderSent = $false
+            cancelSent = $false
+        }
+    }
+    catch {
+        return [ordered]@{
+            state = 'INVALID'; checkedAtUtc = $null; result = $null; stage = $null
+            market = $null; symbol = $null; currency = $null
+            quoteFreshnessCheckPassed = $null; orderableFundsCheckPassed = $null
+            orderSent = $false; cancelSent = $false
+        }
+    }
+}

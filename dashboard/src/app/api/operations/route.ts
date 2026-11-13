@@ -29,6 +29,20 @@ type DomesticSymbolMarketData = {
   usableOrderbookQuotes: number;
 };
 
+type PaperPreflight = {
+  state: "AVAILABLE" | "MISSING" | "INVALID";
+  checkedAtUtc: string | null;
+  result: "PASSED" | "FAILED" | null;
+  stage: string | null;
+  market: "KR" | "US" | null;
+  symbol: string | null;
+  currency: "KRW" | "USD" | null;
+  quoteFreshnessCheckPassed: boolean | null;
+  orderableFundsCheckPassed: boolean | null;
+  orderSent: false;
+  cancelSent: false;
+};
+
 type LocalOperationsReport = {
   generatedAt: string;
   reportSchemaVersion: number;
@@ -76,6 +90,7 @@ type LocalOperationsReport = {
     modelHoldoutCount: number;
     tasks: ScheduledTask[];
   } | null;
+  paperPreflight: PaperPreflight | null;
 };
 
 const TRAINING_READINESS_CACHE_MS = 5 * 60 * 1000;
@@ -209,6 +224,41 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
       lastTaskResult: optionalNumber(stack.lastTaskResult),
     } : null;
     const rawMonitor = asObject(raw.domesticSessionMonitor);
+    const rawPreflight = asObject(raw.paperPreflight);
+    let paperPreflight: PaperPreflight | null = null;
+    if (rawPreflight) {
+      const state = rawPreflight.state;
+      const market = rawPreflight.market;
+      const symbol = optionalString(rawPreflight.symbol);
+      const currency = rawPreflight.currency;
+      const result = rawPreflight.result;
+      const stage = optionalString(rawPreflight.stage);
+      const checkedAtUtc = optionalString(rawPreflight.checkedAtUtc);
+      const validStage = ["Configuration", "LocalServiceState", "Quote", "QuoteValidation", "Account", "OrderableFunds", "Complete"];
+      const symbolValid = market === "KR"
+        ? Boolean(symbol && /^\d{6}$/.test(symbol))
+        : market === "US" ? Boolean(symbol && /^[A-Z][A-Z0-9.-]{0,15}$/.test(symbol)) : false;
+      const valid = state === "AVAILABLE" && symbolValid
+        && ((market === "KR" && currency === "KRW") || (market === "US" && currency === "USD"))
+        && (result === "PASSED" || result === "FAILED") && typeof stage === "string" && validStage.includes(stage)
+        && typeof checkedAtUtc === "string" && Number.isFinite(Date.parse(checkedAtUtc))
+        && (checkedAtUtc.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(checkedAtUtc))
+        && typeof rawPreflight.orderSent === "boolean" && rawPreflight.orderSent === false
+        && typeof rawPreflight.cancelSent === "boolean" && rawPreflight.cancelSent === false
+        && (rawPreflight.quoteFreshnessCheckPassed === null || typeof rawPreflight.quoteFreshnessCheckPassed === "boolean")
+        && (rawPreflight.orderableFundsCheckPassed === null || typeof rawPreflight.orderableFundsCheckPassed === "boolean");
+      paperPreflight = valid ? {
+        state: "AVAILABLE", checkedAtUtc, result: result as "PASSED" | "FAILED", stage,
+        market: market as "KR" | "US", symbol: symbol!, currency: currency as "KRW" | "USD",
+        quoteFreshnessCheckPassed: optionalBoolean(rawPreflight.quoteFreshnessCheckPassed),
+        orderableFundsCheckPassed: optionalBoolean(rawPreflight.orderableFundsCheckPassed),
+        orderSent: false, cancelSent: false,
+      } : {
+        state: state === "MISSING" ? "MISSING" : "INVALID", checkedAtUtc: null, result: null,
+        stage: null, market: null, symbol: null, currency: null,
+        quoteFreshnessCheckPassed: null, orderableFundsCheckPassed: null, orderSent: false, cancelSent: false,
+      };
+    }
     const rawSymbolMarketData = rawMonitor && Array.isArray(rawMonitor.symbolMarketData)
       ? rawMonitor.symbolMarketData
       : [];
@@ -255,6 +305,7 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
       sessionMonitorSchedule: schedule(raw.sessionMonitorSchedule, ["krRegisteredCount", "usRegisteredCount", "enabledCount", "krEnabledCount", "usEnabledCount"]) as LocalOperationsReport["sessionMonitorSchedule"],
       domesticSessionMonitor,
       validationTaskSchedule: schedule(raw.validationTaskSchedule, ["paperLifecycleCount", "modelTrainingCount", "modelHoldoutCount"]) as LocalOperationsReport["validationTaskSchedule"],
+      paperPreflight,
     };
   } catch {
     continue;

@@ -90,6 +90,11 @@ jobs:
             throw "KIS PAPER preflight tests failed: passed=$($paperPreflightResult.PassedCount), failed=$($paperPreflightResult.FailedCount)."
           }
 
+          $operationsReportResult = Invoke-Pester -Path 'scripts/tests/operations-report.Tests.ps1' -PassThru
+          if ($operationsReportResult.FailedCount -gt 0 -or $operationsReportResult.PassedCount -ne 23) {
+            throw "Operations report tests failed: passed=$($operationsReportResult.PassedCount), failed=$($operationsReportResult.FailedCount)."
+          }
+
           $holdoutDateResult = Invoke-Pester -Path 'scripts/tests/model-holdout-date-gate.Tests.ps1' -PassThru
           if ($holdoutDateResult.FailedCount -gt 0 -or $holdoutDateResult.PassedCount -ne 5) {
             throw "Independent model holdout date tests failed: passed=$($holdoutDateResult.PassedCount), failed=$($holdoutDateResult.FailedCount)."

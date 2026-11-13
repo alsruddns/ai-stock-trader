@@ -6,7 +6,8 @@ param(
     [string]$OutputPath,
     [string]$ArchiveOutputPath,
     [string]$ModelRetrainingReportDirectory,
-    [string]$DomesticSessionEvidencePath
+    [string]$DomesticSessionEvidencePath,
+    [string]$PaperPreflightEvidencePath
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,6 +54,19 @@ if ([string]::IsNullOrWhiteSpace($ModelRetrainingReportDirectory)) {
     $retrainingDirectory = Join-Path $repoRoot $ModelRetrainingReportDirectory
 }
 $modelRetraining = Get-AiTraderModelRetrainingSummary -Directory $retrainingDirectory
+$paperPreflightPath = if ([string]::IsNullOrWhiteSpace($PaperPreflightEvidencePath)) {
+    Join-Path $repoRoot '.local\validation\paper-preflight-latest.json'
+} elseif ([IO.Path]::IsPathRooted($PaperPreflightEvidencePath)) {
+    $PaperPreflightEvidencePath
+} else {
+    Join-Path $repoRoot $PaperPreflightEvidencePath
+}
+$paperPreflight = Get-AiTraderPaperPreflightSummary -Path $paperPreflightPath
+$endpointStatus['local.paper_preflight'] = [ordered]@{
+    state = $paperPreflight.state
+    result = $paperPreflight.result
+    stage = $paperPreflight.stage
+}
 $endpointStatus['local.model_retraining'] = [ordered]@{
     state = $modelRetraining.state
     latestStatus = $modelRetraining.latestRun.status
@@ -149,7 +163,7 @@ foreach ($market in @('KR', 'US')) {
     $marketDataQuality[$market] = $qualityResult.data
 }
 
-$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 13 -Force
+$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 14 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
 $endpointStates = @($endpointStatus.GetEnumerator() |
@@ -168,6 +182,7 @@ $report | Add-Member -MemberType NoteProperty -Name pythonHealth -Value $pythonH
 $report | Add-Member -MemberType NoteProperty -Name paperSession -Value $paperSession -Force
 $report | Add-Member -MemberType NoteProperty -Name aiModels -Value $aiModels -Force
 $report | Add-Member -MemberType NoteProperty -Name modelRetraining -Value $modelRetraining -Force
+$report | Add-Member -MemberType NoteProperty -Name paperPreflight -Value $paperPreflight -Force
 $report | Add-Member -MemberType NoteProperty -Name localStackTask -Value $localStackTask -Force
 $report | Add-Member -MemberType NoteProperty -Name sessionMonitorSchedule -Value $sessionMonitorSchedule -Force
 $report | Add-Member -MemberType NoteProperty -Name domesticSessionMonitor -Value $domesticSessionMonitor -Force
