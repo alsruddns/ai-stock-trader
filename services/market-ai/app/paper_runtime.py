@@ -1023,10 +1023,7 @@ class PaperSessionFeedMonitor:
                     self._set_status(automation_state="BLOCKED", automation_error="BAR_PERSISTENCE_UNAVAILABLE")
                 return False
 
-            with self._lock:
-                if self._status.get("bar_storage_error") == "POSTGRES_WRITE_FAILED":
-                    self._status["bar_storage_state"] = "RUNNING"
-                    self._status["bar_storage_error"] = None
+            # A later bar succeeding does not prove a previously failed bar was stored.
             return True
         return False
 

@@ -722,6 +722,40 @@ def test_bar_storage_recovers_after_transient_postgres_write_failure(monkeypatch
     assert "transient database detail" not in str(runtime.status())
 
 
+def test_later_bar_write_does_not_clear_unrecovered_bar_storage_error(monkeypatch) -> None:
+    from app import snapshot_store
+
+    write_attempts = 0
+
+    def fail_first_bar_then_store_later_bar(*_args, **_kwargs):
+        nonlocal write_attempts
+        write_attempts += 1
+        if write_attempts <= 3:
+            raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(snapshot_store, "store_minute_bars", fail_first_bar_then_store_later_bar)
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    first_bar = MinuteBar(
+        datetime.fromisoformat("2026-11-05T09:00:00+09:00"), Decimal("100"), Decimal("101"),
+        Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
+    )
+    later_bar = MinuteBar(
+        first_bar.timestamp + timedelta(minutes=1), Decimal("100.5"), Decimal("102"),
+        Decimal("100"), Decimal("101"), 1100, Decimal("4.2"),
+    )
+    runtime._set_status(bar_storage_state="RUNNING")
+
+    first_persisted = asyncio.run(runtime._persist_bar_with_retry(watch, first_bar))
+    later_persisted = asyncio.run(runtime._persist_bar_with_retry(watch, later_bar))
+
+    assert first_persisted is False
+    assert later_persisted is True
+    assert write_attempts == 4
+    assert runtime.status()["bar_storage_state"] == "ERROR"
+    assert runtime.status()["bar_storage_error"] == "POSTGRES_WRITE_FAILED"
+
+
 def test_websocket_reconnect_backoff_survives_short_lived_connections() -> None:
     delay = 1
     delays = []
