@@ -60,7 +60,9 @@ def paper_equity_snapshot(
 
 
 def daily_loss_percent(baseline: Decimal | None, current_equity: Decimal | None) -> Decimal | None:
-    if baseline is None or current_equity is None or baseline <= 0 or current_equity < 0:
+    if (not isinstance(baseline, Decimal) or not isinstance(current_equity, Decimal)
+            or not baseline.is_finite() or not current_equity.is_finite()
+            or baseline <= 0 or current_equity < 0):
         return None
     return (baseline - current_equity) / baseline * Decimal(100)
 

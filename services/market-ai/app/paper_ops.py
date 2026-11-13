@@ -206,11 +206,18 @@ def evaluate_paper_gate(
         reasons.append("MODEL_NOT_APPROVED")
     if not broker_healthy:
         reasons.append("PAPER_BROKER_UNHEALTHY")
-    if daily_loss_pct >= limits.max_daily_loss_pct:
+    if not isinstance(daily_loss_pct, Decimal) or not daily_loss_pct.is_finite():
+        reasons.append("RISK_INPUT_INVALID")
+    elif daily_loss_pct >= limits.max_daily_loss_pct:
         reasons.append("DAILY_LOSS_LIMIT")
-    if consecutive_losses >= limits.max_consecutive_losses:
+    if (not isinstance(consecutive_losses, int) or isinstance(consecutive_losses, bool)
+            or consecutive_losses < 0):
+        reasons.append("RISK_INPUT_INVALID")
+    elif consecutive_losses >= limits.max_consecutive_losses:
         reasons.append("CONSECUTIVE_LOSS_LIMIT")
-    if open_positions >= limits.max_open_positions:
+    if (not isinstance(open_positions, int) or isinstance(open_positions, bool) or open_positions < 0):
+        reasons.append("RISK_INPUT_INVALID")
+    elif open_positions >= limits.max_open_positions:
         reasons.append("POSITION_LIMIT")
     if flatten:
         reasons.append("SESSION_ENDING")

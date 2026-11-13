@@ -243,6 +243,17 @@ def test_new_entries_allowed_only_when_every_dependency_and_risk_gate_passes() -
     assert "MODEL_NOT_APPROVED" in unapproved.reasons
 
 
+def test_new_entries_fail_closed_on_non_finite_or_negative_risk_inputs() -> None:
+    now = datetime(2026, 11, 5, 10, 0, tzinfo=timezone(timedelta(hours=9)))
+    invalid_loss = _good_gate(now, daily_loss_pct=Decimal("NaN"))
+    invalid_losses = _good_gate(now, consecutive_losses=-1)
+    invalid_positions = _good_gate(now, open_positions=-1)
+
+    for state in (invalid_loss, invalid_losses, invalid_positions):
+        assert state.new_entries_allowed is False
+        assert "RISK_INPUT_INVALID" in state.reasons
+
+
 def test_market_close_requires_flatten_and_blocks_new_entries() -> None:
     local = timezone(timedelta(hours=9))
     now = datetime(2026, 11, 5, 15, 27, tzinfo=local)

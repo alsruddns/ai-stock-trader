@@ -32,6 +32,8 @@ def test_equity_snapshot_fails_closed_when_any_position_mark_is_missing_or_stale
 
 def test_daily_loss_and_capture_window_fail_closed() -> None:
     assert daily_loss_percent(Decimal("1000"), Decimal("990")) == Decimal("1.00")
+    assert daily_loss_percent(Decimal("NaN"), Decimal("990")) is None
+    assert daily_loss_percent(Decimal("1000"), Decimal("Infinity")) is None
     opened = NOW
     assert baseline_capture_open(market_open=opened, now=opened + timedelta(minutes=2))
     assert not baseline_capture_open(market_open=opened, now=opened + timedelta(minutes=4))
