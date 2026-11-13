@@ -15,6 +15,7 @@ import com.aistocktrader.order.PaperOrderAmendment;
 import com.aistocktrader.order.PaperOrderAmendmentRepository;
 import com.aistocktrader.order.PaperOrderAmendmentRequest;
 import com.aistocktrader.order.PaperPositionRepository;
+import com.aistocktrader.order.PaperStrategyRiskRepository;
 import com.aistocktrader.TradingApiApplication;
 import org.springframework.transaction.annotation.Transactional;
 import jakarta.persistence.EntityManager;
@@ -75,7 +76,9 @@ class KisOrderIntentPostgresIntegrationTest {
     @Autowired PaperCashRepository paperCashRepository;
     @Autowired PaperFillRepository paperFillRepository;
     @Autowired PaperPositionRepository paperPositionRepository;
+    @Autowired PaperStrategyRiskRepository paperStrategyRiskRepository;
     @Autowired PaperOrderAmendmentRepository paperOrderAmendments;
+    @Autowired TradingSafetyProperties tradingSafetyProperties;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired EntityManager entityManager;
     @Autowired KisOrderOrchestrator kisOrders;
@@ -963,6 +966,58 @@ class KisOrderIntentPostgresIntegrationTest {
         assertEquals(0, settledCash.compareTo(recoveredCash));
         assertEquals(1, position.getQuantity());
         assertEquals(1L, paperFillRepository.findByFillKey(fillKey).stream().count());
+    }
+
+    @Test
+    @Transactional
+    void paperBuyAndSellPersistCostAdjustedCashPositionAndNetResult() {
+        String symbol = String.format(java.util.Locale.ROOT, "%06d",
+                java.util.concurrent.ThreadLocalRandom.current().nextInt(100000, 1_000_000));
+        BigDecimal initialCash = new BigDecimal("1000000");
+        paperCashRepository.save(new PaperCashBalance(Currency.KRW, initialCash));
+        var costedOrders = new OrderService(paperOrderRepository, tradingSafetyProperties, paperFillRepository,
+                paperPositionRepository, paperCashRepository, paperStrategyRiskRepository,
+                new com.aistocktrader.order.PaperTransactionCostCalculator(
+                        new com.aistocktrader.order.PaperCostProperties(true, new BigDecimal("10"),
+                                new BigDecimal("20"), BigDecimal.ZERO, BigDecimal.ZERO)));
+        var buy = costedOrders.submit(new OrderRequest(Market.KR, symbol, OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW), UUID.randomUUID());
+        var buyFillKey = UUID.randomUUID();
+        costedOrders.recordPaperFill(buy.getId(), new com.aistocktrader.order.PaperFillRequest(
+                buyFillKey, 1, new BigDecimal("70000")));
+        entityManager.flush();
+        entityManager.clear();
+
+        var positionAfterBuy = paperPositionRepository.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0)
+                .stream().filter(item -> item.getSymbol().equals(symbol)).findFirst().orElseThrow();
+        assertEquals(1, positionAfterBuy.getQuantity());
+        assertEquals(0, new BigDecimal("70070.000000").compareTo(positionAfterBuy.getAverageCost()));
+        assertEquals(0, new BigDecimal("70").compareTo(paperFillRepository.findByFillKey(buyFillKey)
+                .orElseThrow().getTransactionCost()));
+
+        var sell = costedOrders.submit(new OrderRequest(Market.KR, symbol, OrderSide.SELL, 1,
+                new BigDecimal("71000"), Currency.KRW), UUID.randomUUID());
+        var sellFillKey = UUID.randomUUID();
+        costedOrders.recordPaperFill(sell.getId(), new com.aistocktrader.order.PaperFillRequest(
+                sellFillKey, 1, new BigDecimal("71000")));
+        entityManager.flush();
+        entityManager.clear();
+
+        var sellFill = paperFillRepository.findByFillKey(sellFillKey).orElseThrow();
+        var settledCash = paperCashRepository.findById(Currency.KRW).orElseThrow().getBalance();
+        var closedPosition = paperPositionRepository.findAll().stream()
+                .filter(item -> item.getMarket() == Market.KR && item.getCurrency() == Currency.KRW
+                        && item.getSymbol().equals(symbol)).findFirst().orElseThrow();
+        BigDecimal netResult = new BigDecimal("71000").subtract(new BigDecimal("70000"))
+                .subtract(new BigDecimal("70")).subtract(sellFill.getTransactionCost());
+
+        assertEquals(0, new BigDecimal("213").compareTo(sellFill.getTransactionCost()));
+        assertEquals(0, new BigDecimal("1000717").compareTo(settledCash));
+        assertEquals(0, new BigDecimal("717").compareTo(netResult));
+        assertEquals(0, closedPosition.getQuantity());
+        assertEquals(0, BigDecimal.ZERO.compareTo(closedPosition.getAverageCost()));
+        assertEquals(1L, paperFillRepository.findByFillKey(buyFillKey).stream().count());
+        assertEquals(1L, paperFillRepository.findByFillKey(sellFillKey).stream().count());
     }
 
     @Test

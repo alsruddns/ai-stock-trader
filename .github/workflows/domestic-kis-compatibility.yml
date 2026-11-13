@@ -149,6 +149,9 @@ jobs:
       - name: Verify contradictory broker snapshot remains locked in PostgreSQL
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#contradictoryBrokerSnapshotPersistsUnknownLockWithoutCreatingFillHistory' test
+      - name: Verify PAPER cash settlement includes buy and sell costs in PostgreSQL
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#paperBuyAndSellPersistCostAdjustedCashPositionAndNetResult' test
 
   dashboard-domestic-operations:
     runs-on: ubuntu-latest
