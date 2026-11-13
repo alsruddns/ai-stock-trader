@@ -87,7 +87,7 @@ def test_paper_preflight_probe_uses_official_transaction_id_and_reports_only_san
     assert probe.main() == 0
 
     output = capsys.readouterr().out
-    assert '"status": "supported"' in output
+    assert '"status": "valid_preflight_response"' in output
     assert '"broker_result_code": "0"' in output
     assert '"transaction_id": "TTTC0084R"' in output
     assert '"returned_row_count": 1' in output
@@ -162,4 +162,27 @@ def test_unsupported_paper_service_code_is_not_treated_as_cancelable(
     assert '"broker_code": "OPSQ0002"' in output
     assert '"broker_result_code": "1"' in output
     assert "private broker response" not in output
+    assert client.closed
+
+
+@pytest.mark.parametrize("rows", [
+    [],
+    [{"odno": "private-order-number"}],
+    [{"psbl_qty": None}],
+    [{"PSBL_QTY": -1}],
+    [{"psbl_qty": True}],
+    [{"psbl_qty": "unknown"}],
+])
+def test_successful_preflight_without_a_valid_cancel_quantity_is_incomplete(
+    monkeypatch: pytest.MonkeyPatch, capsys, rows: list[dict[str, Any]],
+) -> None:
+    client = _configure_safe_probe(monkeypatch, {"rt_cd": "0", "msg_cd": "OK", "output": rows})
+
+    assert probe.main() == 3
+
+    output = capsys.readouterr().out
+    assert '"status": "response_incomplete"' in output
+    assert '"cancel_quantity_field_observed": false' in output
+    assert '"order_or_cancel_sent": false' in output
+    assert "private-order-number" not in output
     assert client.closed

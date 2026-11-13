@@ -18,6 +18,21 @@ from kis_local_env import load_local_environment
 OFFICIAL_TRANSACTION_IDS = {"TTTC0084R", "TTTC8036R"}
 
 
+def _has_valid_cancel_quantity(rows: object) -> bool:
+    candidates = rows if isinstance(rows, list) else [rows] if isinstance(rows, dict) else []
+    for row in candidates:
+        if not isinstance(row, dict):
+            continue
+        for key, value in row.items():
+            if not isinstance(key, str) or key.lower() != "psbl_qty" or isinstance(value, bool):
+                continue
+            if isinstance(value, int) and value >= 0:
+                return True
+            if isinstance(value, str) and re.fullmatch(r"\d{1,12}", value.strip()):
+                return True
+    return False
+
+
 def main(transaction_id: str = "TTTC0084R") -> int:
     # The current official sample uses TTTC0084R. The official legacy sample
     # uses TTTC8036R and its auth helper maps T-prefixed IDs to V-prefixed IDs
@@ -99,15 +114,15 @@ def main(transaction_id: str = "TTTC0084R") -> int:
         result["broker_result_code"] = broker_result_code if isinstance(broker_result_code, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,32}", broker_result_code) else None
         successful = response.status_code < 400 and isinstance(payload, dict) and payload.get("rt_cd") == "0"
         rows = payload.get("output") if isinstance(payload, dict) else None
-        result["status"] = "supported" if successful else "unsupported_or_rejected"
         result["returned_row_count"] = len(rows) if isinstance(rows, list) else (1 if isinstance(rows, dict) else 0)
-        result["cancel_quantity_field_observed"] = (
-            any(isinstance(row, dict) and ("psbl_qty" in row or "PSBL_QTY" in row) for row in rows)
-            if isinstance(rows, list) else
-            isinstance(rows, dict) and ("psbl_qty" in rows or "PSBL_QTY" in rows)
+        result["cancel_quantity_field_observed"] = _has_valid_cancel_quantity(rows)
+        result["status"] = (
+            "valid_preflight_response" if successful and result["cancel_quantity_field_observed"] else
+            "response_incomplete" if successful else
+            "unsupported_or_rejected"
         )
         print(json.dumps(result, ensure_ascii=False))
-        return 0 if successful else 3
+        return 0 if result["status"] == "valid_preflight_response" else 3
     except Exception as exception:
         result["status"] = "request_failed"
         result["reason"] = "AUTH_OR_READ_ONLY_REQUEST_FAILED"
