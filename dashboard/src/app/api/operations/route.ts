@@ -29,6 +29,8 @@ type DomesticSymbolMarketData = {
   usableOrderbookQuotes: number;
 };
 
+type StatusReadFailureCategory = { category: string; count: number };
+
 type PaperPreflight = {
   state: "AVAILABLE" | "MISSING" | "INVALID";
   checkedAtUtc: string | null;
@@ -79,6 +81,9 @@ type LocalOperationsReport = {
     maxNoTickSeconds: number | null;
     failureStage: string | null;
     failureCode: string | null;
+    statusReadRetryCount: number | null;
+    statusReadFailureCategories: StatusReadFailureCategory[];
+    statusReadLastFailureCategory: string | null;
     symbolMarketDataStatus: string;
     symbolMarketData: DomesticSymbolMarketData[];
   } | null;
@@ -117,6 +122,17 @@ function optionalBoolean(value: unknown): boolean | null {
 
 function nonNegativeInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function boundedNonNegativeInteger(value: unknown, maximum: number): number | null {
+  const parsed = nonNegativeInteger(value);
+  return parsed !== null && parsed <= maximum ? parsed : null;
+}
+
+function statusReadFailureCategory(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  if (["TIMEOUT", "CONNECTION_FAILURE", "DNS_FAILURE", "TLS_FAILURE", "CONNECTION_CLOSED", "NETWORK_FAILURE", "REQUEST_FAILURE"].includes(value)) return value;
+  return /^HTTP_[45]\d{2}$/.test(value) ? value : null;
 }
 
 function scheduledTasks(value: unknown): ScheduledTask[] {
@@ -294,6 +310,16 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
       maxNoTickSeconds: optionalNumber(rawMonitor.maxNoTickSeconds),
       failureStage: optionalString(rawMonitor.failureStage),
       failureCode: optionalString(rawMonitor.failureCode),
+      statusReadRetryCount: boundedNonNegativeInteger(rawMonitor.statusReadRetryCount, 1000),
+      statusReadFailureCategories: Array.isArray(rawMonitor.statusReadFailureCategories)
+        ? rawMonitor.statusReadFailureCategories.flatMap((entry) => {
+          const item = asObject(entry);
+          const category = statusReadFailureCategory(item?.category);
+          const count = boundedNonNegativeInteger(item?.count, 1000);
+          return category && count !== null && count > 0 ? [{ category, count }] : [];
+        })
+        : [],
+      statusReadLastFailureCategory: statusReadFailureCategory(rawMonitor.statusReadLastFailureCategory),
       symbolMarketDataStatus,
       symbolMarketData: symbolMarketDataStatus === "AVAILABLE" ? symbolMarketData : [],
     } : null;
