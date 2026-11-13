@@ -124,6 +124,14 @@ jobs:
           python -m pytest -q
           tests/test_paper_runtime.py::test_domestic_websocket_failure_count_is_per_feed_and_keeps_only_safe_fields
           tests/test_paper_runtime.py::test_domestic_websocket_failure_count_ignores_unknown_feed_name
+      - name: Run domestic PAPER monitor signal and quote receipt tests only
+        working-directory: services/market-ai
+        run: >-
+          python -m pytest -q
+          tests/test_paper_runtime.py::test_runtime_reports_domestic_market_data_receipts_per_symbol
+          tests/test_paper_runtime.py::test_closed_bars_update_non_executable_quant_decision_and_reset_each_session
+          tests/test_paper_runtime.py::test_quant_candidate_is_held_without_an_active_approved_market_model
+          tests/test_paper_runtime.py::test_approved_ai_candidate_publishes_atr_stop_distance_for_server_risk_check
       - name: Run domestic final-minute persistence and shutdown tests only
         working-directory: services/market-ai
         run: >-

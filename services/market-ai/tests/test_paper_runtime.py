@@ -567,6 +567,7 @@ def test_runtime_reports_domestic_market_data_receipts_per_symbol(monkeypatch) -
     for watch in (samsung, hynix):
         runtime._aggregators[watch.key] = SimpleNamespace(
             add=lambda _tick: None,
+            close_before=lambda _timestamp: None,
             quote_is_stale=lambda _quote: False,
             update_quote=lambda _quote: True,
         )
@@ -1895,8 +1896,11 @@ def test_closed_bars_update_non_executable_quant_decision_and_reset_each_session
 
     for index in range(20):
         price = Decimal("70000")
-        runtime._record_closed_bar(watch, MinuteBar(start + timedelta(minutes=index), price, price, price,
-                                                   price, 1000, Decimal("5")))
+        bar_at = start + timedelta(minutes=index)
+        runtime._record_closed_bar(watch, MinuteBar(
+            bar_at, price, price, price, price, 1000, Decimal("5"),
+            bar_at + timedelta(seconds=59),
+        ))
 
     decision = runtime.decisions()[watch.key]
     assert decision["signal"] == "HOLD"
@@ -1992,9 +1996,10 @@ def test_missing_cost_assumptions_keep_strategy_signal_on_hold(monkeypatch) -> N
 
     for index in range(21):
         price = Decimal("1002") if index == 20 else Decimal("1000")
+        bar_at = start + timedelta(minutes=index)
         runtime._record_closed_bar(watch, MinuteBar(
-            start + timedelta(minutes=index), price, price + Decimal("0.1"), price - Decimal("0.1"),
-            price, 2000 if index == 20 else 1000, Decimal("5"),
+            bar_at, price, price + Decimal("0.1"), price - Decimal("0.1"),
+            price, 2000 if index == 20 else 1000, Decimal("5"), bar_at + timedelta(seconds=59),
         ))
 
     decision = runtime.decisions()[watch.key]
@@ -2015,9 +2020,10 @@ def test_disabled_paper_ledger_cost_model_keeps_strategy_signal_on_hold(monkeypa
 
     for index in range(21):
         price = Decimal("1002") if index == 20 else Decimal("1000")
+        bar_at = start + timedelta(minutes=index)
         runtime._record_closed_bar(watch, MinuteBar(
-            start + timedelta(minutes=index), price, price + Decimal("0.1"), price - Decimal("0.1"),
-            price, 2000 if index == 20 else 1000, Decimal("5"),
+            bar_at, price, price + Decimal("0.1"), price - Decimal("0.1"),
+            price, 2000 if index == 20 else 1000, Decimal("5"), bar_at + timedelta(seconds=59),
         ))
 
     decision = runtime.decisions()[watch.key]
@@ -2037,9 +2043,10 @@ def test_quant_candidate_is_held_without_an_active_approved_market_model(tmp_pat
 
     for index in range(21):
         price = Decimal("1002") if index == 20 else Decimal("1000")
+        bar_at = start + timedelta(minutes=index)
         runtime._record_closed_bar(watch, MinuteBar(
-            start + timedelta(minutes=index), price, price + Decimal("0.1"), price - Decimal("0.1"),
-            price, 2000 if index == 20 else 1000, Decimal("5"),
+            bar_at, price, price + Decimal("0.1"), price - Decimal("0.1"),
+            price, 2000 if index == 20 else 1000, Decimal("5"), bar_at + timedelta(seconds=59),
         ))
 
     decision = runtime.decisions()[watch.key]
@@ -2069,9 +2076,10 @@ def test_approved_ai_candidate_publishes_atr_stop_distance_for_server_risk_check
 
     for index in range(21):
         price = Decimal("1002") if index == 20 else Decimal("1000")
+        bar_at = start + timedelta(minutes=index)
         runtime._record_closed_bar(watch, MinuteBar(
-            start + timedelta(minutes=index), price, price + Decimal("0.1"), price - Decimal("0.1"),
-            price, 2000 if index == 20 else 1000, Decimal("5"),
+            bar_at, price, price + Decimal("0.1"), price - Decimal("0.1"),
+            price, 2000 if index == 20 else 1000, Decimal("5"), bar_at + timedelta(seconds=59),
         ))
 
     decision = runtime.decisions()[watch.key]
