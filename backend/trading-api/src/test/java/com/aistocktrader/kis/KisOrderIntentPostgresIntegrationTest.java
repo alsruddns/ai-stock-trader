@@ -1172,6 +1172,29 @@ class KisOrderIntentPostgresIntegrationTest {
         }
     }
 
+    @Test
+    @Transactional
+    void contradictoryBrokerSnapshotPersistsUnknownLockWithoutCreatingFillHistory() {
+        UUID key = UUID.randomUUID();
+        store.prepare(key, hash("bad-snapshot"), KisEnvironment.REAL, request(), null);
+        store.accept(key, receipt("real", "IR" + UUID.randomUUID().toString().replace("-", "").substring(0, 16)));
+        KisBrokerOrderSnapshot contradictory = new KisBrokerOrderSnapshot(1, 1,
+                new BigDecimal("70000"), false, false);
+
+        KisOrderIntent reconciled = store.reconcile(key, contradictory);
+        entityManager.flush();
+        entityManager.clear();
+
+        KisOrderIntent persisted = repository.findById(key).orElseThrow();
+        assertEquals(KisOrderStatus.UNKNOWN, reconciled.getStatus());
+        assertEquals(KisOrderStatus.UNKNOWN, persisted.getStatus());
+        assertEquals(0, persisted.getFilledQuantity());
+        assertEquals(1, persisted.getRemainingQuantity());
+        assertNull(persisted.getAverageFillPrice());
+        assertTrue(jdbcTemplate.queryForList(
+                "SELECT idempotency_key FROM kis_real_fill_snapshot WHERE idempotency_key = ?", UUID.class, key).isEmpty());
+    }
+
     private static OrderRequest request() {
         return new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
                 new BigDecimal("70000"), Currency.KRW);

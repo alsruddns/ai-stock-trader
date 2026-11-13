@@ -8,6 +8,7 @@ on:
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealDailyRiskBaselineServiceTest.java'
       - 'backend/trading-api/src/main/java/com/aistocktrader/kis/KisOrderIntentStore.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisOrderIntentStoreTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisOrderIntentPostgresIntegrationTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealExecutionNoticeClientTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealOrderReconciliationJobTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealProtectiveExitMonitorTest.java'
@@ -111,6 +112,43 @@ jobs:
       - name: Run domestic-only operational market scope summary test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=OperationsControllerTest#operationsSummaryReportsOnlyWhetherEnvironmentCredentialsAreConfigured test
+
+  spring-order-postgres-snapshot-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ai_stock_trader_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ai_stock_trader_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: jdbc:postgresql://localhost:5432/ai_stock_trader_ci
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      RUN_LOCAL_POSTGRES_INTEGRATION_TESTS: "true"
+      KIS_ACCOUNT_READ_ENABLED: "false"
+      KIS_REAL_ACCOUNT_READ_ENABLED: "false"
+      KIS_REAL_ORDERS_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: backend/trading-api/pom.xml
+      - name: Verify contradictory broker snapshot remains locked in PostgreSQL
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#contradictoryBrokerSnapshotPersistsUnknownLockWithoutCreatingFillHistory' test
 
   dashboard-domestic-operations:
     runs-on: ubuntu-latest
