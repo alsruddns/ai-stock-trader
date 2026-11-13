@@ -133,6 +133,12 @@ jobs:
           tests/test_paper_runtime.py::test_domestic_consecutive_quote_before_trade_boundaries_preserve_each_bar_spread
           tests/test_paper_runtime.py::test_finalizer_persists_ended_domestic_minute_without_order_queue
           tests/test_paper_runtime.py::test_stop_waits_for_inflight_domestic_final_bar_storage
+      - name: Run durable minute-bar outbox tests only
+        working-directory: services/market-ai
+        run: >-
+          python -m pytest -q
+          tests/test_bar_write_outbox.py
+          tests/test_paper_runtime.py::test_durable_bar_outbox_restores_and_drains_before_automation_can_resume
       - name: Verify domestic-only runtime operational scope
         working-directory: services/market-ai
         env:
