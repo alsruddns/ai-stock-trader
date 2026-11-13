@@ -120,10 +120,12 @@ def main(transaction_id: str = "TTTC0084R") -> int:
             "valid_preflight_response" if successful and result["cancel_quantity_field_observed"] else
             "response_incomplete" if successful else
             "temporary_server_error" if result["broker_code"] == "EGW00002" else
-            "unsupported_or_rejected"
+            "broker_error_unclassified"
         )
         if result["status"] == "temporary_server_error":
             result["reason"] = "TEMPORARY_BROKER_SERVER_ERROR"
+        elif result["status"] == "broker_error_unclassified":
+            result["reason"] = "BROKER_ERROR_NOT_CLASSIFIED"
         print(json.dumps(result, ensure_ascii=False))
         return 0 if result["status"] == "valid_preflight_response" else 3
     except Exception as exception:
@@ -148,6 +150,9 @@ def main(transaction_id: str = "TTTC0084R") -> int:
         if result.get("broker_code") == "EGW00002":
             result["status"] = "temporary_server_error"
             result["reason"] = "TEMPORARY_BROKER_SERVER_ERROR"
+        elif result.get("broker_code"):
+            result["status"] = "broker_error_unclassified"
+            result["reason"] = "BROKER_ERROR_NOT_CLASSIFIED"
         else:
             result["status"] = "request_failed"
             result["reason"] = "AUTH_OR_READ_ONLY_REQUEST_FAILED"

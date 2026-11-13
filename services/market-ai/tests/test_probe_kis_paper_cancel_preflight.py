@@ -29,18 +29,18 @@ SAFE_SWITCHES = {
 
 
 class _Response:
-    status_code = 200
-
-    def __init__(self, payload: dict[str, Any]):
+    def __init__(self, payload: dict[str, Any], status_code: int = 200):
         self._payload = payload
+        self.status_code = status_code
 
     def json(self) -> dict[str, Any]:
         return self._payload
 
 
 class _FakeClient:
-    def __init__(self, _settings: object, payload: dict[str, Any]):
+    def __init__(self, _settings: object, payload: dict[str, Any], status_code: int = 200):
         self.payload = payload
+        self.status_code = status_code
         self.closed = False
         self.expected_transaction_id = "VTTC0084R"
         self.expected_query_kind = "current_item_sequence"
@@ -54,7 +54,7 @@ class _FakeClient:
         assert headers["custtype"] == "P"
         assert params["INQR_DVSN_1"] == ("0" if self.expected_query_kind == "legacy_order_sequence" else "1")
         assert params["INQR_DVSN_2"] == "0"
-        return _Response(self.payload)
+        return _Response(self.payload, self.status_code)
 
     def close(self) -> None:
         self.closed = True
@@ -62,6 +62,7 @@ class _FakeClient:
 
 def _configure_safe_probe(
     monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any], transaction_id: str = "TTTC0084R",
+    status_code: int = 200,
 ) -> _FakeClient:
     for key, value in SAFE_SWITCHES.items():
         monkeypatch.setenv(key, value)
@@ -71,7 +72,7 @@ def _configure_safe_probe(
     )
     monkeypatch.setattr(probe, "load_local_environment", lambda _repository: Path(".env_local"))
     monkeypatch.setattr(probe.KisSettings, "from_environment", classmethod(lambda _cls, _environment: settings))
-    client = _FakeClient(settings, payload)
+    client = _FakeClient(settings, payload, status_code)
     client.expected_transaction_id = transaction_id
     monkeypatch.setattr(probe, "KisReadOnlyClient", lambda _settings: client)
     return client
@@ -148,7 +149,7 @@ def test_probe_fails_closed_before_client_creation_when_switches_are_unsafe(
     assert '"reason": "SAFETY_SWITCHES_NOT_READ_ONLY"' in capsys.readouterr().out
 
 
-def test_unsupported_paper_service_code_is_not_treated_as_cancelable(
+def test_unclassified_paper_service_code_is_not_treated_as_cancelable(
     monkeypatch: pytest.MonkeyPatch, capsys,
 ) -> None:
     client = _configure_safe_probe(monkeypatch, {
@@ -158,9 +159,29 @@ def test_unsupported_paper_service_code_is_not_treated_as_cancelable(
     assert probe.main() == 3
 
     output = capsys.readouterr().out
-    assert '"status": "unsupported_or_rejected"' in output
+    assert '"status": "broker_error_unclassified"' in output
+    assert '"reason": "BROKER_ERROR_NOT_CLASSIFIED"' in output
     assert '"broker_code": "OPSQ0002"' in output
     assert '"broker_result_code": "1"' in output
+    assert "private broker response" not in output
+    assert client.closed
+
+
+def test_egw02006_is_unclassified_not_assumed_to_be_permanent_unsupported(
+    monkeypatch: pytest.MonkeyPatch, capsys,
+) -> None:
+    client = _configure_safe_probe(monkeypatch, {
+        "rt_cd": "1", "msg_cd": "EGW02006", "msg1": "private broker response",
+    }, status_code=500)
+
+    assert probe.main() == 3
+
+    output = capsys.readouterr().out
+    assert '"status": "broker_error_unclassified"' in output
+    assert '"reason": "BROKER_ERROR_NOT_CLASSIFIED"' in output
+    assert '"broker_code": "EGW02006"' in output
+    assert '"order_or_cancel_sent": false' in output
+    assert "unsupported_or_rejected" not in output
     assert "private broker response" not in output
     assert client.closed
 
