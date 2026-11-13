@@ -52,7 +52,7 @@ class _FakeClient:
         assert url.endswith("/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl")
         assert headers["tr_id"] == self.expected_transaction_id
         assert headers["custtype"] == "P"
-        assert params["INQR_DVSN_1"] == ("0" if self.expected_query_kind == "legacy_order_sequence" else "1")
+        assert params["INQR_DVSN_1"] == ("0" if self.expected_query_kind.endswith("order_sequence") else "1")
         assert params["INQR_DVSN_2"] == "0"
         return _Response(self.payload, self.status_code)
 
@@ -118,6 +118,33 @@ def test_legacy_official_transaction_maps_to_paper_id_without_unlocking_cancel(
     assert '"order_or_cancel_sent": false' in output
     assert "private-order-number" not in output
     assert client.closed
+
+
+def test_current_transaction_can_query_order_sequence_without_submitting_orders(
+    monkeypatch: pytest.MonkeyPatch, capsys,
+) -> None:
+    client = _configure_safe_probe(monkeypatch, {
+        "rt_cd": "0", "msg_cd": "OK", "output": [],
+    })
+    client.expected_query_kind = "current_order_sequence"
+
+    assert probe.main(query_kind="order_sequence") == 3
+
+    output = capsys.readouterr().out
+    assert '"query_kind": "current_order_sequence"' in output
+    assert '"status": "response_incomplete"' in output
+    assert '"order_or_cancel_sent": false' in output
+    assert client.closed
+
+
+def test_legacy_transaction_rejects_item_sequence_before_loading_credentials(
+    monkeypatch: pytest.MonkeyPatch, capsys,
+) -> None:
+    monkeypatch.setattr(probe, "load_local_environment", lambda _repository: pytest.fail("credentials must not be loaded"))
+
+    assert probe.main("TTTC8036R", "item_sequence") == 2
+
+    assert '"reason": "QUERY_KIND_NOT_SUPPORTED_FOR_TRANSACTION_ID"' in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("transaction_id", ["VTTC0084R", "VTTC8036R", "TTTC0000R"])

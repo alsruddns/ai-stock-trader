@@ -49,13 +49,19 @@ def _has_positive_cancel_quantity(rows: object) -> bool:
     return False
 
 
-def main(transaction_id: str = "TTTC0084R") -> int:
+def main(transaction_id: str = "TTTC0084R", query_kind: str | None = None) -> int:
     # The current official sample uses TTTC0084R. The official legacy sample
     # uses TTTC8036R and its auth helper maps T-prefixed IDs to V-prefixed IDs
     # for PAPER. The legacy example does not document psbl_qty, so success alone
     # must never unlock cancellation.
     if transaction_id not in OFFICIAL_TRANSACTION_IDS:
         print(json.dumps({"status": "blocked", "reason": "UNSUPPORTED_TRANSACTION_ID"}))
+        return 2
+    if query_kind not in (None, "order_sequence", "item_sequence"):
+        print(json.dumps({"status": "blocked", "reason": "UNSUPPORTED_QUERY_KIND"}))
+        return 2
+    if transaction_id == "TTTC8036R" and query_kind == "item_sequence":
+        print(json.dumps({"status": "blocked", "reason": "QUERY_KIND_NOT_SUPPORTED_FOR_TRANSACTION_ID"}))
         return 2
     try:
         source = load_local_environment(repository)
@@ -86,14 +92,14 @@ def main(transaction_id: str = "TTTC0084R") -> int:
 
     client = KisReadOnlyClient(settings)
     request_transaction_id = "VTTC8036R" if transaction_id == "TTTC8036R" else transaction_id
-    query_kind = "legacy_order_sequence" if transaction_id == "TTTC8036R" else "current_item_sequence"
+    selected_query_kind = "legacy_order_sequence" if transaction_id == "TTTC8036R" else f"current_{query_kind or 'item_sequence'}"
     result = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "environment": "paper",
         "api_path": "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl",
         "transaction_id": transaction_id,
         "request_transaction_id": request_transaction_id,
-        "query_kind": query_kind,
+        "query_kind": selected_query_kind,
         "local_config_file": source.name,
         "order_or_cancel_sent": False,
     }
@@ -101,9 +107,8 @@ def main(transaction_id: str = "TTTC0084R") -> int:
     params = {
         "CANO": account[:8],
         "ACNT_PRDT_CD": account[8:],
-        # The current official sample describes 0=order sequence, 1=item sequence
-        # and demonstrates item sequence for this cancelable-order lookup.
-        "INQR_DVSN_1": "0" if query_kind == "legacy_order_sequence" else "1",
+        # The official current sample supports both 0=order and 1=item sequence.
+        "INQR_DVSN_1": "0" if selected_query_kind.endswith("order_sequence") else "1",
         "INQR_DVSN_2": "0",
         "CTX_AREA_FK100": "",
         "CTX_AREA_NK100": "",
@@ -183,4 +188,6 @@ def main(transaction_id: str = "TTTC0084R") -> int:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Read-only PAPER cancel-preflight service probe.")
     parser.add_argument("--transaction-id", choices=tuple(sorted(OFFICIAL_TRANSACTION_IDS)), default="TTTC0084R")
-    raise SystemExit(main(parser.parse_args().transaction_id))
+    parser.add_argument("--query-kind", choices=("order_sequence", "item_sequence"))
+    arguments = parser.parse_args()
+    raise SystemExit(main(arguments.transaction_id, arguments.query_kind))

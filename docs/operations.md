@@ -90,15 +90,17 @@ Set-Location .\services\market-ai
 
 ### 국내 PAPER 취소 사전조회 점검
 
-KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는지 확인할 때만 아래 읽기 전용 명령을 사용합니다. 현재 공식 샘플의 `TTTC0084R`과 공식 레거시 샘플의 `TTTC8036R`만 허용합니다. 레거시 ID는 공식 샘플의 PAPER 변환 규칙에 따라 `VTTC8036R`로 전송하고 레거시 조회구분을 사용합니다. 그 샘플은 `psbl_qty`를 문서화하지 않으므로 조회 성공만으로 취소를 활성화할 수 없습니다. `VTTC0084R` 등 추정 ID는 보내지 않습니다. `KIS_ACCOUNT_READ_ENABLED=true`, `KIS_PAPER_ACCOUNT_READ_ENABLED=true`가 필요하며 PAPER/REAL 주문, REAL 계좌조회, REAL 주문대조 스위치는 `false`여야 합니다. 이 도구는 PostgreSQL 공유 호출 제한을 지키며 GET만 보냅니다.
+KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는지 확인할 때만 아래 읽기 전용 명령을 사용합니다. 현재 공식 샘플의 `TTTC0084R`과 공식 레거시 샘플의 `TTTC8036R`만 허용합니다. 현재 공식 샘플은 조회구분 `0`(주문순서)과 `1`(종목순서)을 지원하며 기본값은 종목순서입니다. 레거시 ID는 공식 샘플의 PAPER 변환 규칙에 따라 `VTTC8036R`로 전송하고 주문순서 조회를 사용합니다. 레거시 샘플은 `psbl_qty`를 문서화하지 않으므로 조회 성공만으로 취소를 활성화할 수 없습니다. `VTTC0084R` 등 추정 ID는 보내지 않습니다. `KIS_ACCOUNT_READ_ENABLED=true`, `KIS_PAPER_ACCOUNT_READ_ENABLED=true`가 필요하며 PAPER/REAL 주문, REAL 계좌조회, REAL 주문대조 스위치는 `false`여야 합니다. 이 도구는 PostgreSQL 공유 호출 제한을 지키며 GET만 보냅니다. [KIS 공식 현재 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_psbl_rvsecncl/inquire_psbl_rvsecncl.py)
 
 ```powershell
 .\services\market-ai\.venv\Scripts\python.exe .\scripts\probe-kis-paper-cancel-preflight.py --transaction-id TTTC0084R
 ```
 
+현재 샘플에서 주문순서 조회를 별도로 확인하려면 `--query-kind order_sequence`를 지정합니다. 종목순서는 `--query-kind item_sequence`이며, 기본 호출과 같습니다.
+
 공식 레거시 샘플의 PAPER 변환 경로를 점검하려면 `--transaction-id TTTC8036R`을 지정합니다. 실제 요청에는 `VTTC8036R`이 사용됩니다.
 
-`supported`는 조회 서비스가 응답했다는 뜻일 뿐 취소 허용을 뜻하지 않습니다. 실제 취소를 열기 전에는 해당 주문번호·종목·계좌에 맞는 `psbl_qty` 확인과 로컬 취소 제한 검증이 별도로 필요합니다. `unsupported_or_rejected`이거나 응답이 불완전하면 취소를 잠근 채 둡니다. 이 점검 명령은 주문·취소를 보내지 않습니다.
+`valid_preflight_response`는 응답 행에 양수 `psbl_qty`가 있다는 뜻일 뿐, 특정 주문 취소를 허용하거나 주문번호와 일치한다는 뜻이 아닙니다. `no_cancelable_quantity`, `response_incomplete`, `broker_error_unclassified`, `temporary_server_error`는 취소 가능 수량을 확인하지 못한 상태입니다. 실제 취소 전에는 해당 주문번호·종목·계좌와 일치하는 수량을 확인하고 로컬 취소 제한 검증을 통과해야 합니다. 이 점검 명령은 주문·취소를 보내지 않습니다.
 
 ### P5 거래 세션 시세 감시
 
