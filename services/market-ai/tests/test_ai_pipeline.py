@@ -29,7 +29,8 @@ from app.market_calendar import exchange_session_window
 
 
 def _bar(timestamp: datetime, close: Decimal, volume: int = 1000) -> MinuteBar:
-    return MinuteBar(timestamp, close, close + Decimal("0.2"), close - Decimal("0.2"), close, volume, Decimal("5"))
+    return MinuteBar(timestamp, close, close + Decimal("0.2"), close - Decimal("0.2"), close, volume,
+                     Decimal("5"), timestamp + timedelta(seconds=30))
 
 
 def _sample_sessions() -> dict[date, list[MinuteBar]]:
@@ -104,6 +105,31 @@ def test_latest_features_reject_premarket_and_incomplete_minute_history() -> Non
         latest_features(gap, market="KR")
 
 
+def test_training_and_inference_require_timestamped_spread_observations() -> None:
+    sessions = _sample_sessions()
+    session = date(2026, 10, 1)
+    bars = sessions[session]
+    current = bars[20]
+    bars[20] = MinuteBar(current.timestamp, current.open, current.high, current.low,
+                         current.close, current.volume, current.spread_bps)
+
+    with pytest.raises(ValueError, match="timestamped spread"):
+        latest_features(bars[:21], market="KR")
+    samples = build_training_samples(sessions, market="KR", horizon_bars=5,
+                                     round_trip_cost_bps=Decimal("20"))
+    assert not any(sample.session == session and sample.timestamp == current.timestamp.isoformat()
+                   for sample in samples)
+
+    bars[20] = _bar(current.timestamp, current.close, current.volume)
+    future = bars[25]
+    bars[25] = MinuteBar(future.timestamp, future.open, future.high, future.low,
+                         future.close, future.volume, future.spread_bps)
+    samples = build_training_samples(sessions, market="KR", horizon_bars=5,
+                                     round_trip_cost_bps=Decimal("20"))
+    assert not any(sample.session == session and sample.timestamp == current.timestamp.isoformat()
+                   for sample in samples)
+
+
 def test_probability_series_uses_only_current_and_prior_bars() -> None:
     bars = _sample_sessions()[date(2026, 10, 1)][:24]
 
@@ -156,7 +182,8 @@ def test_training_labels_deduct_observed_entry_and_exit_spread() -> None:
     with_spread = build_training_samples(sessions, market="KR", horizon_bars=5,
                                          round_trip_cost_bps=Decimal("20"))
     zero_spread_sessions = {
-        day: [MinuteBar(bar.timestamp, bar.open, bar.high, bar.low, bar.close, bar.volume, Decimal("0"))
+        day: [MinuteBar(bar.timestamp, bar.open, bar.high, bar.low, bar.close, bar.volume,
+                        Decimal("0"), bar.timestamp + timedelta(seconds=30))
               for bar in rows]
         for day, rows in sessions.items()
     }
@@ -178,10 +205,12 @@ def test_training_label_uses_next_bar_open_and_only_known_signal_and_exit_spread
     entry = bars[entry_index]
     entry_open = bars[signal_index].close * Decimal("1.02")
     bars[entry_index] = MinuteBar(entry.timestamp, entry_open, max(entry.high, entry_open),
-                                  entry.low, entry.close, entry.volume, Decimal("11"))
+                                  entry.low, entry.close, entry.volume, Decimal("11"),
+                                  entry.timestamp + timedelta(seconds=30))
     exit_bar = bars[exit_index]
     bars[exit_index] = MinuteBar(exit_bar.timestamp, exit_bar.open, exit_bar.high, exit_bar.low,
-                                 exit_bar.close, exit_bar.volume, Decimal("13"))
+                                 exit_bar.close, exit_bar.volume, Decimal("13"),
+                                 exit_bar.timestamp + timedelta(seconds=30))
 
     samples = build_training_samples(sessions, market="KR", horizon_bars=5,
                                      round_trip_cost_bps=Decimal("20"))
@@ -199,7 +228,7 @@ def test_training_label_charges_signal_bar_spread_available_before_next_open() -
     bars = sessions[session]
     target = bars[20]
     bars[20] = MinuteBar(target.timestamp, target.open, target.high, target.low,
-                         target.close, target.volume, Decimal("100"))
+                         target.close, target.volume, Decimal("100"), target.timestamp + timedelta(seconds=30))
 
     samples = build_training_samples(sessions, market="KR", horizon_bars=5,
                                      round_trip_cost_bps=Decimal("20"))

@@ -55,6 +55,20 @@ def _session_progress(timestamp: datetime, market: str) -> Decimal:
     return min(Decimal(1), max(Decimal(0), Decimal(seconds) / Decimal(duration_seconds)))
 
 
+def _positive_probability(model: Any, features: tuple[float, ...] | list[float]) -> float:
+    """Validate a binary classifier's positive-class output before it can affect a signal."""
+    import numpy as np
+
+    probabilities = np.asarray(model.predict_proba(np.asarray([features], dtype=np.float32)))
+    if probabilities.shape != (1, 2):
+        raise ValueError("model must return one binary-class probability row")
+    if (not np.isfinite(probabilities).all() or np.any(probabilities < 0)
+            or np.any(probabilities > 1)
+            or not np.isclose(float(probabilities[0].sum()), 1.0, rtol=1e-5, atol=1e-6)):
+        raise ValueError("model returned invalid binary-class probabilities")
+    return float(probabilities[0][1])
+
+
 @dataclass(frozen=True)
 class TrainingSample:
     session: date
@@ -118,7 +132,7 @@ def build_training_samples(
             prior = bars[max(0, index - 20):index]
             mean_volume = Decimal(sum(item.volume for item in prior)) / len(prior) if prior else Decimal(0)
             volume_ratio = Decimal(current.volume) / mean_volume if mean_volume else Decimal(0)
-            if current.spread_bps is None:
+            if current.spread_bps is None or current.spread_observed_at is None:
                 continue
             entry = bars[index + 1]
             close = current.close
@@ -144,7 +158,7 @@ def build_training_samples(
             if any(not value.is_finite() for value in feature_values):
                 continue
             future = bars[index + horizon_bars]
-            if future.spread_bps is None:
+            if future.spread_bps is None or future.spread_observed_at is None:
                 continue
             future_return = future.close / entry.open - Decimal(1)
             observed_round_trip_spread = (current.spread_bps + future.spread_bps) / Decimal(2)
@@ -169,8 +183,8 @@ def latest_features(bars: list[MinuteBar], *, market: str, minimum_bars: int = 2
         raise ValueError("market must be KR or US")
     _validate_session(bars, normalized_market)
     current = bars[-1]
-    if current.spread_bps is None:
-        raise ValueError("latest bar must include spread")
+    if current.spread_bps is None or current.spread_observed_at is None:
+        raise ValueError("latest bar must include a timestamped spread")
     index = len(bars) - 1
     prior = bars[max(0, index - 20):index]
     mean_volume = Decimal(sum(item.volume for item in prior)) / len(prior) if prior else Decimal(0)
@@ -499,7 +513,6 @@ class LocalModelRegistry:
             return None
         try:
             import joblib
-            import numpy as np
         except ImportError as exc:
             raise RuntimeError("Install the optional ai dependencies to run inference") from exc
         # Re-read the manifest so the artifact digest is verified immediately before load.
@@ -515,14 +528,7 @@ class LocalModelRegistry:
 
         def entry_filter(bars: list[MinuteBar]) -> bool:
             features = latest_features(bars, market=normalized_market)
-            probabilities = np.asarray(model.predict_proba(np.asarray([features], dtype=np.float32)))
-            if probabilities.shape != (1, 2):
-                raise ValueError("active model must return one binary-class probability row")
-            if (not np.isfinite(probabilities).all() or np.any(probabilities < 0)
-                    or np.any(probabilities > 1)
-                    or not np.isclose(float(probabilities[0].sum()), 1.0, rtol=1e-5, atol=1e-6)):
-                raise ValueError("active model returned invalid binary-class probabilities")
-            return bool(float(probabilities[0][1]) >= threshold)
+            return bool(_positive_probability(model, features) >= threshold)
 
         return metadata["model_id"], entry_filter
 
@@ -1284,11 +1290,10 @@ class LocalModelRegistry:
     def predict_preview(self, model_id: str, bars: list[MinuteBar], *, market: str, symbol: str) -> dict[str, Any]:
         try:
             import joblib
-            import numpy as np
         except ImportError as exc:
             raise RuntimeError("Install the optional ai dependencies to run inference") from exc
         metadata = self.manifest(model_id)
-        if market.upper() != metadata.get("market"):
+        if market.strip().upper() != metadata.get("market"):
             raise ValueError("model market scope does not match the requested market")
         requested_symbol = symbol.strip().upper()
         trained_symbol = str(metadata.get("training_config", {}).get("symbol", "")).strip().upper()
@@ -1299,8 +1304,12 @@ class LocalModelRegistry:
         artifact = self.root / metadata["artifact"]
         model = joblib.load(artifact)
         features = latest_features(bars, market=market)
-        probability = float(model.predict_proba(np.asarray([features], dtype=np.float32))[0][1])
-        threshold = float(metadata["threshold"])
+        probability = _positive_probability(model, features)
+        raw_threshold = metadata.get("threshold")
+        if (isinstance(raw_threshold, bool) or not isinstance(raw_threshold, (int, float))
+                or not math.isfinite(float(raw_threshold)) or not 0 <= float(raw_threshold) <= 1):
+            raise ValueError("model threshold is invalid")
+        threshold = float(raw_threshold)
         return {
             "model_id": model_id,
             "market": metadata["market"],
