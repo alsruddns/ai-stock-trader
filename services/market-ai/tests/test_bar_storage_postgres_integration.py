@@ -69,17 +69,27 @@ def test_postgres_outage_recovers_durable_bar_after_runtime_restart(
     )
     original_port = os.getenv("POSTGRES_PORT")
     runtime_before_restart = PaperSessionFeedMonitor()
+    runtime_before_restart._bar_storage_queue = asyncio.Queue()
     runtime_before_restart._automation_queue = asyncio.Queue()
     runtime_before_restart._set_status(bar_storage_state="RUNNING")
 
     with monkeypatch.context() as outage_environment:
         outage_environment.setenv("POSTGRES_PORT", "1")
-        persisted_during_outage = asyncio.run(runtime_before_restart._persist_bar_with_retry(watch, bar))
 
-    assert persisted_during_outage is False
+        async def queue_during_outage() -> None:
+            worker = asyncio.create_task(runtime_before_restart._bar_storage_loop())
+            runtime_before_restart._queue_bar_storage(watch, bar, {"signal": "BUY_CANDIDATE"}, {})
+            await asyncio.wait_for(runtime_before_restart._bar_storage_queue.join(), timeout=30)
+            worker.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await worker
+
+        asyncio.run(queue_during_outage())
+
     assert runtime_before_restart._bar_write_outbox.count() == 1
     assert runtime_before_restart.status()["bar_storage_error"] == "POSTGRES_WRITE_FAILED"
     assert runtime_before_restart.status()["automation_state"] == "BLOCKED"
+    assert runtime_before_restart._automation_queue.empty()
 
     if original_port is None:
         monkeypatch.delenv("POSTGRES_PORT", raising=False)
@@ -87,6 +97,7 @@ def test_postgres_outage_recovers_durable_bar_after_runtime_restart(
         monkeypatch.setenv("POSTGRES_PORT", original_port)
     runtime_after_restart = PaperSessionFeedMonitor()
     runtime_after_restart._bar_storage_queue = asyncio.Queue()
+    runtime_after_restart._automation_queue = asyncio.Queue()
 
     async def restore_and_drain() -> None:
         assert await runtime_after_restart._restore_bar_write_outbox() == 1
@@ -103,6 +114,7 @@ def test_postgres_outage_recovers_durable_bar_after_runtime_restart(
     assert runtime_after_restart._bar_write_outbox.count() == 0
     assert runtime_after_restart.status()["bar_storage_state"] == "RUNNING"
     assert runtime_after_restart.status()["bar_storage_pending_count"] == 0
+    assert runtime_after_restart._automation_queue.empty()
     with psycopg.connect(**_connection_args()) as connection:
         row = connection.execute(
             """SELECT count(*), min(source), min(spread_bps), min(spread_observed_at)
