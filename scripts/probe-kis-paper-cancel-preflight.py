@@ -33,6 +33,22 @@ def _has_valid_cancel_quantity(rows: object) -> bool:
     return False
 
 
+def _has_positive_cancel_quantity(rows: object) -> bool:
+    candidates = rows if isinstance(rows, list) else [rows] if isinstance(rows, dict) else []
+    for row in candidates:
+        if not isinstance(row, dict):
+            continue
+        for key, value in row.items():
+            if not isinstance(key, str) or key.lower() != "psbl_qty" or isinstance(value, bool):
+                continue
+            if isinstance(value, int) and value > 0:
+                return True
+            if isinstance(value, str) and re.fullmatch(r"\d{1,12}", value.strip()):
+                if int(value.strip()) > 0:
+                    return True
+    return False
+
+
 def main(transaction_id: str = "TTTC0084R") -> int:
     # The current official sample uses TTTC0084R. The official legacy sample
     # uses TTTC8036R and its auth helper maps T-prefixed IDs to V-prefixed IDs
@@ -116,8 +132,10 @@ def main(transaction_id: str = "TTTC0084R") -> int:
         rows = payload.get("output") if isinstance(payload, dict) else None
         result["returned_row_count"] = len(rows) if isinstance(rows, list) else (1 if isinstance(rows, dict) else 0)
         result["cancel_quantity_field_observed"] = _has_valid_cancel_quantity(rows)
+        result["positive_cancel_quantity_available"] = _has_positive_cancel_quantity(rows)
         result["status"] = (
-            "valid_preflight_response" if successful and result["cancel_quantity_field_observed"] else
+            "valid_preflight_response" if successful and result["positive_cancel_quantity_available"] else
+            "no_cancelable_quantity" if successful and result["cancel_quantity_field_observed"] else
             "response_incomplete" if successful else
             "temporary_server_error" if result["broker_code"] == "EGW00002" else
             "broker_error_unclassified"

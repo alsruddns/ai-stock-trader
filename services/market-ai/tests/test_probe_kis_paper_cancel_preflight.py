@@ -93,6 +93,7 @@ def test_paper_preflight_probe_uses_official_transaction_id_and_reports_only_san
     assert '"transaction_id": "TTTC0084R"' in output
     assert '"returned_row_count": 1' in output
     assert '"cancel_quantity_field_observed": true' in output
+    assert '"positive_cancel_quantity_available": true' in output
     assert '"order_or_cancel_sent": false' in output
     assert "private-order-number" not in output
     assert "test-app-secret" not in output
@@ -248,4 +249,22 @@ def test_successful_preflight_without_a_valid_cancel_quantity_is_incomplete(
     assert '"cancel_quantity_field_observed": false' in output
     assert '"order_or_cancel_sent": false' in output
     assert "private-order-number" not in output
+    assert client.closed
+
+
+@pytest.mark.parametrize("zero_quantity", [0, "0"])
+def test_zero_cancel_quantity_is_not_reported_as_cancelable(
+    monkeypatch: pytest.MonkeyPatch, capsys, zero_quantity: int | str,
+) -> None:
+    client = _configure_safe_probe(monkeypatch, {
+        "rt_cd": "0", "msg_cd": "OK", "output": [{"psbl_qty": zero_quantity}],
+    })
+
+    assert probe.main() == 3
+
+    output = capsys.readouterr().out
+    assert '"status": "no_cancelable_quantity"' in output
+    assert '"cancel_quantity_field_observed": true' in output
+    assert '"positive_cancel_quantity_available": false' in output
+    assert '"order_or_cancel_sent": false' in output
     assert client.closed
