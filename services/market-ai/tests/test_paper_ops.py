@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from app.paper_ops import (PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate,
-                           exchange_session_window, size_paper_order)
+                           exchange_session_window, size_paper_order, size_paper_order_diagnostic)
 from app.quant import MinuteBar
 from app.market_calendar import exchange_continuous_session_window, latest_closed_session_date
 
@@ -101,6 +101,33 @@ def test_order_sizing_respects_risk_position_cash_and_broker_notional_caps() -> 
         available_cash=Decimal("9000"), max_order_notional=Decimal("150"),
     )
     assert broker_limited is not None and broker_limited.quantity == 1
+
+
+def test_order_sizing_diagnostic_identifies_each_cap_below_one_share() -> None:
+    result = size_paper_order_diagnostic(
+        price=Decimal("1100000"), atr=Decimal("2"), equity=Decimal("10000000"),
+        available_cash=Decimal("10000000"), max_order_notional=Decimal("1000000"),
+    )
+
+    assert result.sizing is None
+    assert result.limiting_constraints == ("POSITION_ALLOCATION", "ORDER_NOTIONAL")
+    assert result.rejection_reason == "POSITION_ALLOCATION_AND_ORDER_NOTIONAL_LIMITS_BELOW_ONE_SHARE"
+    assert size_paper_order(
+        price=Decimal("1100000"), atr=Decimal("2"), equity=Decimal("10000000"),
+        available_cash=Decimal("10000000"), max_order_notional=Decimal("1000000"),
+    ) is None
+
+    invalid = size_paper_order_diagnostic(
+        price=Decimal("NaN"), atr=Decimal("2"), equity=Decimal("10000000"),
+        available_cash=Decimal("10000000"), max_order_notional=Decimal("1000000"),
+    )
+    assert invalid.rejection_reason == "INVALID_SIZING_INPUT"
+
+    non_positive = size_paper_order_diagnostic(
+        price=Decimal("1100000"), atr=Decimal("2"), equity=Decimal("0"),
+        available_cash=Decimal("10000000"), max_order_notional=Decimal("1000000"),
+    )
+    assert non_positive.rejection_reason == "NON_POSITIVE_SIZING_INPUT"
 
 
 def test_order_sizing_fails_closed_without_funds_or_positive_inputs() -> None:

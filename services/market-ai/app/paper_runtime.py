@@ -42,7 +42,10 @@ from .real_signal_orders import (RealSignalOrderError, RealSignalOrderOutcomeUnk
                                  real_signal_submission_enabled)
 from .market_calendar import exchange_continuous_session_window
 from .market_scope import allowed_operational_markets
-from .paper_ops import PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate, exchange_session_window, size_paper_order
+from .paper_ops import (
+    PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate, exchange_session_window,
+    size_paper_order_diagnostic,
+)
 from .paper_risk import baseline_capture_open, daily_loss_percent, paper_equity_snapshot
 
 SUBSCRIPTION_ACK_TIMEOUT_SECONDS = 15
@@ -1951,13 +1954,16 @@ class PaperSessionFeedMonitor:
             atr = _atr(history, quant_config.atr_period)
             max_notional = Decimal(os.getenv("MAX_ORDER_NOTIONAL_KRW" if currency == "KRW" else "MAX_ORDER_NOTIONAL_USD",
                                             "1000000" if currency == "KRW" else "100"))
-            sizing = size_paper_order(price=bar.close, atr=atr, equity=snapshot.equity,
-                                      available_cash=Decimal(str(cash_row["balance"])),
-                                      max_order_notional=max_notional, limits=limits)
+            sizing_result = size_paper_order_diagnostic(
+                price=bar.close, atr=atr, equity=snapshot.equity,
+                available_cash=Decimal(str(cash_row["balance"])),
+                max_order_notional=max_notional, limits=limits,
+            )
         except (KeyError, ValueError, ArithmeticError):
             return {"state": "BLOCKED", "reason": "PAPER_ORDER_SIZING_FAILED", "executable": False}
+        sizing = sizing_result.sizing
         if sizing is None:
-            return {"state": "BLOCKED", "reason": "PAPER_ORDER_SIZE_ZERO", "executable": False}
+            return {"state": "BLOCKED", "reason": sizing_result.rejection_reason, "executable": False}
         target = bar.close + sizing.stop_distance * quant_config.reward_risk_multiple
         entry_decision = PaperEntryDecision(
             market=watch.market, symbol=watch.symbol, currency=currency, signal="BUY_CANDIDATE",

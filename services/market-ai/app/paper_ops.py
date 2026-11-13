@@ -66,6 +66,25 @@ class PaperOrderSizing:
 
 
 @dataclass(frozen=True)
+class PaperOrderSizingResult:
+    sizing: PaperOrderSizing | None
+    limiting_constraints: tuple[str, ...] = ()
+    input_error: str | None = None
+
+    @property
+    def rejection_reason(self) -> str | None:
+        if self.sizing is not None:
+            return None
+        if self.input_error is not None:
+            return self.input_error
+        if not self.limiting_constraints:
+            return "PAPER_ORDER_SIZE_ZERO"
+        if len(self.limiting_constraints) == 1:
+            return f"{self.limiting_constraints[0]}_LIMIT_BELOW_ONE_SHARE"
+        return f"{'_AND_'.join(self.limiting_constraints)}_LIMITS_BELOW_ONE_SHARE"
+
+
+@dataclass(frozen=True)
 class PaperExitCandidate:
     price: Decimal
     reason: str
@@ -93,20 +112,37 @@ def size_paper_order(
     max_order_notional: Decimal, limits: PaperOpsLimits = PaperOpsLimits(),
 ) -> PaperOrderSizing | None:
     """Size a long-only paper entry under risk, concentration, cash, and notional caps."""
-    if min(price, atr, equity, available_cash, max_order_notional) <= 0:
-        return None
+    return size_paper_order_diagnostic(
+        price=price, atr=atr, equity=equity, available_cash=available_cash,
+        max_order_notional=max_order_notional, limits=limits,
+    ).sizing
+
+
+def size_paper_order_diagnostic(
+    *, price: Decimal, atr: Decimal, equity: Decimal, available_cash: Decimal,
+    max_order_notional: Decimal, limits: PaperOpsLimits = PaperOpsLimits(),
+) -> PaperOrderSizingResult:
+    """Size a paper order and expose only which approved cap prevented a one-share entry."""
+    inputs = (price, atr, equity, available_cash, max_order_notional)
+    if any(not isinstance(value, Decimal) or not value.is_finite() for value in inputs):
+        return PaperOrderSizingResult(None, input_error="INVALID_SIZING_INPUT")
+    if min(inputs) <= 0:
+        return PaperOrderSizingResult(None, input_error="NON_POSITIVE_SIZING_INPUT")
     risk_budget = equity * limits.trade_risk_equity_pct / Decimal(100)
     stop_distance = atr * limits.atr_stop_multiple
-    caps = (
-        risk_budget / stop_distance,
-        equity * limits.max_position_equity_pct / Decimal(100) / price,
-        available_cash / price,
-        max_order_notional / price,
+    caps = {
+        "TRADE_RISK": int(risk_budget / stop_distance),
+        "POSITION_ALLOCATION": int(equity * limits.max_position_equity_pct / Decimal(100) / price),
+        "SHARED_CASH": int(available_cash / price),
+        "ORDER_NOTIONAL": int(max_order_notional / price),
+    }
+    limiting = tuple(name for name, quantity_limit in caps.items() if quantity_limit <= 0)
+    if limiting:
+        return PaperOrderSizingResult(None, limiting)
+    quantity = min(caps.values())
+    return PaperOrderSizingResult(
+        PaperOrderSizing(quantity, price * quantity, stop_distance, risk_budget),
     )
-    quantity = int(min(caps))
-    if quantity <= 0:
-        return None
-    return PaperOrderSizing(quantity, price * quantity, stop_distance, risk_budget)
 
 
 @dataclass(frozen=True)

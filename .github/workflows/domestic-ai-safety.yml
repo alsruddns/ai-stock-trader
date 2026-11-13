@@ -14,6 +14,7 @@ on:
       - 'services/market-ai/app/market_scope.py'
       - 'services/market-ai/app/kis.py'
       - 'services/market-ai/app/paper_runtime.py'
+      - 'services/market-ai/app/paper_ops.py'
       - 'services/market-ai/app/portfolio_backtest.py'
       - 'services/market-ai/app/quant.py'
       - 'services/market-ai/app/session_quality.py'
@@ -30,6 +31,7 @@ on:
       - 'services/market-ai/tests/test_market_scope.py'
       - 'services/market-ai/tests/test_kis.py'
       - 'services/market-ai/tests/test_paper_runtime.py'
+      - 'services/market-ai/tests/test_paper_ops.py'
       - 'services/market-ai/tests/test_quant.py'
       - 'services/market-ai/tests/test_session_quality.py'
       - 'services/market-ai/tests/test_snapshot_store.py'
@@ -140,6 +142,12 @@ jobs:
           tests/test_paper_runtime.py::test_closed_bars_update_non_executable_quant_decision_and_reset_each_session
           tests/test_paper_runtime.py::test_quant_candidate_is_held_without_an_active_approved_market_model
           tests/test_paper_runtime.py::test_approved_ai_candidate_publishes_atr_stop_distance_for_server_risk_check
+          tests/test_paper_runtime.py::test_unaffordable_single_share_entry_reports_position_and_order_caps
+      - name: Run domestic PAPER order sizing diagnostics only
+        working-directory: services/market-ai
+        run: >-
+          python -m pytest -q
+          tests/test_paper_ops.py::test_order_sizing_diagnostic_identifies_each_cap_below_one_share
       - name: Run domestic final-minute persistence and shutdown tests only
         working-directory: services/market-ai
         run: >-

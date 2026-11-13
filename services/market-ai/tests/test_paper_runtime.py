@@ -2479,6 +2479,29 @@ def test_approved_candidate_enters_only_local_paper_ledger_after_risk_gates(monk
     assert broker.last_order["modelId"] == "approved-kr-model"
 
 
+def test_unaffordable_single_share_entry_reports_position_and_order_caps(monkeypatch) -> None:
+    runtime, watch, bar, _quotes, broker = _prepare_entry_runtime(monkeypatch, cash="10000000", baseline="10000000")
+    price = Decimal("1100000")
+    expensive_bar = MinuteBar(
+        bar.timestamp, price, price + Decimal("1000"), price - Decimal("1000"),
+        price, 1000, Decimal("5"),
+    )
+    quotes = {("KR", "005930"): (price, datetime.now(ZoneInfo("UTC")))}
+
+    result = runtime._manage_strategy_entry(
+        broker, PaperAutoTrader(broker), watch, expensive_bar,
+        {"signal": "BUY_CANDIDATE", "model_id": "approved-kr-model"}, quotes, PaperOpsLimits(),
+    )
+
+    assert result == {
+        "state": "BLOCKED",
+        "reason": "POSITION_ALLOCATION_AND_ORDER_NOTIONAL_LIMITS_BELOW_ONE_SHARE",
+        "executable": False,
+    }
+    assert broker.created_orders == 0
+    assert broker.recorded_fills == 0
+
+
 def test_unconfigured_cost_assumptions_block_paper_entry_before_broker_reads(monkeypatch) -> None:
     runtime, watch, bar, quotes, broker = _prepare_entry_runtime(monkeypatch)
     for suffix in ("BUY_COMMISSION_BPS", "SELL_COMMISSION_BPS", "SELL_TAX_BPS", "SLIPPAGE_BPS", "ROUND_TRIP_COST_BPS"):
