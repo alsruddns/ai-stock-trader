@@ -74,6 +74,17 @@ class KisBrokerOrderSnapshotValidatorTest {
                 new KisBrokerOrderSnapshot(0, 2, new BigDecimal("69900"), false, false)));
     }
 
+    @Test
+    void overflowingQuantitySumCannotMatchTheRequestedQuantity() {
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, Integer.MAX_VALUE,
+                        new BigDecimal("70000"), Currency.KRW), null);
+
+        assertFalse(KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent,
+                new KisBrokerOrderSnapshot(1_500_000_000, 1_000_000_000,
+                        new BigDecimal("70000"), false, false)));
+    }
+
     private boolean matches(KisOrderIntent intent, String json) throws Exception {
         return KisBrokerOrderSnapshotValidator.matchesBrokerIdentity(mapper.readTree(json), intent);
     }

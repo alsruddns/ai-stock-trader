@@ -9,9 +9,11 @@ final class KisBrokerOrderSnapshotValidator {
     private KisBrokerOrderSnapshotValidator() { }
 
     static boolean matchesOrderQuantity(KisOrderIntent intent, KisBrokerOrderSnapshot snapshot) {
-        if (intent == null || snapshot == null || snapshot.filledQuantity() < 0
+        if (intent == null || snapshot == null) return false;
+        long accountedQuantity = (long) snapshot.filledQuantity() + snapshot.remainingQuantity();
+        if (snapshot.filledQuantity() < 0
                 || snapshot.remainingQuantity() < 0 || snapshot.filledQuantity() > intent.getQuantity()
-                || snapshot.filledQuantity() + snapshot.remainingQuantity() > intent.getQuantity()
+                || accountedQuantity > intent.getQuantity()
                 || (snapshot.averageFillPrice() != null && snapshot.averageFillPrice().signum() < 0)
                 || (snapshot.filledQuantity() == 0 && snapshot.averageFillPrice() != null
                         && snapshot.averageFillPrice().signum() > 0)
@@ -24,7 +26,7 @@ final class KisBrokerOrderSnapshotValidator {
         if (snapshot.cancelled()) return snapshot.remainingQuantity() == 0
                 && snapshot.filledQuantity() < intent.getQuantity();
         if (snapshot.rejected()) return snapshot.filledQuantity() == 0 && snapshot.remainingQuantity() == 0;
-        return snapshot.filledQuantity() + snapshot.remainingQuantity() == intent.getQuantity();
+        return accountedQuantity == intent.getQuantity();
     }
 
     static boolean matchesBrokerIdentity(JsonNode row, KisOrderIntent intent) {

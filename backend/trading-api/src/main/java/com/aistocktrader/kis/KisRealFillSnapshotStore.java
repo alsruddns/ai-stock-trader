@@ -20,7 +20,8 @@ public class KisRealFillSnapshotStore {
     public void record(KisOrderIntent intent, KisBrokerOrderSnapshot snapshot) {
         if (intent == null || snapshot == null || intent.getEnvironment() != KisEnvironment.REAL
                 || snapshot.filledQuantity() <= 0 || snapshot.remainingQuantity() < 0
-                || snapshot.filledQuantity() + snapshot.remainingQuantity() > intent.getQuantity()
+                || snapshot.filledQuantity() > intent.getQuantity()
+                || (long) snapshot.filledQuantity() + snapshot.remainingQuantity() > intent.getQuantity()
                 || snapshot.averageFillPrice() == null || snapshot.averageFillPrice().signum() <= 0) return;
         Integer previousFill = intent.getFilledQuantity();
         if (previousFill != null && snapshot.filledQuantity() < previousFill) return;

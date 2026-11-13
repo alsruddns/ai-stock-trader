@@ -143,7 +143,19 @@ public class KisOrderIntent {
         updatedAt = Instant.now();
     }
     public void reconcile(int filled, int remaining, BigDecimal averagePrice, boolean cancelled, boolean rejected) {
-        if (filled < 0 || remaining < 0 || filled > quantity || filled + remaining > quantity) return;
+        long accountedQuantity = (long) filled + remaining;
+        if (filled < 0 || remaining < 0 || filled > quantity || accountedQuantity > quantity
+                || (cancelled && rejected)) return;
+        if (cancelled) {
+            if (remaining != 0 || filled >= quantity) return;
+        } else if (rejected) {
+            if (filled != 0 || remaining != 0) return;
+        } else if (accountedQuantity != quantity) {
+            return;
+        }
+        if ((averagePrice != null && averagePrice.signum() < 0)
+                || (filled == 0 && averagePrice != null && averagePrice.signum() > 0)
+                || (filled > 0 && (averagePrice == null || averagePrice.signum() <= 0))) return;
         if (filledQuantity != null && filled < filledQuantity) return;
         boolean cancellationRequested = status == KisOrderStatus.CANCEL_PENDING;
         boolean cancellationRejected = cancellationRequested && brokerResponseCode != null

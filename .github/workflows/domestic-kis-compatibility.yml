@@ -96,6 +96,9 @@ jobs:
       - name: Run KIS broker snapshot validation before order persistence
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=KisOrderIntentStoreTest test
+      - name: Run KIS order quantity invariant tests only
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentTest,KisBrokerOrderSnapshotValidatorTest,KisRealFillSnapshotStoreTest' test
       - name: Run domestic-only execution notice subscription scope test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=KisRealExecutionNoticeClientTest#domesticOperationalScopeSubscribesOnlyToDomesticExecutionNotices test

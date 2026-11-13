@@ -61,6 +61,20 @@ class KisOrderIntentTest {
     }
 
     @Test
+    void inconsistentOpenSnapshotCannotMutateIntentState() {
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.PAPER,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
+                        new BigDecimal("70000"), Currency.KRW), null);
+
+        intent.reconcile(1, 1, new BigDecimal("69900"), false, false);
+
+        assertEquals(0, intent.getFilledQuantity());
+        assertEquals(3, intent.getRemainingQuantity());
+        assertEquals(KisOrderStatus.SUBMITTING, intent.getStatus());
+        assertNull(intent.getAverageFillPrice());
+    }
+
+    @Test
     void realBuyExitThresholdsAreDerivedFromPersistedPlanAndObservedAverageFill() {
         KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL,
                 new OrderRequest(Market.US, "AAPL", OrderSide.BUY, 4,
