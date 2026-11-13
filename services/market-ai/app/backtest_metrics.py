@@ -64,6 +64,7 @@ def summarize_sessions(sessions: Sequence[BacktestResult]) -> dict[str, object]:
     if len({(session.market, session.symbol, session.session) for session in sessions}) != len(sessions):
         raise ValueError("backtest session summaries must have unique market, symbol, and date keys")
     net_values: list[Decimal] = []
+    return_bps_values: list[Decimal] = []
     traded_sessions = 0
     for session in sessions:
         values = (session.gross_pnl, session.costs, session.net_pnl)
@@ -83,6 +84,14 @@ def summarize_sessions(sessions: Sequence[BacktestResult]) -> dict[str, object]:
         net_values.append(session.net_pnl)
         if session.trades:
             traded_sessions += 1
+            traded_notional = Decimal(0)
+            for trade in session.trades:
+                if (isinstance(trade.quantity, bool) or not isinstance(trade.quantity, int)
+                        or trade.quantity <= 0 or not isinstance(trade.entry_price, Decimal)
+                        or not trade.entry_price.is_finite() or trade.entry_price <= 0):
+                    raise ValueError("backtest session trades require positive quantity and entry price")
+                traded_notional += trade.entry_price * trade.quantity
+            return_bps_values.append(session.net_pnl * Decimal(10_000) / traded_notional)
 
     return {
         "session_count": len(sessions),
@@ -95,7 +104,21 @@ def summarize_sessions(sessions: Sequence[BacktestResult]) -> dict[str, object]:
         "median_net_pnl_per_session": None if not net_values else str(median(net_values)),
         "worst_session_net_pnl": None if not net_values else str(min(net_values)),
         "best_session_net_pnl": None if not net_values else str(max(net_values)),
+        "sessions_with_return": len(return_bps_values),
+        "mean_net_return_bps_on_traded_notional": (
+            None if not return_bps_values else str(_mean(return_bps_values))
+        ),
+        "median_net_return_bps_on_traded_notional": (
+            None if not return_bps_values else str(median(return_bps_values))
+        ),
+        "worst_session_net_return_bps_on_traded_notional": (
+            None if not return_bps_values else str(min(return_bps_values))
+        ),
+        "best_session_net_return_bps_on_traded_notional": (
+            None if not return_bps_values else str(max(return_bps_values))
+        ),
         "pnl_basis": "currency PnL per independent session; no capital compounding",
+        "return_basis": "net currency PnL divided by summed entry notional of traded shares; no-trade sessions excluded",
     }
 
 

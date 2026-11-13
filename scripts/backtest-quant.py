@@ -85,6 +85,11 @@ def main() -> int:
             "signals": result.signals, "trades": len(result.trades),
             "gross_pnl": str(result.gross_pnl),
             "estimated_costs": str(result.costs), "net_pnl": str(result.net_pnl),
+            "net_return_bps_on_traded_notional": (
+                str(result.net_pnl * Decimal(10_000) / sum(
+                    (trade.entry_price * trade.quantity for trade in result.trades), Decimal(0)
+                )) if result.trades else None
+            ),
         } for _session, _bars, result, coverage in session_results],
         "summary": {
             "session_count": len(results), "bar_count": total_bars,

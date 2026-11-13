@@ -108,6 +108,11 @@ def test_session_performance_keeps_no_trade_sessions_and_bad_days_visible() -> N
     assert Decimal(summary["median_net_pnl_per_session"]) == 0
     assert Decimal(summary["worst_session_net_pnl"]) == -15
     assert Decimal(summary["best_session_net_pnl"]) == 15
+    assert summary["sessions_with_return"] == 2
+    assert Decimal(summary["mean_net_return_bps_on_traded_notional"]) == 0
+    assert Decimal(summary["median_net_return_bps_on_traded_notional"]) == 0
+    assert Decimal(summary["worst_session_net_return_bps_on_traded_notional"]) < 0
+    assert Decimal(summary["best_session_net_return_bps_on_traded_notional"]) > 0
 
 
 def test_session_performance_rejects_duplicate_dates_and_inconsistent_net_pnl() -> None:
