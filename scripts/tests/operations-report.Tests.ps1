@@ -5,8 +5,9 @@ Describe 'Domestic PAPER session status failure summary' {
     It 'allows only bounded retry categories and omits transport details' {
         $path = Join-Path $TestDrive 'domestic-session-monitor.jsonl'
         @{
-            result = 'failed'; recorded_at_utc = '2026-11-12T07:10:00Z'; market_session = 'KR'
-            selected_feed = 'paper'; market_session_date = '2026-11-12';
+            result = 'failed'; recorded_at_utc = '2026-11-13T07:10:00Z'; market_session = 'KR'
+            selected_feed = 'paper'; market_session_date = '2026-11-13';
+            max_status_unavailable_seconds = 59.8
             status_read_retry_count = 2
             status_read_failure_categories = @{ TIMEOUT = 1; HTTP_503 = 1; appSecret = 9 }
             status_read_last_failure_category = 'HTTP_503'
@@ -18,11 +19,26 @@ Describe 'Domestic PAPER session status failure summary' {
         $json = $summary | ConvertTo-Json -Compress -Depth 5
 
         $summary.state | Should Be 'FAILED'
+        $summary.maxStatusUnavailableSeconds | Should Be 59.8
         $summary.statusReadRetryCount | Should Be 2
         $summary.statusReadLastFailureCategory | Should Be 'HTTP_503'
         @($summary.statusReadFailureCategories | Where-Object { $_.category -eq 'TIMEOUT' })[0].count | Should Be 1
         @($summary.statusReadFailureCategories | Where-Object { $_.category -eq 'HTTP_503' })[0].count | Should Be 1
         $json | Should Not Match 'appSecret|must-not-leak|exception_detail'
+    }
+
+    It 'omits missing or out-of-range unavailable duration values' {
+        $path = Join-Path $TestDrive 'domestic-session-monitor-invalid-duration.jsonl'
+        foreach ($value in @(-1, 601, 'NaN', 'Infinity')) {
+            @{
+                result = 'failed'; recorded_at_utc = '2026-11-13T07:10:00Z'; market_session = 'KR'
+                selected_feed = 'paper'; market_session_date = '2026-11-13'
+                max_status_unavailable_seconds = $value
+            } | ConvertTo-Json -Depth 5 -Compress | Set-Content -LiteralPath $path -Encoding utf8
+
+            $summary = Get-AiTraderDomesticSessionMonitorSummary -Path $path
+            $summary.maxStatusUnavailableSeconds | Should Be $null
+        }
     }
 }
 

@@ -230,7 +230,8 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         sessionCloseReached = $null; sessionQualityStatus = $null; ticksDelta = $null; barsDelta = $null
         orderbookFramesDelta = $null; orderbookUpdatesDelta = $null
         maxNoTickSeconds = $null; failureStage = $null; failureCode = $null
-        statusReadRetryCount = $null; statusReadFailureCategories = @(); statusReadLastFailureCategory = $null
+        maxStatusUnavailableSeconds = $null; statusReadRetryCount = $null
+        statusReadFailureCategories = @(); statusReadLastFailureCategory = $null
         barStorageDiagnosticAvailable = $false; barStorageReady = $null; barStorageState = $null
         barStoragePendingCount = $null; barStorageRetryCount = $null; barStorageReason = 'STATUS_UNAVAILABLE'
         symbolMarketDataStatus = 'UNAVAILABLE'; symbolMarketData = @()
@@ -270,6 +271,11 @@ function Get-AiTraderDomesticSessionMonitorSummary {
     $statusReadRetryCount = 0
     $hasStatusReadRetryCount = [int]::TryParse([string]$record.status_read_retry_count, [ref]$statusReadRetryCount) -and
         $statusReadRetryCount -ge 0 -and $statusReadRetryCount -le 1000
+    $maxStatusUnavailableSeconds = 0.0
+    $hasMaxStatusUnavailable = [double]::TryParse([string]$record.max_status_unavailable_seconds,
+        [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$maxStatusUnavailableSeconds) -and
+        -not [double]::IsNaN($maxStatusUnavailableSeconds) -and -not [double]::IsInfinity($maxStatusUnavailableSeconds) -and
+        $maxStatusUnavailableSeconds -ge 0 -and $maxStatusUnavailableSeconds -le 600
     $knownStatusReadFailureCategories = @(
         'TIMEOUT', 'CONNECTION_FAILURE', 'DNS_FAILURE', 'TLS_FAILURE', 'CONNECTION_CLOSED',
         'NETWORK_FAILURE', 'REQUEST_FAILURE'
@@ -402,6 +408,7 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         maxNoTickSeconds = if ($hasMaxNoTick) { [Math]::Round($maxNoTick, 1) } else { $null }
         failureStage = if ($record.failure_stage -in $knownStages) { [string]$record.failure_stage } else { $null }
         failureCode = if ($record.failure_code -in $knownFailureCodes) { [string]$record.failure_code } else { $null }
+        maxStatusUnavailableSeconds = if ($hasMaxStatusUnavailable) { [Math]::Round($maxStatusUnavailableSeconds, 1) } else { $null }
         statusReadRetryCount = if ($hasStatusReadRetryCount) { $statusReadRetryCount } else { $null }
         statusReadFailureCategories = @($statusReadFailureCategories.ToArray())
         statusReadLastFailureCategory = $statusReadLastFailureCategory
