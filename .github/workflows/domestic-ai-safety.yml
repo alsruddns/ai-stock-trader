@@ -5,6 +5,7 @@ on:
     branches: [develop]
     paths:
       - 'services/market-ai/app/ai_pipeline.py'
+      - 'services/market-ai/app/bar_write_outbox.py'
       - 'services/market-ai/app/data_export.py'
       - 'services/market-ai/app/data_import.py'
       - 'services/market-ai/app/data_provenance.py'
@@ -17,6 +18,7 @@ on:
       - 'services/market-ai/app/session_quality.py'
       - 'services/market-ai/app/snapshot_store.py'
       - 'services/market-ai/tests/test_ai_pipeline.py'
+      - 'services/market-ai/tests/test_bar_write_outbox.py'
       - 'services/market-ai/tests/test_ai_portfolio_integration.py'
       - 'services/market-ai/tests/test_portfolio_backtest.py'
       - 'services/market-ai/tests/test_api.py'
