@@ -73,7 +73,7 @@ def _configure_safe_probe(
     monkeypatch.setattr(probe, "load_local_environment", lambda _repository: Path(".env_local"))
     monkeypatch.setattr(probe.KisSettings, "from_environment", classmethod(lambda _cls, _environment: settings))
     client = _FakeClient(settings, payload, status_code)
-    client.expected_transaction_id = transaction_id
+    client.expected_transaction_id = f"V{transaction_id[1:]}" if transaction_id.startswith("T") else transaction_id
     monkeypatch.setattr(probe, "KisReadOnlyClient", lambda _settings: client)
     return client
 
@@ -91,6 +91,7 @@ def test_paper_preflight_probe_uses_official_transaction_id_and_reports_only_san
     assert '"status": "valid_preflight_response"' in output
     assert '"broker_result_code": "0"' in output
     assert '"transaction_id": "TTTC0084R"' in output
+    assert '"request_transaction_id": "VTTC0084R"' in output
     assert '"returned_row_count": 1' in output
     assert '"cancel_quantity_field_observed": true' in output
     assert '"positive_cancel_quantity_available": true' in output
@@ -132,6 +133,7 @@ def test_current_transaction_can_query_order_sequence_without_submitting_orders(
 
     output = capsys.readouterr().out
     assert '"query_kind": "current_order_sequence"' in output
+    assert '"request_transaction_id": "VTTC0084R"' in output
     assert '"status": "response_incomplete"' in output
     assert '"order_or_cancel_sent": false' in output
     assert client.closed
@@ -177,7 +179,7 @@ def test_probe_fails_closed_before_client_creation_when_switches_are_unsafe(
     assert '"reason": "SAFETY_SWITCHES_NOT_READ_ONLY"' in capsys.readouterr().out
 
 
-def test_unclassified_paper_service_code_is_not_treated_as_cancelable(
+def test_missing_paper_service_code_is_reported_without_unlocking_cancel(
     monkeypatch: pytest.MonkeyPatch, capsys,
 ) -> None:
     client = _configure_safe_probe(monkeypatch, {
@@ -187,10 +189,32 @@ def test_unclassified_paper_service_code_is_not_treated_as_cancelable(
     assert probe.main() == 3
 
     output = capsys.readouterr().out
-    assert '"status": "broker_error_unclassified"' in output
-    assert '"reason": "BROKER_ERROR_NOT_CLASSIFIED"' in output
+    assert '"status": "service_unavailable"' in output
+    assert '"reason": "BROKER_SERVICE_CODE_NOT_FOUND"' in output
     assert '"broker_code": "OPSQ0002"' in output
     assert '"broker_result_code": "1"' in output
+    assert "private broker response" not in output
+    assert client.closed
+
+
+def test_opsq0002_exception_is_reported_as_missing_service_without_exception_text(
+    monkeypatch: pytest.MonkeyPatch, capsys,
+) -> None:
+    client = _configure_safe_probe(monkeypatch, {})
+
+    def raise_broker_error(*_args: object, **_kwargs: object) -> None:
+        raise probe.KisApiError(
+            "private broker response", http_status=200, broker_code="OPSQ0002",
+        )
+
+    monkeypatch.setattr(client, "_get", raise_broker_error)
+
+    assert probe.main() == 3
+
+    output = capsys.readouterr().out
+    assert '"status": "service_unavailable"' in output
+    assert '"reason": "BROKER_SERVICE_CODE_NOT_FOUND"' in output
+    assert '"broker_code": "OPSQ0002"' in output
     assert "private broker response" not in output
     assert client.closed
 

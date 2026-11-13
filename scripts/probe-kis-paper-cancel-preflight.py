@@ -91,7 +91,8 @@ def main(transaction_id: str = "TTTC0084R", query_kind: str | None = None) -> in
         return 2
 
     client = KisReadOnlyClient(settings)
-    request_transaction_id = "VTTC8036R" if transaction_id == "TTTC8036R" else transaction_id
+    # The official kis_auth helper converts real-style T/J/C IDs to V IDs on PAPER.
+    request_transaction_id = f"V{transaction_id[1:]}"
     selected_query_kind = "legacy_order_sequence" if transaction_id == "TTTC8036R" else f"current_{query_kind or 'item_sequence'}"
     result = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
@@ -143,10 +144,13 @@ def main(transaction_id: str = "TTTC0084R", query_kind: str | None = None) -> in
             "no_cancelable_quantity" if successful and result["cancel_quantity_field_observed"] else
             "response_incomplete" if successful else
             "temporary_server_error" if result["broker_code"] == "EGW00002" else
+            "service_unavailable" if result["broker_code"] == "OPSQ0002" else
             "broker_error_unclassified"
         )
         if result["status"] == "temporary_server_error":
             result["reason"] = "TEMPORARY_BROKER_SERVER_ERROR"
+        elif result["status"] == "service_unavailable":
+            result["reason"] = "BROKER_SERVICE_CODE_NOT_FOUND"
         elif result["status"] == "broker_error_unclassified":
             result["reason"] = "BROKER_ERROR_NOT_CLASSIFIED"
         print(json.dumps(result, ensure_ascii=False))
@@ -173,6 +177,9 @@ def main(transaction_id: str = "TTTC0084R", query_kind: str | None = None) -> in
         if result.get("broker_code") == "EGW00002":
             result["status"] = "temporary_server_error"
             result["reason"] = "TEMPORARY_BROKER_SERVER_ERROR"
+        elif result.get("broker_code") == "OPSQ0002":
+            result["status"] = "service_unavailable"
+            result["reason"] = "BROKER_SERVICE_CODE_NOT_FOUND"
         elif result.get("broker_code"):
             result["status"] = "broker_error_unclassified"
             result["reason"] = "BROKER_ERROR_NOT_CLASSIFIED"
