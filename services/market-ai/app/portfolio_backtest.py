@@ -12,6 +12,8 @@ from .quant import (
     exchange_session_date, orb_vwap_entry_candidate, risk_bounded_quantity,
 )
 
+_PORTFOLIO_TOTAL_TOLERANCE = Decimal("1e-18")
+
 
 @dataclass(frozen=True)
 class PortfolioTrade:
@@ -31,6 +33,8 @@ class PortfolioBacktestResult:
     session: date
     starting_equity: Decimal
     ending_equity: Decimal
+    gross_pnl: Decimal
+    estimated_costs: Decimal
     net_pnl: Decimal
     trades: tuple[PortfolioTrade, ...]
     quant_signals_by_symbol: dict[str, int]
@@ -264,9 +268,16 @@ def backtest_domestic_portfolio(
 
     if positions:
         raise ValueError("all domestic portfolio positions must be closed by the session end")
+    gross_pnl = sum((trade.gross_pnl for trade in completed), Decimal(0))
+    estimated_costs = sum((trade.costs for trade in completed), Decimal(0))
+    trade_net_pnl = sum((trade.net_pnl for trade in completed), Decimal(0))
+    if (abs(gross_pnl - estimated_costs - trade_net_pnl) > _PORTFOLIO_TOTAL_TOLERANCE
+            or abs(trade_net_pnl - realized) > _PORTFOLIO_TOTAL_TOLERANCE):
+        raise ValueError("portfolio totals do not reconcile to completed trade results")
     return PortfolioBacktestResult(
         market="KR", session=session, starting_equity=starting_equity,
-        ending_equity=starting_equity + realized, net_pnl=realized,
+        ending_equity=starting_equity + realized, gross_pnl=gross_pnl,
+        estimated_costs=estimated_costs, net_pnl=realized,
         trades=tuple(completed), quant_signals_by_symbol=quant_signals,
         signals_by_symbol=signals, ai_rejections_by_symbol=ai_rejections,
         rejected_entries=tuple(rejected), maximum_open_positions=maximum_open,

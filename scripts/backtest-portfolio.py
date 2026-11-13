@@ -142,6 +142,8 @@ def main() -> int:
             ],
             "starting_equity": str(portfolio.starting_equity),
             "ending_equity": str(portfolio.ending_equity),
+            "gross_pnl": str(portfolio.gross_pnl),
+            "estimated_costs": str(portfolio.estimated_costs),
             "net_pnl": str(portfolio.net_pnl),
             "maximum_open_positions": portfolio.maximum_open_positions,
             "daily_loss_limit_hit": portfolio.daily_loss_limit_hit,
@@ -160,6 +162,12 @@ def main() -> int:
         "summary": {
             "session_count": len(results),
             "starting_equity_per_session": str(args.starting_equity),
+            "gross_pnl_across_independent_sessions": str(
+                sum((Decimal(row["gross_pnl"]) for row in results), Decimal(0))
+            ),
+            "estimated_costs_across_independent_sessions": str(
+                sum((Decimal(row["estimated_costs"]) for row in results), Decimal(0))
+            ),
             "net_pnl_across_independent_sessions": str(sum((Decimal(row["net_pnl"]) for row in results), Decimal(0))),
             "accepted_trade_count": sum(len(row["accepted_trades"]) for row in results),
             "executable": False,

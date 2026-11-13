@@ -82,6 +82,27 @@ def test_portfolio_generates_real_orb_vwap_signals_on_shared_timeline() -> None:
     assert result.executable is False
 
 
+def test_portfolio_gross_cost_and_net_totals_reconcile() -> None:
+    data = {"005930": _strategy_bars(0), "000660": _strategy_bars(1)}
+    config = QuantConfig(
+        commission_bps=Decimal(0), buy_commission_bps=Decimal("14.7"),
+        sell_commission_bps=Decimal("14.7"), sell_tax_bps=Decimal("20"),
+        slippage_bps=Decimal("10"), minimum_turnover=Decimal(0),
+        minimum_relative_volume=Decimal("1.5"),
+    )
+
+    result = backtest_domestic_portfolio(
+        data, starting_equity=Decimal("1000000"), max_order_notional=Decimal("1000000"), config=config,
+    )
+
+    assert len(result.trades) == 2
+    assert result.gross_pnl == sum((trade.gross_pnl for trade in result.trades), Decimal(0))
+    assert result.estimated_costs == sum((trade.costs for trade in result.trades), Decimal(0))
+    assert result.net_pnl == sum((trade.net_pnl for trade in result.trades), Decimal(0))
+    assert abs(result.gross_pnl - result.estimated_costs - result.net_pnl) <= Decimal("1e-18")
+    assert result.ending_equity == result.starting_equity + result.net_pnl
+
+
 def test_ai_filter_only_allows_quant_candidate_and_records_rejection() -> None:
     data = {"005930": _strategy_bars(0), "000660": _strategy_bars(1)}
     config = QuantConfig(

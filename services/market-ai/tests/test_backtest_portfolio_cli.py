@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 
 
@@ -59,6 +60,11 @@ def test_portfolio_cli_requires_reviewed_multi_symbol_inputs_and_reports_non_exe
     assert payload["ai"]["enabled"] is False
     assert set(payload["datasets"]) == {"005930", "000660"}
     assert payload["sessions"][0]["input_bars_by_symbol"] == {"000660": 380, "005930": 380}
+    session = payload["sessions"][0]
+    assert Decimal(session["gross_pnl"]) - Decimal(session["estimated_costs"]) == Decimal(session["net_pnl"])
+    assert Decimal(payload["summary"]["gross_pnl_across_independent_sessions"]) - Decimal(
+        payload["summary"]["estimated_costs_across_independent_sessions"]
+    ) == Decimal(payload["summary"]["net_pnl_across_independent_sessions"])
     assert payload["summary"]["executable"] is False
     assert payload["executable"] is False
 
