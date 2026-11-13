@@ -270,7 +270,27 @@ export default function Dashboard() {
         {ops?.cashBalances.length ? <div className="cash-list">{ops.cashBalances.map(item => <div className="cash-row" key={item.currency}><span>{item.currency}</span><strong>{money(item.balance, item.currency)}</strong></div>)}</div> : <Empty text="가상 현금 잔고가 아직 없습니다." />}
       </div>
       <div className="panel"><div className="panel-title"><div><p className="eyebrow">RISK SNAPSHOT</p><h2>운영 제한</h2></div><span className="tag green">실거래 주문 잠금</span></div>
-        <div className="risk-list"><RiskRow label="운영 허용 시장" value={ops?.operationalMarkets?.join(" · ") || "KR (국내만)"} /><RiskRow label="운영 모드" value={ops?.tradingMode.toUpperCase() ?? "PAPER"} /><RiskRow label="실거래 허용" value={ops?.liveTrading.toUpperCase() ?? "DISABLED"} /><RiskRow label="KIS 실주문 스위치" value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="KIS 실계좌 조회" value={ops?.kisRealAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="REAL 체결 자동대조" value={ops?.kisRealReconciliationEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="보호청산 준비" value={ops?.realProtectiveExitManagerEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="REAL 자동 보호매도" value={ops?.kisRealProtectiveExitAutomationEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="REAL 비용률 형식 KR / US" value={`${ops?.kisRealKrCostsConfigured ? "유효" : "미설정"} / ${ops?.kisRealUsCostsConfigured ? "유효" : "미설정"}`} /><RiskRow label="KIS 공통 계좌 조회" value={ops?.kisAccountReadsEnabled ? "사용" : "잠금"} /><RiskRow label="KIS 모의 주문" value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} /><RiskRow label="국내 PAPER 취소" value={ops?.kisPaperDomesticCancelSupported ? "지원 확인" : "미지원·잠금"} /><RiskRow label="WebSocket 최근 실패" value={streamFailureDetail(data?.paperSession?.last_stream_failure_stage, data?.paperSession?.last_stream_error_category, data?.paperSession != null && "last_stream_failure_stage" in data.paperSession, data?.paperSession?.last_stream_failure_at, data?.paperSession?.last_stream_failure_environment)} /><RiskRow label="국내 PAPER WebSocket 재연결 실패" value={domesticStreamFailureCount(data?.paperSession?.stream_failures_by_feed)} /><RiskRow label="국내 PAPER WebSocket 최근 복구" value={streamRecoveryDetail(data?.paperSession?.stream_connections?.paper, data?.paperSession?.stream_reconnecting_since_by_feed?.paper, data?.paperSession?.stream_last_recovered_at_by_feed?.paper, data?.paperSession?.stream_last_recovery_seconds_by_feed?.paper)} /><RiskRow label="paper 거래비용" value={ops?.paperCostModelEnabled ? "설정 적용" : "비활성"} /><RiskRow label="paper 자동매매" value={automationLabel(data?.paperSession?.automation_state)} /><RiskRow label="연속 손실 주문" value={`${ops?.consecutiveLosingTrades ?? 0}회`} /></div>
+        <div className="risk-list">
+          <RiskRow label="운영 허용 시장" value={ops?.operationalMarkets?.join(" · ") || "KR (국내만)"} />
+          <RiskRow label="운영 모드" value={ops?.tradingMode.toUpperCase() ?? "PAPER"} />
+          <RiskRow label="실거래 허용" value={ops?.liveTrading.toUpperCase() ?? "DISABLED"} />
+          <RiskRow label="KIS 실주문 스위치" value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} />
+          <RiskRow label="KIS 실계좌 조회" value={ops?.kisRealAccountReadsEnabled ? "사용" : "잠금"} />
+          <RiskRow label="REAL 체결 자동대조" value={ops?.kisRealReconciliationEnabled ? "설정 켜짐" : "잠금"} />
+          <RiskRow label="보호청산 준비" value={ops?.realProtectiveExitManagerEnabled ? "설정 켜짐" : "잠금"} />
+          <RiskRow label="REAL 자동 보호매도" value={ops?.kisRealProtectiveExitAutomationEnabled ? "설정 켜짐" : "잠금"} />
+          <RiskRow label="REAL 비용률 형식 KR / US" value={`${ops?.kisRealKrCostsConfigured ? "유효" : "미설정"} / ${ops?.kisRealUsCostsConfigured ? "유효" : "미설정"}`} />
+          <RiskRow label="KIS 공통 계좌 조회" value={ops?.kisAccountReadsEnabled ? "사용" : "잠금"} />
+          <RiskRow label="KIS 모의 주문" value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} />
+          <RiskRow label="국내 PAPER 취소" value={ops?.kisPaperDomesticCancelSupported ? "지원 확인" : "미지원·잠금"} />
+          <RiskRow label="현재 분봉 저장기" value={liveBarStorageDetail(data?.paperSession)} />
+          <RiskRow label="WebSocket 최근 실패" value={streamFailureDetail(data?.paperSession?.last_stream_failure_stage, data?.paperSession?.last_stream_error_category, data?.paperSession != null && "last_stream_failure_stage" in data.paperSession, data?.paperSession?.last_stream_failure_at, data?.paperSession?.last_stream_failure_environment)} />
+          <RiskRow label="국내 PAPER WebSocket 재연결 실패" value={domesticStreamFailureCount(data?.paperSession?.stream_failures_by_feed)} />
+          <RiskRow label="국내 PAPER WebSocket 최근 복구" value={streamRecoveryDetail(data?.paperSession?.stream_connections?.paper, data?.paperSession?.stream_reconnecting_since_by_feed?.paper, data?.paperSession?.stream_last_recovered_at_by_feed?.paper, data?.paperSession?.stream_last_recovery_seconds_by_feed?.paper)} />
+          <RiskRow label="paper 거래비용" value={ops?.paperCostModelEnabled ? "설정 적용" : "비활성"} />
+          <RiskRow label="paper 자동매매" value={automationLabel(data?.paperSession?.automation_state)} />
+          <RiskRow label="연속 손실 주문" value={`${ops?.consecutiveLosingTrades ?? 0}회`} />
+        </div>
         <div className="risk-list"><RiskRow label="P3/P4 백테스트 비용 입력" value={`KR ${costStatus("KR")} · US ${costStatus("US")}`} /></div>
         {missingCostDetails && <p className="audit-note">누락 또는 확인할 `.env_local` 항목: {missingCostDetails}</p>}
         <div className="risk-list"><RiskRow label="PAPER 전략 평가 비용모델" value={`KR ${paperStrategyCostStatus("KR")} · US ${paperStrategyCostStatus("US")}`} /></div>
@@ -365,6 +385,21 @@ function domesticMonitorStorageDetail(monitor: LocalOperationsReport["domesticSe
   const pending = `대기 ${monitor.barStoragePendingCount}개`;
   const retries = monitor.barStorageRetryCount == null ? "재시도 미기록" : `재시도 ${monitor.barStorageRetryCount}회`;
   return `${monitor.barStorageReady ? "정상" : "확인 필요"} · ${state} · ${pending} · ${retries}`;
+}
+function liveBarStorageDetail(session: Payload["paperSession"] | undefined) {
+  const knownStates = ["RUNNING", "DISABLED", "ERROR", "DRAIN_TIMEOUT", "STARTING", "RECOVERING"];
+  const state = session?.bar_storage_state;
+  const pending = session?.bar_storage_pending_count;
+  const retries = session?.bar_storage_retry_count;
+  if (!state || !knownStates.includes(state) || typeof pending !== "number"
+    || !Number.isSafeInteger(pending) || pending < 0) {
+    return "상태 미확인 · 저장 큐 진단 없음";
+  }
+  const ready = state === "RUNNING" && pending === 0;
+  const stateLabel = state === "RUNNING" ? "저장 중" : `저장기 ${state}`;
+  const retryLabel = typeof retries === "number" && Number.isSafeInteger(retries) && retries >= 0
+    ? `재시도 ${retries}회` : "재시도 미기록";
+  return `${ready ? "정상" : "확인 필요"} · ${stateLabel} · 대기 ${pending}개 · ${retryLabel}`;
 }
 function statusReadFailureLabel(category: string) {
   const labels: Record<string, string> = {

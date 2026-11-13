@@ -102,6 +102,8 @@ P5 전체 세션 감시는 PostgreSQL 분봉 품질 검증뿐 아니라 종료 �
 
 11월 12일 세션 감시 상태조회 오류의 세부 원인을 다음 발생 때 확인할 수 있도록 안전한 분류(`TIMEOUT`, HTTP 상태, 연결/네트워크 오류)를 감시 증거와 Windows 운영 보고서에 기록하고, 대시보드에 재시도 횟수·오류 유형·최근 오류를 표시합니다. 원시 예외 문구와 민감정보는 저장하거나 표시하지 않습니다. 오류의 실제 원인은 새 국내 전체 세션 기록 전까지 미확인입니다. 대시보드 lint·TypeScript 검사와 KRX 감시/Windows PAPER/KIS 호환성 CI가 통과했으며 실계좌·주문 API는 호출하지 않았습니다.
 
+P7 대시보드는 현재 FastAPI 분봉 저장기 상태와 최근 완료 국내 세션의 저장 큐 검증을 별도 행으로 보여줍니다. 현재 `RUNNING`·대기 0은 조회 시점의 상태만 나타내며 과거 세션의 완료 증거로 소급하지 않습니다. 11월 13일 완료 세션은 새 저장 큐 진단 추가 전 기록이라 세션별 저장 상태는 계속 미확인입니다. 변경 페이지 ESLint·TypeScript·production build, 실제 loopback 대시보드 화면과 안전 잠금 검사, 브라우저 오류 0건을 확인했습니다.
+
 P1/P2 판정은 읽기 전용 연결과 격리 로컬 주문 엔진의 검증 범위에 한정합니다. 전체 세션 연속성, P4의 13개 적격 세션, KIS PAPER 주문 lifecycle, 계좌별 체결비용 대조와 실전 전환 검증은 완료되지 않았습니다. 모든 단계에서 REAL 주문은 비활성입니다.
 
 - **P1 국내 정규장 분류 필터 (2026-11-08):** KIS Developers의 공식 공지는 `MARKET_CLS_CODE` 의미를 `1` 프리장, `2` 정규장, `3` 애프터마켓, `5` 종가로 정의합니다. 공식 WebSocket 샘플의 47열 `H0STCNT0`에서는 해당 필드가 46번, 63열 `H0STASP0`에서는 62번입니다. 국내 파서는 정규장 `2`만 전략 체결·호가 데이터로 수용하며 회귀 fixture에서 `1`/`3`/`5`/빈 값 제외를 확인합니다. 해당 변경 때 전체 Python 테스트 456건, 관련 82건, GitHub Windows PAPER preflight 및 Full Stack Quality가 통과했습니다. 이 내용은 분류 필터 변경의 기록이며, P1 연결 통과 여부는 위 단계 판정의 11월 9일 국내 읽기 전용 조회·WebSocket 근거로 판단합니다. 전체 세션 품질은 P5에 남아 있습니다. [KIS Developers 공지](https://apiportal.koreainvestment.com/intro) · [공식 WebSocket 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py)
