@@ -106,7 +106,7 @@ jobs:
           }
 
           $watchdogResult = Invoke-Pester -Path 'scripts/tests/local-stack-watchdog.Tests.ps1' -PassThru
-          if ($watchdogResult.FailedCount -gt 0 -or $watchdogResult.PassedCount -ne 4) {
+          if ($watchdogResult.FailedCount -gt 0 -or $watchdogResult.PassedCount -ne 8) {
             throw "Local stack API watchdog tests failed: passed=$($watchdogResult.PassedCount), failed=$($watchdogResult.FailedCount)."
           }
 
