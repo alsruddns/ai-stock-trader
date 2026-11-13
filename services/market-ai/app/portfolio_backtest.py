@@ -86,10 +86,15 @@ def backtest_domestic_portfolio(
     if not bars_by_symbol:
         raise ValueError("at least one domestic symbol dataset is required")
 
+    if any(not isinstance(symbol, str) for symbol in bars_by_symbol):
+        raise ValueError("portfolio replay requires six-digit domestic ticker symbols")
     normalized_bars = {symbol.strip().upper(): bars for symbol, bars in bars_by_symbol.items()}
     if (len(normalized_bars) != len(bars_by_symbol) or any(not symbol for symbol in normalized_bars)
             or len(normalized_bars) < 2):
         raise ValueError("portfolio replay requires at least two uniquely named symbols")
+    if any(len(symbol) != 6 or not symbol.isascii() or not symbol.isdigit()
+           for symbol in normalized_bars):
+        raise ValueError("portfolio replay requires six-digit domestic ticker symbols")
 
     ordered_symbols = sorted(normalized_bars)
     first_bars = normalized_bars[ordered_symbols[0]]

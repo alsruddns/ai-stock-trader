@@ -160,6 +160,11 @@ def test_rejects_mismatched_session_timestamps_and_executable_market_data() -> N
         _run({"005930": first})
 
 
+def test_portfolio_rejects_non_domestic_ticker_symbols() -> None:
+    with pytest.raises(ValueError, match="six-digit domestic ticker"):
+        _run({"AAPL": _bars(0), "000660": _bars(1)})
+
+
 def test_portfolio_uses_stop_first_when_entry_bar_touches_stop_and_target(monkeypatch) -> None:
     _signals_at_lengths(monkeypatch, {0: {21}})
     monkeypatch.setattr("app.portfolio_backtest._atr", lambda _bars, _period: Decimal("1"))
