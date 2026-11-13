@@ -67,6 +67,7 @@ class PortfolioBacktestResult:
     max_bar_marked_drawdown_amount: Decimal
     max_bar_marked_drawdown_percent: Decimal
     bar_marked_equity_observations: int
+    bar_marked_equity_basis: str
     executable: bool = False
 
 
@@ -241,6 +242,10 @@ def backtest_domestic_portfolio(
             )
             maximum_open = max(maximum_open, len(positions))
 
+        # Use each completed bar's adverse low mark before applying stop/target exits.
+        # This records intrabar downside excursions that an open/close-only curve misses.
+        observe_equity(starting_equity + realized + marked_pnl(index, price_field="low"))
+
         exited_this_bar: set[str] = set()
         for symbol in ordered_symbols:
             position = positions.get(symbol)
@@ -354,5 +359,9 @@ def backtest_domestic_portfolio(
         max_bar_marked_drawdown_amount=max_drawdown_amount,
         max_bar_marked_drawdown_percent=max_drawdown_percent,
         bar_marked_equity_observations=equity_observations,
+        bar_marked_equity_basis=(
+            "high-water starts at session starting equity; each bar marks open, adverse low, and close; "
+            "open positions use configured conservative exit costs"
+        ),
         executable=False,
     )

@@ -61,6 +61,7 @@ def test_portfolio_cli_requires_reviewed_multi_symbol_inputs_and_reports_non_exe
     assert set(payload["datasets"]) == {"005930", "000660"}
     assert payload["sessions"][0]["input_bars_by_symbol"] == {"000660": 380, "005930": 380}
     session = payload["sessions"][0]
+    assert "adverse low" in session["bar_marked_equity_basis"]
     cost_components = session["estimated_costs_by_component"]
     assert set(cost_components) == {
         "entry_slippage", "entry_spread", "exit_slippage", "exit_spread",

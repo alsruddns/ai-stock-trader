@@ -157,6 +157,7 @@ def main() -> int:
             "max_bar_marked_drawdown_amount": str(portfolio.max_bar_marked_drawdown_amount),
             "max_bar_marked_drawdown_percent": str(portfolio.max_bar_marked_drawdown_percent),
             "bar_marked_equity_observations": portfolio.bar_marked_equity_observations,
+            "bar_marked_equity_basis": portfolio.bar_marked_equity_basis,
             "executable": portfolio.executable,
         })
 

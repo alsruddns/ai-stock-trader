@@ -178,7 +178,7 @@ def test_daily_loss_mark_blocks_new_signal_but_existing_position_is_managed(monk
     assert result.trades[0].exit_reason == "ATR_STOP"
     assert result.max_bar_marked_drawdown_amount > 0
     assert result.max_bar_marked_drawdown_percent > 0
-    assert result.bar_marked_equity_observations == len(first_bars) * 2
+    assert result.bar_marked_equity_observations == len(first_bars) * 3
     assert result.executable is False
 
 
@@ -189,7 +189,28 @@ def test_flat_portfolio_reports_zero_bar_marked_drawdown() -> None:
 
     assert result.max_bar_marked_drawdown_amount == 0
     assert result.max_bar_marked_drawdown_percent == 0
-    assert result.bar_marked_equity_observations == len(bars) * 2
+    assert result.bar_marked_equity_observations == len(bars) * 3
+
+
+def test_portfolio_drawdown_marks_adverse_intrabar_low_before_exit(monkeypatch) -> None:
+    _signals_at_lengths(monkeypatch, {0: {21}})
+    monkeypatch.setattr("app.portfolio_backtest._atr", lambda _bars, _period: Decimal("10"))
+    first = _strategy_bars(0)
+    stamp = first[22].timestamp
+    first[22] = MinuteBar(stamp, Decimal("102.5"), Decimal("103"), Decimal("95"), Decimal("100"),
+                          1800, Decimal("5"), stamp + timedelta(seconds=30))
+    config = QuantConfig(
+        commission_bps=Decimal(0), slippage_bps=Decimal(0), atr_stop_multiple=Decimal("1"),
+        reward_risk_multiple=Decimal("2"), minimum_turnover=Decimal(0),
+        minimum_relative_volume=Decimal("1.5"),
+    )
+
+    result = _run({"005930": first, "000660": _strategy_bars(1)}, config=config)
+
+    assert len(result.trades) == 1
+    assert result.bar_marked_equity_observations == len(first) * 3
+    assert result.max_bar_marked_drawdown_amount > abs(result.net_pnl)
+    assert "adverse low" in result.bar_marked_equity_basis
 
 
 def test_three_consecutive_losses_stop_later_entries(monkeypatch) -> None:
