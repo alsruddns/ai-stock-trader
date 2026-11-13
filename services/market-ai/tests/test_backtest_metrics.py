@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -57,8 +58,31 @@ def test_no_trades_and_no_losing_trades_do_not_report_fake_profit_factor() -> No
 def test_invalid_entry_notional_is_rejected() -> None:
     invalid = _trade(day=2, entry="0", quantity=1, gross="0", costs="0", net="0")
 
-    with pytest.raises(ValueError, match="positive quantity and entry price"):
+    with pytest.raises(ValueError, match="positive entry and exit prices"):
         summarize_trades([invalid])
+
+
+def test_trade_summary_rejects_invalid_quantity_and_inconsistent_pnl() -> None:
+    boolean_quantity = _trade(day=2, entry="100", quantity=True, gross="10", costs="2", net="8")
+    inconsistent_pnl = _trade(day=3, entry="100", quantity=1, gross="10", costs="2", net="9")
+
+    with pytest.raises(ValueError, match="positive integer quantity"):
+        summarize_trades([boolean_quantity])
+    with pytest.raises(ValueError, match="gross PnL less costs"):
+        summarize_trades([inconsistent_pnl])
+
+
+def test_trade_summary_rejects_invalid_prices_and_costs() -> None:
+    invalid_exit = replace(
+        _trade(day=2, entry="100", quantity=1, gross="10", costs="2", net="8"),
+        exit_price=Decimal("0"),
+    )
+    negative_cost = _trade(day=3, entry="100", quantity=1, gross="10", costs="-2", net="12")
+
+    with pytest.raises(ValueError, match="positive entry and exit prices"):
+        summarize_trades([invalid_exit])
+    with pytest.raises(ValueError, match="costs must be non-negative"):
+        summarize_trades([negative_cost])
 
 
 def test_spread_coverage_separates_numeric_values_from_timestamped_strategy_inputs() -> None:

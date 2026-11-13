@@ -25,10 +25,17 @@ def summarize_trades(trades: Sequence[Trade]) -> dict[str, object]:
     gross_returns_bps: list[Decimal] = []
     cost_returns_bps: list[Decimal] = []
     for trade in trades:
-        numeric_values = (trade.entry_price, trade.gross_pnl, trade.costs, trade.net_pnl)
-        if (trade.quantity <= 0 or any(not value.is_finite() for value in numeric_values)
-                or trade.entry_price <= 0):
-            raise ValueError("backtest trades require positive quantity and entry price")
+        if isinstance(trade.quantity, bool) or not isinstance(trade.quantity, int) or trade.quantity <= 0:
+            raise ValueError("backtest trades require a positive integer quantity")
+        numeric_values = (trade.entry_price, trade.exit_price, trade.gross_pnl, trade.costs, trade.net_pnl)
+        if any(not isinstance(value, Decimal) or not value.is_finite() for value in numeric_values):
+            raise ValueError("backtest trade values must be finite decimals")
+        if trade.entry_price <= 0 or trade.exit_price <= 0:
+            raise ValueError("backtest trades require positive entry and exit prices")
+        if trade.costs < 0:
+            raise ValueError("backtest trade costs must be non-negative")
+        if trade.net_pnl != trade.gross_pnl - trade.costs:
+            raise ValueError("backtest trade net PnL must equal gross PnL less costs")
         notional = trade.entry_price * trade.quantity
         gross_returns_bps.append(trade.gross_pnl * Decimal(10_000) / notional)
         cost_returns_bps.append(trade.costs * Decimal(10_000) / notional)
