@@ -220,8 +220,43 @@ try {
             if (-not $marketAiReady) { throw 'Python market-ai did not become ready within two minutes.' }
             Write-TaskLog 'Spring Boot and Python market-ai are ready. Real KIS order switches are forced off.'
 
+            $nextListenerAuditUtc = [DateTimeOffset]::MinValue
+            $nextHealthAuditUtc = [DateTimeOffset]::MinValue
+            $healthFailureCount = 0
+
             while ($true) {
                 Start-Sleep -Seconds 2
+                $nowUtc = [DateTimeOffset]::UtcNow
+                if ($nowUtc -ge $nextListenerAuditUtc) {
+                    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort 18000,18080 -ErrorAction SilentlyContinue)
+                    if (-not (Test-LocalStackApiListenersReady -Listeners $listeners)) {
+                        throw 'A local API listener disappeared or left loopback; restarting the local stack.'
+                    }
+                    $nextListenerAuditUtc = $nowUtc.AddSeconds(15)
+                }
+                if ($nowUtc -ge $nextHealthAuditUtc) {
+                    $pythonHealth = $null
+                    $springSummary = $null
+                    try { $pythonHealth = Invoke-RestMethod -Uri 'http://127.0.0.1:18000/api/v1/health' -TimeoutSec 3 } catch { }
+                    try { $springSummary = Invoke-RestMethod -Uri 'http://127.0.0.1:18080/api/v1/operations/summary' -TimeoutSec 3 } catch { }
+                    $apiReadinessPassed = $false
+                    if ($pythonHealth -and $springSummary) {
+                        try {
+                            Assert-LocalStackReadyResponses -PythonHealth $pythonHealth -SpringSummary $springSummary
+                            $apiReadinessPassed = $true
+                        } catch { }
+                    }
+                    if ($apiReadinessPassed) {
+                        $healthFailureCount = 0
+                    } else {
+                        $healthFailureCount++
+                        Write-TaskLog ("Local API health check failed ({0}/2)." -f $healthFailureCount)
+                        if ($healthFailureCount -ge 2) {
+                            throw 'Local API health remained unavailable or unsafe across two checks; restarting the local stack.'
+                        }
+                    }
+                    $nextHealthAuditUtc = $nowUtc.AddSeconds(30)
+                }
                 $currentEnvironmentHash = (Get-FileHash -LiteralPath $envPath -Algorithm SHA256).Hash
                 if ($currentEnvironmentHash -ne $environmentHash) {
                     if ($backendProcess.HasExited) { throw "Spring Boot stopped unexpectedly (code $($backendProcess.ExitCode))." }

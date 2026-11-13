@@ -17,6 +17,7 @@ on:
       - 'scripts/tests/krx-session-monitor-domestic.Tests.ps1'
       - 'scripts/tests/local-stack-restart-domestic.Tests.ps1'
       - 'scripts/run-local-stack-task.ps1'
+      - 'scripts/tests/local-stack-watchdog.Tests.ps1'
       - 'scripts/test-local-stack-env-reload.ps1'
       - 'scripts/lib/local-stack-activation.ps1'
       - 'scripts/tests/safe-http-diagnostic.Tests.ps1'
@@ -102,6 +103,11 @@ jobs:
           $restartResult = Invoke-Pester -Path 'scripts/tests/local-stack-restart-domestic.Tests.ps1' -PassThru
           if ($restartResult.FailedCount -gt 0 -or $restartResult.PassedCount -ne 7) {
             throw "Domestic local stack restart tests failed: passed=$($restartResult.PassedCount), failed=$($restartResult.FailedCount)."
+          }
+
+          $watchdogResult = Invoke-Pester -Path 'scripts/tests/local-stack-watchdog.Tests.ps1' -PassThru
+          if ($watchdogResult.FailedCount -gt 0 -or $watchdogResult.PassedCount -ne 4) {
+            throw "Local stack API watchdog tests failed: passed=$($watchdogResult.PassedCount), failed=$($watchdogResult.FailedCount)."
           }
 
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'scripts/test-local-stack-env-reload.ps1'

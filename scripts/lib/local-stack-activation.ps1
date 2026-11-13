@@ -59,6 +59,22 @@ function Assert-LocalStackPortsFree {
     }
 }
 
+function Test-LocalStackApiListenersReady {
+    [CmdletBinding()]
+    param([Parameter()][AllowNull()][object[]]$Listeners)
+
+    if ($null -eq $Listeners) { return $false }
+    foreach ($port in @(18000, 18080)) {
+        $portListeners = @($Listeners | Where-Object { [int]$_.LocalPort -eq $port })
+        if ($portListeners.Count -ne 1) { return $false }
+        $listener = $portListeners[0]
+        if ([string]$listener.LocalAddress -ne '127.0.0.1' -or [int]$listener.OwningProcess -le 0) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Assert-LocalStackReadyResponses {
     [CmdletBinding()]
     param(
