@@ -365,11 +365,27 @@ class KisOrderClientTest {
                         new BigDecimal("70000"), Currency.KRW), null);
         intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
 
-        KisBrokerOrderSnapshot snapshot = client(true, builder).reconcilePaperOrder(intent).orElseThrow();
+        KisBrokerOrderSnapshot snapshot = client(false, builder).reconcilePaperOrder(intent).orElseThrow();
 
         assertEquals(1, snapshot.filledQuantity());
         assertEquals(1, snapshot.remainingQuantity());
         assertEquals(new BigDecimal("70000"), snapshot.averageFillPrice());
+        server.verify();
+    }
+
+    @Test
+    void paperReconciliationRequiresReadSwitchesAndNotTheOrderWriteSwitch() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        KisProperties.Account paper = new KisProperties.Account("paper-key", "paper-secret", "1234567801");
+        KisProperties noPaperRead = new KisProperties(true, false, false, false, paper,
+                new KisProperties.Account("", "", ""), Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ofMillis(100));
+        KisOrderIntent intent = acceptedDomesticPaperIntent();
+
+        assertThrows(IllegalStateException.class, () -> new KisOrderClient(noPaperRead, new KisOrderProperties(false),
+                new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("250")), builder)
+                .reconcilePaperOrder(intent));
+
         server.verify();
     }
 
@@ -514,7 +530,7 @@ class KisOrderClientTest {
 
     private static KisOrderClient client(boolean enabled, RestClient.Builder builder) {
         KisProperties.Account paper = new KisProperties.Account("paper-key", "paper-secret", "1234567801");
-        KisProperties properties = new KisProperties(false, false, paper,
+        KisProperties properties = new KisProperties(true, true, false, false, paper,
                 new KisProperties.Account("", "", ""), Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ofMillis(100));
         return new KisOrderClient(properties, new KisOrderProperties(enabled),
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("250")), builder);

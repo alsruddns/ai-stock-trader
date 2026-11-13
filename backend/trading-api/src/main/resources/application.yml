@@ -42,6 +42,8 @@ paper:
 kis:
   orders:
     paper-enabled: ${KIS_PAPER_ORDERS_ENABLED:false}
+    paper-reconciliation-enabled: ${KIS_PAPER_RECONCILIATION_ENABLED:false}
+    paper-reconciliation-delay-ms: ${KIS_PAPER_RECONCILIATION_DELAY_MS:30000}
   account-read-enabled: ${KIS_ACCOUNT_READ_ENABLED:false}
   paper-account-read-enabled: ${KIS_PAPER_ACCOUNT_READ_ENABLED:${KIS_ACCOUNT_READ_ENABLED:false}}
   real-account-read-enabled: ${KIS_REAL_ACCOUNT_READ_ENABLED:false}

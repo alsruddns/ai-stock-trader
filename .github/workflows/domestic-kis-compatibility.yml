@@ -5,12 +5,14 @@ on:
     branches: [develop]
     paths:
       - 'backend/trading-api/src/main/java/**'
+      - 'backend/trading-api/src/main/resources/application.yml'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealDailyRiskBaselineServiceTest.java'
       - 'backend/trading-api/src/main/java/com/aistocktrader/kis/KisOrderIntentStore.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisOrderIntentStoreTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisOrderIntentPostgresIntegrationTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealExecutionNoticeClientTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealOrderReconciliationJobTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisPaperOrderReconciliationJobTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealProtectiveExitMonitorTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealOrderControllerTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisOrderControllerMarketScopeTest.java'
@@ -100,6 +102,12 @@ jobs:
       - name: Run domestic-only scheduled reconciliation scope test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=KisRealOrderReconciliationJobTest#domesticOnlyScopeSkipsOutOfScopeOrdersBeforeBrokerReconciliation test
+      - name: Run PAPER scheduled reconciliation safety tests
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode -Dtest=KisPaperOrderReconciliationJobTest test
+      - name: Run PAPER read-only reconciliation preflight tests
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode -Dtest=KisOrderClientTest#domesticReconciliationMapsPartialFillFromBrokerHistory+paperReconciliationRequiresReadSwitchesAndNotTheOrderWriteSwitch test
       - name: Run domestic-only protective exit scope test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=KisRealProtectiveExitMonitorTest#domesticOnlyScopeSkipsOutOfScopeProtectiveExitBeforeSessionOrAccountAccess test

@@ -134,7 +134,7 @@ public class KisOrderClient {
     }
 
     public Optional<KisBrokerOrderSnapshot> reconcilePaperOrder(KisOrderIntent intent) {
-        requirePaperOrdersEnabled();
+        requirePaperReconciliationReadEnabled();
         if (intent.getEnvironment() != KisEnvironment.PAPER) {
             throw new IllegalStateException("Paper reconciliation cannot access a real-environment order intent.");
         }
@@ -380,6 +380,18 @@ public class KisOrderClient {
             throw new IllegalStateException("KIS paper orders are disabled outside the locked paper mode.");
         }
         if (!properties.credentials(KisEnvironment.PAPER).configured()) throw new IllegalStateException("KIS paper credentials are not configured.");
+    }
+
+    private void requirePaperReconciliationReadEnabled() {
+        if (!properties.accountReadEnabled() || !properties.paperAccountReadEnabled()) {
+            throw new IllegalStateException("KIS PAPER order reconciliation requires both account-read switches.");
+        }
+        if (safety.liveTradingEnabled() || !"paper".equalsIgnoreCase(safety.mode())) {
+            throw new IllegalStateException("KIS PAPER order reconciliation is disabled outside PAPER mode.");
+        }
+        if (!properties.credentials(KisEnvironment.PAPER).configured()) {
+            throw new IllegalStateException("KIS PAPER credentials are not configured.");
+        }
     }
 
     private static void validate(Market market, String symbol, OrderSide side, int quantity, BigDecimal price, Currency currency) {
