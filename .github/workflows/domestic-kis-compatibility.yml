@@ -119,7 +119,7 @@ jobs:
         run: bash ./mvnw --batch-mode -Dtest=KisRealOrderControllerTest#domesticScopeBlocksOutOfScopeRealIntentReadReconciliationAndCancellationBeforeBrokerAccess test
       - name: Run domestic-only operational market scope summary test
         working-directory: backend/trading-api
-        run: bash ./mvnw --batch-mode -Dtest=OperationsControllerTest#operationsSummaryReportsOnlyWhetherEnvironmentCredentialsAreConfigured test
+        run: bash ./mvnw --batch-mode '-Dtest=OperationsControllerTest#operationsSummaryReportsOnlyWhetherEnvironmentCredentialsAreConfigured+operationsSummaryMarksUnknownPaperOrderWithoutBrokerReferenceForManualReview' test
 
   spring-order-postgres-snapshot-validation:
     runs-on: ubuntu-latest
