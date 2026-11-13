@@ -160,6 +160,19 @@ jobs:
           tests/test_paper_risk.py::test_risk_counts_require_nonnegative_json_integers
           tests/test_paper_runtime.py::test_malformed_risk_counts_block_entry_without_coercion
           tests/test_paper_runtime.py::test_exit_worker_blocks_malformed_persisted_position_quantity
+          tests/test_paper_runtime.py::test_exit_worker_rejects_stale_bar_before_reading_positions
+          tests/test_paper_runtime.py::test_exit_worker_rejects_future_bar_before_reading_positions
+      - name: Run domestic PAPER protective stop behavior only
+        working-directory: services/market-ai
+        run: >-
+          python -m pytest -q
+          tests/test_paper_runtime.py::test_exit_worker_uses_persisted_stop_and_submits_only_local_paper_exit
+      - name: Run domestic PAPER session flatten behavior only
+        working-directory: services/market-ai
+        run: >-
+          python -m pytest -q
+          tests/test_paper_runtime.py::test_exit_worker_flattens_before_continuous_session_ends
+          -k KR
       - name: Run domestic final-minute persistence and shutdown tests only
         working-directory: services/market-ai
         run: >-

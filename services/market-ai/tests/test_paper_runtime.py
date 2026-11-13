@@ -2286,7 +2286,9 @@ def test_exit_worker_uses_persisted_stop_and_submits_only_local_paper_exit() -> 
     bar = MinuteBar(at, Decimal("100"), Decimal("105"), Decimal("95"), Decimal("101"), 1000, Decimal("5"))
     trader = Trader()
 
-    result = PaperSessionFeedMonitor._manage_strategy_exit(Broker(), trader, watch, bar, PaperOpsLimits())
+    result = PaperSessionFeedMonitor._manage_strategy_exit(
+        Broker(), trader, watch, bar, PaperOpsLimits(), now=bar.timestamp + timedelta(seconds=30),
+    )
 
     assert result["state"] == "FILLED"
     assert trader.exit["reason"] == "ATR_STOP"
@@ -2315,7 +2317,9 @@ def test_exit_worker_blocks_malformed_persisted_position_quantity(quantity) -> N
     bar = MinuteBar(datetime.fromisoformat("2026-11-05T15:19:00+09:00"), Decimal("100"),
                     Decimal("101"), Decimal("99"), Decimal("100.5"), 1000, Decimal("5"))
 
-    result = PaperSessionFeedMonitor._manage_strategy_exit(Broker(), Trader(), watch, bar, PaperOpsLimits())
+    result = PaperSessionFeedMonitor._manage_strategy_exit(
+        Broker(), Trader(), watch, bar, PaperOpsLimits(), now=bar.timestamp + timedelta(seconds=30),
+    )
 
     assert result == {"state": "BLOCKED", "reason": "PERSISTED_EXIT_STATE_INVALID", "executable": False}
 
@@ -2348,6 +2352,7 @@ def test_exit_worker_flattens_before_continuous_session_ends(watchlist: str, tim
 
     result = PaperSessionFeedMonitor._manage_strategy_exit(
         Broker(), trader, watch, bar, PaperOpsLimits(flatten_before_close_minutes=5),
+        now=bar.timestamp + timedelta(seconds=30),
     )
 
     assert result["state"] == "FILLED"
@@ -2372,7 +2377,9 @@ def test_exit_worker_never_submits_outside_continuous_session(watchlist: str, ti
     at = datetime.fromisoformat(timestamp)
     bar = MinuteBar(at, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100.5"), 1000, Decimal("5"))
 
-    result = PaperSessionFeedMonitor._manage_strategy_exit(Broker(), Trader(), watch, bar, PaperOpsLimits())
+    result = PaperSessionFeedMonitor._manage_strategy_exit(
+        Broker(), Trader(), watch, bar, PaperOpsLimits(), now=bar.timestamp + timedelta(seconds=30),
+    )
 
     assert result["state"] == "EXIT_MONITORING"
     assert result["reason"] == "OUTSIDE_REGULAR_SESSION"
@@ -2395,11 +2402,53 @@ def test_exit_worker_fails_closed_when_market_calendar_is_unavailable(monkeypatc
     at = datetime.fromisoformat("2026-11-06T15:59:00-05:00")
     bar = MinuteBar(at, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100.5"), 1000, Decimal("5"))
 
-    result = PaperSessionFeedMonitor._manage_strategy_exit(Broker(), Trader(), watch, bar, PaperOpsLimits())
+    result = PaperSessionFeedMonitor._manage_strategy_exit(
+        Broker(), Trader(), watch, bar, PaperOpsLimits(), now=bar.timestamp + timedelta(seconds=30),
+    )
 
     assert result["state"] == "BLOCKED"
     assert result["reason"] == "MARKET_CALENDAR_UNAVAILABLE"
     assert result["executable"] is False
+
+
+def test_exit_worker_rejects_stale_bar_before_reading_positions() -> None:
+    class Broker:
+        def get_strategy_positions(self):
+            raise AssertionError("stale bars must not read or change persisted positions")
+
+    class Trader:
+        def submit_exit(self, **_kwargs):
+            raise AssertionError("stale bars must not submit a paper exit")
+
+    watch = parse_watchlist("KR:005930")[0]
+    bar_at = datetime.fromisoformat("2026-11-05T15:16:00+09:00")
+    bar = MinuteBar(bar_at, Decimal("100"), Decimal("101"), Decimal("95"), Decimal("96"), 1000, Decimal("5"))
+
+    result = PaperSessionFeedMonitor._manage_strategy_exit(
+        Broker(), Trader(), watch, bar, PaperOpsLimits(), now=bar_at + timedelta(seconds=180),
+    )
+
+    assert result == {"state": "BLOCKED", "reason": "EXIT_BAR_STALE", "executable": False}
+
+
+def test_exit_worker_rejects_future_bar_before_reading_positions() -> None:
+    class Broker:
+        def get_strategy_positions(self):
+            raise AssertionError("future bars must not read or change persisted positions")
+
+    class Trader:
+        def submit_exit(self, **_kwargs):
+            raise AssertionError("future bars must not submit a paper exit")
+
+    watch = parse_watchlist("KR:005930")[0]
+    bar_at = datetime.fromisoformat("2026-11-05T15:16:00+09:00")
+    bar = MinuteBar(bar_at, Decimal("100"), Decimal("101"), Decimal("95"), Decimal("96"), 1000, Decimal("5"))
+
+    result = PaperSessionFeedMonitor._manage_strategy_exit(
+        Broker(), Trader(), watch, bar, PaperOpsLimits(), now=bar_at - timedelta(seconds=10),
+    )
+
+    assert result == {"state": "BLOCKED", "reason": "EXIT_BAR_TIMESTAMP_IN_FUTURE", "executable": False}
 
 
 def test_daily_baseline_worker_captures_early_session_equity(monkeypatch) -> None:

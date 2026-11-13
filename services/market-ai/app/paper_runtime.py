@@ -1849,7 +1849,19 @@ class PaperSessionFeedMonitor:
 
     @staticmethod
     def _manage_strategy_exit(broker: SpringPaperBrokerClient, trader: PaperAutoTrader,
-                               watch: PaperWatch, bar: MinuteBar, limits: PaperOpsLimits) -> dict[str, object] | None:
+                               watch: PaperWatch, bar: MinuteBar, limits: PaperOpsLimits,
+                               *, now: datetime | None = None) -> dict[str, object] | None:
+        if bar.timestamp.tzinfo is None or bar.timestamp.utcoffset() is None:
+            return {"state": "BLOCKED", "reason": "EXIT_BAR_TIMESTAMP_INVALID", "executable": False}
+        observed_now = now or datetime.now(timezone.utc)
+        if observed_now.tzinfo is None or observed_now.utcoffset() is None:
+            return {"state": "BLOCKED", "reason": "EXIT_CLOCK_TIMESTAMP_INVALID", "executable": False}
+        bar_age_seconds = (observed_now.astimezone(timezone.utc)
+                           - bar.timestamp.astimezone(timezone.utc)).total_seconds()
+        if bar_age_seconds < -5:
+            return {"state": "BLOCKED", "reason": "EXIT_BAR_TIMESTAMP_IN_FUTURE", "executable": False}
+        if bar_age_seconds > limits.max_signal_bar_age_seconds:
+            return {"state": "BLOCKED", "reason": "EXIT_BAR_STALE", "executable": False}
         try:
             continuous_window = exchange_continuous_session_window(watch.market, bar.timestamp)
         except RuntimeError:
