@@ -1868,7 +1868,9 @@ class PaperSessionFeedMonitor:
         try:
             stop = Decimal(str(position["stopPrice"]))
             target = Decimal(str(position["targetPrice"]))
-            quantity = int(position["quantity"])
+            quantity = nonnegative_integer(position["quantity"])
+            if quantity is None or quantity <= 0:
+                raise ValueError("persisted strategy position quantity is invalid")
             currency = str(position["currency"]).upper()
         except (KeyError, ValueError, ArithmeticError):
             return {"state": "BLOCKED", "reason": "PERSISTED_EXIT_STATE_INVALID", "executable": False}

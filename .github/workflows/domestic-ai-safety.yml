@@ -152,13 +152,14 @@ jobs:
           python -m pytest -q
           tests/test_paper_ops.py::test_order_sizing_diagnostic_identifies_each_cap_below_one_share
           tests/test_paper_ops.py::test_domestic_session_range_uses_exchange_days_and_skips_weekend
-      - name: Run domestic PAPER risk count integrity tests only
+      - name: Run domestic PAPER risk input integrity tests only
         working-directory: services/market-ai
         run: >-
           python -m pytest -q
           tests/test_paper_risk.py::test_fractional_or_boolean_position_quantities_fail_closed
           tests/test_paper_risk.py::test_risk_counts_require_nonnegative_json_integers
           tests/test_paper_runtime.py::test_malformed_risk_counts_block_entry_without_coercion
+          tests/test_paper_runtime.py::test_exit_worker_blocks_malformed_persisted_position_quantity
       - name: Run domestic final-minute persistence and shutdown tests only
         working-directory: services/market-ai
         run: >-
