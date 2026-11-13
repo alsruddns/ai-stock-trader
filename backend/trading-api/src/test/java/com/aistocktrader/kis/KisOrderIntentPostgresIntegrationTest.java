@@ -92,6 +92,7 @@ class KisOrderIntentPostgresIntegrationTest {
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired EntityManager entityManager;
     @Autowired KisOrderOrchestrator kisOrders;
+    @Autowired KisOrderIntentRecoveryJob intentRecoveryJob;
     @Autowired KisOrderIntentRepository kisOrderRepository;
     @MockitoBean KisOrderClient kisOrderClient;
     @MockitoBean KisAccountClient kisAccountClient;
@@ -1418,6 +1419,33 @@ class KisOrderIntentPostgresIntegrationTest {
             }
         } finally {
             kisOrderRepository.deleteById(key);
+        }
+    }
+
+    @Test
+    void staleSubmittingIntentsRecoverToUnknownWithoutChangingRecentIntents() {
+        UUID staleKey = UUID.randomUUID();
+        UUID recentKey = UUID.randomUUID();
+        try {
+            store.prepare(staleKey, hash("stale-submission"), KisEnvironment.PAPER, request(), null);
+            store.prepare(recentKey, hash("recent-submission"), KisEnvironment.PAPER, request(), null);
+            Instant cutoff = Instant.now().minusSeconds(60);
+            jdbcTemplate.update("UPDATE kis_order_intent SET updated_at = ? WHERE idempotency_key = ?",
+                    Timestamp.from(cutoff.minusSeconds(1)), staleKey);
+            jdbcTemplate.update("UPDATE kis_order_intent SET updated_at = ? WHERE idempotency_key = ?",
+                    Timestamp.from(Instant.now()), recentKey);
+
+            int recoveredCount = intentRecoveryJob.recoverStaleSubmissionsBefore(cutoff);
+            entityManager.clear();
+            KisOrderIntent stale = kisOrderRepository.findById(staleKey).orElseThrow();
+            KisOrderIntent recent = kisOrderRepository.findById(recentKey).orElseThrow();
+
+            assertEquals(1, recoveredCount);
+            assertEquals(KisOrderStatus.UNKNOWN, stale.getStatus());
+            assertNull(stale.getBrokerOrderNumber());
+            assertEquals(KisOrderStatus.SUBMITTING, recent.getStatus());
+        } finally {
+            kisOrderRepository.deleteAllById(List.of(staleKey, recentKey));
         }
     }
 

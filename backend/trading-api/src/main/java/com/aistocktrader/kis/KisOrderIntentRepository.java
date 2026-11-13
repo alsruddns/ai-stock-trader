@@ -128,4 +128,14 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
                AND remaining_quantity > 0
             """, nativeQuery = true)
     int claimCancelPending(@Param("key") UUID key, @Param("environment") String environment);
+
+    @Transactional
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(value = """
+            UPDATE kis_order_intent
+               SET status = 'UNKNOWN', updated_at = CURRENT_TIMESTAMP
+             WHERE status = 'SUBMITTING'
+               AND updated_at < :cutoff
+            """, nativeQuery = true)
+    int recoverStaleSubmittingIntents(@Param("cutoff") Instant cutoff);
 }

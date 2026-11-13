@@ -172,6 +172,9 @@ jobs:
       - name: Verify ambiguous PAPER submissions stay locked after application restart
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#submittingPaperIntentRecoversAsUnknownAfterApplicationRestartWithoutBrokerResubmission' test
+      - name: Verify stale KIS submissions recover to UNKNOWN in PostgreSQL
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#staleSubmittingIntentsRecoverToUnknownWithoutChangingRecentIntents' test
 
   dashboard-domestic-operations:
     runs-on: ubuntu-latest
