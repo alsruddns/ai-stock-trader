@@ -208,6 +208,8 @@ def parse_watchlist(value: str) -> tuple[PaperWatch, ...]:
 class PaperSessionFeedMonitor:
     """Reconnectable paper WebSocket collector with bounded in-memory bar history."""
 
+    MAX_PENDING_BAR_WRITES = 5_000
+
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._stream_tasks: list[asyncio.Task] = []
@@ -262,6 +264,7 @@ class PaperSessionFeedMonitor:
             "automation_state": "DISABLED", "automation_error": None,
             "bar_storage_state": "DISABLED", "bar_storage_error": None,
             "bar_storage_retry_count": 0,
+            "bar_storage_pending_count": 0,
             "candidate_refresh_by_market": {},
             "real_signal_state": "DISABLED", "last_real_signal": None,
             "paper_reconciliation_required": False, "paper_unknown_idempotency_key": None,
@@ -281,6 +284,9 @@ class PaperSessionFeedMonitor:
         self._bar_storage_queue: asyncio.Queue[
             tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]
         ] | None = None
+        self._pending_bar_writes: deque[
+            tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]
+        ] = deque()
         self._bar_storage_task: asyncio.Task | None = None
         self._bar_finalizer_task: asyncio.Task | None = None
         self._bar_finalizer_stop: asyncio.Event | None = None
@@ -897,6 +903,11 @@ class PaperSessionFeedMonitor:
             if queue is not None:
                 try:
                     await asyncio.wait_for(queue.join(), timeout=5)
+                    drain_deadline = asyncio.get_running_loop().time() + 5
+                    while self._pending_bar_writes and asyncio.get_running_loop().time() < drain_deadline:
+                        await asyncio.sleep(0.1)
+                    if self._pending_bar_writes:
+                        raise TimeoutError
                 except TimeoutError:
                     self._set_status(bar_storage_state="DRAIN_TIMEOUT", bar_storage_error="PENDING_BARS_NOT_FLUSHED")
             storage_task.cancel()
@@ -1027,14 +1038,55 @@ class PaperSessionFeedMonitor:
             return True
         return False
 
+    def _defer_bar_write(
+        self,
+        item: tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]],
+        *, error_code: str = "POSTGRES_WRITE_FAILED",
+    ) -> bool:
+        if len(self._pending_bar_writes) >= self.MAX_PENDING_BAR_WRITES:
+            self._set_status(bar_storage_state="ERROR", bar_storage_error="BAR_STORAGE_RETRY_QUEUE_FULL")
+            if self._automation_queue is not None:
+                self._set_status(automation_state="BLOCKED", automation_error="BAR_PERSISTENCE_UNAVAILABLE")
+            return False
+        self._pending_bar_writes.append(item)
+        self._set_status(
+            bar_storage_state="ERROR", bar_storage_error=error_code,
+            bar_storage_pending_count=len(self._pending_bar_writes),
+        )
+        if self._automation_queue is not None:
+            self._set_status(automation_state="BLOCKED", automation_error="BAR_PERSISTENCE_UNAVAILABLE")
+        return True
+
+    def _finish_bar_write_recovery(self) -> None:
+        if self._pending_bar_writes:
+            return
+        with self._lock:
+            if self._status.get("bar_storage_error") in {
+                "POSTGRES_WRITE_FAILED", "BAR_STORAGE_QUEUE_BACKPRESSURE",
+            }:
+                self._status["bar_storage_state"] = "RUNNING"
+                self._status["bar_storage_error"] = None
+            self._status["bar_storage_pending_count"] = 0
+
     async def _bar_storage_loop(self) -> None:
         queue = self._bar_storage_queue
         if queue is None:
             return
         while True:
+            if self._pending_bar_writes:
+                item = self._pending_bar_writes[0]
+                watch, bar, _decision, _quotes = item
+                if await self._persist_bar_with_retry(watch, bar):
+                    self._pending_bar_writes.popleft()
+                    self._set_status(bar_storage_pending_count=len(self._pending_bar_writes))
+                    self._finish_bar_write_recovery()
+                    continue
+                await asyncio.sleep(5)
+                continue
             watch, bar, decision, quotes = await queue.get()
             try:
                 if not await self._persist_bar_with_retry(watch, bar):
+                    self._defer_bar_write((watch, bar, decision, quotes))
                     continue
                 if self._automation_queue is not None:
                     try:
@@ -1092,7 +1144,8 @@ class PaperSessionFeedMonitor:
                     by_feed[feed] = int(by_feed.get(feed, 0)) + 1
                     self._status["bars_closed_by_feed"] = by_feed
                 # Persist directly: a final bar must not enter PAPER/REAL signal queues.
-                await self._persist_bar_with_retry(watch, bar)
+                if not await self._persist_bar_with_retry(watch, bar):
+                    self._defer_bar_write((watch, bar, {}, {}))
 
     async def _run(self, watches: tuple[PaperWatch, ...], settings: StreamSettings) -> None:
         environment = settings.kis.environment
@@ -1930,13 +1983,9 @@ class PaperSessionFeedMonitor:
         try:
             queue.put_nowait((watch, bar, decision, quotes))
         except asyncio.QueueFull:
-            self._set_status(bar_storage_state="ERROR", bar_storage_error="BAR_STORAGE_QUEUE_FULL")
-            if self._automation_queue is not None:
-                try:
-                    self._automation_queue.put_nowait((watch, bar, decision, quotes))
-                except asyncio.QueueFull:
-                    self._paper_entry_queue_blocked = True
-                    self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
+            self._defer_bar_write(
+                (watch, bar, decision, quotes), error_code="BAR_STORAGE_QUEUE_BACKPRESSURE",
+            )
 
     def _set_status(self, **values: object) -> None:
         with self._lock:

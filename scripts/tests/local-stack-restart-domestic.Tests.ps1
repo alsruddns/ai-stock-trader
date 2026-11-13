@@ -12,7 +12,8 @@ foreach ($functionName in @(
     'Test-TrackedProcessParentage',
     'Test-LocalTaskRestartable',
     'Test-LocalCostModelsReady',
-    'Test-PaperMinuteQualityDiagnosticsReady'
+    'Test-PaperMinuteQualityDiagnosticsReady',
+    'Test-PaperBarStorageSafeForRestart'
 )) {
     $functionAst = $restartAst.Find({
         param($node)
@@ -79,5 +80,18 @@ Describe 'Domestic local stack restart guards' {
         (Test-PaperMinuteQualityDiagnosticsReady ([pscustomobject]@{})) | Should Be $false
         $status.market_data_minute_quality_by_watch_by_feed = [pscustomobject]@{ paper = [pscustomobject]@{} }
         (Test-PaperMinuteQualityDiagnosticsReady $status) | Should Be $false
+    }
+
+    It 'refuses restart when minute-bar persistence is unhealthy or pending' {
+        $status = [pscustomobject]@{ bar_storage_state = 'RUNNING'; bar_storage_pending_count = 0 }
+        (Test-PaperBarStorageSafeForRestart $status) | Should Be $true
+        $status.bar_storage_pending_count = 2
+        (Test-PaperBarStorageSafeForRestart $status) | Should Be $false
+        $status.bar_storage_pending_count = 0
+        $status.bar_storage_state = 'ERROR'
+        (Test-PaperBarStorageSafeForRestart $status) | Should Be $false
+
+        $legacyStatus = [pscustomobject]@{ bar_storage_state = 'RUNNING' }
+        (Test-PaperBarStorageSafeForRestart $legacyStatus) | Should Be $true
     }
 }

@@ -683,8 +683,9 @@ def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch)
     assert runtime.status()["bar_storage_error"] == "POSTGRES_WRITE_FAILED"
     assert runtime.status()["automation_state"] == "BLOCKED"
     assert runtime.status()["automation_error"] == "BAR_PERSISTENCE_UNAVAILABLE"
-    assert write_attempts == 3
-    assert runtime.status()["bar_storage_retry_count"] == 2
+    assert write_attempts >= 3
+    assert runtime.status()["bar_storage_retry_count"] >= 2
+    assert runtime.status()["bar_storage_pending_count"] == 1
     assert runtime._automation_queue.empty()
     assert "database details" not in str(runtime.status())
 
@@ -754,6 +755,54 @@ def test_later_bar_write_does_not_clear_unrecovered_bar_storage_error(monkeypatc
     assert write_attempts == 4
     assert runtime.status()["bar_storage_state"] == "ERROR"
     assert runtime.status()["bar_storage_error"] == "POSTGRES_WRITE_FAILED"
+
+
+def test_deferred_bar_write_is_retried_and_recovered_without_replaying_stale_signal(monkeypatch) -> None:
+    from app import snapshot_store
+
+    write_attempts = 0
+    stored = []
+
+    def fail_initial_attempts_then_store(*args, **kwargs):
+        nonlocal write_attempts
+        write_attempts += 1
+        if write_attempts <= 3:
+            raise RuntimeError("temporary database outage")
+        stored.append((args, kwargs))
+
+    monkeypatch.setattr(snapshot_store, "store_minute_bars", fail_initial_attempts_then_store)
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    runtime._bars[watch.key] = deque()
+    runtime._decisions[watch.key] = {}
+    runtime._bar_storage_queue = asyncio.Queue(maxsize=1)
+    runtime._automation_queue = asyncio.Queue()
+    runtime._set_status(bar_storage_state="RUNNING")
+    bar = MinuteBar(
+        datetime.fromisoformat("2026-11-05T09:00:00+09:00"), Decimal("100"), Decimal("101"),
+        Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
+    )
+
+    async def run_storage():
+        worker = asyncio.create_task(runtime._bar_storage_loop())
+        runtime._queue_bar_storage(watch, bar, {"signal": "BUY_CANDIDATE"}, {})
+        await asyncio.wait_for(runtime._bar_storage_queue.join(), timeout=1)
+        deadline = asyncio.get_running_loop().time() + 2
+        while runtime.status()["bar_storage_pending_count"] and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.01)
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+
+    asyncio.run(run_storage())
+
+    assert write_attempts == 4
+    assert len(stored) == 1
+    assert stored[0][0][2] == [bar]
+    assert runtime.status()["bar_storage_pending_count"] == 0
+    assert runtime.status()["bar_storage_state"] == "RUNNING"
+    assert runtime.status()["automation_state"] == "BLOCKED"
+    assert runtime._automation_queue.empty()
 
 
 def test_websocket_reconnect_backoff_survives_short_lived_connections() -> None:

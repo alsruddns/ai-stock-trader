@@ -233,6 +233,14 @@ function Test-PaperMinuteQualityDiagnosticsReady($Session) {
     return $true
 }
 
+function Test-PaperBarStorageSafeForRestart($Session) {
+    if (-not $Session -or [string]$Session.bar_storage_state -ne 'RUNNING') { return $false }
+    $pendingProperty = $Session.PSObject.Properties['bar_storage_pending_count']
+    if ($null -eq $pendingProperty) { return $true }
+    $pendingCount = 0L
+    return [long]::TryParse([string]$pendingProperty.Value, [ref]$pendingCount) -and $pendingCount -eq 0
+}
+
 function Stop-TrackedProcessTree($Process) {
     if ($null -eq $Process) { return }
     $current = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$Process.ProcessId)" -ErrorAction SilentlyContinue
@@ -278,6 +286,9 @@ $previousPaperSession = Invoke-RestMethod -Uri $pythonPaperSessionUrl -TimeoutSe
 if ($null -eq $previousPaperSession.enabled -or $null -eq $previousPaperSession.orders_enabled -or
         [string]::IsNullOrWhiteSpace([string]$previousPaperSession.automation_state)) {
     throw 'The current Python paper-session status is incomplete; restart was not attempted.'
+}
+if (-not (Test-PaperBarStorageSafeForRestart $previousPaperSession)) {
+    throw 'PAPER minute-bar storage is not healthy or has pending writes; restart was not attempted.'
 }
 $state = Get-Content -LiteralPath $runtimeStatePath -Raw | ConvertFrom-Json
 $runner = Get-TrackedProcess $state.runnerProcessId 'runner'
