@@ -728,6 +728,7 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    @Transactional
     void kisPaperDailyFillReadReconcilesPartialThenCompleteFillIntoPostgres() {
         UUID key = UUID.randomUUID();
         String brokerNumber = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
