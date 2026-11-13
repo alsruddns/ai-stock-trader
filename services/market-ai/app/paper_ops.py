@@ -192,8 +192,12 @@ def evaluate_paper_gate(
         reasons.append("QUOTE_MISSING")
     elif latest_quote_at.tzinfo is None:
         raise ValueError("quote timestamp must include a timezone")
-    elif (now.astimezone(timezone.utc) - latest_quote_at.astimezone(timezone.utc)).total_seconds() > limits.max_quote_age_seconds:
-        reasons.append("QUOTE_STALE")
+    else:
+        quote_age_seconds = (now.astimezone(timezone.utc) - latest_quote_at.astimezone(timezone.utc)).total_seconds()
+        if quote_age_seconds < -1:
+            reasons.append("QUOTE_TIMESTAMP_IN_FUTURE")
+        elif quote_age_seconds > limits.max_quote_age_seconds:
+            reasons.append("QUOTE_STALE")
     if not data_feed_healthy:
         reasons.append("DATA_FEED_UNHEALTHY")
     if not model_available:

@@ -227,6 +227,13 @@ def test_new_entries_allowed_only_when_every_dependency_and_risk_gate_passes() -
     assert stale.new_entries_allowed is False
     assert "QUOTE_STALE" in stale.reasons
 
+    future = _good_gate(now, now + timedelta(seconds=2))
+    assert future.new_entries_allowed is False
+    assert "QUOTE_TIMESTAMP_IN_FUTURE" in future.reasons
+
+    tolerated_clock_skew = _good_gate(now, now + timedelta(seconds=1))
+    assert tolerated_clock_skew.new_entries_allowed is True
+
     losses = _good_gate(now, daily_loss_pct=Decimal("1.00"), consecutive_losses=3)
     assert losses.new_entries_allowed is False
     assert {"DAILY_LOSS_LIMIT", "CONSECUTIVE_LOSS_LIMIT"}.issubset(losses.reasons)
