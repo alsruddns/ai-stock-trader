@@ -35,6 +35,10 @@ function Write-ProgressRecord($Record, $Status = $null) {
     foreach ($name in $streamFailureDiagnostic.Keys) {
         $Record[$name] = $streamFailureDiagnostic[$name]
     }
+    $streamRecoveryDiagnostic = Get-MonitorStreamRecoveryDiagnostic $Status $Feed
+    foreach ($name in $streamRecoveryDiagnostic.Keys) {
+        $Record[$name] = $streamRecoveryDiagnostic[$name]
+    }
     $Record.symbol_market_data = Get-MonitorSymbolMarketData $Status $Feed
     if ($script:monitorInitialStatus) {
         $Record.symbol_market_data_delta = Get-MonitorSymbolMarketDataDelta `
@@ -467,6 +471,10 @@ $evidence = [ordered]@{
     stream_failure_stage = (Get-MonitorStreamFailureDiagnostic $latest).stream_failure_stage
     stream_error_category = (Get-MonitorStreamFailureDiagnostic $latest).stream_error_category
     stream_failure_at = (Get-MonitorStreamFailureDiagnostic $latest).stream_failure_at
+    stream_recovery_diagnostic_available = (Get-MonitorStreamRecoveryDiagnostic $latest $Feed).stream_recovery_diagnostic_available
+    stream_reconnecting_since = (Get-MonitorStreamRecoveryDiagnostic $latest $Feed).stream_reconnecting_since
+    stream_last_recovered_at = (Get-MonitorStreamRecoveryDiagnostic $latest $Feed).stream_last_recovered_at
+    stream_last_recovery_seconds = (Get-MonitorStreamRecoveryDiagnostic $latest $Feed).stream_last_recovery_seconds
     orders_enabled = $false
     automation_state = $latest.automation_state
     result = 'passed'

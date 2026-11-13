@@ -89,6 +89,11 @@ jobs:
             throw "Domestic minute-level spread diagnostics tests failed: passed=$($minuteQualityResult.PassedCount), failed=$($minuteQualityResult.FailedCount)."
           }
 
+          $streamRecoveryResult = Invoke-Pester -Path 'scripts/tests/paper-session-monitor-status.Tests.ps1' -TestName 'Paper session WebSocket recovery diagnostics' -PassThru
+          if ($streamRecoveryResult.FailedCount -gt 0 -or $streamRecoveryResult.PassedCount -ne 2) {
+            throw "Domestic PAPER WebSocket recovery diagnostics tests failed: passed=$($streamRecoveryResult.PassedCount), failed=$($streamRecoveryResult.FailedCount)."
+          }
+
           $restartResult = Invoke-Pester -Path 'scripts/tests/local-stack-restart-domestic.Tests.ps1' -PassThru
           if ($restartResult.FailedCount -gt 0 -or $restartResult.PassedCount -ne 6) {
             throw "Domestic local stack restart tests failed: passed=$($restartResult.PassedCount), failed=$($restartResult.FailedCount)."

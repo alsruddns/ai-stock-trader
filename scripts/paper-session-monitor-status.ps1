@@ -62,6 +62,56 @@ function Get-MonitorStreamFailureDiagnostic($Status) {
     }
 }
 
+function Get-MonitorStreamRecoveryDiagnostic($Status, [string]$SelectedFeed) {
+    $feed = if ($SelectedFeed) { $SelectedFeed.Trim().ToLowerInvariant() } else { 'paper' }
+    if ($feed -notin @('paper', 'real')) {
+        return [ordered]@{
+            stream_recovery_diagnostic_available = $false
+            stream_reconnecting_since = $null
+            stream_last_recovered_at = $null
+            stream_last_recovery_seconds = $null
+        }
+    }
+    $sinceMap = if ($Status) { $Status.PSObject.Properties['stream_reconnecting_since_by_feed'] } else { $null }
+    $recoveredMap = if ($Status) { $Status.PSObject.Properties['stream_last_recovered_at_by_feed'] } else { $null }
+    $durationMap = if ($Status) { $Status.PSObject.Properties['stream_last_recovery_seconds_by_feed'] } else { $null }
+    $since = if ($sinceMap -and $sinceMap.Value) { $sinceMap.Value.PSObject.Properties[$feed] } else { $null }
+    $recovered = if ($recoveredMap -and $recoveredMap.Value) { $recoveredMap.Value.PSObject.Properties[$feed] } else { $null }
+    $duration = if ($durationMap -and $durationMap.Value) { $durationMap.Value.PSObject.Properties[$feed] } else { $null }
+    $available = $null -ne $since -and $null -ne $recovered -and $null -ne $duration
+    $normalizedSince = $null
+    $normalizedRecovered = $null
+    $normalizedDuration = $null
+    foreach ($item in @(@{ Property = $since; Target = 'since' }, @{ Property = $recovered; Target = 'recovered' })) {
+        if ($item.Property -and -not [string]::IsNullOrWhiteSpace([string]$item.Property.Value)) {
+            $parsedAt = [DateTimeOffset]::MinValue
+            if ([DateTimeOffset]::TryParse([string]$item.Property.Value, [ref]$parsedAt)) {
+                if ($item.Target -eq 'since') { $normalizedSince = $parsedAt.ToUniversalTime().ToString('o') }
+                else { $normalizedRecovered = $parsedAt.ToUniversalTime().ToString('o') }
+            } else { $available = $false }
+        }
+    }
+    if ($duration -and $null -ne $duration.Value -and
+        -not [string]::IsNullOrWhiteSpace([string]$duration.Value)) {
+        $parsedDuration = 0.0
+        $validDuration = [double]::TryParse(
+            [string]$duration.Value,
+            [System.Globalization.NumberStyles]::Float,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [ref]$parsedDuration
+        ) -and -not [double]::IsNaN($parsedDuration) -and
+            -not [double]::IsInfinity($parsedDuration) -and $parsedDuration -ge 0
+        if ($validDuration) { $normalizedDuration = $parsedDuration }
+        else { $available = $false }
+    }
+    return [ordered]@{
+        stream_recovery_diagnostic_available = $available
+        stream_reconnecting_since = $normalizedSince
+        stream_last_recovered_at = $normalizedRecovered
+        stream_last_recovery_seconds = $normalizedDuration
+    }
+}
+
 function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
     $feedNames = if ($SelectedFeed) { @($SelectedFeed.ToLowerInvariant()) } else { @('paper', 'real') }
     $result = [ordered]@{}

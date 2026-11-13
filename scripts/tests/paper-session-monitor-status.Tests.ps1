@@ -181,6 +181,41 @@ Describe 'Paper session WebSocket failure diagnostics' {
     }
 }
 
+Describe 'Paper session WebSocket recovery diagnostics' {
+    It 'normalizes feed recovery timestamps and retains the measured duration' {
+        $status = [pscustomobject]@{
+            stream_reconnecting_since_by_feed = [pscustomobject]@{ paper = '2026-11-13T06:00:00+00:00'; real = $null }
+            stream_last_recovered_at_by_feed = [pscustomobject]@{ paper = '2026-11-13T06:00:15.250+00:00'; real = $null }
+            stream_last_recovery_seconds_by_feed = [pscustomobject]@{ paper = 15.25; real = $null }
+        }
+
+        $diagnostic = Get-MonitorStreamRecoveryDiagnostic $status 'paper'
+
+        $diagnostic.stream_recovery_diagnostic_available | Should Be $true
+        $diagnostic.stream_reconnecting_since | Should Be '2026-11-13T06:00:00.0000000+00:00'
+        $diagnostic.stream_last_recovered_at | Should Be '2026-11-13T06:00:15.2500000+00:00'
+        $diagnostic.stream_last_recovery_seconds | Should Be 15.25
+    }
+
+    It 'fails closed on invalid duration and distinguishes old API payloads' {
+        $invalid = [pscustomobject]@{
+            stream_reconnecting_since_by_feed = [pscustomobject]@{ paper = $null }
+            stream_last_recovered_at_by_feed = [pscustomobject]@{ paper = $null }
+            stream_last_recovery_seconds_by_feed = [pscustomobject]@{ paper = 'appsecret=private-value' }
+        }
+        $old = [pscustomobject]@{ state = 'RUNNING' }
+
+        $badDiagnostic = Get-MonitorStreamRecoveryDiagnostic $invalid 'paper'
+        $oldDiagnostic = Get-MonitorStreamRecoveryDiagnostic $old 'paper'
+        $combined = (@($badDiagnostic, $oldDiagnostic) | ConvertTo-Json -Compress -Depth 4)
+
+        $badDiagnostic.stream_recovery_diagnostic_available | Should Be $false
+        $badDiagnostic.stream_last_recovery_seconds | Should Be $null
+        $oldDiagnostic.stream_recovery_diagnostic_available | Should Be $false
+        $combined | Should Not Match 'private-value'
+    }
+}
+
 Describe 'Paper session feed quote-quality diagnostics' {
     It 'records the four valid counters independently from frame diagnostics' {
         $status = [pscustomobject]@{
