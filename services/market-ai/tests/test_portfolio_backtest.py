@@ -1,9 +1,10 @@
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
 
-from app.portfolio_backtest import backtest_domestic_portfolio
+from app.portfolio_backtest import aggregate_compounded_drawdown, backtest_domestic_portfolio
 from app.quant import MinuteBar, QuantConfig
 
 
@@ -190,6 +191,28 @@ def test_flat_portfolio_reports_zero_bar_marked_drawdown() -> None:
     assert result.max_bar_marked_drawdown_amount == 0
     assert result.max_bar_marked_drawdown_percent == 0
     assert result.bar_marked_equity_observations == len(bars) * 3
+
+
+def test_compounded_drawdown_carries_prior_session_high_water_mark() -> None:
+    baseline = _run({"005930": _bars(0), "000660": _bars(1)})
+    first = replace(
+        baseline, max_bar_marked_drawdown_amount=Decimal("200000"),
+        max_bar_marked_drawdown_percent=Decimal("18.1818181818"),
+        minimum_bar_marked_equity=Decimal("900000"),
+        maximum_bar_marked_equity=Decimal("1100000"),
+    )
+    second = replace(
+        baseline, max_bar_marked_drawdown_amount=Decimal("150000"),
+        max_bar_marked_drawdown_percent=Decimal("14.2857142857"),
+        minimum_bar_marked_equity=Decimal("800000"),
+        maximum_bar_marked_equity=Decimal("1050000"),
+    )
+
+    result = aggregate_compounded_drawdown(Decimal("1000000"), [first, second])
+
+    assert result.maximum_amount == Decimal("300000")
+    assert result.maximum_percent == Decimal("27.27272727272727272727272727")
+    assert result.observations == baseline.bar_marked_equity_observations * 2
 
 
 def test_portfolio_drawdown_marks_adverse_intrabar_low_before_exit(monkeypatch) -> None:

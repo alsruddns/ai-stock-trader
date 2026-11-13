@@ -16,7 +16,7 @@ from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
 from app.ai_pipeline import LocalModelRegistry
 from app.market_scope import require_cli_operational_market
-from app.portfolio_backtest import backtest_domestic_portfolio
+from app.portfolio_backtest import aggregate_compounded_drawdown, backtest_domestic_portfolio
 from app.quant import QuantConfig
 
 
@@ -120,6 +120,7 @@ def main() -> int:
         return active_filters[symbol](history)
 
     results = []
+    portfolio_results = []
     session_equity = args.starting_equity
     session_consecutive_losses = 0
     for session in sorted(reference_sessions):
@@ -130,6 +131,7 @@ def main() -> int:
             initial_consecutive_losses=session_consecutive_losses if args.carry_equity_between_sessions else 0,
             entry_filter=ai_entry_filter if args.with_active_ai_models else None,
         )
+        portfolio_results.append(portfolio)
         results.append({
             "date": session.isoformat(),
             "input_bars_by_symbol": {symbol: len(bars[symbol]) for symbol in sorted(bars)},
@@ -163,6 +165,8 @@ def main() -> int:
             "ending_consecutive_losses": portfolio.ending_consecutive_losses,
             "max_bar_marked_drawdown_amount": str(portfolio.max_bar_marked_drawdown_amount),
             "max_bar_marked_drawdown_percent": str(portfolio.max_bar_marked_drawdown_percent),
+            "minimum_bar_marked_equity": str(portfolio.minimum_bar_marked_equity),
+            "maximum_bar_marked_equity": str(portfolio.maximum_bar_marked_equity),
             "bar_marked_equity_observations": portfolio.bar_marked_equity_observations,
             "bar_marked_equity_basis": portfolio.bar_marked_equity_basis,
             "executable": portfolio.executable,
@@ -175,6 +179,10 @@ def main() -> int:
     estimated_costs = sum((Decimal(row["estimated_costs"]) for row in results), Decimal(0))
     net_pnl = sum((Decimal(row["net_pnl"]) for row in results), Decimal(0))
     ending_equity = session_equity if args.carry_equity_between_sessions else None
+    compounded_drawdown = (
+        aggregate_compounded_drawdown(args.starting_equity, portfolio_results)
+        if args.carry_equity_between_sessions else None
+    )
 
     print(json.dumps({
         "market": "KR",
@@ -199,6 +207,15 @@ def main() -> int:
                 for name in next(iter(results), {}).get("estimated_costs_by_component", {})
             },
             "net_pnl": str(net_pnl),
+            "max_bar_marked_drawdown_amount": (
+                str(compounded_drawdown.maximum_amount) if compounded_drawdown else None
+            ),
+            "max_bar_marked_drawdown_percent": (
+                str(compounded_drawdown.maximum_percent) if compounded_drawdown else None
+            ),
+            "bar_marked_equity_observations": (
+                compounded_drawdown.observations if compounded_drawdown else None
+            ),
             **({
                 "starting_equity_per_session": str(args.starting_equity),
                 "gross_pnl_across_independent_sessions": str(gross_pnl),

@@ -67,9 +67,48 @@ class PortfolioBacktestResult:
     ending_consecutive_losses: int
     max_bar_marked_drawdown_amount: Decimal
     max_bar_marked_drawdown_percent: Decimal
+    minimum_bar_marked_equity: Decimal
+    maximum_bar_marked_equity: Decimal
     bar_marked_equity_observations: int
     bar_marked_equity_basis: str
     executable: bool = False
+
+
+@dataclass(frozen=True)
+class CompoundedDrawdown:
+    maximum_amount: Decimal
+    maximum_percent: Decimal
+    observations: int
+
+
+def aggregate_compounded_drawdown(
+    starting_equity: Decimal, sessions: list[PortfolioBacktestResult],
+) -> CompoundedDrawdown:
+    """Combine per-session marks into a sequential high-water drawdown."""
+    if not isinstance(starting_equity, Decimal) or not starting_equity.is_finite() or starting_equity <= 0:
+        raise ValueError("starting equity must be a positive finite decimal")
+    high_water = starting_equity
+    maximum_amount = Decimal(0)
+    maximum_percent = Decimal(0)
+    observations = 0
+    for session in sessions:
+        minimum = session.minimum_bar_marked_equity
+        maximum = session.maximum_bar_marked_equity
+        if (not isinstance(minimum, Decimal) or not minimum.is_finite()
+                or not isinstance(maximum, Decimal) or not maximum.is_finite()
+                or minimum < 0 or maximum < minimum
+                or not session.max_bar_marked_drawdown_amount.is_finite()
+                or not session.max_bar_marked_drawdown_percent.is_finite()
+                or session.bar_marked_equity_observations < 1):
+            raise ValueError("session equity marks are invalid for compounded drawdown")
+        from_prior_high = max(Decimal(0), high_water - minimum)
+        from_prior_high_percent = from_prior_high * Decimal(100) / high_water
+        maximum_amount = max(maximum_amount, from_prior_high, session.max_bar_marked_drawdown_amount)
+        maximum_percent = max(maximum_percent, from_prior_high_percent,
+                              session.max_bar_marked_drawdown_percent)
+        high_water = max(high_water, maximum)
+        observations += session.bar_marked_equity_observations
+    return CompoundedDrawdown(maximum_amount, maximum_percent, observations)
 
 
 @dataclass(frozen=True)
@@ -162,6 +201,8 @@ def backtest_domestic_portfolio(
     high_water_equity = starting_equity
     max_drawdown_amount = Decimal(0)
     max_drawdown_percent = Decimal(0)
+    minimum_equity = starting_equity
+    maximum_equity = starting_equity
     equity_observations = 0
 
     def marked_pnl(index: int, *, price_field: str) -> Decimal:
@@ -175,8 +216,11 @@ def backtest_domestic_portfolio(
         return value
 
     def observe_equity(equity: Decimal) -> None:
-        nonlocal high_water_equity, max_drawdown_amount, max_drawdown_percent, equity_observations
+        nonlocal high_water_equity, max_drawdown_amount, max_drawdown_percent
+        nonlocal minimum_equity, maximum_equity, equity_observations
         equity_observations += 1
+        minimum_equity = min(minimum_equity, equity)
+        maximum_equity = max(maximum_equity, equity)
         high_water_equity = max(high_water_equity, equity)
         drawdown = high_water_equity - equity
         drawdown_percent = drawdown * Decimal(100) / high_water_equity
@@ -364,6 +408,8 @@ def backtest_domestic_portfolio(
         ending_consecutive_losses=loss_streak,
         max_bar_marked_drawdown_amount=max_drawdown_amount,
         max_bar_marked_drawdown_percent=max_drawdown_percent,
+        minimum_bar_marked_equity=minimum_equity,
+        maximum_bar_marked_equity=maximum_equity,
         bar_marked_equity_observations=equity_observations,
         bar_marked_equity_basis=(
             "high-water starts at session starting equity; each bar marks open, adverse low, and close; "

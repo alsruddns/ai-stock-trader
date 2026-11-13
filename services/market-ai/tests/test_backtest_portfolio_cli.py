@@ -98,6 +98,8 @@ def test_portfolio_cli_requires_reviewed_multi_symbol_inputs_and_reports_non_exe
     assert Decimal(payload["summary"]["gross_pnl_across_independent_sessions"]) - Decimal(
         payload["summary"]["estimated_costs_across_independent_sessions"]
     ) == Decimal(payload["summary"]["net_pnl_across_independent_sessions"])
+    assert payload["summary"]["max_bar_marked_drawdown_amount"] is None
+    assert payload["summary"]["max_bar_marked_drawdown_percent"] is None
     assert payload["summary"]["executable"] is False
     assert payload["executable"] is False
 
@@ -133,6 +135,9 @@ def test_portfolio_cli_can_carry_completed_equity_forward_between_sessions(tmp_p
     assert Decimal(payload["summary"]["starting_equity"]) + Decimal(payload["summary"]["net_pnl"]) == Decimal(
         payload["summary"]["ending_equity"]
     )
+    assert payload["summary"]["max_bar_marked_drawdown_amount"] == "0"
+    assert payload["summary"]["max_bar_marked_drawdown_percent"] == "0"
+    assert payload["summary"]["bar_marked_equity_observations"] == 2280
     assert payload["executable"] is False
 
 
