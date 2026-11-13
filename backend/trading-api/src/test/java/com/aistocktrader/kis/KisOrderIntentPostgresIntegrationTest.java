@@ -1423,7 +1423,7 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
-    void staleSubmittingIntentsRecoverToUnknownWithoutChangingRecentIntents() {
+    void scheduledRecoveryMarksOnlyStaleSubmittingIntentsUnknown() {
         UUID staleKey = UUID.randomUUID();
         UUID recentKey = UUID.randomUUID();
         try {
@@ -1435,12 +1435,11 @@ class KisOrderIntentPostgresIntegrationTest {
             jdbcTemplate.update("UPDATE kis_order_intent SET updated_at = ? WHERE idempotency_key = ?",
                     Timestamp.from(Instant.now()), recentKey);
 
-            int recoveredCount = intentRecoveryJob.recoverStaleSubmissionsBefore(cutoff);
+            intentRecoveryJob.recoverStaleSubmissions();
             entityManager.clear();
             KisOrderIntent stale = kisOrderRepository.findById(staleKey).orElseThrow();
             KisOrderIntent recent = kisOrderRepository.findById(recentKey).orElseThrow();
 
-            assertEquals(1, recoveredCount);
             assertEquals(KisOrderStatus.UNKNOWN, stale.getStatus());
             assertNull(stale.getBrokerOrderNumber());
             assertEquals(KisOrderStatus.SUBMITTING, recent.getStatus());
