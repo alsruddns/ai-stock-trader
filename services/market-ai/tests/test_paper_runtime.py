@@ -888,8 +888,8 @@ def test_startup_keeps_paper_automation_blocked_while_durable_outbox_recovers(mo
         "PAPER_AUTOTRADING_ENABLED": "true",
         "KIS_PAPER_ORDERS_ENABLED": "false",
         "KIS_WEBSOCKET_ENABLED": "true",
-        "KIS_PAPER_APP_KEY": "paper-key",
-        "KIS_PAPER_APP_SECRET": "paper-secret",
+        "KIS_PAPER_APP_KEY": "TEST_ONLY_PLACEHOLDER",
+        "KIS_PAPER_APP_SECRET": "TEST_ONLY_PLACEHOLDER",
         "PAPER_WATCHLIST": "KR:005930",
     }.items():
         monkeypatch.setenv(name, value)
@@ -1792,8 +1792,8 @@ def test_session_monitor_blocks_watchlist_outside_domestic_scope_before_opening_
     monkeypatch.setenv("TRADING_MODE", "paper")
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
     monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
-    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-key")
-    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-secret")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "TEST_ONLY_PLACEHOLDER")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "TEST_ONLY_PLACEHOLDER")
     monkeypatch.setenv("KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED", "true")
     monkeypatch.setenv("KIS_REAL_APP_KEY", "real-key")
     monkeypatch.setenv("KIS_REAL_APP_SECRET", "real-secret")
@@ -1823,8 +1823,8 @@ def test_us_paper_watchlist_requires_separate_read_only_real_market_data_switch(
     monkeypatch.setenv("TRADING_MODE", "paper")
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
     monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
-    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-key")
-    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-secret")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "TEST_ONLY_PLACEHOLDER")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "TEST_ONLY_PLACEHOLDER")
     monkeypatch.setenv("KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED", "false")
     monkeypatch.setenv("PAPER_WATCHLIST", "US:AAPL:NAS")
     runtime = PaperSessionFeedMonitor()
@@ -1864,8 +1864,8 @@ def test_mixed_paper_watchlist_uses_paper_kr_and_real_read_only_us_feeds(monkeyp
     monkeypatch.setenv("TRADING_MODE", "paper")
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
     monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
-    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-key")
-    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-secret")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "TEST_ONLY_PLACEHOLDER")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "TEST_ONLY_PLACEHOLDER")
     monkeypatch.setenv("KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED", "true")
     monkeypatch.setenv("KIS_REAL_APP_KEY", "real-key")
     monkeypatch.setenv("KIS_REAL_APP_SECRET", "real-secret")
@@ -1908,8 +1908,8 @@ def test_paper_monitor_restores_same_session_bars_before_connecting(monkeypatch)
     monkeypatch.setenv("TRADING_MODE", "paper")
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
     monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
-    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-key")
-    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-secret")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "TEST_ONLY_PLACEHOLDER")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "TEST_ONLY_PLACEHOLDER")
     monkeypatch.setenv("PAPER_WATCHLIST", "KR:005930")
     monkeypatch.setattr(snapshot_store, "enabled", lambda: True)
     monkeypatch.setattr(snapshot_store, "load_session_minute_bars", lambda market, symbol, session_date: restored)
@@ -1942,8 +1942,8 @@ def test_paper_monitor_fails_closed_when_persisted_bar_restore_fails(monkeypatch
     monkeypatch.setenv("TRADING_MODE", "paper")
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
     monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
-    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-key")
-    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-secret")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "TEST_ONLY_PLACEHOLDER")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "TEST_ONLY_PLACEHOLDER")
     monkeypatch.setenv("PAPER_WATCHLIST", "KR:005930")
     monkeypatch.setattr(snapshot_store, "enabled", lambda: True)
     monkeypatch.setattr(snapshot_store, "load_session_minute_bars", lambda *_args: (_ for _ in ()).throw(RuntimeError()))
@@ -1966,8 +1966,8 @@ def test_paper_autotrading_requires_persisted_session_history(monkeypatch) -> No
     monkeypatch.setenv("TRADING_MODE", "paper")
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
     monkeypatch.setenv("KIS_WEBSOCKET_ENABLED", "true")
-    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-key")
-    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-secret")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "TEST_ONLY_PLACEHOLDER")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "TEST_ONLY_PLACEHOLDER")
     monkeypatch.setenv("PAPER_WATCHLIST", "KR:005930")
     monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "true")
     monkeypatch.setattr(snapshot_store, "enabled", lambda: False)
