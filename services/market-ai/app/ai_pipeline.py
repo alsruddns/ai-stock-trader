@@ -32,6 +32,9 @@ BACKTEST_SPREAD_MODEL = "known_prior_bar_half_spread_entry_exit_v2"
 MIN_MODEL_APPROVAL_TEST_SESSIONS = 5
 MIN_MODEL_APPROVAL_TEST_TRADES = 5
 MIN_MODEL_HOLDOUT_SELECTION_VALIDATION_SESSIONS = 3
+MIN_MODEL_TRAIN_SAMPLES = 30
+MIN_MODEL_VALIDATION_SAMPLES = 10
+MIN_MODEL_TEST_SAMPLES = 10
 _REGISTRY_LOCKS_GUARD = threading.Lock()
 _REGISTRY_LOCKS: dict[Path, threading.RLock] = {}
 _GOVERNANCE_GENESIS_SHA256 = "0" * 64
@@ -265,6 +268,46 @@ def _chronological_partitions(samples: list[TrainingSample]) -> tuple[list[Train
     if any(not part for part in parts):
         raise ValueError("chronological train/validation/test partitions must all contain samples")
     return parts  # type: ignore[return-value]
+
+
+def assess_training_samples(samples: list[TrainingSample]) -> dict[str, Any]:
+    """Report the same approval-ready data partition gates required by model training."""
+    dates = sorted({sample.session for sample in samples})
+    positive = sum(sample.label == 1 for sample in samples)
+    negative = sum(sample.label == 0 for sample in samples)
+    result: dict[str, Any] = {
+        "ready": False,
+        "sample_count": len(samples),
+        "session_count": len(dates),
+        "positive_label_count": positive,
+        "negative_label_count": negative,
+        "partition_sample_counts": None,
+        "partition_session_counts": None,
+        "reasons": [],
+    }
+    if len(dates) < MIN_MODEL_TRAINING_SESSIONS:
+        result["reasons"] = ["insufficient_eligible_sessions"]
+        return result
+    try:
+        train, validation, test = _chronological_partitions(samples)
+    except ValueError:
+        result["reasons"] = ["chronological_partitioning_failed"]
+        return result
+    partitions = {"train": train, "validation": validation, "test": test}
+    result["partition_sample_counts"] = {name: len(rows) for name, rows in partitions.items()}
+    result["partition_session_counts"] = {
+        name: len({sample.session for sample in rows}) for name, rows in partitions.items()
+    }
+    reasons = []
+    if (len(train) < MIN_MODEL_TRAIN_SAMPLES
+            or len(validation) < MIN_MODEL_VALIDATION_SAMPLES
+            or len(test) < MIN_MODEL_TEST_SAMPLES):
+        reasons.append("insufficient_samples_per_partition")
+    if len({sample.label for sample in train}) < 2:
+        reasons.append("training_partition_requires_both_outcome_classes")
+    result["reasons"] = reasons
+    result["ready"] = not reasons
+    return result
 
 
 def _metrics(model: Any, samples: list[TrainingSample]) -> dict[str, float]:
@@ -1024,7 +1067,9 @@ class LocalModelRegistry:
         except ImportError as exc:
             raise RuntimeError("Install the optional ai dependencies to train LightGBM and XGBoost models") from exc
         train, validation, test = _chronological_partitions(samples)
-        if len(train) < 30 or len(validation) < 10 or len(test) < 10:
+        if (len(train) < MIN_MODEL_TRAIN_SAMPLES
+                or len(validation) < MIN_MODEL_VALIDATION_SAMPLES
+                or len(test) < MIN_MODEL_TEST_SAMPLES):
             raise ValueError("insufficient samples per chronological partition")
         if len({sample.label for sample in train}) < 2:
             raise ValueError("training partition must contain both outcome classes")

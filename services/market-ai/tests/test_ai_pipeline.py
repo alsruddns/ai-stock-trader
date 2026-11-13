@@ -15,6 +15,7 @@ from app.ai_pipeline import (
     LABEL_VERSION,
     LocalModelRegistry,
     TrainingSample,
+    assess_training_samples,
     _chronological_partitions,
     _metrics,
     _quant_baseline_metrics,
@@ -358,6 +359,37 @@ def test_approval_ready_partition_reserves_validation_and_five_test_sessions(
     assert dates[0].isdisjoint(dates[1] | dates[2])
     assert dates[1].isdisjoint(dates[2])
     assert max(dates[0]) < min(dates[1]) < min(dates[2])
+
+
+def test_training_sample_readiness_matches_partition_and_class_gates() -> None:
+    sessions = [date(2026, 1, 1) + timedelta(days=index) for index in range(MIN_MODEL_TRAINING_SESSIONS)]
+    samples = [
+        TrainingSample(session, f"{session}:{index}", (float(index),), index % 2)
+        for session in sessions for index in range(40)
+    ]
+
+    ready = assess_training_samples(samples)
+    assert ready["ready"] is True
+    assert ready["sample_count"] == 520
+    assert ready["partition_sample_counts"] == {"train": 200, "validation": 120, "test": 200}
+    assert ready["partition_session_counts"] == {"train": 5, "validation": 3, "test": 5}
+
+    one_class_training = [
+        TrainingSample(sample.session, sample.timestamp, sample.features,
+                       0 if sample.session in set(sessions[:5]) else sample.label)
+        for sample in samples
+    ]
+    unbalanced = assess_training_samples(one_class_training)
+    assert unbalanced["ready"] is False
+    assert unbalanced["reasons"] == ["training_partition_requires_both_outcome_classes"]
+
+    sparse_samples = [
+        TrainingSample(session, f"{session}:{index}", (float(index),), index % 2)
+        for session in sessions for index in range(4)
+    ]
+    sparse = assess_training_samples(sparse_samples)
+    assert sparse["ready"] is False
+    assert sparse["reasons"] == ["insufficient_samples_per_partition"]
 
 
 def test_quant_baseline_reports_candidate_coverage_and_cost_adjusted_label_rate() -> None:

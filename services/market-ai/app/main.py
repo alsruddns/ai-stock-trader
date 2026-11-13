@@ -19,7 +19,7 @@ from .kis import (AccountBalance, Exchange, HistoricalMinuteSession, KisApiError
                   KisSharedRateLimitUnavailable, Market, Quote)
 from . import snapshot_store
 from . import kis_stream
-from .ai_pipeline import LocalModelRegistry
+from .ai_pipeline import LocalModelRegistry, assess_training_samples, build_training_samples
 from .data_provenance import MIN_MODEL_TRAINING_SESSIONS
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from .paper_ops import exchange_session_window, korean_calendar_compatibility
@@ -27,7 +27,7 @@ from .paper_automation import PaperAutomationReadiness
 from .market_calendar import exchange_continuous_session_window, latest_closed_session_date
 from .market_scope import require_operational_market
 from .paper_runtime import (
-    PaperWatch, market_cost_assumptions_status, paper_session_monitor,
+    PaperWatch, _market_quant_config_result, market_cost_assumptions_status, paper_session_monitor,
     paper_strategy_cost_model_status,
 )
 from .session_quality import audit_minute_bar_session
@@ -532,6 +532,7 @@ async def market_training_readiness(
     evaluated_at = datetime.now(timezone.utc)
     reports = []
     eligible_sessions = 0
+    eligible_history: dict[date, list[MinuteBar]] = {}
     for session_date, value in sorted(history.items()):
         bars = value["bars"]
         source_counts = value["source_counts"]
@@ -552,6 +553,8 @@ async def market_training_readiness(
             ineligibility_reasons.append("unapproved_data_source")
         eligible = not ineligibility_reasons
         eligible_sessions += int(eligible)
+        if eligible:
+            eligible_history[session_date] = bars
         reports.append({
             "session_date": session_date.isoformat(),
             "status": quality["status"],
@@ -566,6 +569,41 @@ async def market_training_readiness(
             "ineligibility_reasons": ineligibility_reasons,
         })
 
+    cost_config, cost_missing, cost_invalid = _market_quant_config_result(normalized_market)
+    training_preflight: dict[str, object]
+    if cost_config is None:
+        training_preflight = {
+            "ready": False,
+            "cost_assumptions_ready": False,
+            "sample_count": None,
+            "session_count": eligible_sessions,
+            "positive_label_count": None,
+            "negative_label_count": None,
+            "partition_sample_counts": None,
+            "partition_session_counts": None,
+            "reasons": ["cost_assumptions_missing_or_invalid"],
+        }
+    else:
+        round_trip_cost_bps = Decimal(os.environ[f"BACKTEST_{normalized_market}_ROUND_TRIP_COST_BPS"])
+        try:
+            samples = await asyncio.to_thread(
+                build_training_samples, eligible_history, market=normalized_market,
+                round_trip_cost_bps=round_trip_cost_bps, quant_config=cost_config,
+            )
+            training_preflight = assess_training_samples(samples)
+        except (ArithmeticError, TypeError, ValueError):
+            training_preflight = {
+                "ready": False,
+                "sample_count": None,
+                "session_count": eligible_sessions,
+                "positive_label_count": None,
+                "negative_label_count": None,
+                "partition_sample_counts": None,
+                "partition_session_counts": None,
+                "reasons": ["eligible_session_sample_generation_failed"],
+            }
+        training_preflight["cost_assumptions_ready"] = True
+
     return {
         "market": normalized_market,
         "symbol": normalized_symbol,
@@ -575,6 +613,9 @@ async def market_training_readiness(
         "eligible_sessions": eligible_sessions,
         "additional_sessions_needed": max(0, MIN_MODEL_TRAINING_SESSIONS - eligible_sessions),
         "minimum_met": eligible_sessions >= MIN_MODEL_TRAINING_SESSIONS,
+        "cost_assumptions": {"configured": cost_config is not None,
+                              "missing": cost_missing, "invalid": cost_invalid},
+        "training_preflight": training_preflight,
         "sessions": reports,
     }
 

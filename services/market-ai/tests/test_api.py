@@ -528,6 +528,15 @@ def test_training_readiness_counts_only_complete_approved_websocket_sessions(mon
             "bars": bars,
             "source_counts": {source: len(bars)},
         }
+    cost_values = {
+        "BUY_COMMISSION_BPS": "2",
+        "SELL_COMMISSION_BPS": "3",
+        "SELL_TAX_BPS": "20",
+        "SLIPPAGE_BPS": "10",
+        "ROUND_TRIP_COST_BPS": "50",
+    }
+    for suffix, value in cost_values.items():
+        monkeypatch.setenv(f"BACKTEST_KR_{suffix}", value)
     monkeypatch.setattr(main.snapshot_store, "enabled", lambda: True)
     calls = []
 
@@ -549,7 +558,34 @@ def test_training_readiness_counts_only_complete_approved_websocket_sessions(mon
     assert body["minimum_met"] is False
     assert [row["eligible_for_training"] for row in body["sessions"]] == [True, False]
     assert [row["ineligibility_reasons"] for row in body["sessions"]] == [[], ["unapproved_data_source"]]
+    assert body["cost_assumptions"]["configured"] is True
+    assert body["training_preflight"] == {
+        "ready": False,
+        "sample_count": 355,
+        "session_count": 1,
+        "positive_label_count": 0,
+        "negative_label_count": 355,
+        "partition_sample_counts": None,
+        "partition_session_counts": None,
+        "reasons": ["insufficient_eligible_sessions"],
+        "cost_assumptions_ready": True,
+    }
     assert calls == [("KR", "005930", date(2026, 11, 5), date(2026, 11, 6))]
+
+    for suffix in cost_values:
+        monkeypatch.delenv(f"BACKTEST_KR_{suffix}")
+    missing_costs = client.get(
+        "/api/v1/market/training-readiness/KR/005930"
+        "?from_date=2026-11-05&to_date=2026-11-06",
+    ).json()
+    assert missing_costs["cost_assumptions"]["configured"] is False
+    assert set(missing_costs["cost_assumptions"]["missing"]) == {
+        f"BACKTEST_KR_{suffix}" for suffix in cost_values
+    }
+    assert missing_costs["training_preflight"]["ready"] is False
+    assert missing_costs["training_preflight"]["sample_count"] is None
+    assert missing_costs["training_preflight"]["cost_assumptions_ready"] is False
+    assert missing_costs["training_preflight"]["reasons"] == ["cost_assumptions_missing_or_invalid"]
 
 
 def test_kr_training_readiness_reports_incomplete_session_and_spread_reasons(monkeypatch) -> None:
