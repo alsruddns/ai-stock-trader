@@ -124,6 +124,8 @@ public class KisOrderIntent {
                 && symbol.equalsIgnoreCase(receipt.symbol())
                 && side.name().equalsIgnoreCase(receipt.side())
                 && receipt.brokerOrderNumber() != null && !receipt.brokerOrderNumber().isBlank()
+                && (market != Market.KR || (receipt.brokerOrganizationNumber() != null
+                        && !receipt.brokerOrganizationNumber().isBlank()))
                 && "0".equals(receipt.responseCode());
     }
 

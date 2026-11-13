@@ -34,6 +34,19 @@ class KisOrderIntentTest {
     }
 
     @Test
+    void domesticReceiptWithoutBrokerOrganizationStaysUnknown() {
+        KisOrderIntent domestic = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                        new BigDecimal("70000"), Currency.KRW), null);
+        domestic.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "", "0",
+                Instant.now()));
+
+        assertEquals(KisOrderStatus.UNKNOWN, domestic.getStatus());
+        assertNull(domestic.getBrokerOrderNumber());
+        assertNull(domestic.getBrokerOrganizationNumber());
+    }
+
+    @Test
     void staleBrokerSnapshotCannotReducePreviouslyConfirmedFillQuantity() {
         KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL,
                 new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
