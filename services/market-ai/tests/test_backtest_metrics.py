@@ -157,6 +157,22 @@ def test_session_performance_rejects_duplicate_dates_and_inconsistent_net_pnl() 
         summarize_sessions([inconsistent])
 
 
+def test_session_performance_rejects_negative_costs_and_pnl_without_trades() -> None:
+    timestamp = _trade(day=2, entry="100", quantity=1,
+        gross="10", costs="-2", net="12").entry_time
+    negative_cost = BacktestResult("KR", "005930", timestamp.date(), (
+        _trade(day=2, entry="100", quantity=1, gross="10", costs="-2", net="12"),
+        _trade(day=2, entry="100", quantity=1, gross="10", costs="4", net="6"),
+    ), Decimal("20"), Decimal("2"), Decimal("18"), 380, 2)
+    no_trade_pnl = BacktestResult("KR", "005930", timestamp.date(), (),
+        Decimal("10"), Decimal("0"), Decimal("10"), 380, 0)
+
+    with pytest.raises(ValueError, match="trade costs must be non-negative"):
+        summarize_sessions([negative_cost])
+    with pytest.raises(ValueError, match="without trades must have zero PnL"):
+        summarize_sessions([no_trade_pnl])
+
+
 def test_session_performance_allows_only_sub_atto_decimal_sum_rounding() -> None:
     from app.backtest_metrics import _amounts_match
 

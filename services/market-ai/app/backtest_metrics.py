@@ -19,23 +19,27 @@ def _amounts_match(left: Decimal, right: Decimal) -> bool:
     return abs(left - right) <= _SESSION_TOTAL_TOLERANCE
 
 
+def _validate_trade(trade: Trade) -> None:
+    if isinstance(trade.quantity, bool) or not isinstance(trade.quantity, int) or trade.quantity <= 0:
+        raise ValueError("backtest trades require a positive integer quantity")
+    numeric_values = (trade.entry_price, trade.exit_price, trade.gross_pnl, trade.costs, trade.net_pnl)
+    if any(not isinstance(value, Decimal) or not value.is_finite() for value in numeric_values):
+        raise ValueError("backtest trade values must be finite decimals")
+    if trade.entry_price <= 0 or trade.exit_price <= 0:
+        raise ValueError("backtest trades require positive entry and exit prices")
+    if trade.costs < 0:
+        raise ValueError("backtest trade costs must be non-negative")
+    if trade.net_pnl != trade.gross_pnl - trade.costs:
+        raise ValueError("backtest trade net PnL must equal gross PnL less costs")
+
+
 def summarize_trades(trades: Sequence[Trade]) -> dict[str, object]:
     """Summarize trade returns against entry notional, without compounding days."""
     returns_bps: list[Decimal] = []
     gross_returns_bps: list[Decimal] = []
     cost_returns_bps: list[Decimal] = []
     for trade in trades:
-        if isinstance(trade.quantity, bool) or not isinstance(trade.quantity, int) or trade.quantity <= 0:
-            raise ValueError("backtest trades require a positive integer quantity")
-        numeric_values = (trade.entry_price, trade.exit_price, trade.gross_pnl, trade.costs, trade.net_pnl)
-        if any(not isinstance(value, Decimal) or not value.is_finite() for value in numeric_values):
-            raise ValueError("backtest trade values must be finite decimals")
-        if trade.entry_price <= 0 or trade.exit_price <= 0:
-            raise ValueError("backtest trades require positive entry and exit prices")
-        if trade.costs < 0:
-            raise ValueError("backtest trade costs must be non-negative")
-        if trade.net_pnl != trade.gross_pnl - trade.costs:
-            raise ValueError("backtest trade net PnL must equal gross PnL less costs")
+        _validate_trade(trade)
         notional = trade.entry_price * trade.quantity
         gross_returns_bps.append(trade.gross_pnl * Decimal(10_000) / notional)
         cost_returns_bps.append(trade.costs * Decimal(10_000) / notional)
@@ -78,10 +82,7 @@ def session_net_return_bps(session: BacktestResult) -> Decimal | None:
         return None
     traded_notional = Decimal(0)
     for trade in session.trades:
-        if (isinstance(trade.quantity, bool) or not isinstance(trade.quantity, int)
-                or trade.quantity <= 0 or not isinstance(trade.entry_price, Decimal)
-                or not trade.entry_price.is_finite() or trade.entry_price <= 0):
-            raise ValueError("backtest session trades require positive quantity and entry price")
+        _validate_trade(trade)
         traded_notional += trade.entry_price * trade.quantity
     if traded_notional <= 0 or not traded_notional.is_finite():
         raise ValueError("backtest session traded notional must be finite and positive")
@@ -101,11 +102,12 @@ def summarize_sessions(sessions: Sequence[BacktestResult]) -> dict[str, object]:
             raise ValueError("backtest session PnL values must be finite decimals")
         if session.net_pnl != session.gross_pnl - session.costs:
             raise ValueError("backtest session net PnL must equal gross PnL less costs")
+        if session.costs < 0:
+            raise ValueError("backtest session costs must be non-negative")
+        if not session.trades and any(value != 0 for value in values):
+            raise ValueError("backtest sessions without trades must have zero PnL")
         for trade in session.trades:
-            trade_values = (trade.gross_pnl, trade.costs, trade.net_pnl)
-            if (any(not isinstance(value, Decimal) or not value.is_finite() for value in trade_values)
-                    or trade.net_pnl != trade.gross_pnl - trade.costs):
-                raise ValueError("backtest session contains inconsistent trade PnL")
+            _validate_trade(trade)
         trade_gross = sum((trade.gross_pnl for trade in session.trades), Decimal(0))
         trade_costs = sum((trade.costs for trade in session.trades), Decimal(0))
         trade_net = sum((trade.net_pnl for trade in session.trades), Decimal(0))
