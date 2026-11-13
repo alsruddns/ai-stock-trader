@@ -114,7 +114,7 @@ def test_session_performance_rejects_duplicate_dates_and_inconsistent_net_pnl() 
     timestamp = _trade(day=2, entry="100", quantity=1,
         gross="10", costs="2", net="8").entry_time
     valid = BacktestResult("KR", "005930", timestamp.date(), (),
-        Decimal("10"), Decimal("2"), Decimal("8"), 380, 0)
+        Decimal("0"), Decimal("0"), Decimal("0"), 380, 0)
     inconsistent = BacktestResult("KR", "005930", timestamp.date(), (),
         Decimal("10"), Decimal("2"), Decimal("9"), 380, 0)
 
