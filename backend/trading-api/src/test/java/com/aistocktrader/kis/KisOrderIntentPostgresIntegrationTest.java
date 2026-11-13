@@ -1383,6 +1383,45 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    void submittingPaperIntentRecoversAsUnknownAfterApplicationRestartWithoutBrokerResubmission() {
+        UUID key = UUID.randomUUID();
+        OrderRequest order = request();
+        String requestHash = KisOrderOrchestrator.hash(order, null);
+        try {
+            store.prepare(key, requestHash, KisEnvironment.PAPER, order, null);
+
+            try (ConfigurableApplicationContext restarted = new SpringApplicationBuilder(TradingApiApplication.class)
+                    .web(WebApplicationType.NONE)
+                    .properties("spring.main.banner-mode=off", "spring.task.scheduling.enabled=false",
+                            "trading.mode=paper", "trading.live-trading-enabled=false",
+                            "kis.orders.paper-enabled=true", "kis.orders.paper-reconciliation-enabled=false",
+                            "kis.account-read-enabled=false", "kis.paper-account-read-enabled=false",
+                            "kis.real-account-read-enabled=false", "kis.real-reconciliation-enabled=false",
+                            "kis.paper.app-key=", "kis.paper.app-secret=", "kis.paper.account-number=",
+                            "kis.real.app-key=", "kis.real.app-secret=", "kis.real.account-number=")
+                    .run("--spring.task.scheduling.enabled=false", "--trading.mode=paper",
+                            "--trading.live-trading-enabled=false", "--kis.orders.paper-enabled=true",
+                            "--kis.orders.paper-reconciliation-enabled=false", "--kis.account-read-enabled=false",
+                            "--kis.paper-account-read-enabled=false", "--kis.real-account-read-enabled=false",
+                            "--kis.real-reconciliation-enabled=false", "--kis.paper.app-key=",
+                            "--kis.paper.app-secret=", "--kis.paper.account-number=",
+                            "--kis.real.app-key=", "--kis.real.app-secret=", "--kis.real.account-number=")) {
+                KisOrderOrchestrator restartedOrders = restarted.getBean(KisOrderOrchestrator.class);
+                KisOrderIntentResponse recovered = restartedOrders.submitPaperOrder(key, order, null);
+                KisOrderIntentResponse repeated = restartedOrders.submitPaperOrder(key, order, null);
+
+                assertEquals(KisOrderStatus.UNKNOWN, recovered.status());
+                assertEquals(key, recovered.idempotencyKey());
+                assertNull(recovered.brokerOrderNumber());
+                assertEquals(KisOrderStatus.UNKNOWN, repeated.status());
+                assertEquals(key, repeated.idempotencyKey());
+            }
+        } finally {
+            kisOrderRepository.deleteById(key);
+        }
+    }
+
+    @Test
     @Transactional
     void contradictoryBrokerSnapshotPersistsUnknownLockWithoutCreatingFillHistory() {
         UUID key = UUID.randomUUID();
@@ -1432,4 +1471,5 @@ class KisOrderIntentPostgresIntegrationTest {
     private static String hash(String label) {
         return label + "-" + UUID.randomUUID();
     }
+
 }

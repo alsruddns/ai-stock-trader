@@ -169,6 +169,9 @@ jobs:
       - name: Verify accepted PAPER KIS order intents recover after application restart
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#acceptedKisPaperIntentSurvivesSpringApplicationContextRestartWithoutResubmission' test
+      - name: Verify ambiguous PAPER submissions stay locked after application restart
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#submittingPaperIntentRecoversAsUnknownAfterApplicationRestartWithoutBrokerResubmission' test
 
   dashboard-domestic-operations:
     runs-on: ubuntu-latest

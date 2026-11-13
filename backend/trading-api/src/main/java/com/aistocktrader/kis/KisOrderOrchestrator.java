@@ -177,7 +177,7 @@ public class KisOrderOrchestrator {
         }
     }
 
-    private String hash(OrderRequest request, String exchange) {
+    static String hash(OrderRequest request, String exchange) {
         String canonical = request.market() + "|" + request.symbol().trim().toUpperCase(Locale.ROOT) + "|" + request.side()
                 + "|" + request.quantity() + "|" + request.limitPrice().stripTrailingZeros().toPlainString()
                 + "|" + request.currency() + "|" + (exchange == null ? "" : exchange.toUpperCase(Locale.ROOT));
