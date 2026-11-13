@@ -160,6 +160,9 @@ jobs:
       - name: Verify PAPER reconciliation pages only domestic intents in PostgreSQL
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#paperReconciliationQueryPagesDomesticOrdersInStableUpdatedOrder' test
+      - name: Verify KIS PAPER fill reconciliation reaches PostgreSQL intent state
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#kisPaperDailyFillReadReconcilesPartialThenCompleteFillIntoPostgres' test
       - name: Verify PAPER cash settlement includes buy and sell costs in PostgreSQL
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#paperBuyAndSellPersistCostAdjustedCashPositionAndNetResult' test

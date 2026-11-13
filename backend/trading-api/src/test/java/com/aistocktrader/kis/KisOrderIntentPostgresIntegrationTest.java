@@ -34,10 +34,15 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import com.aistocktrader.config.TradingSafetyProperties;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -58,6 +63,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /** Opt-in local PostgreSQL persistence test. Does not make KIS network requests. */
 @EnabledIfEnvironmentVariable(named = "RUN_LOCAL_POSTGRES_INTEGRATION_TESTS", matches = "true")
@@ -719,6 +728,58 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    void kisPaperDailyFillReadReconcilesPartialThenCompleteFillIntoPostgres() {
+        UUID key = UUID.randomUUID();
+        String brokerNumber = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        RestClient.Builder http = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(http).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(testToken(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_id", "VTTC0081R"))
+                .andExpect(queryParam("ODNO", brokerNumber))
+                .andRespond(withSuccess(dailyFillResponse(brokerNumber, 1, 1), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(header("tr_id", "VTTC0081R"))
+                .andExpect(queryParam("ODNO", brokerNumber))
+                .andRespond(withSuccess(dailyFillResponse(brokerNumber, 2, 0), org.springframework.http.MediaType.APPLICATION_JSON));
+
+        var order = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                new BigDecimal("70000"), Currency.KRW);
+        try {
+            store.prepare(key, hash("paper-daily-fill-e2e"), KisEnvironment.PAPER, order, null);
+            store.accept(key, receipt("paper", brokerNumber));
+            KisProperties.Account paper = new KisProperties.Account("paper-key", "paper-secret", "1234567801");
+            KisProperties kisProperties = new KisProperties(true, true, false, false, paper,
+                    new KisProperties.Account("", "", ""), Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ZERO);
+            KisOrderClient mockedHttpBroker = new KisOrderClient(kisProperties, new KisOrderProperties(false, false),
+                    tradingSafetyProperties, http);
+
+            KisOrderIntent persisted = repository.findById(key).orElseThrow();
+            var partialSnapshot = mockedHttpBroker.reconcilePaperOrder(persisted).orElseThrow();
+            assertEquals(KisOrderStatus.PARTIALLY_FILLED, store.reconcile(key, partialSnapshot).getStatus());
+            entityManager.flush();
+            entityManager.clear();
+            KisOrderIntent afterPartial = repository.findById(key).orElseThrow();
+            assertEquals(1, afterPartial.getFilledQuantity());
+            assertEquals(1, afterPartial.getRemainingQuantity());
+            assertEquals(0, afterPartial.getAverageFillPrice().compareTo(new BigDecimal("70000")));
+
+            var completeSnapshot = mockedHttpBroker.reconcilePaperOrder(afterPartial).orElseThrow();
+            assertEquals(KisOrderStatus.FILLED, store.reconcile(key, completeSnapshot).getStatus());
+            entityManager.flush();
+            entityManager.clear();
+            KisOrderIntent afterComplete = repository.findById(key).orElseThrow();
+            assertEquals(KisOrderStatus.FILLED, afterComplete.getStatus());
+            assertEquals(2, afterComplete.getFilledQuantity());
+            assertEquals(0, afterComplete.getRemainingQuantity());
+            server.verify();
+        } finally {
+            repository.deleteById(key);
+        }
+    }
+
+    @Test
     void realExecutionTimestampIsMonotonicAndCannotBeWrittenToPaperIntent() {
         UUID realKey = UUID.randomUUID();
         UUID paperKey = UUID.randomUUID();
@@ -1309,6 +1370,20 @@ class KisOrderIntentPostgresIntegrationTest {
     private static KisOrderReceipt receipt(String environment, String brokerNumber) {
         return new KisOrderReceipt(environment, "KR", "005930", "BUY", brokerNumber,
                 "ITORG01", "0", Instant.now());
+    }
+
+    private static String testToken() {
+        String expiry = LocalDateTime.now().plusHours(12).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        return "{\"access_token\":\"test-token\",\"access_token_token_expired\":\"" + expiry + "\"}";
+    }
+
+    private static String dailyFillResponse(String brokerNumber, int filled, int remaining) {
+        return """
+                {"rt_cd":"0","ctx_area_fk100":"","ctx_area_nk100":"","output1":[
+                  {"odno":"%s","ord_gno_brno":"ITORG01","pdno":"005930","sll_buy_dvsn_cd":"02",
+                   "tot_ccld_qty":"%d","rmn_qty":"%d","avg_prvs":"70000","cncl_yn":"N","rjct_qty":"0"}
+                ]}
+                """.formatted(brokerNumber, filled, remaining);
     }
 
     private static String hash(String label) {
