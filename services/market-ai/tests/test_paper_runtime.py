@@ -968,6 +968,24 @@ def test_domestic_websocket_failure_count_is_per_feed_and_keeps_only_safe_fields
     assert private_detail not in str(status)
 
 
+def test_websocket_recovery_records_elapsed_time_across_subscription_handshake() -> None:
+    runtime = PaperSessionFeedMonitor()
+    started = datetime.fromisoformat("2026-11-13T06:00:00+00:00")
+    recovered = datetime.fromisoformat("2026-11-13T06:00:15.250+00:00")
+
+    runtime._set_connection_state("paper", "RECONNECTING", now=started)
+    runtime._set_connection_state("paper", "SUBSCRIBING", now=started + timedelta(seconds=12))
+    runtime._set_connection_state("paper", "RECONNECTING", now=started + timedelta(seconds=13))
+    runtime._set_connection_state("paper", "RUNNING", now=recovered)
+
+    status = runtime.status()
+    assert status["stream_reconnecting_since_by_feed"]["paper"] is None
+    assert status["stream_last_recovered_at_by_feed"]["paper"] == recovered.isoformat()
+    assert status["stream_last_recovery_seconds_by_feed"]["paper"] == 15.25
+    assert status["stream_last_recovered_at_by_feed"]["real"] is None
+    assert status["stream_last_recovery_seconds_by_feed"]["real"] is None
+
+
 def test_domestic_websocket_failure_count_ignores_unknown_feed_name() -> None:
     runtime = PaperSessionFeedMonitor()
 

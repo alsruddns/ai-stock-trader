@@ -260,6 +260,9 @@ class PaperSessionFeedMonitor:
             "last_error": None, "last_stream_failure_stage": None,
             "last_stream_error_category": None, "last_stream_failure_at": None,
             "last_stream_failure_environment": None,
+            "stream_reconnecting_since_by_feed": {"paper": None, "real": None},
+            "stream_last_recovered_at_by_feed": {"paper": None, "real": None},
+            "stream_last_recovery_seconds_by_feed": {"paper": None, "real": None},
             "orders_enabled": False,
             "subscription_acknowledgements_by_feed": {}, "last_subscription_error_code": None,
             "automation_state": "DISABLED", "automation_error": None,
@@ -293,6 +296,7 @@ class PaperSessionFeedMonitor:
         self._bar_finalizer_task: asyncio.Task | None = None
         self._bar_finalizer_stop: asyncio.Event | None = None
         self._latest_quotes: dict[tuple[str, str], tuple[Decimal, datetime]] = {}
+        self._stream_reconnecting_since: dict[str, datetime] = {}
 
     def status(self) -> dict[str, object]:
         with self._lock:
@@ -330,6 +334,9 @@ class PaperSessionFeedMonitor:
             }
             result["bars_closed_by_feed"] = dict(self._status["bars_closed_by_feed"])
             result["stream_failures_by_feed"] = dict(self._status["stream_failures_by_feed"])
+            result["stream_reconnecting_since_by_feed"] = dict(self._status["stream_reconnecting_since_by_feed"])
+            result["stream_last_recovered_at_by_feed"] = dict(self._status["stream_last_recovered_at_by_feed"])
+            result["stream_last_recovery_seconds_by_feed"] = dict(self._status["stream_last_recovery_seconds_by_feed"])
             result["candidate_refresh_by_market"] = {
                 key: dict(value) for key, value in self._status["candidate_refresh_by_market"].items()
             }
@@ -1414,11 +1421,31 @@ class PaperSessionFeedMonitor:
         current = self.status().get("subscription_acknowledgements_by_feed", {})
         self._set_status(subscription_acknowledgements_by_feed={**current, environment: status})
 
-    def _set_connection_state(self, environment: str, state: str) -> None:
+    def _set_connection_state(self, environment: str, state: str, *, now: datetime | None = None) -> None:
+        if environment not in {"paper", "real"}:
+            return
+        observed_at = now or datetime.now(timezone.utc)
+        if observed_at.tzinfo is None:
+            raise ValueError("connection state observation time must be timezone-aware")
         with self._lock:
             connections = dict(self._status.get("stream_connections", {}))
             connections[environment] = state
             self._status["stream_connections"] = connections
+            reconnecting_since = dict(self._status["stream_reconnecting_since_by_feed"])
+            recovered_at = dict(self._status["stream_last_recovered_at_by_feed"])
+            recovery_seconds = dict(self._status["stream_last_recovery_seconds_by_feed"])
+            if state == "RECONNECTING" and environment not in self._stream_reconnecting_since:
+                self._stream_reconnecting_since[environment] = observed_at
+                reconnecting_since[environment] = observed_at.isoformat()
+            elif state == "RUNNING" and environment in self._stream_reconnecting_since:
+                started_at = self._stream_reconnecting_since.pop(environment, None)
+                if started_at is not None:
+                    recovered_at[environment] = observed_at.isoformat()
+                    recovery_seconds[environment] = round(max(0.0, (observed_at - started_at).total_seconds()), 3)
+                reconnecting_since[environment] = None
+            self._status["stream_reconnecting_since_by_feed"] = reconnecting_since
+            self._status["stream_last_recovered_at_by_feed"] = recovered_at
+            self._status["stream_last_recovery_seconds_by_feed"] = recovery_seconds
             states = tuple(connections.values())
             if "RECONNECTING" in states:
                 aggregate = "RECONNECTING"

@@ -60,6 +60,8 @@ Python health의 `broker_connected=true`는 모니터가 활성화되어 있고 
 
 같은 응답의 `last_stream_failure_stage`, `last_stream_error_category`, `last_stream_failure_at`, `last_stream_failure_environment`는 마지막 WebSocket 재연결 실패의 구간·안전한 오류 분류·UTC 발생시각·PAPER/REAL feed 환경을 제공합니다. 원시 예외 메시지, 프레임 내용, 계좌정보는 반환하지 않습니다. 진단은 feed가 다시 연결된 뒤에도 다음 실패 또는 Python 프로세스 재시작까지 보존됩니다.
 
+같은 응답의 `stream_reconnecting_since_by_feed`, `stream_last_recovered_at_by_feed`, `stream_last_recovery_seconds_by_feed`는 feed별 현재 재연결 시작시각과 가장 최근 복구 시각·소요초를 제공합니다. 구독 재승인(`SUBSCRIBING`) 시간을 포함해 연결이 `RUNNING`으로 돌아올 때까지 계산합니다. 처음 연결되는 경우에는 복구로 집계하지 않습니다. 이 값들은 Python 프로세스 메모리에서만 유지되어 재시작 시 초기화되며, 세션 원인이나 체결·분봉 품질을 단독으로 증명하지 않습니다.
+
 각 KIS WebSocket feed 실행은 접속키를 프로세스 메모리에만 보관하고 23시간마다 갱신합니다. KIS 안내의 접속키 유효기간 24시간보다 일찍 갱신해 재연결마다 불필요하게 발급을 요청하지 않습니다. 프로세스 재시작 시 캐시는 비워지며 접속키는 로그나 DB에 저장하지 않습니다.
 
 운영 대시보드는 이 필드를 WebSocket 재연결 상태로 번역해 KST 발생 시각과 함께 표시합니다. 새 진단 필드가 없는 구버전 API 응답은 `진단 미지원`으로 구분합니다. 국내 감시 progress 기록에는 허용 목록에 있는 구간·분류 코드와 발생시각만 저장하고 예외 메시지는 저장하지 않습니다.
