@@ -729,7 +729,7 @@ class KisOrderIntentPostgresIntegrationTest {
 
     @Test
     @Transactional
-    void kisPaperDailyFillReadReconcilesPartialThenCompleteFillIntoPostgres() {
+    void paperReconciliationJobPollsKisDailyFillIntoPostgres() {
         UUID key = UUID.randomUUID();
         String brokerNumber = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
         RestClient.Builder http = RestClient.builder();
@@ -753,21 +753,25 @@ class KisOrderIntentPostgresIntegrationTest {
             KisProperties.Account paper = new KisProperties.Account("paper-key", "paper-secret", "1234567801");
             KisProperties kisProperties = new KisProperties(true, true, false, false, paper,
                     new KisProperties.Account("", "", ""), Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ZERO);
-            KisOrderClient mockedHttpBroker = new KisOrderClient(kisProperties, new KisOrderProperties(false, false),
+            KisOrderProperties orderProperties = new KisOrderProperties(false, true);
+            KisOrderClient mockedHttpBroker = new KisOrderClient(kisProperties, orderProperties,
                     tradingSafetyProperties, http);
+            KisOrderOrchestrator orchestrator = new KisOrderOrchestrator(mockedHttpBroker, kisAccountClient,
+                    orderProperties, tradingSafetyProperties, store);
+            KisPaperOrderReconciliationJob reconciliationJob = new KisPaperOrderReconciliationJob(
+                    orderProperties, kisProperties, tradingSafetyProperties, MarketOperationalScope.domesticOnly(),
+                    repository, orchestrator);
 
-            KisOrderIntent persisted = repository.findById(key).orElseThrow();
-            var partialSnapshot = mockedHttpBroker.reconcilePaperOrder(persisted).orElseThrow();
-            assertEquals(KisOrderStatus.PARTIALLY_FILLED, store.reconcile(key, partialSnapshot).getStatus());
+            reconciliationJob.reconcileKnownBrokerOrders();
             entityManager.flush();
             entityManager.clear();
             KisOrderIntent afterPartial = repository.findById(key).orElseThrow();
+            assertEquals(KisOrderStatus.PARTIALLY_FILLED, afterPartial.getStatus());
             assertEquals(1, afterPartial.getFilledQuantity());
             assertEquals(1, afterPartial.getRemainingQuantity());
             assertEquals(0, afterPartial.getAverageFillPrice().compareTo(new BigDecimal("70000")));
 
-            var completeSnapshot = mockedHttpBroker.reconcilePaperOrder(afterPartial).orElseThrow();
-            assertEquals(KisOrderStatus.FILLED, store.reconcile(key, completeSnapshot).getStatus());
+            reconciliationJob.reconcileKnownBrokerOrders();
             entityManager.flush();
             entityManager.clear();
             KisOrderIntent afterComplete = repository.findById(key).orElseThrow();
