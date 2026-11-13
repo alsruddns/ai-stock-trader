@@ -34,9 +34,10 @@ def _strategy_bars(symbol_index: int) -> list[MinuteBar]:
 
 
 def _run(bars_by_symbol, **overrides):
+    config = overrides.pop("config", QuantConfig(commission_bps=Decimal(0), slippage_bps=Decimal(0)))
     return backtest_domestic_portfolio(
         bars_by_symbol, starting_equity=Decimal("1000000"), max_order_notional=Decimal("1000000"),
-        config=QuantConfig(commission_bps=Decimal(0), slippage_bps=Decimal(0)), **overrides,
+        config=config, **overrides,
     )
 
 
@@ -157,3 +158,49 @@ def test_rejects_mismatched_session_timestamps_and_executable_market_data() -> N
         _run({"005930": first, "000660": mismatched})
     with pytest.raises(ValueError, match="at least two"):
         _run({"005930": first})
+
+
+def test_portfolio_uses_stop_first_when_entry_bar_touches_stop_and_target(monkeypatch) -> None:
+    _signals_at_lengths(monkeypatch, {0: {21}})
+    monkeypatch.setattr("app.portfolio_backtest._atr", lambda _bars, _period: Decimal("1"))
+    first = _bars(0)
+    stamp = first[21].timestamp
+    first[21] = MinuteBar(stamp, Decimal("100"), Decimal("103"), Decimal("98"), Decimal("101"),
+                          1000, Decimal("5"), stamp + timedelta(seconds=30))
+    config = QuantConfig(commission_bps=Decimal(0), slippage_bps=Decimal(0),
+                         atr_stop_multiple=Decimal("1"), reward_risk_multiple=Decimal("2"))
+
+    result = _run({"005930": first, "000660": _bars(1)}, config=config)
+
+    assert len(result.trades) == 1
+    trade = result.trades[0]
+    assert trade.entry_time == stamp
+    assert trade.exit_time == stamp
+    assert trade.exit_reason == "ATR_STOP"
+    assert trade.gross_pnl < 0
+    assert trade.costs > 0
+    assert trade.net_pnl < trade.gross_pnl
+
+
+def test_portfolio_gap_through_stop_fills_at_worse_open(monkeypatch) -> None:
+    _signals_at_lengths(monkeypatch, {0: {21}})
+    monkeypatch.setattr("app.portfolio_backtest._atr", lambda _bars, _period: Decimal("1"))
+    first = _bars(0)
+    entry_stamp = first[21].timestamp
+    first[21] = MinuteBar(entry_stamp, Decimal("100"), Decimal("100.5"), Decimal("99.5"), Decimal("100"),
+                          1000, Decimal("5"), entry_stamp + timedelta(seconds=30))
+    stamp = first[22].timestamp
+    first[22] = MinuteBar(stamp, Decimal("90"), Decimal("91"), Decimal("89"), Decimal("90"),
+                          1000, Decimal("5"), stamp + timedelta(seconds=30))
+    config = QuantConfig(commission_bps=Decimal(0), slippage_bps=Decimal(0),
+                         atr_stop_multiple=Decimal("1"), reward_risk_multiple=Decimal("2"))
+
+    result = _run({"005930": first, "000660": _bars(1)}, config=config)
+
+    assert len(result.trades) == 1
+    trade = result.trades[0]
+    assert trade.exit_time == stamp
+    assert trade.exit_reason == "ATR_STOP"
+    assert trade.gross_pnl == -Decimal(10) * trade.quantity
+    assert trade.costs > 0
+    assert trade.net_pnl < trade.gross_pnl
