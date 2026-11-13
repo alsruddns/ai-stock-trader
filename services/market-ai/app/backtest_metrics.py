@@ -6,7 +6,7 @@ from decimal import Decimal
 from statistics import median
 from typing import Sequence
 
-from .quant import MinuteBar, Trade
+from .quant import BacktestResult, MinuteBar, Trade
 
 
 def _mean(values: Sequence[Decimal]) -> Decimal | None:
@@ -56,6 +56,46 @@ def summarize_trades(trades: Sequence[Trade]) -> dict[str, object]:
         "median_net_return_bps": None if not returns_bps else str(median(returns_bps)),
         "worst_trade_net_return_bps": None if not returns_bps else str(min(returns_bps)),
         "return_basis": "arithmetic per trade: net PnL divided by entry price times quantity; not compounded",
+    }
+
+
+def summarize_sessions(sessions: Sequence[BacktestResult]) -> dict[str, object]:
+    """Summarize per-session PnL, including no-trade sessions as zero outcomes."""
+    if len({(session.market, session.symbol, session.session) for session in sessions}) != len(sessions):
+        raise ValueError("backtest session summaries must have unique market, symbol, and date keys")
+    net_values: list[Decimal] = []
+    traded_sessions = 0
+    for session in sessions:
+        values = (session.gross_pnl, session.costs, session.net_pnl)
+        if any(not isinstance(value, Decimal) or not value.is_finite() for value in values):
+            raise ValueError("backtest session PnL values must be finite decimals")
+        if session.net_pnl != session.gross_pnl - session.costs:
+            raise ValueError("backtest session net PnL must equal gross PnL less costs")
+        for trade in session.trades:
+            trade_values = (trade.gross_pnl, trade.costs, trade.net_pnl)
+            if (any(not isinstance(value, Decimal) or not value.is_finite() for value in trade_values)
+                    or trade.net_pnl != trade.gross_pnl - trade.costs):
+                raise ValueError("backtest session contains inconsistent trade PnL")
+        if (sum((trade.gross_pnl for trade in session.trades), Decimal(0)) != session.gross_pnl
+                or sum((trade.costs for trade in session.trades), Decimal(0)) != session.costs
+                or sum((trade.net_pnl for trade in session.trades), Decimal(0)) != session.net_pnl):
+            raise ValueError("backtest session totals must match its trades")
+        net_values.append(session.net_pnl)
+        if session.trades:
+            traded_sessions += 1
+
+    return {
+        "session_count": len(sessions),
+        "sessions_with_trades": traded_sessions,
+        "sessions_without_trades": len(sessions) - traded_sessions,
+        "positive_net_pnl_sessions": sum(value > 0 for value in net_values),
+        "negative_net_pnl_sessions": sum(value < 0 for value in net_values),
+        "zero_net_pnl_sessions": sum(value == 0 for value in net_values),
+        "mean_net_pnl_per_session": None if not net_values else str(_mean(net_values)),
+        "median_net_pnl_per_session": None if not net_values else str(median(net_values)),
+        "worst_session_net_pnl": None if not net_values else str(min(net_values)),
+        "best_session_net_pnl": None if not net_values else str(max(net_values)),
+        "pnl_basis": "currency PnL per independent session; no capital compounding",
     }
 
 

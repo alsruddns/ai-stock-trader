@@ -13,7 +13,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
-from app.backtest_metrics import summarize_spread_coverage, summarize_trades
+from app.backtest_metrics import summarize_sessions, summarize_spread_coverage, summarize_trades
 from app.market_scope import require_cli_operational_market
 from app.quant import QuantConfig, backtest_orb_vwap
 
@@ -99,6 +99,7 @@ def main() -> int:
             "estimated_costs": str(sum((result.costs for result in results), Decimal(0))),
             "net_pnl": str(sum((result.net_pnl for result in results), Decimal(0))),
             "trade_performance": summarize_trades(trades),
+            "session_performance": summarize_sessions(results),
         },
         "cost_assumptions_bps": {
             "buy_commission_per_fill": str(config.effective_buy_commission_bps),

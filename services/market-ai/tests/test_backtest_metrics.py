@@ -4,8 +4,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.backtest_metrics import summarize_spread_coverage, summarize_trades
-from app.quant import MinuteBar, Trade
+from app.backtest_metrics import summarize_sessions, summarize_spread_coverage, summarize_trades
+from app.quant import BacktestResult, MinuteBar, Trade
 
 
 KR_TZ = ZoneInfo("Asia/Seoul")
@@ -79,3 +79,46 @@ def test_spread_coverage_separates_numeric_values_from_timestamped_strategy_inpu
         "spread_observation_time_coverage_percent": 33.33,
         "spread_filter_has_complete_input": False,
     }
+
+
+def test_session_performance_keeps_no_trade_sessions_and_bad_days_visible() -> None:
+    winning_trade = _trade(day=2, entry="100", quantity=1,
+        gross="20", costs="5", net="15")
+    losing_trade = _trade(day=3, entry="100", quantity=1,
+        gross="-10", costs="5", net="-15")
+    sessions = [
+        BacktestResult("KR", "005930", winning_trade.entry_time.date(), (winning_trade,),
+            Decimal("20"), Decimal("5"), Decimal("15"), 380, 1),
+        BacktestResult("KR", "005930", losing_trade.entry_time.date(), (losing_trade,),
+            Decimal("-10"), Decimal("5"), Decimal("-15"), 380, 1),
+        BacktestResult("KR", "005930", _trade(day=4, entry="100", quantity=1,
+            gross="0", costs="0", net="0").entry_time.date(), (),
+            Decimal("0"), Decimal("0"), Decimal("0"), 380, 0),
+    ]
+
+    summary = summarize_sessions(sessions)
+
+    assert summary["session_count"] == 3
+    assert summary["sessions_with_trades"] == 2
+    assert summary["sessions_without_trades"] == 1
+    assert summary["positive_net_pnl_sessions"] == 1
+    assert summary["negative_net_pnl_sessions"] == 1
+    assert summary["zero_net_pnl_sessions"] == 1
+    assert Decimal(summary["mean_net_pnl_per_session"]) == 0
+    assert Decimal(summary["median_net_pnl_per_session"]) == 0
+    assert Decimal(summary["worst_session_net_pnl"]) == -15
+    assert Decimal(summary["best_session_net_pnl"]) == 15
+
+
+def test_session_performance_rejects_duplicate_dates_and_inconsistent_net_pnl() -> None:
+    timestamp = _trade(day=2, entry="100", quantity=1,
+        gross="10", costs="2", net="8").entry_time
+    valid = BacktestResult("KR", "005930", timestamp.date(), (),
+        Decimal("10"), Decimal("2"), Decimal("8"), 380, 0)
+    inconsistent = BacktestResult("KR", "005930", timestamp.date(), (),
+        Decimal("10"), Decimal("2"), Decimal("9"), 380, 0)
+
+    with pytest.raises(ValueError, match="unique market, symbol, and date"):
+        summarize_sessions([valid, valid])
+    with pytest.raises(ValueError, match="gross PnL less costs"):
+        summarize_sessions([inconsistent])
