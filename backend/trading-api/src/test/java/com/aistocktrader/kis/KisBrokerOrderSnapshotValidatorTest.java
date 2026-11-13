@@ -18,7 +18,7 @@ class KisBrokerOrderSnapshotValidatorTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void domesticBrokerIdentityRequiresMatchingOrganizationWhenKnown() throws Exception {
+    void domesticBrokerIdentityRequiresOrganizationOnIntentAndRow() throws Exception {
         KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
                 new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
                         new BigDecimal("70000"), Currency.KRW), null);
@@ -30,6 +30,16 @@ class KisBrokerOrderSnapshotValidatorTest {
         assertFalse(matches(intent, "{\"pdno\":\"005930\",\"sll_buy_dvsn_cd\":\"02\",\"ord_gno_brno\":\"ORG02\"}"));
         assertFalse(matches(intent, "{\"pdno\":\"005930\",\"sll_buy_dvsn_cd\":\"02\"}"));
         assertFalse(matches(intent, "{\"pdno\":\"005930\",\"ord_gno_brno\":\"ORG01\"}"));
+
+        KisOrderIntent missingOrganization = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                        new BigDecimal("70000"), Currency.KRW), null);
+        missingOrganization.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "", "0",
+                Instant.now()));
+        assertFalse(matches(missingOrganization,
+                "{\"pdno\":\"005930\",\"sll_buy_dvsn_cd\":\"02\",\"ord_gno_brno\":\"ORG01\"}"));
+        assertFalse(matches(missingOrganization,
+                "{\"pdno\":\"005930\",\"sll_buy_dvsn_cd\":\"02\"}"));
     }
 
     @Test

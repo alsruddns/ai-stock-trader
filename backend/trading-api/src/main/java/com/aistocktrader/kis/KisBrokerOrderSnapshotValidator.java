@@ -36,8 +36,13 @@ final class KisBrokerOrderSnapshotValidator {
         String expectedOrganization = intent.getBrokerOrganizationNumber();
         String brokerOrganization = firstText(row, "ord_gno_brno", "ORD_GNO_BRNO",
                 "krx_fwdg_ord_orgno", "KRX_FWDG_ORD_ORGNO");
+        if (intent.getMarket() == Market.KR) {
+            return expectedOrganization != null && !expectedOrganization.isBlank()
+                    && !brokerOrganization.isBlank()
+                    && expectedOrganization.trim().equalsIgnoreCase(brokerOrganization.trim());
+        }
         if (expectedOrganization == null || expectedOrganization.isBlank()) return true;
-        if (brokerOrganization.isBlank()) return intent.getMarket() != Market.KR;
+        if (brokerOrganization.isBlank()) return true;
         return expectedOrganization.trim().equalsIgnoreCase(brokerOrganization.trim());
     }
 
