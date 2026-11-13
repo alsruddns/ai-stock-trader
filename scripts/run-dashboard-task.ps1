@@ -104,7 +104,7 @@ try {
     $readyResponse = $null
     while ([DateTimeOffset]::UtcNow -lt $deadline) {
         if ($nodeProcess.HasExited) { throw 'Dashboard Node process exited during startup.' }
-        try { $readyResponse = Invoke-RestMethod -Uri 'http://127.0.0.1:13000/api/operations' -TimeoutSec 5 } catch { $readyResponse = $null }
+        try { $readyResponse = Invoke-RestMethod -Uri 'http://127.0.0.1:13000/api/operations' -TimeoutSec 20 } catch { $readyResponse = $null }
         Assert-DashboardOperationsReady -Response $readyResponse
         if (Test-DashboardOperationsReady -Response $readyResponse) { break }
         Start-Sleep -Seconds 2
@@ -130,7 +130,7 @@ try {
             Where-Object { [int]$_.OwningProcess -eq [int]$nodeProcess.Id } | Select-Object -First 1
         if (-not $currentListener) { throw 'Dashboard listener ownership changed; task is stopping its verified Node process.' }
         $operations = $null
-        try { $operations = Invoke-RestMethod -Uri 'http://127.0.0.1:13000/api/operations' -TimeoutSec 8 } catch { }
+        try { $operations = Invoke-RestMethod -Uri 'http://127.0.0.1:13000/api/operations' -TimeoutSec 20 } catch { }
         Assert-DashboardOperationsReady -Response $operations
     }
 } catch {

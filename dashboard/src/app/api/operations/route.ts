@@ -194,7 +194,7 @@ async function fetchTrainingReadiness(pythonBase: string, market: string, symbol
     try {
       const response = await fetch(
         `${pythonBase}/api/v1/market/training-readiness/${market}/${encodeURIComponent(symbol)}`,
-        { cache: "no-store", signal: AbortSignal.timeout(5000) },
+        { cache: "no-store", signal: AbortSignal.timeout(15000) },
       );
       if (!response.ok) return null;
       const value = await response.json();
