@@ -130,6 +130,7 @@ jobs:
         working-directory: services/market-ai
         run: >-
           python -m pytest -q
+          tests/test_paper_runtime.py::test_intraday_bar_gap_sends_hold_to_paper_worker
           tests/test_paper_runtime.py::test_runtime_reports_domestic_market_data_receipts_per_symbol
           tests/test_paper_runtime.py::test_closed_bars_update_non_executable_quant_decision_and_reset_each_session
           tests/test_paper_runtime.py::test_quant_candidate_is_held_without_an_active_approved_market_model

@@ -480,6 +480,34 @@ def test_partial_session_restore_cannot_create_a_buy_candidate(monkeypatch) -> N
     assert decision["executable"] is False
 
 
+def test_intraday_bar_gap_sends_hold_to_paper_worker(monkeypatch) -> None:
+    _set_quant_cost_settings(monkeypatch, "KR")
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    start = datetime(2026, 11, 5, 9, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+    runtime._bars[watch.key] = deque(
+        MinuteBar(start + timedelta(minutes=index), Decimal("100"), Decimal("101"),
+                  Decimal("99"), Decimal("100.5"), 1000, Decimal("5"),
+                  start + timedelta(minutes=index, seconds=30))
+        for index in range(20)
+    )
+    runtime._decisions[watch.key] = {}
+    runtime._automation_queue = asyncio.Queue()
+    # The 09:20 bar is absent. The first bar after the gap must not enter the worker as a buy.
+    after_gap_at = start + timedelta(minutes=21)
+    after_gap = MinuteBar(after_gap_at, Decimal("100"), Decimal("101"), Decimal("99"),
+                          Decimal("100.5"), 1000, Decimal("5"),
+                          after_gap_at + timedelta(seconds=30))
+
+    runtime._process_closed_bar(watch, after_gap)
+
+    _queued_watch, queued_bar, decision, _quotes = runtime._automation_queue.get_nowait()
+    assert queued_bar.timestamp == after_gap_at
+    assert decision["signal"] == "HOLD"
+    assert decision["reason"] == "BAR_SEQUENCE_INVALID"
+    assert decision["executable"] is False
+
+
 @pytest.mark.parametrize(("market", "symbol", "exchange", "transaction_id", "feed"), [
     ("KR", "005930", None, "H0STCNT0", "paper"),
     ("US", "AAPL", "NAS", "HDFSCNT0", "real"),
