@@ -321,11 +321,14 @@ public class OperationsController {
 
     public record BrokerOrderView(String market, String symbol, String side, int quantity, Integer filledQuantity,
                                   Integer remainingQuantity, String currency, KisOrderStatus status,
-                                  String responseCode, Instant createdAt, Instant updatedAt) {
+                                  String responseCode, boolean brokerOrderReferencePresent,
+                                  Instant createdAt, Instant updatedAt) {
         static BrokerOrderView from(KisOrderIntent item) {
             return new BrokerOrderView(item.getMarket().name(), item.getSymbol(), item.getSide().name(),
                     item.getQuantity(), item.getFilledQuantity(), item.getRemainingQuantity(),
-                    item.getCurrency().name(), item.getStatus(), item.getBrokerResponseCode(), item.getCreatedAt(), item.getUpdatedAt());
+                    item.getCurrency().name(), item.getStatus(), item.getBrokerResponseCode(),
+                    item.getBrokerOrderNumber() != null && !item.getBrokerOrderNumber().isBlank(),
+                    item.getCreatedAt(), item.getUpdatedAt());
         }
     }
 

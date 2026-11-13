@@ -187,6 +187,34 @@ class OperationsControllerTest {
         assertEquals("005930", summary.recentPaperKisOrders().getFirst().symbol());
         assertEquals(KisOrderStatus.REJECTED, summary.recentPaperKisOrders().getFirst().status());
         assertEquals("EGW00201", summary.recentPaperKisOrders().getFirst().responseCode());
+        assertEquals(false, summary.recentPaperKisOrders().getFirst().brokerOrderReferencePresent());
+    }
+
+    @Test
+    void operationsSummaryMarksUnknownPaperOrderWithoutBrokerReferenceForManualReview() {
+        OrderRepository orders = mock(OrderRepository.class);
+        PaperPositionRepository positions = mock(PaperPositionRepository.class);
+        PaperCashRepository cash = mock(PaperCashRepository.class);
+        PaperFillRepository fills = mock(PaperFillRepository.class);
+        KisOrderIntentRepository kisIntents = emptyKisIntents();
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.PAPER,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1, new BigDecimal("70000"), Currency.KRW), null);
+        intent.markUnknown();
+        when(kisIntents.findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.PAPER)).thenReturn(List.of(intent));
+        when(orders.findAll()).thenReturn(List.of());
+        when(orders.findAll(any(Sort.class))).thenReturn(List.of());
+        when(positions.findAllByQuantityGreaterThanOrderByMarketAscSymbolAsc(0)).thenReturn(List.of());
+        when(cash.findAll()).thenReturn(List.of());
+        when(fills.countByFilledAtAfter(any())).thenReturn(0L);
+        when(fills.findAllWithTradeDetails()).thenReturn(List.of());
+
+        var summary = new OperationsController(orders, positions, cash, fills,
+                new TradingSafetyProperties("paper", false, BigDecimal.TEN, BigDecimal.TEN), kisIntents,
+                false, false, false, false, false).summary();
+
+        var unknownOrder = summary.recentPaperKisOrders().getFirst();
+        assertEquals(KisOrderStatus.UNKNOWN, unknownOrder.status());
+        assertEquals(false, unknownOrder.brokerOrderReferencePresent());
     }
 
     @Test
