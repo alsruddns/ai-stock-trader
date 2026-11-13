@@ -7,11 +7,13 @@ on:
       - 'scripts/lib/exchange-session-monitor.ps1'
       - 'scripts/lib/market-session-scheduler.ps1'
       - 'scripts/paper-session-monitor-status.ps1'
+      - 'scripts/lib/paper-session-status-read.ps1'
       - 'scripts/test-paper-websocket-monitor.ps1'
       - 'scripts/lib/safe-http-diagnostic.ps1'
       - 'scripts/test-paper-kis-python.ps1'
       - 'scripts/tests/exchange-session-monitor.Tests.ps1'
       - 'scripts/tests/paper-session-monitor-status.Tests.ps1'
+      - 'scripts/tests/paper-session-status-read.Tests.ps1'
       - 'scripts/tests/krx-session-monitor-domestic.Tests.ps1'
       - 'scripts/tests/local-stack-restart-domestic.Tests.ps1'
       - 'scripts/run-local-stack-task.ps1'
@@ -47,6 +49,7 @@ jobs:
             'scripts/lib/exchange-session-monitor.ps1',
             'scripts/lib/market-session-scheduler.ps1',
             'scripts/paper-session-monitor-status.ps1',
+            'scripts/lib/paper-session-status-read.ps1',
             'scripts/test-paper-websocket-monitor.ps1',
             'scripts/lib/safe-http-diagnostic.ps1',
             'scripts/test-paper-kis-python.ps1',
@@ -74,6 +77,11 @@ jobs:
           $reconnectResult = Invoke-Pester -Path 'scripts/tests/paper-session-monitor-status.Tests.ps1' -TestName 'Domestic PAPER monitor reconnect tolerance' -PassThru
           if ($reconnectResult.FailedCount -gt 0 -or $reconnectResult.PassedCount -ne 2) {
             throw "Domestic PAPER reconnect tolerance tests failed: passed=$($reconnectResult.PassedCount), failed=$($reconnectResult.FailedCount)."
+          }
+
+          $statusReadResult = Invoke-Pester -Path 'scripts/tests/paper-session-status-read.Tests.ps1' -PassThru
+          if ($statusReadResult.FailedCount -gt 0 -or $statusReadResult.PassedCount -ne 2) {
+            throw "Domestic PAPER session status read retry tests failed: passed=$($statusReadResult.PassedCount), failed=$($statusReadResult.FailedCount)."
           }
 
           $minuteQualityResult = Invoke-Pester -Path 'scripts/tests/paper-session-monitor-status.Tests.ps1' -TestName 'Domestic minute-level spread diagnostics' -PassThru

@@ -19,6 +19,7 @@ if ($Feed -eq 'real') {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'paper-session-monitor-status.ps1')
 . (Join-Path $PSScriptRoot 'lib\exchange-session-monitor.ps1')
+. (Join-Path $PSScriptRoot 'lib\paper-session-status-read.ps1')
 if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
     $EvidencePath = Join-Path $repoRoot '.local\validation\paper-websocket-samples.jsonl'
 }
@@ -43,10 +44,8 @@ function Write-ProgressRecord($Record, $Status = $null) {
 }
 
 function Get-SessionStatus {
-    try {
+    return Invoke-PaperSessionStatusRead -Request {
         return Invoke-RestMethod -Uri "$ApiBaseUrl/api/v1/paper/session" -TimeoutSec 5
-    } catch {
-        throw 'Could not read the local paper-session status endpoint.'
     }
 }
 
