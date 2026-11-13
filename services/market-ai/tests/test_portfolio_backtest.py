@@ -176,7 +176,20 @@ def test_daily_loss_mark_blocks_new_signal_but_existing_position_is_managed(monk
     assert result.rejected_entries == (("000660", "DAILY_LOSS_LIMIT"),)
     assert [trade.symbol for trade in result.trades] == ["005930"]
     assert result.trades[0].exit_reason == "ATR_STOP"
+    assert result.max_bar_marked_drawdown_amount > 0
+    assert result.max_bar_marked_drawdown_percent > 0
+    assert result.bar_marked_equity_observations == len(first_bars) * 2
     assert result.executable is False
+
+
+def test_flat_portfolio_reports_zero_bar_marked_drawdown() -> None:
+    bars = _bars()
+
+    result = _run({"005930": bars, "000660": _bars(1)})
+
+    assert result.max_bar_marked_drawdown_amount == 0
+    assert result.max_bar_marked_drawdown_percent == 0
+    assert result.bar_marked_equity_observations == len(bars) * 2
 
 
 def test_three_consecutive_losses_stop_later_entries(monkeypatch) -> None:

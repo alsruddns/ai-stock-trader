@@ -154,6 +154,9 @@ def main() -> int:
             "maximum_open_positions": portfolio.maximum_open_positions,
             "daily_loss_limit_hit": portfolio.daily_loss_limit_hit,
             "consecutive_loss_limit_hit": portfolio.consecutive_loss_limit_hit,
+            "max_bar_marked_drawdown_amount": str(portfolio.max_bar_marked_drawdown_amount),
+            "max_bar_marked_drawdown_percent": str(portfolio.max_bar_marked_drawdown_percent),
+            "bar_marked_equity_observations": portfolio.bar_marked_equity_observations,
             "executable": portfolio.executable,
         })
 

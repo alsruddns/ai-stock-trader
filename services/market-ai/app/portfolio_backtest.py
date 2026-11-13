@@ -64,6 +64,9 @@ class PortfolioBacktestResult:
     maximum_open_positions: int
     daily_loss_limit_hit: bool
     consecutive_loss_limit_hit: bool
+    max_bar_marked_drawdown_amount: Decimal
+    max_bar_marked_drawdown_percent: Decimal
+    bar_marked_equity_observations: int
     executable: bool = False
 
 
@@ -150,6 +153,10 @@ def backtest_domestic_portfolio(
     streak_hit = False
     maximum_open = 0
     daily_loss_budget = starting_equity * max_daily_loss_pct / Decimal(100)
+    high_water_equity = starting_equity
+    max_drawdown_amount = Decimal(0)
+    max_drawdown_percent = Decimal(0)
+    equity_observations = 0
 
     def marked_pnl(index: int, *, price_field: str) -> Decimal:
         value = Decimal(0)
@@ -161,8 +168,18 @@ def backtest_domestic_portfolio(
             value += proceeds - position.cash_debit
         return value
 
+    def observe_equity(equity: Decimal) -> None:
+        nonlocal high_water_equity, max_drawdown_amount, max_drawdown_percent, equity_observations
+        equity_observations += 1
+        high_water_equity = max(high_water_equity, equity)
+        drawdown = high_water_equity - equity
+        drawdown_percent = drawdown * Decimal(100) / high_water_equity
+        max_drawdown_amount = max(max_drawdown_amount, drawdown)
+        max_drawdown_percent = max(max_drawdown_percent, drawdown_percent)
+
     for index, timestamp in enumerate(timestamps):
         # Check open-to-open gaps before placing new entries for this minute.
+        observe_equity(starting_equity + realized + marked_pnl(index, price_field="open"))
         if realized + marked_pnl(index, price_field="open") <= -daily_loss_budget:
             daily_loss_hit = True
 
@@ -280,6 +297,7 @@ def backtest_domestic_portfolio(
 
         if realized + marked_pnl(index, price_field="close") <= -daily_loss_budget:
             daily_loss_hit = True
+        observe_equity(starting_equity + realized + marked_pnl(index, price_field="close"))
 
         # Signal from this completed bar; execution is deferred to the following bar open.
         if index + 1 < len(timestamps):
@@ -333,5 +351,8 @@ def backtest_domestic_portfolio(
         signals_by_symbol=signals, ai_rejections_by_symbol=ai_rejections,
         rejected_entries=tuple(rejected), maximum_open_positions=maximum_open,
         daily_loss_limit_hit=daily_loss_hit, consecutive_loss_limit_hit=streak_hit,
+        max_bar_marked_drawdown_amount=max_drawdown_amount,
+        max_bar_marked_drawdown_percent=max_drawdown_percent,
+        bar_marked_equity_observations=equity_observations,
         executable=False,
     )
