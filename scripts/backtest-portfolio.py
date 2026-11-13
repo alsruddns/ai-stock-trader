@@ -45,6 +45,8 @@ def main() -> int:
                         help="estimated slippage for each fill")
     parser.add_argument("--minimum-turnover", type=Decimal, default=Decimal("1000000"))
     parser.add_argument("--maximum-spread-bps", type=Decimal, default=Decimal("15"))
+    parser.add_argument("--carry-equity-between-sessions", action="store_true",
+                        help="carry each completed session's ending equity into the next session")
     parser.add_argument("--with-active-ai-models", action="store_true",
                         help="require approved active KR models for every supplied symbol")
     parser.add_argument("--registry", type=Path, default=Path(".local/models"),
@@ -118,10 +120,11 @@ def main() -> int:
         return active_filters[symbol](history)
 
     results = []
+    session_equity = args.starting_equity
     for session in sorted(reference_sessions):
         bars = {symbol: data[symbol][session] for symbol in sorted(data)}
         portfolio = backtest_domestic_portfolio(
-            bars, starting_equity=args.starting_equity,
+            bars, starting_equity=session_equity if args.carry_equity_between_sessions else args.starting_equity,
             max_order_notional=args.max_order_notional, config=config,
             entry_filter=ai_entry_filter if args.with_active_ai_models else None,
         )
@@ -160,6 +163,13 @@ def main() -> int:
             "bar_marked_equity_basis": portfolio.bar_marked_equity_basis,
             "executable": portfolio.executable,
         })
+        if args.carry_equity_between_sessions:
+            session_equity = portfolio.ending_equity
+
+    gross_pnl = sum((Decimal(row["gross_pnl"]) for row in results), Decimal(0))
+    estimated_costs = sum((Decimal(row["estimated_costs"]) for row in results), Decimal(0))
+    net_pnl = sum((Decimal(row["net_pnl"]) for row in results), Decimal(0))
+    ending_equity = session_equity if args.carry_equity_between_sessions else None
 
     print(json.dumps({
         "market": "KR",
@@ -171,18 +181,29 @@ def main() -> int:
         "sessions": results,
         "summary": {
             "session_count": len(results),
-            "starting_equity_per_session": str(args.starting_equity),
-            "gross_pnl_across_independent_sessions": str(
-                sum((Decimal(row["gross_pnl"]) for row in results), Decimal(0))
-            ),
-            "estimated_costs_across_independent_sessions": str(
-                sum((Decimal(row["estimated_costs"]) for row in results), Decimal(0))
-            ),
-            "estimated_costs_by_component_across_independent_sessions": {
+            "equity_mode": "compounded_sequential_sessions" if args.carry_equity_between_sessions
+            else "independent_sessions",
+            "starting_equity": str(args.starting_equity),
+            "ending_equity": str(ending_equity) if ending_equity is not None else None,
+            "ending_equity_note": None if ending_equity is not None else
+            "Independent sessions do not produce a single sequential ending-equity value.",
+            "gross_pnl": str(gross_pnl),
+            "estimated_costs": str(estimated_costs),
+            "estimated_costs_by_component": {
                 name: str(sum((Decimal(row["estimated_costs_by_component"][name]) for row in results), Decimal(0)))
                 for name in next(iter(results), {}).get("estimated_costs_by_component", {})
             },
-            "net_pnl_across_independent_sessions": str(sum((Decimal(row["net_pnl"]) for row in results), Decimal(0))),
+            "net_pnl": str(net_pnl),
+            **({
+                "starting_equity_per_session": str(args.starting_equity),
+                "gross_pnl_across_independent_sessions": str(gross_pnl),
+                "estimated_costs_across_independent_sessions": str(estimated_costs),
+                "estimated_costs_by_component_across_independent_sessions": {
+                    name: str(sum((Decimal(row["estimated_costs_by_component"][name]) for row in results), Decimal(0)))
+                    for name in next(iter(results), {}).get("estimated_costs_by_component", {})
+                },
+                "net_pnl_across_independent_sessions": str(net_pnl),
+            } if not args.carry_equity_between_sessions else {}),
             "accepted_trade_count": sum(len(row["accepted_trades"]) for row in results),
             "executable": False,
         },
@@ -202,7 +223,10 @@ def main() -> int:
         },
         "simulation_scope": (
             "Independent symbol candidate signals are combined under shared capital; candidate signal generation "
-            "does not condition on other open positions. Each date is an independent, non-compounded session."
+            "does not condition on other open positions. "
+            + ("Completed session equity carries into the next session; daily loss limits reset each session."
+               if args.carry_equity_between_sessions else
+               "Each date is an independent, non-compounded session.")
         ),
         "executable": False,
     }, indent=2, ensure_ascii=False))
