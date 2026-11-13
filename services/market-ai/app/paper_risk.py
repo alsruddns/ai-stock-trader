@@ -15,6 +15,28 @@ class EquitySnapshot:
     reason: str | None
 
 
+def nonnegative_integer(value: object) -> int | None:
+    """Accept only JSON-style integer counts; never truncate malformed risk state."""
+    if type(value) is not int or value < 0:
+        return None
+    return value
+
+
+def paper_open_position_count(positions: object) -> int | None:
+    """Count open rows only when every quantity is a valid non-negative integer."""
+    if not isinstance(positions, list):
+        return None
+    count = 0
+    for position in positions:
+        if not isinstance(position, Mapping):
+            return None
+        quantity = nonnegative_integer(position.get("quantity"))
+        if quantity is None:
+            return None
+        count += quantity > 0
+    return count
+
+
 def paper_equity_snapshot(
     currency: str,
     *,
@@ -37,7 +59,9 @@ def paper_equity_snapshot(
         for position in positions:
             if str(position.get("currency", "")).upper() != currency:
                 continue
-            quantity = int(position["quantity"])
+            quantity = nonnegative_integer(position.get("quantity"))
+            if quantity is None:
+                return EquitySnapshot(currency, None, "PAPER_POSITION_INVALID")
             if quantity <= 0:
                 return EquitySnapshot(currency, None, "PAPER_POSITION_INVALID")
             market = str(position["market"]).upper()

@@ -46,7 +46,8 @@ from .paper_ops import (
     PaperOpsLimits, evaluate_paper_exit, evaluate_paper_gate, exchange_session_window,
     size_paper_order_diagnostic,
 )
-from .paper_risk import baseline_capture_open, daily_loss_percent, paper_equity_snapshot
+from .paper_risk import (baseline_capture_open, daily_loss_percent, nonnegative_integer,
+                         paper_equity_snapshot, paper_open_position_count)
 
 SUBSCRIPTION_ACK_TIMEOUT_SECONDS = 15
 MINUTE_QUALITY_RETENTION = 400
@@ -1918,9 +1919,10 @@ class PaperSessionFeedMonitor:
         latest_quote = quotes.get((watch.market, watch.symbol.upper()))
         try:
             operations = broker.get_operations_summary()
-            consecutive_losses = int(operations["consecutiveLosingTrades"])
-            open_orders = int(operations["openOrders"])
-            if consecutive_losses < 0 or open_orders < 0:
+            consecutive_losses = nonnegative_integer(operations["consecutiveLosingTrades"])
+            open_orders = nonnegative_integer(operations["openOrders"])
+            open_positions = paper_open_position_count(positions)
+            if consecutive_losses is None or open_orders is None or open_positions is None:
                 raise ValueError
         except (PaperBrokerError, KeyError, TypeError, ValueError):
             return {"state": "BLOCKED", "reason": "LOCAL_PAPER_RISK_SUMMARY_UNAVAILABLE", "executable": False}
@@ -1934,7 +1936,7 @@ class PaperSessionFeedMonitor:
             model_approved=is_approved_candidate, broker_healthy=True,
             daily_loss_pct=loss_pct if loss_pct is not None else limits.max_daily_loss_pct,
             consecutive_losses=consecutive_losses,
-            open_positions=len([item for item in positions if int(item.get("quantity", 0)) > 0]),
+            open_positions=open_positions,
             limits=limits,
         )
         if not gate.new_entries_allowed:

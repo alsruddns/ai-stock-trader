@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from app.paper_risk import baseline_capture_open, daily_loss_percent, paper_equity_snapshot
+from app.paper_risk import (baseline_capture_open, daily_loss_percent, nonnegative_integer,
+                            paper_equity_snapshot, paper_open_position_count)
 
 
 NOW = datetime(2026, 11, 5, 1, 0, tzinfo=timezone.utc)
@@ -28,6 +29,31 @@ def test_equity_snapshot_fails_closed_when_any_position_mark_is_missing_or_stale
     assert missing.reason == "POSITION_QUOTE_MISSING"
     assert stale.reason == "POSITION_QUOTE_STALE"
     assert missing.equity is None and stale.equity is None
+
+
+def test_fractional_or_boolean_position_quantities_fail_closed() -> None:
+    for quantity in (1.5, True, "1"):
+        result = paper_equity_snapshot(
+            "KRW", cash_balances=[{"currency": "KRW", "balance": "800000"}],
+            positions=[{"currency": "KRW", "market": "KR", "symbol": "005930", "quantity": quantity}],
+            quotes={("KR", "005930"): (Decimal("70000"), NOW)},
+            now=NOW, max_quote_age_seconds=3,
+        )
+        assert result.reason == "PAPER_POSITION_INVALID"
+
+
+def test_risk_counts_require_nonnegative_json_integers() -> None:
+    assert nonnegative_integer(0) == 0
+    assert nonnegative_integer(3) == 3
+    assert nonnegative_integer(-1) is None
+    assert nonnegative_integer(True) is None
+    assert nonnegative_integer(0.5) is None
+    assert nonnegative_integer("0") is None
+    assert paper_open_position_count([
+        {"quantity": 1}, {"quantity": 0}, {"quantity": 2},
+    ]) == 2
+    assert paper_open_position_count([{"quantity": 0.5}]) is None
+    assert paper_open_position_count([{"quantity": False}]) is None
 
 
 def test_daily_loss_and_capture_window_fail_closed() -> None:

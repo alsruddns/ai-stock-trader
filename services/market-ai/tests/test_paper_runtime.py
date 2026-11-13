@@ -2557,6 +2557,31 @@ def test_approved_candidate_enters_only_local_paper_ledger_after_risk_gates(monk
     assert broker.last_order["modelId"] == "approved-kr-model"
 
 
+@pytest.mark.parametrize(
+    "summary",
+    [
+        {"consecutiveLosingTrades": 2.5, "openOrders": 0},
+        {"consecutiveLosingTrades": 0, "openOrders": 0.5},
+        {"consecutiveLosingTrades": True, "openOrders": 0},
+        {"consecutiveLosingTrades": 0, "openOrders": False},
+    ],
+)
+def test_malformed_risk_counts_block_entry_without_coercion(monkeypatch, summary) -> None:
+    runtime, watch, bar, quotes, broker = _prepare_entry_runtime(monkeypatch)
+    broker.get_operations_summary = lambda: summary
+
+    result = runtime._manage_strategy_entry(
+        broker, PaperAutoTrader(broker), watch, bar,
+        {"signal": "BUY_CANDIDATE", "model_id": "approved-kr-model"}, quotes, PaperOpsLimits(),
+    )
+
+    assert result == {
+        "state": "BLOCKED", "reason": "LOCAL_PAPER_RISK_SUMMARY_UNAVAILABLE", "executable": False,
+    }
+    assert broker.created_orders == 0
+    assert broker.recorded_fills == 0
+
+
 def test_unaffordable_single_share_entry_reports_position_and_order_caps(monkeypatch) -> None:
     runtime, watch, bar, _quotes, broker = _prepare_entry_runtime(monkeypatch, cash="10000000", baseline="10000000")
     price = Decimal("1100000")
