@@ -61,7 +61,20 @@ def test_portfolio_cli_requires_reviewed_multi_symbol_inputs_and_reports_non_exe
     assert set(payload["datasets"]) == {"005930", "000660"}
     assert payload["sessions"][0]["input_bars_by_symbol"] == {"000660": 380, "005930": 380}
     session = payload["sessions"][0]
+    cost_components = session["estimated_costs_by_component"]
+    assert set(cost_components) == {
+        "entry_slippage", "entry_spread", "exit_slippage", "exit_spread",
+        "buy_commission_and_exchange_fee", "sell_commission_and_exchange_fee", "sell_tax",
+    }
+    assert sum((Decimal(value) for value in cost_components.values()), Decimal(0)) == Decimal(
+        session["estimated_costs"]
+    )
     assert Decimal(session["gross_pnl"]) - Decimal(session["estimated_costs"]) == Decimal(session["net_pnl"])
+    summary_components = payload["summary"]["estimated_costs_by_component_across_independent_sessions"]
+    assert set(summary_components) == set(cost_components)
+    assert sum((Decimal(value) for value in summary_components.values()), Decimal(0)) == Decimal(
+        payload["summary"]["estimated_costs_across_independent_sessions"]
+    )
     assert Decimal(payload["summary"]["gross_pnl_across_independent_sessions"]) - Decimal(
         payload["summary"]["estimated_costs_across_independent_sessions"]
     ) == Decimal(payload["summary"]["net_pnl_across_independent_sessions"])

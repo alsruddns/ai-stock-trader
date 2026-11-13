@@ -99,6 +99,15 @@ def test_portfolio_gross_cost_and_net_totals_reconcile() -> None:
     assert result.gross_pnl == sum((trade.gross_pnl for trade in result.trades), Decimal(0))
     assert result.estimated_costs == sum((trade.costs for trade in result.trades), Decimal(0))
     assert result.net_pnl == sum((trade.net_pnl for trade in result.trades), Decimal(0))
+    assert all(sum(trade.costs_by_component.values(), Decimal(0)) == trade.costs for trade in result.trades)
+    assert sum(result.estimated_costs_by_component.values(), Decimal(0)) == result.estimated_costs
+    assert result.estimated_costs_by_component["buy_commission_and_exchange_fee"] > 0
+    assert result.estimated_costs_by_component["sell_commission_and_exchange_fee"] > 0
+    assert result.estimated_costs_by_component["sell_tax"] > 0
+    assert result.estimated_costs_by_component["entry_slippage"] > 0
+    assert result.estimated_costs_by_component["exit_slippage"] > 0
+    assert result.estimated_costs_by_component["entry_spread"] > 0
+    assert result.estimated_costs_by_component["exit_spread"] > 0
     assert abs(result.gross_pnl - result.estimated_costs - result.net_pnl) <= Decimal("1e-18")
     assert result.ending_equity == result.starting_equity + result.net_pnl
 

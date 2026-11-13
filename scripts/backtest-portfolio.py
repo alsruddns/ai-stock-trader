@@ -135,6 +135,9 @@ def main() -> int:
                 "symbol": trade.symbol, "entry_time": trade.entry_time.isoformat(),
                 "exit_time": trade.exit_time.isoformat(), "quantity": trade.quantity,
                 "gross_pnl": str(trade.gross_pnl), "estimated_costs": str(trade.costs),
+                "estimated_costs_by_component": {
+                    name: str(amount) for name, amount in trade.costs_by_component.items()
+                },
                 "net_pnl": str(trade.net_pnl), "exit_reason": trade.exit_reason,
             } for trade in portfolio.trades],
             "rejected_entries": [
@@ -144,6 +147,9 @@ def main() -> int:
             "ending_equity": str(portfolio.ending_equity),
             "gross_pnl": str(portfolio.gross_pnl),
             "estimated_costs": str(portfolio.estimated_costs),
+            "estimated_costs_by_component": {
+                name: str(amount) for name, amount in portfolio.estimated_costs_by_component.items()
+            },
             "net_pnl": str(portfolio.net_pnl),
             "maximum_open_positions": portfolio.maximum_open_positions,
             "daily_loss_limit_hit": portfolio.daily_loss_limit_hit,
@@ -168,6 +174,10 @@ def main() -> int:
             "estimated_costs_across_independent_sessions": str(
                 sum((Decimal(row["estimated_costs"]) for row in results), Decimal(0))
             ),
+            "estimated_costs_by_component_across_independent_sessions": {
+                name: str(sum((Decimal(row["estimated_costs_by_component"][name]) for row in results), Decimal(0)))
+                for name in next(iter(results), {}).get("estimated_costs_by_component", {})
+            },
             "net_pnl_across_independent_sessions": str(sum((Decimal(row["net_pnl"]) for row in results), Decimal(0))),
             "accepted_trade_count": sum(len(row["accepted_trades"]) for row in results),
             "executable": False,

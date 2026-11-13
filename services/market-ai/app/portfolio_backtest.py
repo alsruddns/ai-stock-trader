@@ -23,8 +23,27 @@ class PortfolioTrade:
     quantity: int
     gross_pnl: Decimal
     costs: Decimal
+    entry_slippage_cost: Decimal
+    entry_spread_cost: Decimal
+    exit_slippage_cost: Decimal
+    exit_spread_cost: Decimal
+    buy_commission_cost: Decimal
+    sell_commission_cost: Decimal
+    sell_tax_cost: Decimal
     net_pnl: Decimal
     exit_reason: str
+
+    @property
+    def costs_by_component(self) -> dict[str, Decimal]:
+        return {
+            "entry_slippage": self.entry_slippage_cost,
+            "entry_spread": self.entry_spread_cost,
+            "exit_slippage": self.exit_slippage_cost,
+            "exit_spread": self.exit_spread_cost,
+            "buy_commission_and_exchange_fee": self.buy_commission_cost,
+            "sell_commission_and_exchange_fee": self.sell_commission_cost,
+            "sell_tax": self.sell_tax_cost,
+        }
 
 
 @dataclass(frozen=True)
@@ -35,6 +54,7 @@ class PortfolioBacktestResult:
     ending_equity: Decimal
     gross_pnl: Decimal
     estimated_costs: Decimal
+    estimated_costs_by_component: dict[str, Decimal]
     net_pnl: Decimal
     trades: tuple[PortfolioTrade, ...]
     quant_signals_by_symbol: dict[str, int]
@@ -62,6 +82,7 @@ class _OpenPosition:
     target_price: Decimal
     quantity: int
     cash_debit: Decimal
+    entry_spread_bps: Decimal
 
 
 def backtest_domestic_portfolio(
@@ -185,7 +206,7 @@ def backtest_domestic_portfolio(
                 entry_index=index, raw_entry_price=bar.open, fill_price=fill,
                 stop_price=fill - distance,
                 target_price=fill + distance * config.reward_risk_multiple,
-                quantity=quantity, cash_debit=debit,
+                quantity=quantity, cash_debit=debit, entry_spread_bps=intent.signal_spread_bps,
             )
             maximum_open = max(maximum_open, len(positions))
 
@@ -218,17 +239,22 @@ def backtest_domestic_portfolio(
             slipped_exit = exit_price * (Decimal(1) - exit_cost_bps / Decimal(10_000))
             quantity = position.quantity
             gross = (exit_price - position.raw_entry_price) * quantity
-            execution_costs = ((position.fill_price - position.raw_entry_price)
-                               + (exit_price - slipped_exit)) * quantity
-            commission_costs = (
-                _cost(position.fill_price, quantity, config.effective_buy_commission_bps)
-                + _cost(slipped_exit, quantity, config.effective_sell_commission_bps + config.sell_tax_bps)
-            )
-            costs = execution_costs + commission_costs
+            entry_slippage_cost = _cost(position.raw_entry_price, quantity, config.slippage_bps)
+            entry_spread_cost = _cost(position.raw_entry_price, quantity,
+                                      position.entry_spread_bps / Decimal(2))
+            exit_slippage_cost = _cost(exit_price, quantity, config.slippage_bps)
+            exit_spread_cost = _cost(exit_price, quantity, observed_spread / Decimal(2))
+            buy_commission_cost = _cost(position.fill_price, quantity, config.effective_buy_commission_bps)
+            sell_commission_cost = _cost(slipped_exit, quantity, config.effective_sell_commission_bps)
+            sell_tax_cost = _cost(slipped_exit, quantity, config.sell_tax_bps)
+            costs = sum((entry_slippage_cost, entry_spread_cost, exit_slippage_cost,
+                         exit_spread_cost, buy_commission_cost, sell_commission_cost, sell_tax_cost), Decimal(0))
             net_pnl = gross - costs
             completed.append(PortfolioTrade(
                 symbol, timestamps[position.entry_index], timestamp, quantity,
-                gross, costs, net_pnl, reason,
+                gross, costs, entry_slippage_cost, entry_spread_cost, exit_slippage_cost,
+                exit_spread_cost, buy_commission_cost, sell_commission_cost, sell_tax_cost,
+                net_pnl, reason,
             ))
             realized += net_pnl
             cash += position.cash_debit + net_pnl
@@ -270,14 +296,25 @@ def backtest_domestic_portfolio(
         raise ValueError("all domestic portfolio positions must be closed by the session end")
     gross_pnl = sum((trade.gross_pnl for trade in completed), Decimal(0))
     estimated_costs = sum((trade.costs for trade in completed), Decimal(0))
+    cost_component_names = (
+        "entry_slippage", "entry_spread", "exit_slippage", "exit_spread",
+        "buy_commission_and_exchange_fee", "sell_commission_and_exchange_fee", "sell_tax",
+    )
+    estimated_costs_by_component = {
+        name: sum((trade.costs_by_component[name] for trade in completed), Decimal(0))
+        for name in cost_component_names
+    }
     trade_net_pnl = sum((trade.net_pnl for trade in completed), Decimal(0))
     if (abs(gross_pnl - estimated_costs - trade_net_pnl) > _PORTFOLIO_TOTAL_TOLERANCE
-            or abs(trade_net_pnl - realized) > _PORTFOLIO_TOTAL_TOLERANCE):
+            or abs(trade_net_pnl - realized) > _PORTFOLIO_TOTAL_TOLERANCE
+            or abs(sum(estimated_costs_by_component.values(), Decimal(0)) - estimated_costs)
+            > _PORTFOLIO_TOTAL_TOLERANCE):
         raise ValueError("portfolio totals do not reconcile to completed trade results")
     return PortfolioBacktestResult(
         market="KR", session=session, starting_equity=starting_equity,
         ending_equity=starting_equity + realized, gross_pnl=gross_pnl,
-        estimated_costs=estimated_costs, net_pnl=realized,
+        estimated_costs=estimated_costs, estimated_costs_by_component=estimated_costs_by_component,
+        net_pnl=realized,
         trades=tuple(completed), quant_signals_by_symbol=quant_signals,
         signals_by_symbol=signals, ai_rejections_by_symbol=ai_rejections,
         rejected_entries=tuple(rejected), maximum_open_positions=maximum_open,
