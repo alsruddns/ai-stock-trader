@@ -2493,6 +2493,24 @@ def test_stale_signal_bar_blocks_entry_before_reading_or_writing_broker(monkeypa
     assert broker.recorded_fills == 0
 
 
+def test_reconnecting_market_feed_blocks_paper_entry_before_order_write(monkeypatch) -> None:
+    runtime, watch, bar, quotes, broker = _prepare_entry_runtime(monkeypatch)
+    runtime._set_status(
+        state="RECONNECTING", enabled=True, subscriptions=1,
+        stream_connections={"paper": "RECONNECTING"},
+    )
+    trader = PaperAutoTrader(broker)
+
+    result = runtime._manage_strategy_entry(
+        broker, trader, watch, bar, {"signal": "BUY_CANDIDATE", "model_id": "approved-kr-model"},
+        quotes, PaperOpsLimits(),
+    )
+
+    assert result == {"state": "BLOCKED", "reason": "DATA_FEED_UNHEALTHY", "executable": False}
+    assert broker.created_orders == 0
+    assert broker.recorded_fills == 0
+
+
 def test_daily_loss_limit_blocks_candidate_before_any_paper_order_write(monkeypatch) -> None:
     runtime, watch, bar, quotes, broker = _prepare_entry_runtime(
         monkeypatch, cash="989000", baseline="1000000"
