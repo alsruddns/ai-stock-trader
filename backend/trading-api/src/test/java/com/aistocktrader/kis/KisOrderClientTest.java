@@ -382,7 +382,7 @@ class KisOrderClientTest {
                 new KisProperties.Account("", "", ""), Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ofMillis(100));
         KisOrderIntent intent = acceptedDomesticPaperIntent();
 
-        assertThrows(IllegalStateException.class, () -> new KisOrderClient(noPaperRead, new KisOrderProperties(false),
+        assertThrows(IllegalStateException.class, () -> new KisOrderClient(noPaperRead, new KisOrderProperties(false, false),
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("250")), builder)
                 .reconcilePaperOrder(intent));
 
@@ -532,7 +532,7 @@ class KisOrderClientTest {
         KisProperties.Account paper = new KisProperties.Account("paper-key", "paper-secret", "1234567801");
         KisProperties properties = new KisProperties(true, true, false, false, paper,
                 new KisProperties.Account("", "", ""), Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ofMillis(100));
-        return new KisOrderClient(properties, new KisOrderProperties(enabled),
+        return new KisOrderClient(properties, new KisOrderProperties(enabled, false),
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("250")), builder);
     }
 

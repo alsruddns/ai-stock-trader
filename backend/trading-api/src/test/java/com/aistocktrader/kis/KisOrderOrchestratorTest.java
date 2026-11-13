@@ -38,7 +38,7 @@ class KisOrderOrchestratorTest {
         orders = mock(KisOrderClient.class);
         accounts = mock(KisAccountClient.class);
         intents = mock(KisOrderIntentStore.class);
-        orchestrator = new KisOrderOrchestrator(orders, accounts, new KisOrderProperties(true),
+        orchestrator = new KisOrderOrchestrator(orders, accounts, new KisOrderProperties(true, false),
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")), intents);
     }
 
@@ -221,7 +221,7 @@ class KisOrderOrchestratorTest {
 
     @Test
     void disabledOrdersFailClosed() {
-        KisOrderOrchestrator locked = new KisOrderOrchestrator(orders, accounts, new KisOrderProperties(false),
+        KisOrderOrchestrator locked = new KisOrderOrchestrator(orders, accounts, new KisOrderProperties(false, false),
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")), intents);
         assertThrows(IllegalStateException.class, () -> locked.submitPaperOrder(UUID.randomUUID(), buyRequest(), null));
         verify(intents, never()).prepare(any(), anyString(), any(), nullable(String.class));
