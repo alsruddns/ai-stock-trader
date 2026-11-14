@@ -152,14 +152,26 @@ def test_ai_filter_only_allows_quant_candidate_and_records_rejection() -> None:
 def test_portfolio_enforces_three_slots_and_blocks_same_minute_slot_reuse(monkeypatch) -> None:
     _signals_at_lengths(monkeypatch, {0: {21}, 1: {21}, 2: {21}, 3: {21, 25}})
     data = {f"00000{index + 1}": _bars(index) for index in range(4)}
+    # The fourth ticker has the strongest signal-bar liquidity despite sorting last.
+    narrow = data["000001"][20]
+    data["000001"][20] = MinuteBar(
+        narrow.timestamp, narrow.open, narrow.high, narrow.low, narrow.close,
+        1001, Decimal("1"), narrow.spread_observed_at,
+    )
+    strongest = data["000004"][20]
+    data["000004"][20] = MinuteBar(
+        strongest.timestamp, strongest.open, strongest.high, strongest.low, strongest.close,
+        5000, strongest.spread_bps, strongest.spread_observed_at,
+    )
 
     result = _run(data)
 
     assert result.maximum_open_positions == 3
     assert len(result.trades) == 3
-    assert result.signals_by_symbol["000004"] == 2
-    assert result.rejected_entries == (("000004", "MAX_OPEN_POSITIONS"),
-                                       ("000004", "MAX_OPEN_POSITIONS"))
+    assert {trade.symbol for trade in result.trades} == {"000004", "000003", "000001"}
+    assert result.signals_by_symbol == {"000001": 1, "000002": 1, "000003": 1, "000004": 1}
+    assert result.signals_by_symbol["000004"] == 1
+    assert result.rejected_entries == (("000002", "MAX_OPEN_POSITIONS"),)
     assert result.executable is False
 
 
@@ -285,8 +297,9 @@ def test_three_consecutive_losses_stop_later_entries(monkeypatch) -> None:
 
     assert result.consecutive_loss_limit_hit is True
     assert len(result.trades) == 3
-    assert result.rejected_entries == tuple((symbol, "CONSECUTIVE_LOSS_LIMIT")
-                                            for symbol in sorted(data))
+    assert set(result.rejected_entries) == {
+        (symbol, "CONSECUTIVE_LOSS_LIMIT") for symbol in data
+    }
     assert result.daily_loss_limit_hit is False
     assert result.ending_consecutive_losses == 3
 

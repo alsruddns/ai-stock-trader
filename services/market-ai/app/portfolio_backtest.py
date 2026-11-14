@@ -152,6 +152,7 @@ def aggregate_compounded_drawdown(
 class _PendingEntry:
     stop_distance: Decimal
     signal_spread_bps: Decimal
+    signal_turnover: Decimal
 
 
 @dataclass
@@ -270,10 +271,18 @@ def backtest_domestic_portfolio(
         if realized + marked_pnl(index, price_field="open") <= -daily_loss_budget:
             daily_loss_hit = True
 
-        for symbol in ordered_symbols:
-            intent = pending.pop(symbol, None)
-            if intent is None:
-                continue
+        # Resolve simultaneous candidates using the approved liquidity/cost
+        # inputs, not ticker-code ordering. Ticker is only a stable final tie-break.
+        pending_symbols = sorted(
+            pending,
+            key=lambda symbol: (
+                -pending[symbol].signal_turnover,
+                pending[symbol].signal_spread_bps,
+                symbol,
+            ),
+        )
+        for symbol in pending_symbols:
+            intent = pending.pop(symbol)
             if daily_loss_hit:
                 rejected.append((symbol, "DAILY_LOSS_LIMIT"))
                 continue
@@ -413,6 +422,7 @@ def backtest_domestic_portfolio(
                 pending[symbol] = _PendingEntry(
                     stop_distance=_atr(history, config.atr_period) * config.atr_stop_multiple,
                     signal_spread_bps=signal_bar.spread_bps,
+                    signal_turnover=signal_bar.close * signal_bar.volume,
                 )
 
     if positions:
