@@ -12,6 +12,10 @@ Describe 'Domestic PAPER session status failure summary' {
             status_read_failure_categories = @{ TIMEOUT = 1; HTTP_503 = 1; appSecret = 9 }
             status_read_last_failure_category = 'HTTP_503'
             failure_stage = 'stream_monitoring'; failure_code = 'SESSION_STATUS_UNAVAILABLE'
+            feed_diagnostics_delta = @{ paper = @{ subscription_rejection = @{
+                broker_code = 'OPSP0011'; transaction_id = 'H0STCNT0'; subscription_key = '005930'
+                message = 'private diagnostic'
+            } } }
             exception_detail = 'must-not-leak'
         } | ConvertTo-Json -Depth 5 -Compress | Set-Content -LiteralPath $path -Encoding utf8
 
@@ -24,7 +28,11 @@ Describe 'Domestic PAPER session status failure summary' {
         $summary.statusReadLastFailureCategory | Should Be 'HTTP_503'
         @($summary.statusReadFailureCategories | Where-Object { $_.category -eq 'TIMEOUT' })[0].count | Should Be 1
         @($summary.statusReadFailureCategories | Where-Object { $_.category -eq 'HTTP_503' })[0].count | Should Be 1
-        $json | Should Not Match 'appSecret|must-not-leak|exception_detail'
+        $summary.subscriptionRejectionAvailable | Should Be $true
+        $summary.subscriptionRejection.brokerCode | Should Be 'OPSP0011'
+        $summary.subscriptionRejection.transactionId | Should Be 'H0STCNT0'
+        $summary.subscriptionRejection.subscriptionKey | Should Be '005930'
+        $json | Should Not Match 'appSecret|must-not-leak|exception_detail|private diagnostic'
     }
 
     It 'omits missing or out-of-range unavailable duration values' {
@@ -379,7 +387,7 @@ Describe 'Daily operations report endpoint health summary' {
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
         $archivedReport = Get-Content -LiteralPath $archivePath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 17
+        $report.reportSchemaVersion | Should Be 18
         $archivedReport.generatedAt | Should Be $report.generatedAt
         $archivedReport.tradingMode | Should Be $report.tradingMode
         $report.pythonConnected | Should Be $true
@@ -514,7 +522,7 @@ Describe 'Daily operations report endpoint health summary' {
         $json = Get-Content -LiteralPath $outputPath -Raw
         $report = $json | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 17
+        $report.reportSchemaVersion | Should Be 18
         $report.trainingReadiness.KR.state | Should Be 'AVAILABLE'
         $report.trainingReadiness.KR.symbols.Count | Should Be 1
         $report.trainingReadiness.KR.symbols[0].symbol | Should Be '005930'

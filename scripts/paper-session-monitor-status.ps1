@@ -182,6 +182,22 @@ function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
     $quoteQualityProperty = if ($Status) { $Status.PSObject.Properties['orderbook_quote_quality_by_feed'] } else { $null }
     $processingProperty = if ($Status) { $Status.PSObject.Properties['market_data_diagnostics_by_feed'] } else { $null }
     $acknowledgementsProperty = if ($Status) { $Status.PSObject.Properties['subscription_acknowledgements_by_feed'] } else { $null }
+    $subscriptionRejection = $null
+    $rejectionEnvironment = if ($Status) { $Status.PSObject.Properties['last_subscription_error_environment'] } else { $null }
+    $rejectionCode = if ($Status) { $Status.PSObject.Properties['last_subscription_error_code'] } else { $null }
+    $rejectionTransaction = if ($Status) { $Status.PSObject.Properties['last_subscription_error_transaction_id'] } else { $null }
+    $rejectionKey = if ($Status) { $Status.PSObject.Properties['last_subscription_error_subscription_key'] } else { $null }
+    if ($SelectedFeed -and $rejectionEnvironment -and $rejectionCode -and $rejectionTransaction -and $rejectionKey -and
+        [string]$rejectionEnvironment.Value -eq $SelectedFeed.ToLowerInvariant() -and
+        [string]$rejectionCode.Value -match '^[A-Za-z0-9_-]{1,32}$' -and
+        [string]$rejectionTransaction.Value -match '^[A-Z0-9]{1,32}$' -and
+        [string]$rejectionKey.Value -match '^[A-Za-z0-9._-]{1,32}$') {
+        $subscriptionRejection = [ordered]@{
+            broker_code = [string]$rejectionCode.Value
+            transaction_id = [string]$rejectionTransaction.Value
+            subscription_key = ([string]$rejectionKey.Value).ToUpperInvariant()
+        }
+    }
     foreach ($feed in $feedNames) {
         $frameValue = if ($framesProperty) { $framesProperty.Value.PSObject.Properties[$feed] } else { $null }
         $transactionValue = if ($transactionsProperty) { $transactionsProperty.Value.PSObject.Properties[$feed] } else { $null }
@@ -272,6 +288,7 @@ function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
             processing_diagnostics = if ($processingValid) { $processingCounts } else { $null }
             subscription_acknowledgements_available = [bool]$acknowledgementsAvailable
             subscription_acknowledgements = $acknowledgementCounts
+            subscription_rejection = $subscriptionRejection
         }
     }
     return $result
@@ -355,6 +372,7 @@ function Get-MonitorFeedDiagnosticsDelta($InitialStatus, $CurrentStatus, [string
             processing_diagnostics = $processingDelta.counts
             subscription_acknowledgements_available = [bool]$end.subscription_acknowledgements_available
             subscription_acknowledgements = $end.subscription_acknowledgements
+            subscription_rejection = $end.subscription_rejection
         }
     }
     return $result

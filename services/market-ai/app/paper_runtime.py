@@ -271,6 +271,7 @@ class PaperSessionFeedMonitor:
             "stream_last_recovery_seconds_by_feed": {"paper": None, "real": None},
             "orders_enabled": False,
             "subscription_acknowledgements_by_feed": {}, "last_subscription_error_code": None,
+            "last_subscription_error_environment": None,
             "last_subscription_error_transaction_id": None,
             "last_subscription_error_subscription_key": None,
             "automation_state": "DISABLED", "automation_error": None,
@@ -1397,6 +1398,7 @@ class PaperSessionFeedMonitor:
                                 except SubscriptionAcknowledgementError as exc:
                                     self._set_status(
                                         last_subscription_error_code=exc.broker_code,
+                                        last_subscription_error_environment=environment,
                                         last_subscription_error_transaction_id=exc.transaction_id,
                                         last_subscription_error_subscription_key=exc.subscription_key,
                                         subscription_acknowledgements_by_feed={
@@ -1409,6 +1411,7 @@ class PaperSessionFeedMonitor:
                                 if acknowledged:
                                     self._set_status(
                                         last_subscription_error_code=None,
+                                        last_subscription_error_environment=None,
                                         last_subscription_error_transaction_id=None,
                                         last_subscription_error_subscription_key=None,
                                     )

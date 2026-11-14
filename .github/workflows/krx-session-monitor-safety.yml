@@ -119,6 +119,11 @@ jobs:
             throw "Domestic minute-level spread diagnostics tests failed: passed=$($minuteQualityResult.PassedCount), failed=$($minuteQualityResult.FailedCount)."
           }
 
+          $subscriptionResult = Invoke-Pester -Path 'scripts/tests/paper-session-monitor-status.Tests.ps1' -TestName 'Subscription acknowledgement diagnostics for domestic session evidence' -PassThru
+          if ($subscriptionResult.FailedCount -gt 0 -or $subscriptionResult.PassedCount -ne 3) {
+            throw "Domestic subscription rejection diagnostic tests failed: passed=$($subscriptionResult.PassedCount), failed=$($subscriptionResult.FailedCount)."
+          }
+
           $streamRecoveryResult = Invoke-Pester -Path 'scripts/tests/paper-session-monitor-status.Tests.ps1' -TestName 'Paper session WebSocket recovery diagnostics' -PassThru
           if ($streamRecoveryResult.FailedCount -gt 0 -or $streamRecoveryResult.PassedCount -ne 2) {
             throw "Domestic PAPER WebSocket recovery diagnostics tests failed: passed=$($streamRecoveryResult.PassedCount), failed=$($streamRecoveryResult.FailedCount)."

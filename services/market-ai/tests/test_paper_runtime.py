@@ -1442,11 +1442,13 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(
         assert status["subscription_acknowledgements_by_feed"]["paper"] == expected_ack
         if expected_error is not None:
             assert status["last_subscription_error_code"] == expected_error
+            assert status["last_subscription_error_environment"] == "paper"
             assert status["last_subscription_error_transaction_id"] == "H0STCNT0"
             assert status["last_subscription_error_subscription_key"] == "000660"
             assert "private details" not in str(status)
         else:
             assert status["last_subscription_error_code"] is None
+            assert status["last_subscription_error_environment"] is None
             assert status["last_subscription_error_transaction_id"] is None
             assert status["last_subscription_error_subscription_key"] is None
 

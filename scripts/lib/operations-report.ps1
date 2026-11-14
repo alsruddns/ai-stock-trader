@@ -384,6 +384,7 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         state = 'UNVERIFIED'; recordedAt = $null; sessionDate = $null; validationScope = $null
         sessionCloseReached = $null; sessionQualityStatus = $null; ticksDelta = $null; barsDelta = $null
         orderbookFramesDelta = $null; orderbookUpdatesDelta = $null
+        subscriptionRejectionAvailable = $false; subscriptionRejection = $null
         maxNoTickSeconds = $null; failureStage = $null; failureCode = $null
         maxStatusUnavailableSeconds = $null; statusReadRetryCount = $null
         statusReadFailureCategories = @(); statusReadLastFailureCategory = $null
@@ -569,6 +570,18 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         $acceptedAcknowledgements -le $requiredAcknowledgements -and
         ($rawAcknowledgements.complete -is [bool]) -and
         ([bool]$rawAcknowledgements.complete -eq ($acceptedAcknowledgements -eq $requiredAcknowledgements))
+    $rawSubscriptionRejection = if ($paperDiagnosticValue) { $paperDiagnosticValue.subscription_rejection } else { $null }
+    $subscriptionRejection = $null
+    if ($rawSubscriptionRejection -and
+        [string]$rawSubscriptionRejection.broker_code -match '^[A-Za-z0-9_-]{1,32}$' -and
+        [string]$rawSubscriptionRejection.transaction_id -match '^[A-Z0-9]{1,32}$' -and
+        [string]$rawSubscriptionRejection.subscription_key -match '^[A-Za-z0-9._-]{1,32}$') {
+        $subscriptionRejection = [ordered]@{
+            brokerCode = [string]$rawSubscriptionRejection.broker_code
+            transactionId = [string]$rawSubscriptionRejection.transaction_id
+            subscriptionKey = ([string]$rawSubscriptionRejection.subscription_key).ToUpperInvariant()
+        }
+    }
     return [ordered]@{
         state = ([string]$record.result).ToUpperInvariant()
         recordedAt = $recordedAt
@@ -588,6 +601,8 @@ function Get-AiTraderDomesticSessionMonitorSummary {
                 complete = [bool]$rawAcknowledgements.complete
             }
         } else { $null }
+        subscriptionRejectionAvailable = $null -ne $subscriptionRejection
+        subscriptionRejection = $subscriptionRejection
         maxNoTickSeconds = if ($hasMaxNoTick) { [Math]::Round($maxNoTick, 1) } else { $null }
         failureStage = if ($record.failure_stage -in $knownStages) { [string]$record.failure_stage } else { $null }
         failureCode = if ($record.failure_code -in $knownFailureCodes) { [string]$record.failure_code } else { $null }

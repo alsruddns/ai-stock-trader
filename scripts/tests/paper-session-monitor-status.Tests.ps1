@@ -439,6 +439,26 @@ Describe 'Subscription acknowledgement diagnostics for domestic session evidence
         $contradictory.paper.subscription_acknowledgements_available | Should Be $false
         $contradictory.paper.subscription_acknowledgements | Should Be $null
     }
+
+    It 'captures only safe rejection identifiers for the selected feed' {
+        $status = [pscustomobject]@{
+            last_subscription_error_environment = 'paper'
+            last_subscription_error_code = 'OPSP0011'
+            last_subscription_error_transaction_id = 'H0STCNT0'
+            last_subscription_error_subscription_key = '005930'
+            last_subscription_error_message = 'private details'
+        }
+
+        $paper = Get-MonitorFeedDiagnostics $status 'paper'
+        $real = Get-MonitorFeedDiagnostics $status 'real'
+        $json = $paper | ConvertTo-Json -Compress -Depth 5
+
+        $paper.paper.subscription_rejection.broker_code | Should Be 'OPSP0011'
+        $paper.paper.subscription_rejection.transaction_id | Should Be 'H0STCNT0'
+        $paper.paper.subscription_rejection.subscription_key | Should Be '005930'
+        $real.real.subscription_rejection | Should Be $null
+        $json | Should Not Match 'private details|last_subscription_error_message'
+    }
 }
 
 Describe 'Per-symbol feed diagnostics for domestic session evidence' {
