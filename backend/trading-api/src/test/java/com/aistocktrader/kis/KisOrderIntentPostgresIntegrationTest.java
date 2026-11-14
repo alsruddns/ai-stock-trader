@@ -613,6 +613,37 @@ class KisOrderIntentPostgresIntegrationTest {
 
     @Test
     @Transactional
+    void realPreflightDetectsOnlyUnresolvedRealOrdersInRequestedMarket() {
+        UUID realUnknownKey = UUID.randomUUID();
+        UUID realRejectedKey = UUID.randomUUID();
+        UUID paperUnknownKey = UUID.randomUUID();
+        OrderRequest order = request();
+        try {
+            store.prepare(realRejectedKey, "c".repeat(64), KisEnvironment.REAL, order, null);
+            store.reject(realRejectedKey, "TEST_REJECTED");
+            entityManager.flush();
+            store.prepare(realUnknownKey, "b".repeat(64), KisEnvironment.REAL, order, null);
+            store.markUnknown(realUnknownKey);
+            store.prepare(paperUnknownKey, "d".repeat(64), KisEnvironment.PAPER, order, null);
+            store.markUnknown(paperUnknownKey);
+            entityManager.flush();
+            entityManager.clear();
+
+            assertTrue(store.hasUnresolvedRealOrder(Market.KR));
+
+            store.reject(realUnknownKey, "TEST_RECONCILED_REJECTED");
+            entityManager.flush();
+            entityManager.clear();
+
+            assertEquals(false, store.hasUnresolvedRealOrder(Market.KR));
+            assertEquals(KisOrderStatus.UNKNOWN, kisOrderRepository.findById(paperUnknownKey).orElseThrow().getStatus());
+        } finally {
+            kisOrderRepository.deleteAllById(List.of(realUnknownKey, realRejectedKey, paperUnknownKey));
+        }
+    }
+
+    @Test
+    @Transactional
     void mockBrokerCancelIsConfirmedByReconciliationAndPersistsCancelledState() {
         UUID key = UUID.randomUUID();
         OrderRequest order = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
