@@ -76,6 +76,29 @@ def test_portfolio_sizes_entries_under_risk_allocation_and_shared_cash(monkeypat
     assert result.executable is False
 
 
+def test_portfolio_position_sizing_reserves_the_configured_maximum_exit_spread(monkeypatch) -> None:
+    _signals_at_lengths(monkeypatch, {0: {21}})
+    monkeypatch.setattr("app.portfolio_backtest._atr", lambda _bars, _period: Decimal("10"))
+    data = {"005930": _bars(0), "000660": _bars(1)}
+    config = QuantConfig(
+        commission_bps=Decimal(0), slippage_bps=Decimal(0), maximum_spread_bps=Decimal("1000"),
+    )
+
+    result = backtest_domestic_portfolio(
+        data, starting_equity=Decimal("100000"), max_order_notional=Decimal("100000"), config=config,
+    )
+
+    assert len(result.trades) == 1
+    # Entry spread is only 5 bps; risk sizing must reserve up to the 1,000 bps
+    # allowed at a later stop exit, rather than sizing from the entry quote alone.
+    assert result.trades[0].quantity == 12
+    entry_fill = Decimal("102") * (Decimal(1) + Decimal("5") / Decimal(2) / Decimal(10_000))
+    stop_price = entry_fill - Decimal("15")
+    worst_case_stop_risk_per_share = Decimal("15") + stop_price * Decimal("1000") / Decimal(2) / Decimal(10_000)
+    assert result.trades[0].quantity * worst_case_stop_risk_per_share <= Decimal("250")
+    assert result.executable is False
+
+
 def test_portfolio_reports_trade_risk_as_the_one_share_entry_blocker(monkeypatch) -> None:
     _signals_at_lengths(monkeypatch, {0: {21}})
     monkeypatch.setattr("app.portfolio_backtest._atr", lambda _bars, _period: Decimal("100"))

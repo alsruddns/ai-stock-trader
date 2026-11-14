@@ -600,7 +600,7 @@ def backtest_domestic_portfolio(
                 buy_commission_bps=config.effective_buy_commission_bps,
                 sell_commission_bps=config.effective_sell_commission_bps,
                 sell_tax_bps=config.sell_tax_bps, slippage_bps=config.slippage_bps,
-                maximum_spread_bps=intent.signal_spread_bps,
+                maximum_spread_bps=config.maximum_spread_bps,
             )
             debit_per_share = fill * (Decimal(1) + config.effective_buy_commission_bps / Decimal(10_000))
             quantity = quantity_bounds.permitted_quantity
