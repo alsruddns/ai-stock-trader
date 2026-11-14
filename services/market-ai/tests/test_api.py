@@ -1052,9 +1052,16 @@ def test_candidate_subscription_route_adds_only_filtered_symbols(monkeypatch) ->
     monkeypatch.setenv("PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED", "true")
     monkeypatch.setenv("TRADING_MODE", "paper")
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
-    monkeypatch.setattr(main.paper_session_monitor, "status", lambda: {
-        "enabled": True, "stream_connections": {"paper": "RUNNING"},
-    })
+    status_snapshots = iter((
+        {"enabled": True, "stream_connections": {"paper": "RUNNING"}},
+        {
+            "enabled": True, "stream_connections": {"paper": "SUBSCRIBING"},
+            "subscription_acknowledgements_by_feed": {
+                "paper": {"accepted_count": 2, "required_count": 4, "complete": False},
+            },
+        },
+    ))
+    monkeypatch.setattr(main.paper_session_monitor, "status", lambda: next(status_snapshots))
     monkeypatch.setattr(
         main, "exchange_continuous_session_window",
         lambda _market, now: (now - timedelta(minutes=1), now + timedelta(minutes=1)),
@@ -1095,7 +1102,9 @@ def test_candidate_subscription_route_adds_only_filtered_symbols(monkeypatch) ->
     assert response.status_code == 200
     assert response.json() == {
         "market": "KR", "exchange": None, "considered": 2,
-        "added": ["KR:005930:"], "subscriptions": 2, "executable": False,
+        "added": ["KR:005930:"], "subscriptions": 2, "stream_state": "SUBSCRIBING",
+        "subscription_acknowledgements": {"accepted_count": 2, "required_count": 4, "complete": False},
+        "executable": False,
     }
 
 
@@ -1156,6 +1165,8 @@ def test_candidate_refresh_route_reports_position_protected_reconciliation(monke
     assert body["preserved"] == 1
     assert body["open_orders"] == 1
     assert body["removed"] == []
+    assert body["stream_state"] == "RUNNING"
+    assert body["subscription_acknowledgements"] == {}
     assert body["executable"] is False
 
 

@@ -265,6 +265,8 @@ class CandidateSubscriptionResponse(BaseModel):
     considered: int
     added: list[str]
     subscriptions: int
+    stream_state: str
+    subscription_acknowledgements: dict[str, int | bool]
     executable: bool = False
 
 
@@ -277,6 +279,8 @@ class CandidateRefreshResponse(BaseModel):
     preserved: int
     open_orders: int
     subscriptions: int
+    stream_state: str
+    subscription_acknowledgements: dict[str, int | bool]
     executable: bool = False
 
 
@@ -770,9 +774,13 @@ async def subscribe_market_candidates(
             for candidate in selected
         )
         result = await paper_session_monitor.add_watches(watches, discovered=True)
+        final_status = paper_session_monitor.status()
+        acknowledgements = final_status.get("subscription_acknowledgements_by_feed", {}).get(feed_environment, {})
         return CandidateSubscriptionResponse(
             market=market, exchange=exchange, considered=len(candidates),
             added=list(result["added"]), subscriptions=int(result["subscriptions"]),
+            stream_state=final_status.get("stream_connections", {}).get(feed_environment, "UNKNOWN"),
+            subscription_acknowledgements=acknowledgements,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -831,11 +839,15 @@ async def refresh_market_candidate_subscriptions(
             for candidate in candidates if candidate.passes_market_filter
         )
         result = await paper_session_monitor.refresh_discovered_watches(market, desired)
+        final_status = paper_session_monitor.status()
+        acknowledgements = final_status.get("subscription_acknowledgements_by_feed", {}).get(feed_environment, {})
         return CandidateRefreshResponse(
             market=market, exchange=exchange, considered=len(candidates),
             added=list(result["added"]), removed=list(result["removed"]),
             preserved=int(result["preserved"]), open_orders=int(result["open_orders"]),
             subscriptions=int(result["subscriptions"]),
+            stream_state=final_status.get("stream_connections", {}).get(feed_environment, "UNKNOWN"),
+            subscription_acknowledgements=acknowledgements,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
