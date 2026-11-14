@@ -469,7 +469,8 @@ def test_approval_ready_partition_reserves_validation_and_five_test_sessions(
 def test_training_sample_readiness_matches_partition_and_class_gates() -> None:
     sessions = [date(2026, 1, 1) + timedelta(days=index) for index in range(MIN_MODEL_TRAINING_SESSIONS)]
     samples = [
-        TrainingSample(session, f"{session}:{index}", (float(index),), index % 2)
+        TrainingSample(session, f"{session}:{index}", (float(index),), index % 2,
+                       quant_candidate=index < 4)
         for session in sessions for index in range(40)
     ]
 
@@ -478,12 +479,20 @@ def test_training_sample_readiness_matches_partition_and_class_gates() -> None:
     assert ready["sample_count"] == 520
     assert ready["partition_sample_counts"] == {"train": 200, "validation": 120, "test": 200}
     assert ready["partition_session_counts"] == {"train": 5, "validation": 3, "test": 5}
+    assert ready["candidate_sample_count"] == 52
+    assert ready["candidate_coverage"] == pytest.approx(0.1)
+    assert ready["candidate_positive_label_count"] == 26
+    assert ready["candidate_negative_label_count"] == 26
+    assert ready["candidate_session_count"] == 13
     assert ready["session_class_counts"] == [
         {
             "session_date": session.isoformat(),
             "sample_count": 40,
             "positive": 20,
             "negative": 20,
+            "candidate_sample_count": 4,
+            "candidate_positive": 2,
+            "candidate_negative": 2,
         }
         for session in sessions
     ]
@@ -491,6 +500,17 @@ def test_training_sample_readiness_matches_partition_and_class_gates() -> None:
         "train": {"positive": 100, "negative": 100},
         "validation": {"positive": 60, "negative": 60},
         "test": {"positive": 100, "negative": 100},
+    }
+    assert ready["partition_candidate_sample_counts"] == {
+        "train": 20, "validation": 12, "test": 20,
+    }
+    assert ready["partition_candidate_session_counts"] == {
+        "train": 5, "validation": 3, "test": 5,
+    }
+    assert ready["partition_candidate_class_counts"] == {
+        "train": {"positive": 10, "negative": 10},
+        "validation": {"positive": 6, "negative": 6},
+        "test": {"positive": 10, "negative": 10},
     }
 
     one_class_training = [

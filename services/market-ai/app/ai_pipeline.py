@@ -334,24 +334,44 @@ def assess_training_samples(samples: list[TrainingSample]) -> dict[str, Any]:
     dates = sorted({sample.session for sample in samples})
     positive = sum(sample.label == 1 for sample in samples)
     negative = sum(sample.label == 0 for sample in samples)
-    session_counts = {session.isoformat(): {"sample_count": 0, "positive": 0, "negative": 0}
-                      for session in dates}
+    candidates = [sample for sample in samples if sample.quant_candidate]
+    candidate_positive = sum(sample.label == 1 for sample in candidates)
+    candidate_negative = sum(sample.label == 0 for sample in candidates)
+    candidate_sessions = {sample.session for sample in candidates}
+    session_counts = {
+        session.isoformat(): {
+            "sample_count": 0, "positive": 0, "negative": 0,
+            "candidate_sample_count": 0, "candidate_positive": 0, "candidate_negative": 0,
+        }
+        for session in dates
+    }
     for sample in samples:
         counts = session_counts[sample.session.isoformat()]
         counts["sample_count"] += 1
         counts["positive" if sample.label == 1 else "negative"] += 1
+        if sample.quant_candidate:
+            counts["candidate_sample_count"] += 1
+            counts["candidate_positive" if sample.label == 1 else "candidate_negative"] += 1
     result: dict[str, Any] = {
         "ready": False,
         "sample_count": len(samples),
         "session_count": len(dates),
         "positive_label_count": positive,
         "negative_label_count": negative,
+        "candidate_sample_count": len(candidates),
+        "candidate_coverage": len(candidates) / len(samples) if samples else 0.0,
+        "candidate_positive_label_count": candidate_positive,
+        "candidate_negative_label_count": candidate_negative,
+        "candidate_session_count": len(candidate_sessions),
         "session_class_counts": [
             {"session_date": session, **counts} for session, counts in session_counts.items()
         ],
         "partition_sample_counts": None,
         "partition_session_counts": None,
         "partition_class_counts": None,
+        "partition_candidate_sample_counts": None,
+        "partition_candidate_session_counts": None,
+        "partition_candidate_class_counts": None,
         "reasons": [],
     }
     if len(dates) < MIN_MODEL_TRAINING_SESSIONS:
@@ -373,6 +393,24 @@ def assess_training_samples(samples: list[TrainingSample]) -> dict[str, Any]:
             "negative": sum(sample.label == 0 for sample in rows),
         }
         for name, rows in partitions.items()
+    }
+    candidate_partitions = {
+        name: [sample for sample in rows if sample.quant_candidate]
+        for name, rows in partitions.items()
+    }
+    result["partition_candidate_sample_counts"] = {
+        name: len(rows) for name, rows in candidate_partitions.items()
+    }
+    result["partition_candidate_session_counts"] = {
+        name: len({sample.session for sample in rows})
+        for name, rows in candidate_partitions.items()
+    }
+    result["partition_candidate_class_counts"] = {
+        name: {
+            "positive": sum(sample.label == 1 for sample in rows),
+            "negative": sum(sample.label == 0 for sample in rows),
+        }
+        for name, rows in candidate_partitions.items()
     }
     reasons = []
     if (len(train) < MIN_MODEL_TRAIN_SAMPLES
