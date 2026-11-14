@@ -641,6 +641,7 @@ public class KisRealOrderClient {
         if (market == null || side == null || quantity <= 0 || price == null || price.signum() <= 0 || currency == null) {
             throw new IllegalArgumentException("A valid market, side, quantity, price, and currency are required.");
         }
+        KisDomesticOrderPriceValidator.validate(market, price);
         String normalized = symbol == null ? "" : symbol.trim().toUpperCase(Locale.ROOT);
         if (market == Market.KR && (!normalized.matches("\\d{6}") || currency != Currency.KRW)) {
             throw new IllegalArgumentException("Domestic KIS orders require a six-digit symbol and KRW.");

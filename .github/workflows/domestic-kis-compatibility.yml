@@ -99,6 +99,9 @@ jobs:
       - name: Run KIS order quantity invariant tests only
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentTest,KisBrokerOrderSnapshotValidatorTest,KisRealFillSnapshotStoreTest' test
+      - name: Run domestic KIS order price precision tests only
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderClientTest#domesticPaperOrderRejectsFractionalWonPriceBeforeBrokerAccess,KisRealOrderClientTest#domesticRealOrderRejectsFractionalWonPriceBeforeTokenOrOrderRequest' test
       - name: Run domestic-only execution notice subscription scope test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=KisRealExecutionNoticeClientTest#domesticOperationalScopeSubscribesOnlyToDomesticExecutionNotices test

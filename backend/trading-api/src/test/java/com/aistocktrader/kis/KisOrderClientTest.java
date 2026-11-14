@@ -78,6 +78,17 @@ class KisOrderClientTest {
     }
 
     @Test
+    void domesticPaperOrderRejectsFractionalWonPriceBeforeBrokerAccess() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+
+        assertThrows(IllegalArgumentException.class, () -> client(true, builder).placePaperLimitOrder(
+                Market.KR, "005930", OrderSide.BUY, 1, new BigDecimal("70000.5"), Currency.KRW, null));
+
+        server.verify();
+    }
+
+    @Test
     void domesticPaperSellUsesSellTransactionAndGeneralSellType() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

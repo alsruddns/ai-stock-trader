@@ -77,6 +77,21 @@ class KisRealOrderClientTest {
     }
 
     @Test
+    void domesticRealOrderRejectsFractionalWonPriceBeforeTokenOrOrderRequest() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000.5"), Currency.KRW);
+        KisLiveRiskDecision approval = new KisLiveRiskDecision(true, List.of(), request, null);
+        KisRealOrderClient client = new KisRealOrderClient(properties(true, true), realSafety(), builder);
+
+        assertThrows(IllegalArgumentException.class, () -> client.placeRealLimitOrder(Market.KR, "005930",
+                OrderSide.BUY, 1, new BigDecimal("70000.5"), Currency.KRW, null, approval));
+
+        server.verify();
+    }
+
+    @Test
     void domesticRealBuyUsesOfficialRealTransactionAndAccountCredentials() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
