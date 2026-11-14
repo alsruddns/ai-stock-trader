@@ -19,7 +19,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from .data_provenance import (MIN_MODEL_TRAINING_SESSIONS, validate_data_provenance,
-                              validate_model_training_coverage)
+                              validate_model_session_integrity, validate_model_training_coverage)
 from .market_calendar import exchange_continuous_session_window
 from .quant import (MinuteBar, QuantConfig, _atr, _ema, _vwap,
                     _validate_session, backtest_orb_vwap, exchange_session_date, orb_vwap_entry_candidate)
@@ -1313,6 +1313,8 @@ class LocalModelRegistry:
             raise ValueError("dataset_sha256 must be a lowercase SHA-256 digest")
         provenance = validate_data_provenance(dataset_provenance, expected_sha256=dataset_sha256,
                                               purpose="model_training")
+        validate_model_training_coverage(provenance, market=market, sessions=sessions)
+        validate_model_session_integrity(market=market, symbol=normalized_symbol, sessions=sessions)
         # Derive every training row from the exact session mapping used for the
         # strategy backtest. Callers cannot pair samples from another dataset
         # with this dataset's reviewed provenance digest.
@@ -1509,6 +1511,7 @@ class LocalModelRegistry:
                 provenance, market=market, sessions=sessions,
                 minimum_sessions=MIN_MODEL_APPROVAL_TEST_SESSIONS,
             )
+            validate_model_session_integrity(market=market, symbol=symbol, sessions=sessions)
             config_data = metadata["training_config"]
             quant_config = QuantConfig(
                 opening_range_bars=int(config_data["backtest_opening_range_bars"]),

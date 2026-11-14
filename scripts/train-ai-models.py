@@ -12,7 +12,8 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 
 from app.ai_pipeline import LocalModelRegistry
 from app.data_import import load_minute_bar_sessions
-from app.data_provenance import load_data_provenance, validate_model_training_coverage
+from app.data_provenance import (load_data_provenance, validate_model_session_integrity,
+                                 validate_model_training_coverage)
 from app.market_scope import require_cli_operational_market
 from app.quant import QuantConfig
 
@@ -59,6 +60,7 @@ def main() -> int:
         parser.error("minute-bar CSV could not be read")
     try:
         validate_model_training_coverage(provenance, market=args.market, sessions=sessions)
+        validate_model_session_integrity(market=args.market, symbol=args.symbol, sessions=sessions)
     except ValueError as exc:
         parser.error(str(exc))
     quant_config = QuantConfig(

@@ -11,7 +11,8 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 
 from app.ai_pipeline import LocalModelRegistry, MIN_MODEL_APPROVAL_TEST_SESSIONS
 from app.data_import import load_minute_bar_sessions
-from app.data_provenance import load_data_provenance, validate_model_training_coverage
+from app.data_provenance import (load_data_provenance, validate_model_session_integrity,
+                                 validate_model_training_coverage)
 from app.market_scope import require_cli_operational_market
 
 
@@ -39,6 +40,7 @@ def main() -> int:
             provenance, market=args.market, sessions=sessions,
             minimum_sessions=MIN_MODEL_APPROVAL_TEST_SESSIONS,
         )
+        validate_model_session_integrity(market=args.market, symbol=args.symbol, sessions=sessions)
         registry = LocalModelRegistry(args.registry)
         selection = registry.select_candidate_for_holdout(args.market, args.symbol, sessions)
         result = registry.evaluate_candidate(

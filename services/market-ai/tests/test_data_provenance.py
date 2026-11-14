@@ -6,14 +6,17 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from app.data_provenance import (
     load_data_provenance,
     validate_data_provenance,
+    validate_model_session_integrity,
     validate_model_training_coverage,
 )
+from app.market_calendar import exchange_continuous_session_window
 
 
 def test_quant_backtest_spread_coverage_keeps_missing_values_unavailable() -> None:
@@ -273,6 +276,33 @@ def test_model_evaluation_coverage_accepts_five_but_rejects_four_eligible_sessio
         validate_model_training_coverage(
             payload, market="KR", sessions=four_sessions, minimum_sessions=5,
         )
+
+
+def test_model_session_integrity_audits_real_bar_grid_and_spread_timestamps() -> None:
+    session_date = date(2026, 11, 2)
+    window = exchange_continuous_session_window(
+        "KR", datetime(2026, 11, 2, 12, tzinfo=ZoneInfo("Asia/Seoul")),
+    )
+    assert window is not None
+    opened, closed = window
+    expected_bars = int((closed - opened).total_seconds() // 60)
+    bars = [
+        SimpleNamespace(
+            timestamp=opened + timedelta(minutes=index), spread_bps=Decimal("5"),
+            spread_observed_at=opened + timedelta(minutes=index, seconds=10),
+        )
+        for index in range(expected_bars)
+    ]
+
+    validate_model_session_integrity(market="KR", symbol="005930", sessions={session_date: bars})
+
+    with pytest.raises(ValueError, match="complete exchange session"):
+        validate_model_session_integrity(
+            market="KR", symbol="005930", sessions={session_date: bars[:100] + bars[101:]},
+        )
+    bars[10].spread_observed_at = None
+    with pytest.raises(ValueError, match="complete exchange session"):
+        validate_model_session_integrity(market="KR", symbol="005930", sessions={session_date: bars})
 
 
 @pytest.mark.parametrize(

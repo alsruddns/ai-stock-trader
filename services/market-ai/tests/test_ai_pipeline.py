@@ -724,6 +724,8 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path,
         generated_from.append(source_sessions)
         return original_builder(source_sessions, **kwargs)
 
+    monkeypatch.setattr(ai_pipeline, "validate_model_training_coverage", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ai_pipeline, "validate_model_session_integrity", lambda **_kwargs: None)
     monkeypatch.setattr(ai_pipeline, "build_training_samples", recording_builder)
     results = LocalModelRegistry(tmp_path).train_compare(
         market="KR", symbol="005930", sessions=sessions,
@@ -786,6 +788,8 @@ def test_model_training_stops_before_candidate_creation_for_single_class_evaluat
         ]
 
     monkeypatch.setattr(ai_pipeline, "build_training_samples", one_class_evaluation_samples)
+    monkeypatch.setattr(ai_pipeline, "validate_model_training_coverage", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ai_pipeline, "validate_model_session_integrity", lambda **_kwargs: None)
     registry = LocalModelRegistry(tmp_path)
 
     with pytest.raises(ValueError, match=f"{partition} partition must contain both outcome classes"):
@@ -813,6 +817,8 @@ def test_model_training_removes_first_candidate_if_comparison_fails(tmp_path, mo
         return original_metrics(model, samples)
 
     monkeypatch.setattr(ai_pipeline, "_metrics", fail_while_evaluating_second_model)
+    monkeypatch.setattr(ai_pipeline, "validate_model_training_coverage", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ai_pipeline, "validate_model_session_integrity", lambda **_kwargs: None)
     with pytest.raises(RuntimeError, match="second model validation failed"):
         registry.train_compare(
             market="KR", symbol="005930", sessions=sessions,
@@ -842,6 +848,19 @@ def test_training_rejects_malformed_dataset_digest_before_training(tmp_path) -> 
             label_horizon_bars=5, label_round_trip_cost_bps=Decimal("20"),
             dataset_sha256="not-a-digest", dataset_provenance={},
         )
+
+
+def test_model_training_registry_requires_quality_coverage_before_artifacts(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    with pytest.raises(ValueError, match="requires exported session quality coverage"):
+        registry.train_compare(
+            market="KR", symbol="005930", sessions=_sample_sessions(),
+            label_horizon_bars=5, label_round_trip_cost_bps=Decimal("20"),
+            dataset_sha256="a" * 64, dataset_provenance=_provenance("a" * 64),
+        )
+
+    assert list(tmp_path.glob("*.joblib")) == []
+    assert registry.list_models() == []
 
 
 def test_training_rejects_label_cost_below_modeled_round_trip_cost(tmp_path) -> None:
@@ -1418,6 +1437,7 @@ def test_holdout_evaluation_rolls_back_manifest_when_audit_write_fails_and_allow
     heldout_dates = [date(2026, 10, day) for day in (16, 19, 20, 21, 22)]
     sessions = {session: [] for session in heldout_dates}
     monkeypatch.setattr(ai_pipeline, "validate_model_training_coverage", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ai_pipeline, "validate_model_session_integrity", lambda **_kwargs: None)
     monkeypatch.setattr(ai_pipeline, "build_training_samples", lambda *_args, **_kwargs: [
         SimpleNamespace(session=session) for session in heldout_dates
     ])

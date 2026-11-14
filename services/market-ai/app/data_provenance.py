@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+from .session_quality import audit_minute_bar_session
 
 _DATE_FIELDS = ("retrieved_at",)
 _TEXT_FIELDS = ("provider", "dataset_name", "source_reference", "license_or_terms",
@@ -173,6 +175,37 @@ def validate_model_training_coverage(
         raise ValueError(
             f"model data requires at least {minimum_sessions} eligible exchange sessions"
         )
+
+
+def validate_model_session_integrity(
+    *, market: str, symbol: str, sessions: Mapping[Any, Sequence[Any]],
+) -> None:
+    """Audit supplied bars against the exchange calendar, not only the exported manifest."""
+    normalized_market = market.strip().upper()
+    if normalized_market not in {"KR", "US"} or not symbol.strip():
+        raise ValueError("model session market and symbol are required")
+    if not isinstance(sessions, Mapping) or not sessions:
+        raise ValueError("model sessions are required for completeness validation")
+
+    evaluated_at = datetime.now(timezone.utc)
+    for session, bars in sessions.items():
+        if type(session) is not date:
+            raise ValueError("model session keys must be exchange-local calendar dates")
+        if not isinstance(bars, Sequence) or isinstance(bars, (str, bytes)) or not bars:
+            raise ValueError(f"model data requires a complete session with timestamped spreads: {session}")
+        report = audit_minute_bar_session(
+            normalized_market, symbol, session, list(bars), evaluated_at=evaluated_at,
+        )
+        expected = report.get("expected_bars")
+        if (report.get("status") != "COMPLETE" or report.get("full_session_complete") is not True
+                or report.get("observed_bars") != len(bars)
+                or report.get("missing_bars") != 0 or report.get("off_grid_bars") != 0
+                or report.get("duplicate_bars") != 0
+                or report.get("spread_bars") != expected
+                or report.get("spread_observation_time_bars") != expected):
+            raise ValueError(
+                f"model data requires a complete exchange session with timestamped spreads: {session}"
+            )
 
 
 def load_data_provenance(
