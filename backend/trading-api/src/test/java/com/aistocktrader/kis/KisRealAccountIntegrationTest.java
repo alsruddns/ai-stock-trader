@@ -7,6 +7,7 @@ import com.aistocktrader.order.OrderSide;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -76,7 +77,16 @@ class KisRealAccountIntegrationTest {
 
     @Test
     void preflightsDomesticRealBuyWithFreshQuoteWithoutSubmittingAnOrder() {
-        var quote = marketAiEvidence.quoteForExit(Market.KR, "005930", null);
+        KisMarketAiEvidenceClient.ExitQuote quote;
+        try {
+            quote = marketAiEvidence.quoteForExit(Market.KR, "005930", null);
+        } catch (IllegalStateException staleQuote) {
+            if (!"Protective exit requires a fresh matching KIS quote.".equals(staleQuote.getMessage())) {
+                throw staleQuote;
+            }
+            Assumptions.abort("Domestic order-free preflight requires a quote no older than three seconds.");
+            return;
+        }
         var request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
                 quote.price(), Currency.KRW);
 
