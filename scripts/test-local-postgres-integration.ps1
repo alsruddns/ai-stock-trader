@@ -58,6 +58,22 @@ try {
 finally {
     Pop-Location
 }
+
+$marketAiDirectory = Join-Path $repoRoot 'services\market-ai'
+$python = Join-Path $marketAiDirectory '.venv\Scripts\python.exe'
+if (-not (Test-Path -LiteralPath $python)) {
+    throw 'The market-ai virtual environment is required for Python PostgreSQL integration tests.'
+}
+Push-Location $marketAiDirectory
+try {
+    & $python -m pytest -q tests/test_kis_rate_limit_postgres_integration.py
+    if ($LASTEXITCODE -ne 0) {
+        throw "Python KIS rate-limit PostgreSQL integration test failed with exit code $LASTEXITCODE."
+    }
+}
+finally {
+    Pop-Location
+}
 }
 finally {
     $currentEnvironment = [Environment]::GetEnvironmentVariables('Process')

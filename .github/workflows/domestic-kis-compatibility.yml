@@ -152,6 +152,9 @@ jobs:
           --health-retries 12
     env:
       DATABASE_URL: jdbc:postgresql://localhost:5432/ai_stock_trader_ci
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ai_stock_trader_ci
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       RUN_LOCAL_POSTGRES_INTEGRATION_TESTS: "true"
@@ -166,6 +169,9 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: backend/trading-api/pom.xml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
       - name: Verify contradictory broker snapshot remains locked in PostgreSQL
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#contradictoryBrokerSnapshotPersistsUnknownLockWithoutCreatingFillHistory' test
@@ -196,6 +202,11 @@ jobs:
       - name: Verify shared KIS request pacing uses PostgreSQL time
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisRestRateLimiterPostgresIntegrationTest#reservesConsecutiveRealSlotsAndPersistsOnlyAppKeyFingerprint' test
+      - name: Install Python shared pacing integration dependencies
+        run: python -m pip install "psycopg[binary]>=3.2,<4" "pytest>=8,<9"
+      - name: Verify Python shared KIS pacing against PostgreSQL
+        working-directory: services/market-ai
+        run: python -m pytest -q tests/test_kis_rate_limit_postgres_integration.py
 
   dashboard-domestic-operations:
     runs-on: ubuntu-latest

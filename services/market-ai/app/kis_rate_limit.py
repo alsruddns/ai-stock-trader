@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import os
 import time
-from datetime import datetime, timezone
 
 import psycopg
 
@@ -21,7 +20,9 @@ ON CONFLICT (environment, app_key_sha256) DO UPDATE
 SET next_request_at = GREATEST(kis_rest_rate_limit_slot.next_request_at, clock_timestamp())
                        + interval '1 second' * %s,
     updated_at = clock_timestamp()
-RETURNING next_request_at - interval '1 second' * %s AS reserved_at"""
+RETURNING GREATEST(0, CEIL(EXTRACT(EPOCH FROM
+    ((next_request_at - interval '1 second' * %s) - clock_timestamp())) * 1000)::bigint)
+    AS delay_millis"""
 _RESERVE_TOKEN_SLOT_SQL = """INSERT INTO kis_token_issue_rate_limit_slot
     (environment, app_key_sha256, next_request_at)
 VALUES (%s, %s, clock_timestamp() + interval '1 minute')
@@ -29,7 +30,9 @@ ON CONFLICT (environment, app_key_sha256) DO UPDATE
 SET next_request_at = GREATEST(kis_token_issue_rate_limit_slot.next_request_at, clock_timestamp())
                        + interval '1 minute',
     updated_at = clock_timestamp()
-RETURNING next_request_at - interval '1 minute' AS reserved_at"""
+RETURNING GREATEST(0, CEIL(EXTRACT(EPOCH FROM
+    ((next_request_at - interval '1 minute') - clock_timestamp())) * 1000)::bigint)
+    AS delay_millis"""
 
 
 def wait_for_kis_rest_slot(environment: str, app_key: str, minimum_interval_seconds: float) -> None:
@@ -52,12 +55,13 @@ def wait_for_kis_rest_slot(environment: str, app_key: str, minimum_interval_seco
                     (environment.upper(), fingerprint, minimum_interval_seconds,
                      minimum_interval_seconds, minimum_interval_seconds),
                 )
-                reserved_at = cursor.fetchone()[0]
+                delay_millis = cursor.fetchone()[0]
     except psycopg.Error as exc:
         raise SharedRateLimitUnavailable("shared KIS request pacing is unavailable") from exc
-    delay = (reserved_at - datetime.now(timezone.utc)).total_seconds()
-    if delay > 0:
-        time.sleep(delay)
+    if delay_millis is None:
+        raise SharedRateLimitUnavailable("shared KIS request pacing is unavailable")
+    if delay_millis > 0:
+        time.sleep(delay_millis / 1000)
 
 
 def wait_for_kis_token_slot(environment: str, app_key: str) -> None:
@@ -76,9 +80,10 @@ def wait_for_kis_token_slot(environment: str, app_key: str) -> None:
         ) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(_RESERVE_TOKEN_SLOT_SQL, (environment.upper(), fingerprint))
-                reserved_at = cursor.fetchone()[0]
+                delay_millis = cursor.fetchone()[0]
     except psycopg.Error as exc:
         raise SharedRateLimitUnavailable("shared KIS token pacing is unavailable") from exc
-    delay = (reserved_at - datetime.now(timezone.utc)).total_seconds()
-    if delay > 0:
-        time.sleep(delay)
+    if delay_millis is None:
+        raise SharedRateLimitUnavailable("shared KIS token pacing is unavailable")
+    if delay_millis > 0:
+        time.sleep(delay_millis / 1000)

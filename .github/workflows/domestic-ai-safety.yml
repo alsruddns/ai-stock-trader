@@ -79,6 +79,9 @@ jobs:
       - name: Run domestic PAPER cancel preflight probe tests (mocked)
         working-directory: services/market-ai
         run: python -m pytest -q tests/test_probe_kis_paper_cancel_preflight.py
+      - name: Run shared KIS request pacing unit tests (mocked)
+        working-directory: services/market-ai
+        run: python -m pytest -q tests/test_kis_rate_limit.py
       - name: Verify the selected test set is domestic only
         working-directory: services/market-ai
         run: python scripts/validate_domestic_ai_pipeline_selection.py
