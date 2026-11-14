@@ -85,4 +85,13 @@ Describe 'Tracked KIS credential scan' {
             Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
+
+    It 'derives the repository root when invoked without an explicit path' {
+        $scriptPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../test-tracked-credentials.ps1'))
+        $output = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptPath 2>&1)
+        $exitCode = $LASTEXITCODE
+
+        $exitCode | Should Be 0
+        ($output -join "`n") | Should Match 'Tracked KIS credential scan passed'
+    }
 }

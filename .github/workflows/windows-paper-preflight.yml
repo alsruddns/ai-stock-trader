@@ -106,7 +106,7 @@ jobs:
           }
 
           $credentialScanResult = Invoke-Pester -Path 'scripts/tests/tracked-credential-scan.Tests.ps1' -PassThru
-          if ($credentialScanResult.FailedCount -gt 0 -or $credentialScanResult.PassedCount -ne 6) {
+          if ($credentialScanResult.FailedCount -gt 0 -or $credentialScanResult.PassedCount -ne 7) {
             throw "Tracked credential scan tests failed: passed=$($credentialScanResult.PassedCount), failed=$($credentialScanResult.FailedCount)."
           }
           & 'scripts/test-tracked-credentials.ps1'
