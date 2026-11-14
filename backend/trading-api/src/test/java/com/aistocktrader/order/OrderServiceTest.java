@@ -68,6 +68,15 @@ class OrderServiceTest {
                 () -> service().submit(request(new BigDecimal("600000"), 2), idempotencyKey));
         verify(orders, never()).save(any());
     }
+
+    @Test
+    void rejectsFractionalWonPaperLimitPriceBeforeAnyOrderLookupOrPersistence() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service().submit(request(new BigDecimal("70000.5"), 1), idempotencyKey));
+
+        verifyNoInteractions(orders);
+    }
+
     @Test
     void returnsTheExistingOrderWhenAnIdenticalRequestIsRetried() {
         OrderRequest request = request(new BigDecimal("70000"), 2);

@@ -62,6 +62,9 @@ public class OrderService {
         if (request.quantity() <= 0 || request.limitPrice() == null || request.limitPrice().signum() <= 0) {
             throw new IllegalArgumentException("Quantity and limit price must be positive.");
         }
+        if (request.market() == Market.KR && request.limitPrice().stripTrailingZeros().scale() > 0) {
+            throw new IllegalArgumentException("Domestic paper order prices must be whole KRW amounts.");
+        }
         var existing = orders.findByIdempotencyKey(idempotencyKey);
         if (existing.isPresent()) {
             if (matches(existing.get(), request)) return existing.get();
