@@ -75,6 +75,40 @@ class KisOrderIntentTest {
     }
 
     @Test
+    void staleOpenSnapshotAfterCancellationKeepsObservedFillButLocksIntentUnknown() {
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.PAPER,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
+                        new BigDecimal("70000"), Currency.KRW), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0",
+                Instant.now()));
+        intent.reconcile(1, 2, new BigDecimal("69900"), false, false);
+        intent.reconcile(1, 0, new BigDecimal("69900"), true, false);
+
+        intent.reconcile(1, 2, new BigDecimal("69900"), false, false);
+
+        assertEquals(KisOrderStatus.UNKNOWN, intent.getStatus());
+        assertEquals(1, intent.getFilledQuantity());
+        assertEquals(2, intent.getRemainingQuantity());
+        assertEquals(new BigDecimal("69900"), intent.getAverageFillPrice());
+    }
+
+    @Test
+    void conflictingOpenSnapshotAfterRejectionDoesNotReopenIntent() {
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.PAPER,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
+                        new BigDecimal("70000"), Currency.KRW), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0",
+                Instant.now()));
+        intent.reject("BROKER_REJECTED");
+
+        intent.reconcile(0, 3, null, false, false);
+
+        assertEquals(KisOrderStatus.UNKNOWN, intent.getStatus());
+        assertEquals(0, intent.getFilledQuantity());
+        assertEquals(3, intent.getRemainingQuantity());
+    }
+
+    @Test
     void realBuyExitThresholdsAreDerivedFromPersistedPlanAndObservedAverageFill() {
         KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL,
                 new OrderRequest(Market.US, "AAPL", OrderSide.BUY, 4,

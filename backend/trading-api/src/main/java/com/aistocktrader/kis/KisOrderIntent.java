@@ -157,6 +157,8 @@ public class KisOrderIntent {
                 || (filled == 0 && averagePrice != null && averagePrice.signum() > 0)
                 || (filled > 0 && (averagePrice == null || averagePrice.signum() <= 0))) return;
         if (filledQuantity != null && filled < filledQuantity) return;
+        boolean terminalSnapshotConflict = (status == KisOrderStatus.CANCELLED && !cancelled)
+                || (status == KisOrderStatus.REJECTED && !rejected);
         boolean cancellationRequested = status == KisOrderStatus.CANCEL_PENDING;
         boolean cancellationRejected = cancellationRequested && brokerResponseCode != null
                 && !"0".equals(brokerResponseCode);
@@ -166,6 +168,13 @@ public class KisOrderIntent {
         if (exitStopDistancePerShare != null && realExitStatus == KisRealExitStatus.WAITING_FOR_ENTRY) {
             if (filled == 0 && (rejected || cancelled)) realExitStatus = KisRealExitStatus.CLOSED;
             else if (filled > 0 && remaining == 0) realExitStatus = KisRealExitStatus.ARMED;
+        }
+        if (terminalSnapshotConflict) {
+            // Keep observed fills, but do not reopen an order after a terminal broker result.
+            // A conflicting snapshot needs another reconciliation before any retry is safe.
+            status = KisOrderStatus.UNKNOWN;
+            updatedAt = Instant.now();
+            return;
         }
         if (rejected && filled == 0) status = KisOrderStatus.REJECTED;
         else if (filled == quantity) status = KisOrderStatus.FILLED;
