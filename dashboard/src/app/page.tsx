@@ -23,7 +23,7 @@ type Ops = {
   positionCostBasisByCurrency: Record<string, string>; realizedPnlTodayGrossByCurrency: Record<string, string>;
   recentOrders: { id: number; market: string; symbol: string; side: string; quantity: number; filledQuantity: number; limitPrice: string; currency: string; status: string; createdAt: string }[];
 };
-type Model = { model_id: string; market?: string; model_type?: string; approved?: boolean; active?: boolean; integrity_error?: boolean; feature_compatible?: boolean; data_rights_verified?: boolean; approval_evidence_verified?: boolean; holdout_evaluation_status?: "NOT_RUN" | "UNVERIFIED" | "VERIFIED"; artifact_sha256?: string; dataset_sha256?: string; validation_metrics?: Record<string, number | null>; test_metrics?: Record<string, number | null>; quant_baseline_test_metrics?: Record<string, number>; quant_backtest_test_metrics?: Record<string, string | number>; ai_quant_backtest_test_metrics?: Record<string, string | number>; training_config?: Record<string, string | number> };
+type Model = { model_id: string; market?: string; model_type?: string; approved?: boolean; active?: boolean; integrity_error?: boolean; feature_compatible?: boolean; data_rights_verified?: boolean; approval_evidence_verified?: boolean; holdout_evaluation_status?: "NOT_RUN" | "UNVERIFIED" | "VERIFIED"; artifact_sha256?: string; dataset_sha256?: string; validation_metrics?: Record<string, number | null>; test_metrics?: Record<string, number | null>; quant_baseline_test_metrics?: Record<string, number>; quant_backtest_test_metrics?: Record<string, string | number>; ai_quant_backtest_test_metrics?: Record<string, string | number>; heldout_metrics?: Record<string, number | null>; heldout_quant_baseline_metrics?: Record<string, number>; heldout_quant_backtest_metrics?: Record<string, string | number>; heldout_ai_quant_backtest_metrics?: Record<string, string | number>; heldout_sessions?: string[]; training_config?: Record<string, string | number> };
 type Decision = { market: string; symbol: string; exchange: string | null; signal: string; reason: string; bars_in_session: number; evaluated_at: string | null; model_id?: string | null; executable: false };
 type MinuteMarketQuality = { market: string; symbol: string; exchange: string | null; trade_ticks_received: number; orderbook_quotes_received: number; usable_orderbook_quotes: number; empty_or_nonpositive_quotes: number; crossed_quotes: number; stale_quotes: number; bar_closed?: boolean; bar_spread_present?: boolean; bar_spread_observed_at?: string | null };
 type MarketSession = { market: "KR" | "US"; session_date: string; is_session: boolean; is_open: boolean; open_at: string | null; close_at: string | null; evaluated_at: string };
@@ -334,11 +334,14 @@ export default function Dashboard() {
             const currency = model.market === "US" ? "USD" : "KRW";
             const aiBacktest = model.ai_quant_backtest_test_metrics;
             const quantBacktest = model.quant_backtest_test_metrics;
+            const holdoutAiBacktest = model.heldout_ai_quant_backtest_metrics;
+            const holdoutQuantBacktest = model.heldout_quant_backtest_metrics;
             const testMetrics = model.test_metrics;
+            const holdoutMetrics = model.heldout_metrics;
             const holdoutStatus = model.holdout_evaluation_status ?? "NOT_RUN";
-            const testScope = holdoutStatus === "VERIFIED"
+            const holdoutScope = holdoutStatus === "VERIFIED"
               ? "독립 홀드아웃"
-              : holdoutStatus === "UNVERIFIED" ? "홀드아웃 (감사 미검증)" : "내부 시험";
+              : holdoutStatus === "UNVERIFIED" ? "홀드아웃 (감사 미검증)" : "독립 홀드아웃 (미실행)";
             const holdoutLabel = holdoutStatus === "VERIFIED"
               ? "독립 홀드아웃 감사 검증 완료"
               : holdoutStatus === "UNVERIFIED" ? "홀드아웃 기록이 있으나 감사 검증 불가" : "독립 홀드아웃 미실행";
@@ -352,17 +355,22 @@ export default function Dashboard() {
                 <div className="model-meta"><span>홀드아웃 평가 상태</span><b>{holdoutLabel}</b></div>
                 {model.data_rights_verified !== true && <p className="audit-note">데이터 권리 확인 자료가 없어 승인과 활성화를 막고 있습니다.</p>}
                 {model.approval_evidence_verified === false && <p className="audit-note">승인 요건 미충족: 미사용 세션·AI+퀀트 체결 수·퀀트 대비 순손익을 확인해야 합니다.</p>}
-                <div className="model-meta"><span>검증 Brier / {testScope} Brier</span><b>{metricScore(model.validation_metrics?.brier)} · {metricScore(testMetrics?.brier)}</b></div>
-                <div className="model-meta"><span>{testScope} 정확도 / ROC-AUC</span><b>{percent(testMetrics?.accuracy)} · {metricPercent(testMetrics?.roc_auc)}</b></div>
-                <div className="model-meta"><span>{testScope} 실제 양성률 / 모델 예측 양성률</span><b>{metricPercent(testMetrics?.positive_label_rate)} · {metricPercent(testMetrics?.predicted_positive_rate)}</b></div>
-                <div className="model-meta"><span>{testScope} 양성 정밀도 / 재현율</span><b>{metricPercent(testMetrics?.positive_precision)} · {metricPercent(testMetrics?.positive_recall)}</b></div>
-                <div className="model-meta"><span>{testScope} 특이도 / 균형 정확도</span><b>{metricPercent(testMetrics?.specificity)} · {metricPercent(testMetrics?.balanced_accuracy)}</b></div>
-                <div className="model-meta"><span>{testScope} AI+퀀트 후보 양성률 / 비중</span><b>{percent(testMetrics?.candidate_positive_rate)} · {percent(testMetrics?.candidate_coverage)}</b></div>
-                <div className="model-meta"><span>{testScope} AI+퀀트 후보 평균 비용후 전방수익</span><b>{basisPoints(testMetrics?.candidate_mean_forward_net_bps)}</b></div>
-                <div className="model-meta"><span>{testScope} 퀀트 기준선 양성률 / 비중</span><b>{percent(model.quant_baseline_test_metrics?.candidate_positive_rate)} · {percent(model.quant_baseline_test_metrics?.candidate_coverage)}</b></div>
-                <div className="model-meta"><span>{testScope} 퀀트 후보 평균 비용후 전방수익</span><b>{basisPoints(model.quant_baseline_test_metrics?.candidate_mean_forward_net_bps)}</b></div>
-                <div className="model-meta"><span>{testScope} AI+퀀트 백테스트</span><b>{aiBacktest ? `${Math.round(Number(aiBacktest.trade_count ?? 0))}회 · ${money(aiBacktest.net_pnl ?? 0, currency)}` : "—"}</b></div>
-                <div className="model-meta"><span>{testScope} 퀀트 기준선</span><b>{quantBacktest ? `${Math.round(Number(quantBacktest.trade_count ?? 0))}회 · ${money(quantBacktest.net_pnl ?? 0, currency)}` : "—"}</b></div>
+                <div className="model-meta"><span>검증 Brier / 내부 시험 Brier</span><b>{metricScore(model.validation_metrics?.brier)} · {metricScore(testMetrics?.brier)}</b></div>
+                <div className="model-meta"><span>내부 시험 정확도 / ROC-AUC</span><b>{percent(testMetrics?.accuracy)} · {metricPercent(testMetrics?.roc_auc)}</b></div>
+                <div className="model-meta"><span>내부 시험 실제 양성률 / 모델 예측 양성률</span><b>{metricPercent(testMetrics?.positive_label_rate)} · {metricPercent(testMetrics?.predicted_positive_rate)}</b></div>
+                <div className="model-meta"><span>내부 시험 양성 정밀도 / 재현율</span><b>{metricPercent(testMetrics?.positive_precision)} · {metricPercent(testMetrics?.positive_recall)}</b></div>
+                <div className="model-meta"><span>내부 시험 특이도 / 균형 정확도</span><b>{metricPercent(testMetrics?.specificity)} · {metricPercent(testMetrics?.balanced_accuracy)}</b></div>
+                <div className="model-meta"><span>내부 시험 AI+퀀트 후보 양성률 / 비중</span><b>{percent(testMetrics?.candidate_positive_rate)} · {percent(testMetrics?.candidate_coverage)}</b></div>
+                <div className="model-meta"><span>내부 시험 AI+퀀트 후보 평균 비용후 전방수익</span><b>{basisPoints(testMetrics?.candidate_mean_forward_net_bps)}</b></div>
+                <div className="model-meta"><span>내부 시험 퀀트 기준선 양성률 / 비중</span><b>{percent(model.quant_baseline_test_metrics?.candidate_positive_rate)} · {percent(model.quant_baseline_test_metrics?.candidate_coverage)}</b></div>
+                <div className="model-meta"><span>내부 시험 퀀트 후보 평균 비용후 전방수익</span><b>{basisPoints(model.quant_baseline_test_metrics?.candidate_mean_forward_net_bps)}</b></div>
+                <div className="model-meta"><span>내부 시험 AI+퀀트 백테스트</span><b>{aiBacktest ? `${Math.round(Number(aiBacktest.trade_count ?? 0))}회 · ${money(aiBacktest.net_pnl ?? 0, currency)}` : "—"}</b></div>
+                <div className="model-meta"><span>내부 시험 퀀트 기준선</span><b>{quantBacktest ? `${Math.round(Number(quantBacktest.trade_count ?? 0))}회 · ${money(quantBacktest.net_pnl ?? 0, currency)}` : "—"}</b></div>
+                <div className="model-meta"><span>{holdoutScope} Brier / 정확도</span><b>{metricScore(holdoutMetrics?.brier)} · {metricPercent(holdoutMetrics?.accuracy)}</b></div>
+                <div className="model-meta"><span>{holdoutScope} 양성 정밀도 / 재현율</span><b>{metricPercent(holdoutMetrics?.positive_precision)} · {metricPercent(holdoutMetrics?.positive_recall)}</b></div>
+                <div className="model-meta"><span>{holdoutScope} AI+퀀트 백테스트</span><b>{holdoutAiBacktest ? `${Math.round(Number(holdoutAiBacktest.trade_count ?? 0))}회 · ${money(holdoutAiBacktest.net_pnl ?? 0, currency)}` : "—"}</b></div>
+                <div className="model-meta"><span>{holdoutScope} 퀀트 기준선</span><b>{holdoutQuantBacktest ? `${Math.round(Number(holdoutQuantBacktest.trade_count ?? 0))}회 · ${money(holdoutQuantBacktest.net_pnl ?? 0, currency)}` : "—"}</b></div>
+                <div className="model-meta"><span>{holdoutScope} 거래일 수</span><b>{model.heldout_sessions?.length ?? 0}</b></div>
                 <div className="model-meta"><span>학습·백테스트 가정</span><b>{trainingConfig(model.training_config)}</b></div>
                 <div className="model-meta"><span>입력 데이터 SHA-256</span><b title={model.dataset_sha256}>{model.dataset_sha256?.slice(0, 16) ?? "이전 모델 · 미기록"}</b></div>
                 <div className="model-meta"><span>모델 파일 SHA-256</span><b title={model.artifact_sha256}>{model.artifact_sha256?.slice(0, 16) ?? "—"}</b></div>

@@ -458,8 +458,10 @@ class LocalModelRegistry:
                 model_compatible = feature_compatible and label_compatible
                 holdout_evaluation_verified = self._has_durable_holdout_evaluation(metadata)
                 heldout_evaluation = metadata.get("heldout_evaluation")
+                holdout_evaluation_recorded = heldout_evaluation is not None
+                heldout_evaluation = heldout_evaluation if isinstance(heldout_evaluation, dict) else {}
                 holdout_evaluation_status = (
-                    "NOT_RUN" if heldout_evaluation is None
+                    "NOT_RUN" if not holdout_evaluation_recorded
                     else "VERIFIED" if holdout_evaluation_verified
                     else "UNVERIFIED"
                 )
@@ -492,6 +494,11 @@ class LocalModelRegistry:
                     "quant_baseline_test_metrics": metadata.get("quant_baseline_test_metrics", {}),
                     "quant_backtest_test_metrics": metadata.get("quant_backtest_test_metrics", {}),
                     "ai_quant_backtest_test_metrics": metadata.get("ai_quant_backtest_test_metrics", {}),
+                    "heldout_metrics": heldout_evaluation.get("metrics", {}),
+                    "heldout_quant_baseline_metrics": heldout_evaluation.get("quant_baseline_metrics", {}),
+                    "heldout_quant_backtest_metrics": heldout_evaluation.get("quant_backtest_metrics", {}),
+                    "heldout_ai_quant_backtest_metrics": heldout_evaluation.get("ai_quant_backtest_metrics", {}),
+                    "heldout_sessions": heldout_evaluation.get("sessions", []),
                     "training_config": metadata.get("training_config", {}),
                     "test_sessions": metadata.get("test_sessions", []),
                     "approval": metadata.get("approval"),
@@ -719,6 +726,8 @@ class LocalModelRegistry:
             events = self._read_governance_events()
         except (OSError, ValueError, json.JSONDecodeError):
             return False
+        heldout_evaluation = metadata.get("heldout_evaluation")
+        heldout_evaluation = heldout_evaluation if isinstance(heldout_evaluation, dict) else {}
         expected = {
             "action": "approve",
             "model_id": metadata.get("model_id"),
@@ -733,8 +742,8 @@ class LocalModelRegistry:
             "validation_sessions": metadata.get("validation_sessions"),
             "test_sessions": metadata.get("test_sessions"),
             "training_config": metadata.get("training_config", {}),
-            "quant_backtest_test_metrics": metadata.get("quant_backtest_test_metrics"),
-            "ai_quant_backtest_test_metrics": metadata.get("ai_quant_backtest_test_metrics"),
+            "heldout_quant_backtest_metrics": heldout_evaluation.get("quant_backtest_metrics"),
+            "heldout_ai_quant_backtest_metrics": heldout_evaluation.get("ai_quant_backtest_metrics"),
         }
         return any(all(event.get(key) == value for key, value in expected.items()) for event in events)
 
@@ -750,17 +759,9 @@ class LocalModelRegistry:
         expected = {
             "action": "evaluate_holdout",
             "model_id": metadata.get("model_id"),
-            "market": evaluation.get("market"),
-            "symbol": evaluation.get("symbol"),
-            "candidate_selection": evaluation.get("candidate_selection"),
-            "dataset_sha256": evaluation.get("dataset_sha256"),
-            "data_provenance": evaluation.get("data_provenance"),
+            "heldout_evaluation": evaluation,
             "artifact_sha256": metadata.get("artifact_sha256"),
             "threshold": metadata.get("threshold"),
-            "test_sessions": evaluation.get("sessions"),
-            "evaluated_at": evaluation.get("evaluated_at"),
-            "quant_backtest_test_metrics": metadata.get("quant_backtest_test_metrics"),
-            "ai_quant_backtest_test_metrics": metadata.get("ai_quant_backtest_test_metrics"),
         }
         return any(all(event.get(key) == value for key, value in expected.items()) for event in events)
 
@@ -874,12 +875,30 @@ class LocalModelRegistry:
                     or max(train) >= min(validation) or max(validation) >= min(test)
                     or len(test) < MIN_MODEL_APPROVAL_TEST_SESSIONS):
                 return False
-            if set(evaluation.get("sessions", [])) != {value.isoformat() for value in test}:
+            raw_heldout_sessions = evaluation.get("sessions")
+            if (not isinstance(raw_heldout_sessions, list) or not raw_heldout_sessions
+                    or any(not isinstance(value, str) for value in raw_heldout_sessions)
+                    or len(set(raw_heldout_sessions)) != len(raw_heldout_sessions)):
                 return False
-            ai = metadata.get("ai_quant_backtest_test_metrics")
-            quant = metadata.get("quant_backtest_test_metrics")
-            if not isinstance(ai, dict) or not isinstance(quant, dict):
+            heldout_sessions = {date.fromisoformat(value) for value in raw_heldout_sessions}
+            if (len(heldout_sessions) < MIN_MODEL_APPROVAL_TEST_SESSIONS
+                    or heldout_sessions & (train | validation | test)
+                    or max(test) >= min(heldout_sessions)):
                 return False
+            heldout_metrics = evaluation.get("metrics")
+            heldout_baseline_metrics = evaluation.get("quant_baseline_metrics")
+            ai = evaluation.get("ai_quant_backtest_metrics")
+            quant = evaluation.get("quant_backtest_metrics")
+            if (not isinstance(heldout_metrics, dict) or not isinstance(heldout_baseline_metrics, dict)
+                    or not isinstance(ai, dict) or not isinstance(quant, dict)):
+                return False
+            for metrics in (metadata.get("ai_quant_backtest_test_metrics"),
+                            metadata.get("quant_backtest_test_metrics")):
+                if not isinstance(metrics, dict):
+                    return False
+                session_count = Decimal(str(metrics["session_count"]))
+                if not session_count.is_finite() or session_count != len(test):
+                    return False
             config = metadata.get("training_config")
             if (not isinstance(config, dict) or not isinstance(config.get("symbol"), str)
                     or not config["symbol"].strip() or config.get("backtest_quantity_per_session") != 1):
@@ -905,7 +924,7 @@ class LocalModelRegistry:
                 return False
             for metrics in (ai, quant):
                 session_count = Decimal(str(metrics["session_count"]))
-                if not session_count.is_finite() or session_count != len(test):
+                if not session_count.is_finite() or session_count != len(heldout_sessions):
                     return False
             ai_net = Decimal(str(ai["net_pnl"]))
             quant_net = Decimal(str(quant["net_pnl"]))
@@ -931,7 +950,7 @@ class LocalModelRegistry:
             if not self._has_verified_data_provenance(metadata):
                 raise ValueError("model lacks verified data-rights provenance and cannot be approved")
             if not metadata.get("test_sessions") or not metadata.get("test_metrics"):
-                raise ValueError("model has no held-out test evidence and cannot be approved")
+                raise ValueError("model has no internal test evidence and cannot be approved")
             threshold = metadata.get("threshold")
             if (isinstance(threshold, bool) or not isinstance(threshold, (int, float))
                     or not math.isfinite(float(threshold)) or not 0 <= threshold <= 1):
@@ -957,9 +976,25 @@ class LocalModelRegistry:
                     or max(validation_sessions) >= min(test_sessions)):
                 raise ValueError("model session partitions must be disjoint and strictly chronological")
             if len(test_sessions) < MIN_MODEL_APPROVAL_TEST_SESSIONS:
-                raise ValueError("at least five distinct held-out sessions are required for model approval")
-            ai_backtest = metadata.get("ai_quant_backtest_test_metrics")
-            quant_backtest = metadata.get("quant_backtest_test_metrics")
+                raise ValueError("at least five distinct internal test sessions are required for model approval")
+            heldout_evaluation = metadata.get("heldout_evaluation")
+            if not isinstance(heldout_evaluation, dict):
+                raise ValueError("independent holdout evidence is required for model approval")
+            heldout_values = heldout_evaluation.get("sessions")
+            if (not isinstance(heldout_values, list) or not heldout_values
+                    or any(not isinstance(value, str) for value in heldout_values)
+                    or len(set(heldout_values)) != len(heldout_values)):
+                raise ValueError("independent holdout sessions must be distinct ISO dates")
+            try:
+                heldout_sessions = {date.fromisoformat(value) for value in heldout_values}
+            except ValueError as exc:
+                raise ValueError("independent holdout sessions must be distinct ISO dates") from exc
+            if (len(heldout_sessions) < MIN_MODEL_APPROVAL_TEST_SESSIONS
+                    or heldout_sessions & (train_sessions | validation_sessions | test_sessions)
+                    or max(test_sessions) >= min(heldout_sessions)):
+                raise ValueError("at least five distinct independent holdout sessions after internal test are required")
+            ai_backtest = heldout_evaluation.get("ai_quant_backtest_metrics")
+            quant_backtest = heldout_evaluation.get("quant_backtest_metrics")
             if not isinstance(ai_backtest, dict) or not isinstance(quant_backtest, dict):
                 raise ValueError("held-out AI+quant and quant-only strategy backtests are required for approval")
             raw_trade_count = ai_backtest.get("trade_count")
@@ -1000,8 +1035,8 @@ class LocalModelRegistry:
                     "validation_sessions": metadata["validation_sessions"],
                     "test_sessions": metadata["test_sessions"],
                     "training_config": metadata.get("training_config", {}),
-                    "quant_backtest_test_metrics": quant_backtest,
-                    "ai_quant_backtest_test_metrics": ai_backtest,
+                    "heldout_quant_backtest_metrics": quant_backtest,
+                    "heldout_ai_quant_backtest_metrics": ai_backtest,
                 })
             except (OSError, ValueError):
                 self._write_json_atomic(self.root / f"{model_id}.json", previous_metadata)
@@ -1290,7 +1325,10 @@ class LocalModelRegistry:
                     prior_metadata = self.manifest(prior_id)
                     event_market = prior_metadata.get("market")
                     event_symbol = prior_metadata.get("training_config", {}).get("symbol")
-                prior_dates = event.get("test_sessions")
+                event_evaluation = event.get("heldout_evaluation")
+                event_evaluation_sessions = (event_evaluation.get("sessions")
+                                             if isinstance(event_evaluation, dict) else None)
+                prior_dates = event.get("heldout_sessions", event.get("test_sessions", event_evaluation_sessions))
                 if event_market == market and event_symbol == symbol:
                     if (not isinstance(prior_dates, list)
                             or any(not isinstance(value, str) for value in prior_dates)):
@@ -1342,20 +1380,19 @@ class LocalModelRegistry:
                                   entry_filter=ai_entry_filter)
                 for session in sorted(sessions)
             ])
-            test_dates = tuple(sorted(value.isoformat() for value in actual_dates))
+            heldout_dates = tuple(sorted(value.isoformat() for value in actual_dates))
             updated = json.loads(json.dumps(metadata))
-            updated["test_metrics"] = test_metrics
-            updated["quant_baseline_test_metrics"] = _quant_baseline_metrics(samples)
-            updated["quant_backtest_test_metrics"] = quant_metrics
-            updated["ai_quant_backtest_test_metrics"] = ai_metrics
-            updated["test_sessions"] = test_dates
             updated["heldout_evaluation"] = {
                 "market": market,
                 "symbol": symbol,
                 "candidate_selection": selection,
                 "dataset_sha256": dataset_sha256,
                 "data_provenance": provenance,
-                "sessions": list(test_dates),
+                "sessions": list(heldout_dates),
+                "metrics": test_metrics,
+                "quant_baseline_metrics": _quant_baseline_metrics(samples),
+                "quant_backtest_metrics": quant_metrics,
+                "ai_quant_backtest_metrics": ai_metrics,
                 "model_artifact_sha256": metadata["artifact_sha256"],
                 "threshold": metadata["threshold"],
                 "evaluated_at": datetime.now().astimezone().isoformat(),
@@ -1369,24 +1406,19 @@ class LocalModelRegistry:
                 self._record_governance_event({
                     "action": "evaluate_holdout", "model_id": model_id,
                     "market": market, "symbol": symbol,
-                    "candidate_selection": selection,
-                    "dataset_sha256": dataset_sha256,
-                    "data_provenance": provenance,
+                    "heldout_evaluation": updated["heldout_evaluation"],
                     "artifact_sha256": metadata["artifact_sha256"],
                     "threshold": metadata["threshold"],
-                    "test_sessions": list(test_dates),
-                    "evaluated_at": updated["heldout_evaluation"]["evaluated_at"],
-                    "quant_backtest_test_metrics": quant_metrics,
-                    "ai_quant_backtest_test_metrics": ai_metrics,
                 })
             except Exception:
                 self._write_json_atomic(self.root / f"{model_id}.json", metadata)
                 raise
             return {
                 "model_id": model_id, "approved": False,
-                "test_sessions": list(test_dates), "test_metrics": test_metrics,
-                "quant_backtest_test_metrics": quant_metrics,
-                "ai_quant_backtest_test_metrics": ai_metrics,
+                "heldout_sessions": list(heldout_dates), "heldout_metrics": test_metrics,
+                "heldout_quant_baseline_metrics": _quant_baseline_metrics(samples),
+                "heldout_quant_backtest_metrics": quant_metrics,
+                "heldout_ai_quant_backtest_metrics": ai_metrics,
                 "approval_criteria_met": _meets_holdout_approval_criteria(ai_metrics, quant_metrics),
             }
 

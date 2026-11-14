@@ -668,15 +668,9 @@ def _record_holdout_audit_event(registry: LocalModelRegistry, metadata: dict) ->
     registry._record_governance_event({
         "action": "evaluate_holdout", "model_id": metadata["model_id"],
         "market": evaluation["market"], "symbol": evaluation["symbol"],
-        "candidate_selection": evaluation["candidate_selection"],
-        "dataset_sha256": evaluation["dataset_sha256"],
-        "data_provenance": evaluation["data_provenance"],
+        "heldout_evaluation": evaluation,
         "artifact_sha256": metadata["artifact_sha256"],
         "threshold": metadata["threshold"],
-        "test_sessions": evaluation["sessions"],
-        "evaluated_at": evaluation["evaluated_at"],
-        "quant_backtest_test_metrics": metadata["quant_backtest_test_metrics"],
-        "ai_quant_backtest_test_metrics": metadata["ai_quant_backtest_test_metrics"],
     })
 
 
@@ -690,7 +684,8 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_hold
         "model_id": model_id, "market": market, "model_type": model_id.split("-")[0], "artifact": artifact_name,
         "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(), "approved": False,
         "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION, "threshold": 0.5,
-        "validation_metrics": {"accuracy": 0.6, "brier": 0.25}, "test_metrics": {"accuracy": 0.55},
+        "validation_metrics": {"accuracy": 0.6, "brier": 0.25}, "test_metrics": {"accuracy": 0.55, "brier": 0.3},
+        "quant_baseline_test_metrics": {"accuracy": 0.5, "brier": 0.25},
         "quant_backtest_test_metrics": {"session_count": 5.0, "trade_count": 5.0, "net_pnl": 5.0},
         "ai_quant_backtest_test_metrics": {"session_count": 5.0, "trade_count": 6.0, "net_pnl": 12.0},
         "training_config": {
@@ -719,7 +714,11 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_hold
             },
             "dataset_sha256": dataset_sha256,
             "data_provenance": _provenance(dataset_sha256),
-            "sessions": ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"],
+            "sessions": ["2026-10-16", "2026-10-17", "2026-10-18", "2026-10-19", "2026-10-20"],
+            "metrics": {"accuracy": 0.58, "brier": 0.22},
+            "quant_baseline_metrics": {"accuracy": 0.5, "brier": 0.25},
+            "quant_backtest_metrics": {"session_count": 5.0, "trade_count": 5.0, "net_pnl": 5.0},
+            "ai_quant_backtest_metrics": {"session_count": 5.0, "trade_count": 6.0, "net_pnl": 12.0},
             "model_artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
             "threshold": 0.5,
             "evaluated_at": "2026-10-20T12:00:00+09:00",
@@ -763,13 +762,22 @@ def test_model_list_distinguishes_internal_test_from_verified_holdout(tmp_path) 
     not_run.pop("heldout_evaluation")
     not_run_path.write_text(json.dumps(not_run), encoding="utf-8")
 
-    statuses = {item["model_id"]: item["holdout_evaluation_status"] for item in registry.list_models()}
+    listed = {item["model_id"]: item for item in registry.list_models()}
+    statuses = {model_id: item["holdout_evaluation_status"] for model_id, item in listed.items()}
 
     assert statuses == {
         verified_id: "VERIFIED",
         unverified_id: "UNVERIFIED",
         not_run_id: "NOT_RUN",
     }
+    assert listed[verified_id]["test_sessions"] == [
+        "2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15",
+    ]
+    assert listed[verified_id]["heldout_sessions"] == [
+        "2026-10-16", "2026-10-17", "2026-10-18", "2026-10-19", "2026-10-20",
+    ]
+    assert listed[verified_id]["test_metrics"]["brier"] == 0.3
+    assert listed[verified_id]["heldout_metrics"]["brier"] == 0.22
 
 
 def test_model_with_previous_backtest_version_cannot_be_approved_or_selected(tmp_path) -> None:
@@ -817,7 +825,7 @@ def test_model_governance_requires_review_and_records_rollback(tmp_path) -> None
     assert rollback["previous_model_id"] == second
     approval_event = next(event for event in registry.governance_events() if event["action"] == "approve")
     assert len(approval_event["test_sessions"]) == 5
-    assert approval_event["ai_quant_backtest_test_metrics"]["net_pnl"] == 12.0
+    assert approval_event["heldout_ai_quant_backtest_metrics"]["net_pnl"] == 12.0
     assert approval_event["training_config"]["backtest_buy_commission_bps"] == "5"
     assert registry.governance_events()[-1]["action"] == "rollback"
     assert registry.active_approved_model("KR", "005930")["model_id"] == first
@@ -887,7 +895,7 @@ def test_model_approval_requires_sufficient_heldout_sessions_and_ai_quant_outper
     _write_candidate(registry, model_id)
     manifest_path = tmp_path / f"{model_id}.json"
     metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
-    metadata["ai_quant_backtest_test_metrics"]["net_pnl"] = 4.0
+    metadata["heldout_evaluation"]["ai_quant_backtest_metrics"]["net_pnl"] = 4.0
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
 
     with pytest.raises(ValueError, match="must be positive and exceed the quant-only baseline"):
@@ -903,21 +911,21 @@ def test_model_approval_requires_sufficient_heldout_sessions_and_ai_quant_outper
     with pytest.raises(ValueError, match="valid held-out comparative strategy evidence"):
         registry.activate(model_id, changed_by="operator", note="Do not activate without reliable held-out evidence.")
 
-    metadata["ai_quant_backtest_test_metrics"]["net_pnl"] = 12.0
+    metadata["heldout_evaluation"]["ai_quant_backtest_metrics"]["net_pnl"] = 12.0
     metadata["approved"] = False
-    metadata["test_sessions"] = ["2026-10-11"]
+    metadata["heldout_evaluation"]["sessions"] = ["2026-10-16"]
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
-    with pytest.raises(ValueError, match="at least five distinct held-out sessions"):
+    with pytest.raises(ValueError, match="at least five distinct independent holdout sessions"):
         registry.approve(model_id, approved_by="operator", note="Review held-out execution comparison before promotion.")
 
-    metadata["test_sessions"] = ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"]
+    metadata["heldout_evaluation"]["sessions"] = ["2026-10-16", "2026-10-17", "2026-10-18", "2026-10-19", "2026-10-20"]
     metadata["validation_sessions"][-1] = "2026-10-11"
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
     with pytest.raises(ValueError, match="disjoint and strictly chronological"):
         registry.approve(model_id, approved_by="operator", note="Review held-out execution comparison before promotion.")
 
     metadata["validation_sessions"][-1] = "2026-10-10"
-    metadata["ai_quant_backtest_test_metrics"]["session_count"] = 4
+    metadata["heldout_evaluation"]["ai_quant_backtest_metrics"]["session_count"] = 4
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
     with pytest.raises(ValueError, match="metrics or training configuration are inconsistent"):
         registry.approve(model_id, approved_by="operator", note="Review held-out execution comparison before promotion.")
@@ -1141,8 +1149,15 @@ def test_holdout_evaluation_rolls_back_manifest_when_audit_write_fails_and_allow
         model_id, sessions, market="KR", symbol="005930", dataset_sha256="f" * 64,
         dataset_provenance=_provenance("f" * 64),
     )
-    assert result["test_sessions"] == [session.isoformat() for session in heldout_dates]
-    assert registry.manifest(model_id)["heldout_evaluation"]["sessions"] == result["test_sessions"]
+    assert result["heldout_sessions"] == [session.isoformat() for session in heldout_dates]
+    evaluated = registry.manifest(model_id)
+    assert evaluated["heldout_evaluation"]["sessions"] == result["heldout_sessions"]
+    assert evaluated["test_sessions"] == original["test_sessions"]
+    assert evaluated["test_metrics"] == original["test_metrics"]
+    assert evaluated["quant_baseline_test_metrics"] == original["quant_baseline_test_metrics"]
+    assert evaluated["quant_backtest_test_metrics"] == original["quant_backtest_test_metrics"]
+    assert evaluated["ai_quant_backtest_test_metrics"] == original["ai_quant_backtest_test_metrics"]
+    assert evaluated["heldout_evaluation"]["metrics"] == result["heldout_metrics"]
     assert registry.governance_audit_status() == {"integrity_verified": True, "event_count": 1}
 
 
@@ -1219,7 +1234,7 @@ def test_model_approval_rejects_noninteger_ai_trade_count(tmp_path, trade_count)
     _write_candidate(registry, model_id)
     manifest_path = tmp_path / f"{model_id}.json"
     metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
-    metadata["ai_quant_backtest_test_metrics"]["trade_count"] = trade_count
+    metadata["heldout_evaluation"]["ai_quant_backtest_metrics"]["trade_count"] = trade_count
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
 
     with pytest.raises(ValueError, match="trade count must be a finite integer"):
@@ -1233,18 +1248,18 @@ def test_model_approval_enforces_five_ai_quant_trades_as_the_exact_minimum(tmp_p
     manifest_path = tmp_path / f"{model_id}.json"
     metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    metadata["ai_quant_backtest_test_metrics"]["trade_count"] = 4
+    metadata["heldout_evaluation"]["ai_quant_backtest_metrics"]["trade_count"] = 4
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
     with pytest.raises(ValueError, match="at least five held-out AI\\+quant strategy trades"):
         registry.approve(model_id, approved_by="operator", note="Held-out execution evidence reviewed for approval.")
 
-    metadata["ai_quant_backtest_test_metrics"]["trade_count"] = 5
+    metadata["heldout_evaluation"]["ai_quant_backtest_metrics"]["trade_count"] = 5
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
     _record_holdout_audit_event(registry, metadata)
     approved = registry.approve(model_id, approved_by="operator", note="Held-out execution evidence reviewed for approval.")
     assert approved["approved"] is True
 
-    metadata["ai_quant_backtest_test_metrics"]["session_count"] = 5
+    metadata["heldout_evaluation"]["ai_quant_backtest_metrics"]["session_count"] = 5
     metadata["training_config"].pop("backtest_slippage_bps")
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
     with pytest.raises(ValueError, match="metrics or training configuration are inconsistent"):
