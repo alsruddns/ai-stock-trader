@@ -109,7 +109,7 @@ class KisOrderIntentStoreTest {
                 new BigDecimal("70000"), Currency.KRW);
         KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null);
         KisBrokerOrderSnapshot snapshot = new KisBrokerOrderSnapshot(1, 2, new BigDecimal("69950"), false, false);
-        when(repository.findById(key)).thenReturn(Optional.of(intent));
+        when(repository.findByIdForUpdate(key)).thenReturn(Optional.of(intent));
 
         KisOrderIntentStore store = new KisOrderIntentStore(repository, realFillSnapshots);
         KisOrderIntent updated = store.reconcile(key, snapshot);
@@ -129,7 +129,7 @@ class KisOrderIntentStoreTest {
                 Instant.now()));
         KisBrokerOrderSnapshot contradictory = new KisBrokerOrderSnapshot(1, 3,
                 new BigDecimal("70000"), false, false);
-        when(repository.findById(key)).thenReturn(Optional.of(intent));
+        when(repository.findByIdForUpdate(key)).thenReturn(Optional.of(intent));
 
         KisOrderIntent updated = new KisOrderIntentStore(repository, realFillSnapshots)
                 .reconcile(key, contradictory);
