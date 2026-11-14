@@ -47,7 +47,8 @@ public class KisRealDailyRiskBaselineService {
 
     @Scheduled(fixedDelayString = "${kis.real-risk-baseline-poll-ms:30000}")
     public void captureDomesticSessionBaseline() {
-        if (!properties.accountReadEnabled() || !properties.realAccountReadEnabled()
+        if (!operationalScope.allowedMarkets().contains(Market.KR)
+                || !properties.accountReadEnabled() || !properties.realAccountReadEnabled()
                 || !properties.credentials(KisEnvironment.REAL).configured()) return;
         try {
             KisMarketSessionClient.MarketSession session = sessions.session(Market.KR);

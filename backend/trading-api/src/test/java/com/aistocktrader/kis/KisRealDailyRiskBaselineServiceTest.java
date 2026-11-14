@@ -24,6 +24,56 @@ import org.mockito.ArgumentCaptor;
 
 class KisRealDailyRiskBaselineServiceTest {
     @Test
+    void skipsDomesticOpeningBaselineWhenKrIsOutsideOperationalScope() {
+        KisMarketSessionClient sessions = mock(KisMarketSessionClient.class);
+        KisAccountClient accounts = mock(KisAccountClient.class);
+        KisRealDailyRiskBaselineStore baselines = mock(KisRealDailyRiskBaselineStore.class);
+        KisRealSessionPositionBaselineStore positionBaselines = mock(KisRealSessionPositionBaselineStore.class);
+        KisProperties properties = new KisProperties(true, true, true, false,
+                new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
+                new KisProperties.Account("real-key", "test-secret", "8765432101"), null, null, null);
+        KisRealDailyRiskBaselineService service = new KisRealDailyRiskBaselineService(properties,
+                new MarketOperationalScope("US"), accounts, sessions, baselines, positionBaselines);
+
+        service.captureDomesticSessionBaseline();
+
+        verifyNoInteractions(sessions, accounts, baselines, positionBaselines);
+    }
+
+    @Test
+    void capturesDomesticOpeningEquityAndPositionsWithinKrOperationalScope() {
+        KisMarketSessionClient sessions = mock(KisMarketSessionClient.class);
+        KisAccountClient accounts = mock(KisAccountClient.class);
+        KisRealDailyRiskBaselineStore baselines = mock(KisRealDailyRiskBaselineStore.class);
+        KisRealSessionPositionBaselineStore positionBaselines = mock(KisRealSessionPositionBaselineStore.class);
+        Instant now = Instant.now();
+        LocalDate date = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+        when(sessions.session(Market.KR)).thenReturn(new KisMarketSessionClient.MarketSession(
+                Market.KR, date, true, true, now.minusSeconds(60), now.plusSeconds(7_140), now));
+        when(positionBaselines.exists(eq(Market.KR), eq(date), anyString())).thenReturn(false);
+        when(baselines.exists(eq(Market.KR), eq(date), anyString())).thenReturn(false);
+        var position = new KisAccountSnapshot.Position("005930", "Samsung Electronics", new BigDecimal("2"),
+                new BigDecimal("2"), new BigDecimal("70000"), new BigDecimal("71000"),
+                new BigDecimal("140000"), new BigDecimal("2000"), new BigDecimal("1.43"));
+        var account = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW", new BigDecimal("500000"),
+                new BigDecimal("500000"), new BigDecimal("1000000"), java.util.List.of(position), now,
+                "KIS_READ_ONLY_REST");
+        when(accounts.getBalance(KisEnvironment.REAL, Market.KR, null, null, null)).thenReturn(account);
+        KisProperties properties = new KisProperties(true, true, true, false,
+                new KisProperties.Account("paper-key", "paper-secret", "1234567801"),
+                new KisProperties.Account("real-key", "test-secret", "8765432101"), null, null, null);
+        KisRealDailyRiskBaselineService service = new KisRealDailyRiskBaselineService(properties,
+                MarketOperationalScope.domesticOnly(), accounts, sessions, baselines, positionBaselines);
+
+        service.captureDomesticSessionBaseline();
+
+        verify(positionBaselines).recordOnce(eq(Market.KR), eq(date), eq("KRW"), anyString(),
+                eq(java.util.List.of(position)), eq(now));
+        verify(baselines).recordOnce(eq(Market.KR), eq(date), eq("KRW"), anyString(),
+                eq(new BigDecimal("1000000")), eq(now));
+    }
+
+    @Test
     void domesticOnlyScopeSkipsOutOfScopeScheduledBaselineBeforeExternalAccess() {
         KisMarketSessionClient sessions = mock(KisMarketSessionClient.class);
         KisAccountClient accounts = mock(KisAccountClient.class);
