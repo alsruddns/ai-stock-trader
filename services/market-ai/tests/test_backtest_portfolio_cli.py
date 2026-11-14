@@ -125,6 +125,18 @@ def test_portfolio_cli_rejects_incomplete_exchange_session(tmp_path: Path) -> No
     assert "005930 session 2026-11-05 is incomplete (379/380 bars, 1 missing" in completed.stderr
 
 
+def test_portfolio_cli_rejects_bars_outside_continuous_session(tmp_path: Path) -> None:
+    outside_session = _dataset(tmp_path / "005930.csv", bar_count=381)
+    complete = _dataset(tmp_path / "000660.csv")
+
+    completed = subprocess.run(
+        _command(outside_session, complete), cwd=REPOSITORY, capture_output=True, text=True, check=False,
+    )
+
+    assert completed.returncode == 2
+    assert "005930 session 2026-11-05 includes 1 bar(s) outside the continuous KRX session" in completed.stderr
+
+
 def test_portfolio_cli_reports_optional_slippage_scenarios_without_changing_base_result(tmp_path: Path) -> None:
     first = _dataset(tmp_path / "005930.csv")
     second = _dataset(tmp_path / "000660.csv")

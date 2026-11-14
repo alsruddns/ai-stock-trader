@@ -5,7 +5,7 @@ import hashlib
 import json
 import sys
 from dataclasses import replace
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -17,6 +17,7 @@ from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
 from app.ai_pipeline import LocalModelRegistry
 from app.backtest_metrics import summarize_net_trade_pnls
+from app.market_calendar import exchange_continuous_session_window
 from app.market_scope import require_cli_operational_market
 from app.portfolio_backtest import (
     aggregate_compounded_drawdown, analyze_capital_sensitivity, analyze_slippage_sensitivity,
@@ -130,6 +131,22 @@ def main() -> int:
     session_sets = {symbol: set(sessions) for symbol, sessions in data.items()}
     for symbol, sessions in data.items():
         for session, bars in sessions.items():
+            session_window = exchange_continuous_session_window(
+                "KR", datetime.combine(
+                    session, time(hour=12), tzinfo=ZoneInfo("Asia/Seoul"),
+                ),
+            )
+            if session_window is None:
+                parser.error(f"{symbol} input contains non-session date {session.isoformat()}")
+            opened, closed = (point.astimezone(timezone.utc) for point in session_window)
+            outside_session_count = sum(
+                not opened <= bar.timestamp.astimezone(timezone.utc) < closed for bar in bars
+            )
+            if outside_session_count:
+                parser.error(
+                    f"{symbol} session {session.isoformat()} includes "
+                    f"{outside_session_count} bar(s) outside the continuous KRX session"
+                )
             quality = audit_minute_bar_session(
                 "KR", symbol, session, bars,
                 evaluated_at=datetime.combine(
