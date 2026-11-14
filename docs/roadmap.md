@@ -1,5 +1,6 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P3 국내 3세션 비용 후 포트폴리오 재현 (작업일 2026-11-15):** 로컬 권리 검토 sidecar가 있는 2026-11-11~13 KIS 국내 분봉으로 삼성전자·SK하이닉스 각 1,140개 봉(세션당 380개)을 재생했습니다. `.env_local` 비용 프로필을 적용한 결과 3건 체결은 11월 11일에만 발생했고 누적 총손익 ₩13,851.99, 추정 비용 ₩22,831.71, 순손익 -₩8,979.72였습니다. 11월 12일 SK하이닉스 후보 11건은 1주 매수 한도 미달로 거부됐고 11월 13일 후보 체결은 없었습니다. 모든 결과는 `executable=false`이며 세션 표본이 작아 전략 승인 근거가 아닙니다. KIS 요청·계좌·주문 없이 로컬 파일만 사용했습니다.
 - **P6 V28 로컬 PostgreSQL 적용 확인 (작업일 2026-11-15):** 로컬 Spring/FastAPI 재기동 후 loopback PostgreSQL의 Flyway 이력에서 V28 `real exit monitor market page index` 성공 기록과 `idx_kis_order_intent_real_exit_page` 인덱스 존재를 확인했습니다. 쿼리는 메타데이터만 읽었으며 계좌·주문 API를 호출하지 않았고 주문 잠금도 변경하지 않았습니다.
 - **P3/P5 국내 후보 시세 수집 확장 (2026-11-15):** `.env_local`의 `PAPER_WATCHLIST`는 KR 005930·000660만 포함하므로 학습 준비 데이터 수집도 두 종목에 한정됐습니다. 국내 KIS PAPER 후보 조회와 WebSocket 구독만 위해 `PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED=true`, `PAPER_CANDIDATE_AUTO_REFRESH_ENABLED=true`, 거래대금 10억 원, 최대 10종목을 로컬 설정에 적용했습니다. 조회는 장 시작 5분 전 실행되며 주문·취소·PAPER 자동매매와 REAL 주문 잠금은 유지합니다. 자동 감시는 다음 KRX 세션 2026-11-16 09:00을 기다리는 `WAITING` 상태이고 미국 후보 경로는 만들지 않았습니다.
 - **P6 국내 PAPER 취소 공식 근거 재확인 (2026-11-15):** KIS 공식 저장소의 현재 모의 지원표는 국내 정정취소가능주문조회를 여전히 PAPER 미지원으로 표시하고, 취소 예제는 사전 조회에서 `output.psbl_qty`를 확인하도록 요구합니다. 문서만 재검토했으며 KIS API 요청·주문은 하지 않았습니다. 지원 답변 또는 계정에 일치하는 사전조회 응답이 확인될 때까지 PAPER 취소 잠금을 유지합니다.
