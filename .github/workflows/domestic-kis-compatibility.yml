@@ -193,6 +193,9 @@ jobs:
       - name: Verify stale terminal snapshots do not create REAL fill history
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#staleFillAfterCancellationWaitsForConfirmationBeforeRealFillHistory' test
+      - name: Verify shared KIS request pacing uses PostgreSQL time
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisRestRateLimiterPostgresIntegrationTest#reservesConsecutiveRealSlotsAndPersistsOnlyAppKeyFingerprint' test
 
   dashboard-domestic-operations:
     runs-on: ubuntu-latest
