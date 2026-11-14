@@ -280,6 +280,20 @@ Describe 'Optional operations report endpoint diagnostics' {
         $serialized | Should Not Match 'secret-bearing exception detail'
     }
 
+    It 'uses the bounded timeout requested by a slow local JSON endpoint' {
+        $global:AIStockTraderObservedTimeoutSec = 0
+        Mock Invoke-RestMethod {
+            $global:AIStockTraderObservedTimeoutSec = $TimeoutSec
+            return @{ status = 'ok' }
+        }
+
+        $result = Invoke-AiTraderOptionalJsonRequest -Url 'http://127.0.0.1:18000/api/v1/health' -TimeoutSec 15
+
+        $result.state | Should Be 'AVAILABLE'
+        $global:AIStockTraderObservedTimeoutSec | Should Be 15
+        Remove-Variable -Name AIStockTraderObservedTimeoutSec -Scope Global
+    }
+
     It 'atomically replaces an existing JSON report without leaving a temporary file' {
         $directory = Join-Path $TestDrive 'atomic-report'
         New-Item -ItemType Directory -Path $directory | Out-Null
@@ -611,6 +625,24 @@ Describe 'Daily operations report endpoint health summary' {
 }
 
 Describe 'P4 training readiness report boundary' {
+    It 'allows training readiness enough time to audit the stored session history' {
+        $global:AIStockTraderTrainingReadinessTimeoutSec = 0
+        Mock Invoke-AiTraderOptionalJsonRequest {
+            $global:AIStockTraderTrainingReadinessTimeoutSec = $TimeoutSec
+            return [pscustomobject]@{ state = 'UNREACHABLE'; http_status = $null; error_type = 'TaskCanceledException'; data = $null }
+        }
+        $session = [pscustomobject]@{
+            decisions = [pscustomobject]@{ domestic = [pscustomobject]@{ market = 'KR'; symbol = '005930' } }
+        }
+
+        $summary = Get-AiTraderTrainingReadinessSummary `
+            -PythonApiBaseUrl 'http://python.test' -PaperSession $session -OperationalMarkets @('KR')
+
+        $summary.state | Should Be 'UNREACHABLE'
+        $global:AIStockTraderTrainingReadinessTimeoutSec | Should Be 15
+        Remove-Variable -Name AIStockTraderTrainingReadinessTimeoutSec -Scope Global
+    }
+
     It 'rejects inconsistent domestic readiness counts instead of reporting a ready result' {
         Mock Invoke-AiTraderOptionalJsonRequest {
             return [pscustomobject]@{

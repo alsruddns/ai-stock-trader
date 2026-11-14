@@ -1,8 +1,11 @@
 function Invoke-AiTraderOptionalJsonRequest {
-    param([Parameter(Mandatory)][string]$Url)
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [ValidateRange(1, 60)][int]$TimeoutSec = 5
+    )
 
     try {
-        $data = Invoke-RestMethod -Uri $Url -TimeoutSec 5
+        $data = Invoke-RestMethod -Uri $Url -TimeoutSec $TimeoutSec
         return [pscustomobject]@{
             data = $data
             state = 'AVAILABLE'
@@ -71,7 +74,7 @@ function Get-AiTraderTrainingReadinessSummary {
     $httpStatuses = [System.Collections.Generic.List[int]]::new()
     foreach ($symbol in $symbols) {
         $url = "$PythonApiBaseUrl/api/v1/market/training-readiness/KR/$([Uri]::EscapeDataString($symbol))"
-        $response = Invoke-AiTraderOptionalJsonRequest $url
+        $response = Invoke-AiTraderOptionalJsonRequest -Url $url -TimeoutSec 15
         if ($response.state -ne 'AVAILABLE') {
             $endpointStates.Add([string]$response.state)
             if ($null -ne $response.http_status) { $httpStatuses.Add([int]$response.http_status) }
