@@ -108,6 +108,24 @@ Describe 'Domestic KIS PAPER lifecycle fail-closed guard' {
 }
 
 Describe 'KIS PAPER submit-and-observe opt-in guard' {
+    It 'rejects a missing validation mode before loading credentials or calling an API' {
+        $message = $null
+        try {
+            & (Join-Path $PSScriptRoot '../test-kis-paper-order-lifecycle.ps1') `
+                -Market KR -Symbol '069500' -LimitPrice 50000
+        } catch { $message = $_.Exception.Message }
+        $message | Should Be 'Choose exactly one mode: -PreflightOnly, -ConfirmPaperOrderAndCancel, or -ConfirmPaperOrderSubmitAndObserve.'
+    }
+
+    It 'rejects conflicting validation modes before loading credentials or calling an API' {
+        $message = $null
+        try {
+            & (Join-Path $PSScriptRoot '../test-kis-paper-order-lifecycle.ps1') `
+                -Market KR -Symbol '069500' -LimitPrice 50000 -PreflightOnly -ConfirmPaperOrderSubmitAndObserve
+        } catch { $message = $_.Exception.Message }
+        $message | Should Be 'Choose exactly one mode: -PreflightOnly, -ConfirmPaperOrderAndCancel, or -ConfirmPaperOrderSubmitAndObserve.'
+    }
+
     It 'requires the explicit isolated PAPER order enable before loading credentials or calling an API' {
         $previous = $env:KIS_PAPER_ORDERS_ENABLED
         try {
