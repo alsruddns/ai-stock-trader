@@ -228,7 +228,6 @@ def test_kr_model_training_rejects_missing_mixed_or_non_integer_source_counts() 
     }
     with pytest.raises(ValueError, match="approved KIS WebSocket feed"):
         validate_model_training_coverage(payload, market="KR", sessions=sessions)
-
     one_bar_session = session_dates[0]
     sessions[one_bar_session] = [SimpleNamespace(spread_bps=Decimal("5"), spread_observed_at=observed_at)]
     payload["coverage"]["observed_bar_count"] -= 379
@@ -236,6 +235,44 @@ def test_kr_model_training_rejects_missing_mixed_or_non_integer_source_counts() 
     first_row["source_counts"] = {"KIS_PAPER_WEBSOCKET": True}
     with pytest.raises(ValueError, match="approved KIS WebSocket feed"):
         validate_model_training_coverage(payload, market="KR", sessions=sessions)
+
+
+def test_model_evaluation_coverage_accepts_five_but_rejects_four_eligible_sessions() -> None:
+    session_dates = [date(2026, 11, day) for day in (2, 3, 4, 5, 6)]
+    observed_at = datetime(2026, 11, 2, 0, 0, 10, tzinfo=timezone.utc)
+    sessions = {
+        session_date: [SimpleNamespace(spread_bps=Decimal("5"), spread_observed_at=observed_at)
+                       for _ in range(380)]
+        for session_date in session_dates
+    }
+    rows = [{
+        "session_date": session_date.isoformat(), "bars": 380, "expected_bars": 380,
+        "complete": True, "bars_with_spread": 380, "spread_complete": True,
+        "bars_with_spread_observation_time": 380, "spread_observation_time_complete": True,
+        "sources": ["KIS_PAPER_WEBSOCKET"],
+        "source_counts": {"KIS_PAPER_WEBSOCKET": 380},
+    } for session_date in session_dates]
+    payload = _payload("f" * 64)
+    payload["coverage"] = {
+        "observed_session_count": 5, "observed_bar_count": 5 * 380,
+        "complete_session_count": 5, "spread_complete_session_count": 5,
+        "spread_observation_time_complete_session_count": 5, "sessions": rows,
+    }
+
+    validate_model_training_coverage(
+        payload, market="KR", sessions=sessions, minimum_sessions=5,
+    )
+
+    four_sessions = dict(list(sessions.items())[:4])
+    payload["coverage"].update({
+        "observed_session_count": 4, "observed_bar_count": 4 * 380,
+        "complete_session_count": 4, "spread_complete_session_count": 4,
+        "spread_observation_time_complete_session_count": 4, "sessions": rows[:4],
+    })
+    with pytest.raises(ValueError, match="at least 5 eligible exchange sessions"):
+        validate_model_training_coverage(
+            payload, market="KR", sessions=four_sessions, minimum_sessions=5,
+        )
 
 
 @pytest.mark.parametrize(
@@ -260,6 +297,34 @@ def test_data_clis_refuse_csv_without_rights_sidecar(tmp_path, monkeypatch, caps
 
     assert result.value.code == 2
     assert "required data provenance file is missing" in capsys.readouterr().err
+
+
+def test_holdout_cli_rejects_rights_only_csv_without_session_quality_coverage(
+    tmp_path, monkeypatch, capsys,
+) -> None:
+    repository = Path(__file__).resolve().parents[3]
+    csv = tmp_path / "holdout.csv"
+    csv.write_text(
+        "symbol,timestamp,open,high,low,close,volume\n"
+        "005930,2026-11-02T09:00:00+09:00,100,100,100,100,1\n",
+        encoding="utf-8",
+    )
+    digest = hashlib.sha256(csv.read_bytes()).hexdigest()
+    csv.with_name(csv.name + ".provenance.json").write_text(
+        json.dumps(_payload(digest)), encoding="utf-8",
+    )
+    registry = tmp_path / "models"
+    script = repository / "scripts" / "evaluate-ai-model-candidates.py"
+    monkeypatch.setattr(sys, "argv", [
+        str(script), str(csv), "--market", "KR", "--symbol", "005930", "--registry", str(registry),
+    ])
+
+    with pytest.raises(SystemExit) as result:
+        runpy.run_path(str(script), run_name="__main__")
+
+    assert result.value.code == 2
+    assert "requires exported session quality coverage" in capsys.readouterr().err
+    assert not registry.exists()
 
 
 @pytest.mark.parametrize(

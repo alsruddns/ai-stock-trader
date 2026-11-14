@@ -1417,6 +1417,7 @@ def test_holdout_evaluation_rolls_back_manifest_when_audit_write_fails_and_allow
 
     heldout_dates = [date(2026, 10, day) for day in (16, 19, 20, 21, 22)]
     sessions = {session: [] for session in heldout_dates}
+    monkeypatch.setattr(ai_pipeline, "validate_model_training_coverage", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(ai_pipeline, "build_training_samples", lambda *_args, **_kwargs: [
         SimpleNamespace(session=session) for session in heldout_dates
     ])
@@ -1459,6 +1460,26 @@ def test_holdout_evaluation_rolls_back_manifest_when_audit_write_fails_and_allow
     assert evaluated["ai_quant_backtest_test_metrics"] == original["ai_quant_backtest_test_metrics"]
     assert evaluated["heldout_evaluation"]["metrics"] == result["heldout_metrics"]
     assert registry.governance_audit_status() == {"integrity_verified": True, "event_count": 1}
+
+
+def test_holdout_evaluation_requires_eligible_session_quality_provenance(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "7" * 32
+    _write_candidate(registry, model_id, record_holdout_event=False)
+    manifest_path = tmp_path / f"{model_id}.json"
+    candidate = json.loads(manifest_path.read_text(encoding="utf-8"))
+    candidate.pop("heldout_evaluation")
+    manifest_path.write_text(json.dumps(candidate), encoding="utf-8")
+    holdout_dates = [date(2026, 10, day) for day in (16, 19, 20, 21, 22)]
+
+    with pytest.raises(ValueError, match="requires exported session quality coverage"):
+        registry.evaluate_candidate(
+            model_id, {session: [] for session in holdout_dates}, market="KR", symbol="005930",
+            dataset_sha256="f" * 64, dataset_provenance=_provenance("f" * 64),
+        )
+
+    assert registry.manifest(model_id).get("heldout_evaluation") is None
+    assert registry.governance_audit_status() == {"integrity_verified": True, "event_count": 0}
 
 
 def test_governance_audit_replace_failure_preserves_previous_log(tmp_path, monkeypatch) -> None:

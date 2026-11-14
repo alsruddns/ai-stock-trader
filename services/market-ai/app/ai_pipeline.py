@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
-from .data_provenance import MIN_MODEL_TRAINING_SESSIONS, validate_data_provenance
+from .data_provenance import (MIN_MODEL_TRAINING_SESSIONS, validate_data_provenance,
+                              validate_model_training_coverage)
 from .market_calendar import exchange_continuous_session_window
 from .quant import (MinuteBar, QuantConfig, _atr, _ema, _vwap,
                     _validate_session, backtest_orb_vwap, exchange_session_date, orb_vwap_entry_candidate)
@@ -1504,6 +1505,10 @@ class LocalModelRegistry:
             selection = self.select_candidate_for_holdout(market, symbol, sessions)
             if model_id != selection["model_id"]:
                 raise ValueError("only the validation-selected candidate may consume holdout sessions")
+            validate_model_training_coverage(
+                provenance, market=market, sessions=sessions,
+                minimum_sessions=MIN_MODEL_APPROVAL_TEST_SESSIONS,
+            )
             config_data = metadata["training_config"]
             quant_config = QuantConfig(
                 opening_range_bars=int(config_data["backtest_opening_range_bars"]),

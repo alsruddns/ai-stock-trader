@@ -100,8 +100,11 @@ def validate_data_provenance(
 
 def validate_model_training_coverage(
     provenance: Mapping[str, Any], *, market: str, sessions: Mapping[Any, Sequence[Any]],
+    minimum_sessions: int = MIN_MODEL_TRAINING_SESSIONS,
 ) -> None:
-    """Require exact, spread-complete sessions from the market's approved KIS WebSocket feed."""
+    """Require exact, spread-complete approved KIS WebSocket sessions for model data."""
+    if type(minimum_sessions) is not int or minimum_sessions < 1:
+        raise ValueError("minimum eligible session count must be a positive integer")
     normalized_market = market.strip().upper()
     expected_source = {
         "KR": "KIS_PAPER_WEBSOCKET",
@@ -166,9 +169,9 @@ def validate_model_training_coverage(
                 spread_observation_time_complete_count,
             )):
         raise ValueError("model training session quality totals are inconsistent")
-    if len(expected_dates) < MIN_MODEL_TRAINING_SESSIONS:
+    if len(expected_dates) < minimum_sessions:
         raise ValueError(
-            f"model training requires at least {MIN_MODEL_TRAINING_SESSIONS} eligible exchange sessions"
+            f"model data requires at least {minimum_sessions} eligible exchange sessions"
         )
 
 
