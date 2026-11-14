@@ -224,6 +224,8 @@ if ($leanBars -ne $prepared.bars -or $leanSignals -ne $prepared.signals -or $lea
     orders = $leanOrders
     filled_orders = $leanFilledOrders
     failed_orders = $leanFailedOrders
+    model_id = [string]$prepared.model_id
+    model_artifact_sha256 = [string]$prepared.model_artifact_sha256
     python_net_pnl = $pythonPnl.ToString([cultureinfo]::InvariantCulture)
     lean_net_pnl = $leanPnl.ToString([cultureinfo]::InvariantCulture)
     pnl_delta = $pnlDelta.ToString([cultureinfo]::InvariantCulture)
