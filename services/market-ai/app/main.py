@@ -628,6 +628,8 @@ async def market_training_readiness(
             "partition_candidate_sample_counts": None,
             "partition_candidate_session_counts": None,
             "partition_candidate_class_counts": None,
+            "partition_scope": None,
+            "partition_diagnostic_reason": "cost_assumptions_missing_or_invalid",
             "reasons": ["cost_assumptions_missing_or_invalid"],
         }
     else:
@@ -657,6 +659,8 @@ async def market_training_readiness(
                 "partition_candidate_sample_counts": None,
                 "partition_candidate_session_counts": None,
                 "partition_candidate_class_counts": None,
+                "partition_scope": None,
+                "partition_diagnostic_reason": "eligible_session_sample_generation_failed",
                 "reasons": ["eligible_session_sample_generation_failed"],
             }
         training_preflight["cost_assumptions_ready"] = True

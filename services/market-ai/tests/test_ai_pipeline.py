@@ -476,6 +476,8 @@ def test_training_sample_readiness_matches_partition_and_class_gates() -> None:
 
     ready = assess_training_samples(samples)
     assert ready["ready"] is True
+    assert ready["partition_scope"] == "production"
+    assert ready["partition_diagnostic_reason"] is None
     assert ready["sample_count"] == 520
     assert ready["partition_sample_counts"] == {"train": 200, "validation": 120, "test": 200}
     assert ready["partition_session_counts"] == {"train": 5, "validation": 3, "test": 5}
@@ -548,6 +550,31 @@ def test_training_sample_readiness_matches_partition_and_class_gates() -> None:
     sparse = assess_training_samples(sparse_samples)
     assert sparse["ready"] is False
     assert sparse["reasons"] == ["insufficient_samples_per_partition"]
+
+
+def test_readiness_reports_non_approvable_diagnostic_partitions_before_minimum_sessions() -> None:
+    sessions = [date(2026, 1, 1) + timedelta(days=index) for index in range(5)]
+    samples = [
+        TrainingSample(
+            session, f"{session}:{index}", (float(index),), index % 2,
+            quant_candidate=index == 0,
+        )
+        for session in sessions for index in range(10)
+    ]
+
+    readiness = assess_training_samples(samples)
+
+    assert readiness["ready"] is False
+    assert readiness["reasons"] == ["insufficient_eligible_sessions"]
+    assert readiness["partition_scope"] == "diagnostic"
+    assert readiness["partition_diagnostic_reason"] is None
+    assert readiness["partition_session_counts"] == {"train": 3, "validation": 1, "test": 1}
+    assert readiness["partition_candidate_sample_counts"] == {"train": 3, "validation": 1, "test": 1}
+    assert readiness["partition_candidate_class_counts"] == {
+        "train": {"positive": 0, "negative": 3},
+        "validation": {"positive": 0, "negative": 1},
+        "test": {"positive": 0, "negative": 1},
+    }
 
 
 def test_quant_baseline_reports_candidate_coverage_and_cost_adjusted_label_rate() -> None:

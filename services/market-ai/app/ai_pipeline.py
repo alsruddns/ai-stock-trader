@@ -372,16 +372,23 @@ def assess_training_samples(samples: list[TrainingSample]) -> dict[str, Any]:
         "partition_candidate_sample_counts": None,
         "partition_candidate_session_counts": None,
         "partition_candidate_class_counts": None,
+        "partition_scope": None,
+        "partition_diagnostic_reason": None,
         "reasons": [],
     }
-    if len(dates) < MIN_MODEL_TRAINING_SESSIONS:
+    if len(dates) < 3:
+        result["partition_diagnostic_reason"] = "at_least_three_distinct_sessions_required"
         result["reasons"] = ["insufficient_eligible_sessions"]
         return result
     try:
         train, validation, test = _chronological_partitions(samples)
     except ValueError:
+        result["partition_diagnostic_reason"] = "chronological_partitioning_failed"
         result["reasons"] = ["chronological_partitioning_failed"]
         return result
+    result["partition_scope"] = (
+        "production" if len(dates) >= MIN_MODEL_TRAINING_SESSIONS else "diagnostic"
+    )
     partitions = {"train": train, "validation": validation, "test": test}
     result["partition_sample_counts"] = {name: len(rows) for name, rows in partitions.items()}
     result["partition_session_counts"] = {
@@ -412,6 +419,9 @@ def assess_training_samples(samples: list[TrainingSample]) -> dict[str, Any]:
         }
         for name, rows in candidate_partitions.items()
     }
+    if len(dates) < MIN_MODEL_TRAINING_SESSIONS:
+        result["reasons"] = ["insufficient_eligible_sessions"]
+        return result
     reasons = []
     if (len(train) < MIN_MODEL_TRAIN_SAMPLES
             or len(validation) < MIN_MODEL_VALIDATION_SAMPLES

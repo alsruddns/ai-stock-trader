@@ -583,6 +583,8 @@ def test_training_readiness_counts_only_complete_approved_websocket_sessions(mon
         "partition_candidate_sample_counts": None,
         "partition_candidate_session_counts": None,
         "partition_candidate_class_counts": None,
+        "partition_scope": None,
+        "partition_diagnostic_reason": "at_least_three_distinct_sessions_required",
         "reasons": ["insufficient_eligible_sessions"],
         "cost_assumptions_ready": True,
     }
