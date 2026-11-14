@@ -288,6 +288,22 @@ class KisOrderOrchestratorTest {
     }
 
     @Test
+    void databaseDuplicateRaceWithRealIntentCollisionStopsBeforeAccountOrBrokerAccess() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = buyRequest();
+        when(intents.prepare(key, KisOrderOrchestrator.hash(request, null), request, null))
+                .thenThrow(new DataIntegrityViolationException("duplicate"))
+                .thenThrow(new IdempotencyConflictException("Idempotency-Key belongs to another KIS environment."));
+
+        assertThrows(IdempotencyConflictException.class,
+                () -> orchestrator.submitPaperOrder(key, request, null));
+
+        verify(intents, org.mockito.Mockito.times(2))
+                .prepare(key, KisOrderOrchestrator.hash(request, null), request, null);
+        verifyNoInteractions(accounts, orders, marketEvidence);
+    }
+
+    @Test
     void disabledOrdersFailClosed() {
         KisOrderOrchestrator locked = new KisOrderOrchestrator(orders, accounts, new KisOrderProperties(false, false),
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")),
