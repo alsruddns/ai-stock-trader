@@ -56,7 +56,9 @@ if ($accountNumber -notmatch '^\d{10}$') {
 function Invoke-LocalReadOnlyGet {
     param([Parameter(Mandatory)] [string]$Path)
     try {
-        return Invoke-RestMethod -Uri "$ApiBaseUrl$Path" -TimeoutSec 30
+        # A fresh token can wait through shared one-per-minute token pacing and
+        # one bounded retry for a transient KIS token-server response.
+        return Invoke-RestMethod -Uri "$ApiBaseUrl$Path" -TimeoutSec 180
     } catch {
         $statusCode = $null
         try {
