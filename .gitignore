@@ -24,6 +24,9 @@ secrets/
 **/*.py[cod]
 **/*.egg-info/
 
+# TypeScript incremental build cache
+*.tsbuildinfo
+
 # Local data and editor files
 data/
 .idea/

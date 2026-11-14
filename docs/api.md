@@ -55,6 +55,8 @@ REAL 주문 API는 Spring이 `127.0.0.1:18080`에 바인딩된 로컬 운영만 
 
 Python health의 `broker_connected=true`는 모니터가 활성화되어 있고 구성된 모든 PAPER/REAL WebSocket feed가 `RUNNING`일 때만 반환합니다. 이는 연결 상태이며, 최신 tick이나 세션 전체의 데이터 완전성을 보증하지 않습니다.
 
+`GET /api/v1/paper/session`은 분봉 저장 오류가 발생한 경우 고정 허용목록의 `bar_storage_failure_kind`를 추가로 반환할 수 있습니다. 이 값은 PostgreSQL 연결·쓰기·재시도 또는 로컬 저장 대기열 오류를 구분하며 예외 메시지, SQL 접속 문자열, 파일 경로는 포함하지 않습니다. 정상 복구되고 대기열이 비워지면 분류값도 초기화됩니다.
+
 `GET /api/v1/paper/session`의 `orderbook_quote_quality_by_feed`는 구독 종목과 일치해 파싱된 국내 호가를 feed별로 집계합니다. `usable`, `empty_or_nonpositive`, `crossed`는 호가값 분류이며 `stale_rejected`는 이미 처리 중인 분보다 오래되어 거부한 수로 다른 분류와 겹칠 수 있습니다. 이 카운터는 프로세스 재시작 시 초기화되고, 원시 프레임 수나 저장 분봉의 스프레드 포함률을 대신하지 않습니다.
 
 같은 응답의 `market_data_by_watch_by_feed`는 feed별 구독 키(KR 심볼 또는 US 심볼·거래소)로 체결 틱·완료 분봉·호가 수신량과 마지막 거래소/로컬 수신시각을 제공합니다. 개별 가격이나 원시 프레임은 저장하거나 반환하지 않습니다. 카운터는 프로세스 실행 중 누적되는 운영 진단이며, 거래일 전체 수집이나 저장된 세션의 완전성은 별도 세션 품질 endpoint로 확인해야 합니다.

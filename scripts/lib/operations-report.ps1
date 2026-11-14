@@ -462,6 +462,13 @@ function Get-AiTraderDomesticSessionMonitorSummary {
     $barStorageRetryCount = 0L
     $hasBarStorageRetryCount = [long]::TryParse([string]$record.bar_storage_retry_count, [ref]$barStorageRetryCount) -and
         $barStorageRetryCount -ge 0 -and $barStorageRetryCount -le 1000000
+    $knownBarStorageFailureKinds = @(
+        'BAR_OUTBOX_FULL', 'BAR_OUTBOX_WRITE_FAILURE', 'BAR_OUTBOX_ACK_FAILURE',
+        'POSTGRES_CONNECTION_FAILURE', 'POSTGRES_TRANSACTION_RETRYABLE', 'POSTGRES_WRITE_FAILURE'
+    )
+    $barStorageFailureKind = if ([string]$record.bar_storage_failure_kind -in $knownBarStorageFailureKinds) {
+        [string]$record.bar_storage_failure_kind
+    } else { $null }
     $barStorageAvailable = $null -ne $barStorageState -and $hasBarStoragePendingCount
     $barStorageReady = if ($barStorageAvailable) {
         $barStorageState -eq 'RUNNING' -and $barStoragePendingCount -eq 0
@@ -572,6 +579,7 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         barStorageState = $barStorageState
         barStoragePendingCount = if ($hasBarStoragePendingCount) { $barStoragePendingCount } else { $null }
         barStorageRetryCount = if ($hasBarStorageRetryCount) { $barStorageRetryCount } else { $null }
+        barStorageFailureKind = $barStorageFailureKind
         barStorageReason = $barStorageReason
         symbolMarketDataStatus = $symbolMarketDataStatus
         symbolMarketData = $symbolMarketData

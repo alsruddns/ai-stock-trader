@@ -67,7 +67,10 @@ Describe 'Domestic PAPER monitor reconnect tolerance' {
 
 Describe 'Domestic PAPER bar storage readiness' {
     It 'accepts a running PostgreSQL writer only when the durable outbox is empty' {
-        $status = [pscustomobject]@{ bar_storage_state = 'RUNNING'; bar_storage_pending_count = 0; bar_storage_retry_count = 2 }
+        $status = [pscustomobject]@{
+            bar_storage_state = 'RUNNING'; bar_storage_pending_count = 0; bar_storage_retry_count = 2
+            bar_storage_failure_kind = 'POSTGRES_CONNECTION_FAILURE'
+        }
 
         $diagnostic = Get-MonitorBarStorageDiagnostic $status
 
@@ -75,11 +78,15 @@ Describe 'Domestic PAPER bar storage readiness' {
         $diagnostic.bar_storage_ready | Should Be $true
         $diagnostic.bar_storage_pending_count | Should Be 0
         $diagnostic.bar_storage_retry_count | Should Be 2
+        $diagnostic.bar_storage_failure_kind | Should Be 'POSTGRES_CONNECTION_FAILURE'
         $diagnostic.bar_storage_reason | Should Be 'READY'
     }
 
     It 'keeps a pending outbox blocked while exposing only bounded counters' {
-        $status = [pscustomobject]@{ bar_storage_state = 'RUNNING'; bar_storage_pending_count = 3; bar_storage_retry_count = 4; bar_storage_error = 'private detail' }
+        $status = [pscustomobject]@{
+            bar_storage_state = 'RUNNING'; bar_storage_pending_count = 3; bar_storage_retry_count = 4
+            bar_storage_error = 'private detail'; bar_storage_failure_kind = 'postgres://secret'
+        }
 
         $diagnostic = Get-MonitorBarStorageDiagnostic $status
         $json = $diagnostic | ConvertTo-Json -Compress -Depth 3
@@ -87,7 +94,8 @@ Describe 'Domestic PAPER bar storage readiness' {
         $diagnostic.bar_storage_ready | Should Be $false
         $diagnostic.bar_storage_pending_count | Should Be 3
         $diagnostic.bar_storage_reason | Should Be 'PENDING_BARS'
-        $json | Should Not Match 'private detail|bar_storage_error'
+        $diagnostic.bar_storage_failure_kind | Should Be $null
+        $json | Should Not Match 'private detail|postgres://secret|bar_storage_error'
     }
 
     It 'fails closed for missing or malformed storage status' {

@@ -39,6 +39,14 @@ function Get-MonitorBarStorageDiagnostic($Status) {
     $retryAvailable = $null -ne $retryProperty -and
         [long]::TryParse([string]$retryProperty.Value, [ref]$retryCount) -and
         $retryCount -ge 0 -and $retryCount -le 1000000
+    $allowedFailureKinds = @(
+        'BAR_OUTBOX_FULL', 'BAR_OUTBOX_WRITE_FAILURE', 'BAR_OUTBOX_ACK_FAILURE',
+        'POSTGRES_CONNECTION_FAILURE', 'POSTGRES_TRANSACTION_RETRYABLE', 'POSTGRES_WRITE_FAILURE'
+    )
+    $failureProperty = if ($Status) { $Status.PSObject.Properties['bar_storage_failure_kind'] } else { $null }
+    $failureKind = if ($failureProperty -and [string]$failureProperty.Value -in $allowedFailureKinds) {
+        [string]$failureProperty.Value
+    } else { $null }
     $available = $null -ne $state -and $pendingAvailable
     $ready = $available -and $state -eq 'RUNNING' -and $pendingCount -eq 0
     $reason = if (-not $available) { 'STATUS_UNAVAILABLE' }
@@ -51,6 +59,7 @@ function Get-MonitorBarStorageDiagnostic($Status) {
         bar_storage_state = $state
         bar_storage_pending_count = if ($pendingAvailable) { $pendingCount } else { $null }
         bar_storage_retry_count = if ($retryAvailable) { $retryCount } else { $null }
+        bar_storage_failure_kind = $failureKind
         bar_storage_reason = $reason
     }
 }

@@ -90,6 +90,7 @@ type LocalOperationsReport = {
     barStorageState: string | null;
     barStoragePendingCount: number | null;
     barStorageRetryCount: number | null;
+    barStorageFailureKind: string | null;
     barStorageReason: string;
     symbolMarketDataStatus: string;
     symbolMarketData: DomesticSymbolMarketData[];
@@ -314,6 +315,14 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
       : null;
     const barStoragePendingCount = boundedNonNegativeInteger(rawMonitor?.barStoragePendingCount, 1000000);
     const barStorageRetryCount = boundedNonNegativeInteger(rawMonitor?.barStorageRetryCount, 1000000);
+    const knownBarStorageFailureKinds = [
+      "BAR_OUTBOX_FULL", "BAR_OUTBOX_WRITE_FAILURE", "BAR_OUTBOX_ACK_FAILURE",
+      "POSTGRES_CONNECTION_FAILURE", "POSTGRES_TRANSACTION_RETRYABLE", "POSTGRES_WRITE_FAILURE",
+    ];
+    const barStorageFailureKind = typeof rawMonitor?.barStorageFailureKind === "string" &&
+      knownBarStorageFailureKinds.includes(rawMonitor.barStorageFailureKind)
+      ? rawMonitor.barStorageFailureKind
+      : null;
     const barStorageDiagnosticAvailable = barStorageState !== null && barStoragePendingCount !== null;
     const barStorageReady = barStorageDiagnosticAvailable
       ? barStorageState === "RUNNING" && barStoragePendingCount === 0
@@ -351,6 +360,7 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
       barStorageState,
       barStoragePendingCount,
       barStorageRetryCount,
+      barStorageFailureKind,
       barStorageReason,
       symbolMarketDataStatus,
       symbolMarketData: symbolMarketDataStatus === "AVAILABLE" ? symbolMarketData : [],

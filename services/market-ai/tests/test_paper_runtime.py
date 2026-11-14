@@ -722,6 +722,7 @@ def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch)
 
     assert runtime.status()["bar_storage_state"] == "ERROR"
     assert runtime.status()["bar_storage_error"] == "POSTGRES_WRITE_FAILED"
+    assert runtime.status()["bar_storage_failure_kind"] == "POSTGRES_WRITE_FAILURE"
     assert runtime.status()["automation_state"] == "BLOCKED"
     assert runtime.status()["automation_error"] == "BAR_PERSISTENCE_UNAVAILABLE"
     assert write_attempts >= 3
@@ -729,6 +730,32 @@ def test_bar_storage_failure_is_visible_and_blocks_paper_automation(monkeypatch)
     assert runtime.status()["bar_storage_pending_count"] == 1
     assert runtime._automation_queue.empty()
     assert "database details" not in str(runtime.status())
+
+
+def test_bar_storage_exposes_only_safe_postgres_connection_failure_kind(monkeypatch) -> None:
+    from app import snapshot_store
+
+    class OperationalError(Exception):
+        sqlstate = "08006"
+
+    def fail_connection(*_args, **_kwargs):
+        raise OperationalError("postgres://user:secret@localhost/database")
+
+    monkeypatch.setattr(snapshot_store, "store_minute_bars", fail_connection)
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    bar = MinuteBar(
+        datetime.fromisoformat("2026-11-05T09:00:00+09:00"), Decimal("100"), Decimal("101"),
+        Decimal("99"), Decimal("100.5"), 1000, Decimal("4.5"),
+    )
+
+    persisted = asyncio.run(runtime._persist_bar_with_retry(watch, bar))
+
+    assert persisted is False
+    assert runtime.status()["bar_storage_error"] == "POSTGRES_WRITE_FAILED"
+    assert runtime.status()["bar_storage_failure_kind"] == "POSTGRES_CONNECTION_FAILURE"
+    assert "secret" not in str(runtime.status())
+    assert "postgres://" not in str(runtime.status())
 
 
 def test_bar_storage_recovers_after_transient_postgres_write_failure(monkeypatch) -> None:

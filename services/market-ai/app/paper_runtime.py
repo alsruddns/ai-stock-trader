@@ -272,6 +272,7 @@ class PaperSessionFeedMonitor:
             "subscription_acknowledgements_by_feed": {}, "last_subscription_error_code": None,
             "automation_state": "DISABLED", "automation_error": None,
             "bar_storage_state": "DISABLED", "bar_storage_error": None,
+            "bar_storage_failure_kind": None,
             "bar_storage_retry_count": 0,
             "bar_storage_pending_count": 0,
             "candidate_refresh_by_market": {},
@@ -1079,24 +1080,28 @@ class PaperSessionFeedMonitor:
             )
             self._set_status(bar_storage_pending_count=pending_count)
         except BarWriteOutboxFull:
-            self._set_status(bar_storage_state="ERROR", bar_storage_error="BAR_OUTBOX_FULL")
+            self._set_status(bar_storage_state="ERROR", bar_storage_error="BAR_OUTBOX_FULL",
+                             bar_storage_failure_kind="BAR_OUTBOX_FULL")
             if self._automation_queue is not None:
                 self._set_status(automation_state="BLOCKED", automation_error="BAR_PERSISTENCE_UNAVAILABLE")
             return False
         except Exception:
-            self._set_status(bar_storage_state="ERROR", bar_storage_error="BAR_OUTBOX_WRITE_FAILED")
+            self._set_status(bar_storage_state="ERROR", bar_storage_error="BAR_OUTBOX_WRITE_FAILED",
+                             bar_storage_failure_kind="BAR_OUTBOX_WRITE_FAILURE")
             if self._automation_queue is not None:
                 self._set_status(automation_state="BLOCKED", automation_error="BAR_PERSISTENCE_UNAVAILABLE")
             return False
 
         failure_code = "POSTGRES_WRITE_FAILED"
+        failure_kind = "POSTGRES_WRITE_FAILURE"
         for attempt in range(len(retry_delays) + 1):
             try:
                 await asyncio.to_thread(
                     snapshot_store.store_minute_bars, watch.market, watch.symbol, [bar], source=source,
                 )
-            except Exception:
+            except Exception as exception:
                 failure_code = "POSTGRES_WRITE_FAILED"
+                failure_kind = self._classify_bar_storage_failure("postgres", exception)
             else:
                 try:
                     pending_count = await asyncio.to_thread(
@@ -1104,6 +1109,7 @@ class PaperSessionFeedMonitor:
                     )
                 except Exception:
                     failure_code = "BAR_OUTBOX_ACK_FAILED"
+                    failure_kind = "BAR_OUTBOX_ACK_FAILURE"
                 else:
                     self._set_status(bar_storage_pending_count=pending_count)
                     return True
@@ -1115,11 +1121,30 @@ class PaperSessionFeedMonitor:
                     ) + 1
                 await asyncio.sleep(retry_delays[attempt])
                 continue
-            self._set_status(bar_storage_state="ERROR", bar_storage_error=failure_code)
+            self._set_status(bar_storage_state="ERROR", bar_storage_error=failure_code,
+                             bar_storage_failure_kind=failure_kind)
             if self._automation_queue is not None:
                 self._set_status(automation_state="BLOCKED", automation_error="BAR_PERSISTENCE_UNAVAILABLE")
             return False
         return False
+
+    @staticmethod
+    def _classify_bar_storage_failure(stage: str, exception: Exception) -> str:
+        """Expose only bounded failure categories; never return exception text or DSNs."""
+        if stage != "postgres":
+            return "BAR_STORAGE_FAILURE"
+        sqlstate = getattr(exception, "sqlstate", None)
+        if isinstance(sqlstate, str) and sqlstate.startswith("08"):
+            return "POSTGRES_CONNECTION_FAILURE"
+        if isinstance(exception, (ConnectionError, TimeoutError)):
+            return "POSTGRES_CONNECTION_FAILURE"
+        if type(exception).__name__ in {
+            "OperationalError", "InterfaceError", "ConnectionFailure", "ConnectionTimeout",
+        }:
+            return "POSTGRES_CONNECTION_FAILURE"
+        if isinstance(sqlstate, str) and sqlstate.startswith("40"):
+            return "POSTGRES_TRANSACTION_RETRYABLE"
+        return "POSTGRES_WRITE_FAILURE"
 
     def _defer_bar_write(
         self,
@@ -1154,6 +1179,7 @@ class PaperSessionFeedMonitor:
             }:
                 self._status["bar_storage_state"] = "RUNNING"
                 self._status["bar_storage_error"] = None
+                self._status["bar_storage_failure_kind"] = None
             self._status["bar_storage_pending_count"] = 0
 
     async def _bar_storage_loop(self) -> None:

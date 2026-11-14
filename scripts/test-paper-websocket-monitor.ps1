@@ -559,6 +559,7 @@ $evidence = [ordered]@{
     bar_storage_state = $barStorageDiagnostic.bar_storage_state
     bar_storage_pending_count = $barStorageDiagnostic.bar_storage_pending_count
     bar_storage_retry_count = $barStorageDiagnostic.bar_storage_retry_count
+    bar_storage_failure_kind = $barStorageDiagnostic.bar_storage_failure_kind
     bar_storage_reason = $barStorageDiagnostic.bar_storage_reason
     session_quality_status = $sessionQualityStatus
     session_quality_diagnostics = $sessionQualityDiagnostics

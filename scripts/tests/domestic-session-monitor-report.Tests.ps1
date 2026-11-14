@@ -8,6 +8,7 @@ Describe 'Domestic PAPER monitor bar storage readiness report' {
             selected_feed = 'paper'; validation_scope = 'full_session'; result = 'failed'; failure_stage = 'post_close_validation'
             failure_code = 'BAR_STORAGE_NOT_DRAINED'; bar_storage_state = 'RUNNING'
             bar_storage_pending_count = 2; bar_storage_retry_count = 5; bar_storage_error = 'private connection detail'
+            bar_storage_failure_kind = 'POSTGRES_CONNECTION_FAILURE'
         }
         [IO.File]::WriteAllText($path, ($record | ConvertTo-Json -Compress -Depth 5))
 
@@ -22,6 +23,7 @@ Describe 'Domestic PAPER monitor bar storage readiness report' {
         $summary.barStorageState | Should Be 'RUNNING'
         $summary.barStoragePendingCount | Should Be 2
         $summary.barStorageRetryCount | Should Be 5
+        $summary.barStorageFailureKind | Should Be 'POSTGRES_CONNECTION_FAILURE'
         $summary.barStorageReason | Should Be 'PENDING_BARS'
         $json | Should Not Match 'private connection detail|bar_storage_error'
     }
