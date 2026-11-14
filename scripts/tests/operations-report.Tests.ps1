@@ -365,7 +365,7 @@ Describe 'Daily operations report endpoint health summary' {
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
         $archivedReport = Get-Content -LiteralPath $archivePath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 14
+        $report.reportSchemaVersion | Should Be 15
         $archivedReport.generatedAt | Should Be $report.generatedAt
         $archivedReport.tradingMode | Should Be $report.tradingMode
         $report.pythonConnected | Should Be $true
@@ -428,7 +428,7 @@ Describe 'Daily operations report endpoint health summary' {
             if ($Uri -like '*api/v1/ai/models') { return @{ models = @() } }
             if ($Uri -like '*api/v1/market/sessions/*') { return @{ market = $Uri } }
             if ($Uri -like '*session-quality/KR*') {
-                return @{ market = 'KR'; sessions = @(@{ full_session_complete = $false; observed_completed_bars = 302; spread_bars = 302 }) }
+                return @{ market = 'KR'; sessions = @(@{ full_session_complete = $false; observed_completed_bars = 302; spread_bars = 302; spread_observation_time_bars = 301 }) }
             }
             throw 'Unexpected report endpoint.'
         }
@@ -444,9 +444,27 @@ Describe 'Daily operations report endpoint health summary' {
         $report.endpointStatus.'python.market_data_quality_KR'.state | Should Be 'AVAILABLE'
         $report.marketDataQualitySummary.sessionCompleteness | Should Be 'INCOMPLETE'
         $report.marketDataQualitySummary.spreadCoverage | Should Be 'COMPLETE'
+        $report.marketDataQualitySummary.spreadObservationTimeCoverage | Should Be 'INCOMPLETE'
         $report.marketDataQualitySummary.sessionsReported | Should Be 1
         $report.marketDataQualitySummary.incompleteSessions | Should Be 1
         $report.marketDataQualitySummary.sessionsMissingSpreads | Should Be 0
+        $report.marketDataQualitySummary.sessionsMissingSpreadObservationTimes | Should Be 1
+    }
+
+    It 'marks timestamp coverage complete only when every observed bar has a spread observation time' {
+        $endpointStatus = @{
+            'python.market_data_quality_KR' = @{ state = 'AVAILABLE' }
+        }
+        $quality = @{
+            KR = @{ sessions = @(@{ full_session_complete = $true; observed_completed_bars = 380; spread_bars = 380; spread_observation_time_bars = 380 }) }
+        }
+
+        $summary = Get-AiTraderMarketDataQualitySummary -EndpointStatus $endpointStatus -MarketDataQuality $quality -OperationalMarkets @('KR')
+
+        $summary.sessionCompleteness | Should Be 'COMPLETE'
+        $summary.spreadCoverage | Should Be 'COMPLETE'
+        $summary.spreadObservationTimeCoverage | Should Be 'COMPLETE'
+        $summary.sessionsMissingSpreadObservationTimes | Should Be 0
     }
 
     It 'fails closed when the session completeness field is not a JSON boolean' {
@@ -461,6 +479,8 @@ Describe 'Daily operations report endpoint health summary' {
 
         $summary.sessionCompleteness | Should Be 'INCOMPLETE'
         $summary.spreadCoverage | Should Be 'COMPLETE'
+        $summary.spreadObservationTimeCoverage | Should Be 'INCOMPLETE'
+        $summary.sessionsMissingSpreadObservationTimes | Should Be 1
     }
 
     It 'marks an optional Python endpoint failure as partial and omits its error message' {

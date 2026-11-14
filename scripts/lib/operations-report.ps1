@@ -89,18 +89,22 @@ function Get-AiTraderMarketDataQualitySummary {
         return [ordered]@{
             sessionCompleteness = 'UNAVAILABLE'
             spreadCoverage = 'UNAVAILABLE'
+            spreadObservationTimeCoverage = 'UNAVAILABLE'
             sessionsReported = 0
             incompleteSessions = 0
             sessionsMissingSpreads = 0
+            sessionsMissingSpreadObservationTimes = 0
         }
     }
     if (@($qualityEndpointStates | Where-Object { $_ -ne 'AVAILABLE' }).Count -gt 0) {
         return [ordered]@{
             sessionCompleteness = 'UNVERIFIED'
             spreadCoverage = 'UNVERIFIED'
+            spreadObservationTimeCoverage = 'UNVERIFIED'
             sessionsReported = 0
             incompleteSessions = 0
             sessionsMissingSpreads = 0
+            sessionsMissingSpreadObservationTimes = 0
         }
     }
 
@@ -116,32 +120,45 @@ function Get-AiTraderMarketDataQualitySummary {
         return [ordered]@{
             sessionCompleteness = 'UNVERIFIED'
             spreadCoverage = 'UNVERIFIED'
+            spreadObservationTimeCoverage = 'UNVERIFIED'
             sessionsReported = 0
             incompleteSessions = 0
             sessionsMissingSpreads = 0
+            sessionsMissingSpreadObservationTimes = 0
         }
     }
 
     $incompleteSessions = 0
     $sessionsMissingSpreads = 0
+    $sessionsMissingSpreadObservationTimes = 0
     foreach ($session in $sessions) {
         if ($session.full_session_complete -isnot [bool] -or -not $session.full_session_complete) {
             $incompleteSessions++
         }
         $observedBars = 0
         $spreadBars = -1
-        if (-not [int]::TryParse([string]$session.observed_completed_bars, [ref]$observedBars) -or
-                -not [int]::TryParse([string]$session.spread_bars, [ref]$spreadBars) -or
+        $spreadObservationTimeBars = -1
+        $hasObservedBars = [int]::TryParse([string]$session.observed_completed_bars, [ref]$observedBars)
+        $hasSpreadBars = [int]::TryParse([string]$session.spread_bars, [ref]$spreadBars)
+        $hasSpreadObservationTimeBars = [int]::TryParse(
+            [string]$session.spread_observation_time_bars, [ref]$spreadObservationTimeBars)
+        if (-not $hasObservedBars -or -not $hasSpreadBars -or
                 $observedBars -lt 1 -or $spreadBars -ne $observedBars) {
             $sessionsMissingSpreads++
+        }
+        if (-not $hasObservedBars -or -not $hasSpreadObservationTimeBars -or
+                $observedBars -lt 1 -or $spreadObservationTimeBars -ne $observedBars) {
+            $sessionsMissingSpreadObservationTimes++
         }
     }
     return [ordered]@{
         sessionCompleteness = if ($incompleteSessions -eq 0) { 'COMPLETE' } else { 'INCOMPLETE' }
         spreadCoverage = if ($sessionsMissingSpreads -eq 0) { 'COMPLETE' } else { 'INCOMPLETE' }
+        spreadObservationTimeCoverage = if ($sessionsMissingSpreadObservationTimes -eq 0) { 'COMPLETE' } else { 'INCOMPLETE' }
         sessionsReported = $sessions.Count
         incompleteSessions = $incompleteSessions
         sessionsMissingSpreads = $sessionsMissingSpreads
+        sessionsMissingSpreadObservationTimes = $sessionsMissingSpreadObservationTimes
     }
 }
 
