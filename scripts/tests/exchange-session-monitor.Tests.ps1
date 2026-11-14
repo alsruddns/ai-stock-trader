@@ -2,6 +2,20 @@
 . (Join-Path $PSScriptRoot '../lib/market-session-scheduler.ps1')
 
 Describe 'Exchange session monitor calendar boundaries' {
+    It 'requires the scheduled date to match the current KST and exchange session date' {
+        Assert-ExpectedExchangeSessionDate '2026-11-16' '2026-11-16' 'test' | Should Be $null
+
+        $didThrow = $false
+        try { Assert-ExpectedExchangeSessionDate '2026-11-16' '2026-11-17' 'test' }
+        catch { $didThrow = $true }
+        $didThrow | Should Be $true
+
+        $didThrow = $false
+        try { Assert-ExpectedExchangeSessionDate '2026-11-16' 'not-a-date' 'test' }
+        catch { $didThrow = $true }
+        $didThrow | Should Be $true
+    }
+
     It 'tracks the US regular session across Korea midnight' {
         $session = ConvertTo-ExchangeSessionWindow @{
             market = 'US'; session_date = '2026-11-06'; is_session = $true
@@ -304,16 +318,27 @@ Describe 'Existing market session task verification' {
     }
 
     It 'accepts only a matching limited KST monitor schedule' {
-        $task = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -DurationSeconds 25200 -RequireSessionClose' `
+        $task = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -ExpectedSessionDate 2026-11-09 -DurationSeconds 25200 -RequireSessionClose' `
             'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
         (Test-SessionMonitorTaskDefinition $task 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
             ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $true
     }
 
-    It 'rejects disabled or mismatched monitor tasks' {
-        $disabled = New-TestScheduledTask 'Disabled' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -DurationSeconds 25200 -RequireSessionClose' `
+    It 'rejects a monitor task without its exact scheduled session date' {
+        $missingDate = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -DurationSeconds 25200 -RequireSessionClose' `
             'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
-        $wrongFeed = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed paper -DurationSeconds 25200 -RequireSessionClose' `
+        $wrongDate = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -ExpectedSessionDate 2026-11-08 -DurationSeconds 25200 -RequireSessionClose' `
+            'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
+        (Test-SessionMonitorTaskDefinition $missingDate 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
+            ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $false
+        (Test-SessionMonitorTaskDefinition $wrongDate 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
+            ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $false
+    }
+
+    It 'rejects disabled or mismatched monitor tasks' {
+        $disabled = New-TestScheduledTask 'Disabled' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -ExpectedSessionDate 2026-11-09 -DurationSeconds 25200 -RequireSessionClose' `
+            'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
+        $wrongFeed = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed paper -ExpectedSessionDate 2026-11-09 -DurationSeconds 25200 -RequireSessionClose' `
             'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
         (Test-SessionMonitorTaskDefinition $disabled 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
             ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $false
@@ -322,7 +347,7 @@ Describe 'Existing market session task verification' {
     }
 
     It 'rejects a monitor task without the bounded transient-failure retries' {
-        $task = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -DurationSeconds 25200 -RequireSessionClose' `
+        $task = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -ExpectedSessionDate 2026-11-09 -DurationSeconds 25200 -RequireSessionClose' `
             'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
         $task.Settings.RestartCount = 0
         (Test-SessionMonitorTaskDefinition $task 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
@@ -330,7 +355,7 @@ Describe 'Existing market session task verification' {
     }
 
     It 'rejects a monitor duration that ends exactly at exchange close' {
-        $task = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -DurationSeconds 24300 -RequireSessionClose' `
+        $task = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -ExpectedSessionDate 2026-11-09 -DurationSeconds 24300 -RequireSessionClose' `
             'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
         (Test-SessionMonitorTaskDefinition $task 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
             ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $false

@@ -8,6 +8,7 @@ param(
     [ValidateRange(1, 300)] [int]$StartupTimeoutSeconds = 120,
     [ValidateRange(0, 600)] [int]$PostCloseGraceSeconds = 180,
     [ValidateSet('paper', 'real')] [string]$Feed,
+    [ValidatePattern('^\d{4}-\d{2}-\d{2}$')] [string]$ExpectedSessionDate,
     [string]$EvidencePath,
     [switch]$RequireBothFeeds,
     [switch]$RequireSessionClose
@@ -21,6 +22,11 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'paper-session-monitor-status.ps1')
 . (Join-Path $PSScriptRoot 'lib\exchange-session-monitor.ps1')
 . (Join-Path $PSScriptRoot 'lib\paper-session-status-read.ps1')
+if ($ExpectedSessionDate) {
+    $koreaZone = [TimeZoneInfo]::FindSystemTimeZoneById('Korea Standard Time')
+    $actualKstDate = [TimeZoneInfo]::ConvertTime([DateTimeOffset]::Now, $koreaZone).ToString('yyyy-MM-dd')
+    Assert-ExpectedExchangeSessionDate $ExpectedSessionDate $actualKstDate 'local KST execution date'
+}
 $script:statusReadRetryCount = 0
 $script:statusReadFailureCounts = [ordered]@{}
 $script:statusReadLastFailureCategory = $null
@@ -153,6 +159,9 @@ $initial = Wait-ForSafeRunningStatus
 $script:monitorInitialStatus = $initial
 $monitorStage = 'exchange_calendar'
 $exchangeSession = Get-SelectedExchangeSessionWindow
+if ($ExpectedSessionDate) {
+    Assert-ExpectedExchangeSessionDate $ExpectedSessionDate ([string]$exchangeSession.session_date) 'exchange calendar session date'
+}
 $initialTicks = if ($Feed) { [int]$initial.ticks_received_by_feed.$Feed } else { [int]$initial.ticks_received }
 $initialBars = if ($Feed) { [int]$initial.bars_closed_by_feed.$Feed } else { [int]$initial.bars_closed }
 $previousTicks = $initialTicks
@@ -539,6 +548,7 @@ $evidence = [ordered]@{
     closing_auction_silence_seconds = [Math]::Round($closingAuctionSilenceSeconds, 1)
     market_session = if ($exchangeSession) { $exchangeSession.market } else { $null }
     market_session_date = if ($exchangeSession) { $exchangeSession.session_date } else { $null }
+    expected_session_date = $ExpectedSessionDate
     market_session_open_utc = if ($exchangeSession) { $exchangeSession.open_utc.ToString('o') } else { $null }
     market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
     session_close_reached = $sessionCloseReached
@@ -643,6 +653,7 @@ Write-Output "Read-only KIS $validationLabel passed: feed=$(if ($Feed) { $Feed }
         session_phase = if ($exchangeSession) { Get-ExchangeSessionPhase ([DateTimeOffset]::UtcNow) $exchangeSession } else { 'NOT_APPLICABLE' }
         market_session = if ($exchangeSession) { $exchangeSession.market } else { $null }
         market_session_date = if ($exchangeSession) { $exchangeSession.session_date } else { $null }
+        expected_session_date = $ExpectedSessionDate
         market_session_open_utc = if ($exchangeSession) { $exchangeSession.open_utc.ToString('o') } else { $null }
         market_session_close_utc = if ($exchangeSession) { $exchangeSession.close_utc.ToString('o') } else { $null }
         session_status_available = $sessionStatusAvailable

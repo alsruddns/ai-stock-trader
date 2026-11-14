@@ -35,6 +35,7 @@ function Test-SessionMonitorTaskDefinition {
         [string]$action.Arguments -notmatch [regex]::Escape($MonitorPath) -or
         [string]$action.Arguments -notmatch "-Feed\s+$Feed(?:\s|$)" -or
         [string]$action.Arguments -notmatch "-DurationSeconds\s+$ExpectedDurationSeconds(?:\s|$)" -or
+        [string]$action.Arguments -notmatch "-ExpectedSessionDate\s+$([regex]::Escape($ExpectedRunAt.ToOffset([TimeSpan]::FromHours(9)).ToString('yyyy-MM-dd')))(?:\s|$)" -or
         [string]$action.Arguments -notmatch '-RequireSessionClose(?:\s|$)') { return $false }
 
     try {

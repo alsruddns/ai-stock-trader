@@ -21,6 +21,22 @@ function ConvertTo-ExchangeSessionWindow($Response) {
     }
 }
 
+function Assert-ExpectedExchangeSessionDate(
+    [Parameter(Mandatory)][ValidatePattern('^\d{4}-\d{2}-\d{2}$')][string]$ExpectedSessionDate,
+    [Parameter(Mandatory)][string]$ActualSessionDate,
+    [string]$Context = 'session monitor'
+) {
+    try {
+        $expected = [DateTime]::ParseExact($ExpectedSessionDate, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+        $actual = [DateTime]::ParseExact($ActualSessionDate, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+    } catch {
+        throw "Expected or actual exchange session date is invalid for $Context."
+    }
+    if ($expected.Date -ne $actual.Date) {
+        throw "Exchange session date mismatch for $Context (expected $ExpectedSessionDate, actual $ActualSessionDate)."
+    }
+}
+
 function Get-ExchangeSessionMonitorStart([string]$Market, [DateTimeOffset]$OpenUtc) {
     if ($Market -notin @('KR', 'US')) { throw 'Market must be KR or US.' }
     $leadMinutes = if ($Market -eq 'KR') { 15 } else { 5 }
