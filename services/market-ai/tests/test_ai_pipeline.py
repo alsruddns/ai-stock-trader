@@ -963,6 +963,16 @@ def test_holdout_selection_uses_validation_brier_and_one_prior_champion(tmp_path
         )
 
 
+def test_holdout_selection_rejects_ambiguous_or_datetime_session_keys(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    session = date(2026, 10, 16)
+
+    with pytest.raises(ValueError, match="session keys must be calendar dates"):
+        registry.select_candidate_for_holdout("KR", "005930", {session: [], "2026-10-19": []})
+    with pytest.raises(ValueError, match="session keys must be calendar dates"):
+        registry.select_candidate_for_holdout("KR", "005930", {datetime(2026, 10, 16): []})
+
+
 def test_holdout_selection_rejects_incomparable_latest_training_cohorts(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)
     candidate_ids = ("lightgbm-" + "1" * 32, "xgboost-" + "2" * 32)

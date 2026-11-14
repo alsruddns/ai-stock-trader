@@ -43,6 +43,15 @@ _GOVERNANCE_GENESIS_SHA256 = "0" * 64
 _MARKETS = {"KR", "US"}
 
 
+def _validated_session_dates(sessions: dict[date, list[MinuteBar]]) -> list[date]:
+    """Require unambiguous exchange-session keys before ordering holdout data."""
+    if not isinstance(sessions, dict) or not sessions:
+        raise ValueError("independent holdout sessions are required")
+    if any(type(session) is not date for session in sessions):
+        raise ValueError("holdout session keys must be calendar dates")
+    return sorted(sessions)
+
+
 def _meets_holdout_approval_criteria(ai_metrics: dict[str, Any], quant_metrics: dict[str, Any]) -> bool:
     """Check approval metrics without truncating fractional or non-finite trade counts."""
     try:
@@ -464,9 +473,10 @@ class LocalModelRegistry:
         """Select exactly one candidate by validation Brier before consuming later holdout data."""
         normalized_market = market.strip().upper()
         normalized_symbol = symbol.strip().upper()
-        if normalized_market not in _MARKETS or not normalized_symbol or not holdout_sessions:
+        holdout_dates = _validated_session_dates(holdout_sessions)
+        if normalized_market not in _MARKETS or not normalized_symbol:
             raise ValueError("market, symbol, and independent holdout sessions are required")
-        holdout_start = min(holdout_sessions)
+        holdout_start = holdout_dates[0]
         eligible: list[tuple[float, str, int, str, str]] = []
         with self._governance_lock:
             for item in self.list_models():
@@ -1216,6 +1226,7 @@ class LocalModelRegistry:
                 raise ValueError("approved models cannot be rewritten with new evaluation evidence")
             if metadata.get("heldout_evaluation") is not None:
                 raise ValueError("candidate already has independent holdout evidence and cannot be re-evaluated")
+            holdout_dates = _validated_session_dates(sessions)
             if metadata.get("market") != market or metadata.get("training_config", {}).get("symbol") != symbol:
                 raise ValueError("evaluation market and symbol must match the candidate")
             if not self._supports_current_model_contract(metadata):
@@ -1230,7 +1241,7 @@ class LocalModelRegistry:
                 prior_end = max(date.fromisoformat(value) for value in prior_dates)
             except ValueError as exc:
                 raise ValueError("candidate training partitions must contain ISO dates") from exc
-            if not sessions or min(sessions) <= prior_end:
+            if holdout_dates[0] <= prior_end:
                 raise ValueError("independent holdout sessions must be later than all training data")
             if len(sessions) < MIN_MODEL_APPROVAL_TEST_SESSIONS:
                 raise ValueError("at least five independent holdout sessions are required")
