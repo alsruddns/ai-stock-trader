@@ -284,6 +284,9 @@ def main() -> int:
                 "accepted_trade_count": item.accepted_trade_count,
                 "gross_pnl": str(item.gross_pnl),
                 "estimated_costs": str(item.estimated_costs),
+                "estimated_costs_by_component": {
+                    name: str(amount) for name, amount in item.estimated_costs_by_component.items()
+                },
                 "net_pnl": str(item.net_pnl),
                 "ending_equity": str(item.ending_equity) if item.ending_equity is not None else None,
                 "maximum_drawdown_amount": str(item.maximum_drawdown_amount),
@@ -291,7 +294,11 @@ def main() -> int:
                 "drawdown_basis": item.drawdown_basis,
                 "trade_outcomes_by_symbol": {
                     symbol: {
-                        key: str(value) if isinstance(value, Decimal) else value
+                        key: (
+                            {name: str(amount) for name, amount in value.items()}
+                            if isinstance(value, dict)
+                            else str(value) if isinstance(value, Decimal) else value
+                        )
                         for key, value in outcome.items()
                     }
                     for symbol, outcome in item.trade_outcomes_by_symbol.items()

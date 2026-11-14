@@ -13,6 +13,15 @@ from .quant import (
 )
 
 _PORTFOLIO_TOTAL_TOLERANCE = Decimal("1e-18")
+_COST_COMPONENT_NAMES = (
+    "entry_slippage",
+    "entry_spread",
+    "exit_slippage",
+    "exit_spread",
+    "buy_commission_and_exchange_fee",
+    "sell_commission_and_exchange_fee",
+    "sell_tax",
+)
 
 
 @dataclass(frozen=True)
@@ -105,12 +114,13 @@ class CapitalSensitivityResult:
     accepted_trade_count: int
     gross_pnl: Decimal
     estimated_costs: Decimal
+    estimated_costs_by_component: dict[str, Decimal]
     net_pnl: Decimal
     ending_equity: Decimal | None
     maximum_drawdown_amount: Decimal
     maximum_drawdown_percent: Decimal
     drawdown_basis: str
-    trade_outcomes_by_symbol: dict[str, dict[str, int | Decimal]]
+    trade_outcomes_by_symbol: dict[str, dict[str, int | Decimal | dict[str, Decimal]]]
     rejected_entries_by_reason: dict[str, int]
     rejected_entries_by_symbol_and_reason: dict[str, dict[str, int]]
     executable: bool = False
@@ -262,18 +272,25 @@ def analyze_capital_sensitivity(
 
         gross_pnl = sum((item.gross_pnl for item in session_results), Decimal(0))
         estimated_costs = sum((item.estimated_costs for item in session_results), Decimal(0))
+        estimated_costs_by_component = {
+            name: sum((item.estimated_costs_by_component[name] for item in session_results), Decimal(0))
+            for name in _COST_COMPONENT_NAMES
+        }
         net_pnl = sum((item.net_pnl for item in session_results), Decimal(0))
-        if abs(gross_pnl - estimated_costs - net_pnl) > _PORTFOLIO_TOTAL_TOLERANCE:
+        if (abs(gross_pnl - estimated_costs - net_pnl) > _PORTFOLIO_TOTAL_TOLERANCE
+                or abs(sum(estimated_costs_by_component.values(), Decimal(0)) - estimated_costs)
+                > _PORTFOLIO_TOTAL_TOLERANCE):
             raise ValueError("capital sensitivity totals do not reconcile")
         rejected: dict[str, int] = {}
         rejected_by_symbol: dict[str, dict[str, int]] = {}
-        trade_outcomes_by_symbol: dict[str, dict[str, int | Decimal]] = {
+        trade_outcomes_by_symbol: dict[str, dict[str, int | Decimal | dict[str, Decimal]]] = {
             symbol: {
                 "trade_count": 0,
                 "winning_trade_count": 0,
                 "losing_trade_count": 0,
                 "gross_pnl": Decimal(0),
                 "estimated_costs": Decimal(0),
+                "estimated_costs_by_component": {name: Decimal(0) for name in _COST_COMPONENT_NAMES},
                 "net_pnl": Decimal(0),
             }
             for symbol in sorted({symbol for symbols in sessions_by_date.values() for symbol in symbols})
@@ -290,6 +307,7 @@ def analyze_capital_sensitivity(
                     "losing_trade_count": 0,
                     "gross_pnl": Decimal(0),
                     "estimated_costs": Decimal(0),
+                    "estimated_costs_by_component": {name: Decimal(0) for name in _COST_COMPONENT_NAMES},
                     "net_pnl": Decimal(0),
                 })
                 outcome["trade_count"] = int(outcome["trade_count"]) + 1
@@ -297,11 +315,29 @@ def analyze_capital_sensitivity(
                 outcome["losing_trade_count"] = int(outcome["losing_trade_count"]) + int(trade.net_pnl < 0)
                 outcome["gross_pnl"] = Decimal(outcome["gross_pnl"]) + trade.gross_pnl
                 outcome["estimated_costs"] = Decimal(outcome["estimated_costs"]) + trade.costs
+                components = outcome["estimated_costs_by_component"]
+                if not isinstance(components, dict):
+                    raise ValueError("capital sensitivity cost components have an invalid shape")
+                for name, amount in trade.costs_by_component.items():
+                    components[name] = components[name] + amount
                 outcome["net_pnl"] = Decimal(outcome["net_pnl"]) + trade.net_pnl
         for symbol, outcome in trade_outcomes_by_symbol.items():
+            components = outcome["estimated_costs_by_component"]
+            if not isinstance(components, dict):
+                raise ValueError(f"capital sensitivity cost components have an invalid shape for {symbol}")
+            if abs(sum(components.values(), Decimal(0)) - Decimal(outcome["estimated_costs"])) > _PORTFOLIO_TOTAL_TOLERANCE:
+                raise ValueError(f"capital sensitivity cost components do not reconcile for {symbol}")
             if abs(Decimal(outcome["gross_pnl"]) - Decimal(outcome["estimated_costs"])
                    - Decimal(outcome["net_pnl"])) > _PORTFOLIO_TOTAL_TOLERANCE:
                 raise ValueError(f"capital sensitivity trade outcomes do not reconcile for {symbol}")
+        symbol_cost_components = {
+            name: sum((outcome["estimated_costs_by_component"][name]
+                       for outcome in trade_outcomes_by_symbol.values()), Decimal(0))
+            for name in _COST_COMPONENT_NAMES
+        }
+        if any(abs(symbol_cost_components[name] - estimated_costs_by_component[name])
+               > _PORTFOLIO_TOTAL_TOLERANCE for name in _COST_COMPONENT_NAMES):
+            raise ValueError("capital sensitivity symbol cost components do not reconcile")
         if carry_equity_between_sessions:
             drawdown = aggregate_compounded_drawdown(scenario_equity, session_results)
             drawdown_amount = drawdown.maximum_amount
@@ -324,6 +360,7 @@ def analyze_capital_sensitivity(
             accepted_trade_count=sum(len(item.trades) for item in session_results),
             gross_pnl=gross_pnl,
             estimated_costs=estimated_costs,
+            estimated_costs_by_component=estimated_costs_by_component,
             net_pnl=net_pnl,
             ending_equity=ending_equity,
             maximum_drawdown_amount=drawdown_amount,

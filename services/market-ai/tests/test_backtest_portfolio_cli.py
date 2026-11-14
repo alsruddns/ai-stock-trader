@@ -155,6 +155,11 @@ def test_portfolio_cli_reports_capital_scenarios_without_changing_base_result(tm
     assert all(item["session_count"] == 1 and item["accepted_trade_count"] == 0 for item in sensitivity)
     assert all(item["net_pnl"] == "0" and item["return_percent"] is None for item in sensitivity)
     assert all(item["return_basis"] is None for item in sensitivity)
+    assert all(
+        abs(sum(Decimal(amount) for amount in item["estimated_costs_by_component"].values())
+            - Decimal(item["estimated_costs"])) <= Decimal("1e-18")
+        for item in sensitivity
+    )
     assert all(item["rejected_entries_by_symbol_and_reason"] == {} for item in sensitivity)
     assert all(
         item["trade_outcomes_by_symbol"] == {
@@ -164,6 +169,15 @@ def test_portfolio_cli_reports_capital_scenarios_without_changing_base_result(tm
                 "losing_trade_count": 0,
                 "gross_pnl": "0",
                 "estimated_costs": "0",
+                "estimated_costs_by_component": {
+                    "entry_slippage": "0",
+                    "entry_spread": "0",
+                    "exit_slippage": "0",
+                    "exit_spread": "0",
+                    "buy_commission_and_exchange_fee": "0",
+                    "sell_commission_and_exchange_fee": "0",
+                    "sell_tax": "0",
+                },
                 "net_pnl": "0",
             },
             "005930": {
@@ -172,6 +186,15 @@ def test_portfolio_cli_reports_capital_scenarios_without_changing_base_result(tm
                 "losing_trade_count": 0,
                 "gross_pnl": "0",
                 "estimated_costs": "0",
+                "estimated_costs_by_component": {
+                    "entry_slippage": "0",
+                    "entry_spread": "0",
+                    "exit_slippage": "0",
+                    "exit_spread": "0",
+                    "buy_commission_and_exchange_fee": "0",
+                    "sell_commission_and_exchange_fee": "0",
+                    "sell_tax": "0",
+                },
                 "net_pnl": "0",
             },
         }
