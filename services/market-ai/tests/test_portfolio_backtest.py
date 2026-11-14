@@ -1,10 +1,12 @@
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
 
-from app.portfolio_backtest import aggregate_compounded_drawdown, backtest_domestic_portfolio
+from app.portfolio_backtest import (
+    aggregate_compounded_drawdown, analyze_slippage_sensitivity, backtest_domestic_portfolio,
+)
 from app.quant import MinuteBar, QuantConfig
 
 
@@ -32,6 +34,14 @@ def _strategy_bars(symbol_index: int) -> list[MinuteBar]:
                           Decimal("100"), 1000 + symbol_index, Decimal("5"),
                           start + timedelta(minutes=i, seconds=30)) for i in range(23, 380))
     return bars
+
+
+def _shift_bars(bars: list[MinuteBar], days: int) -> list[MinuteBar]:
+    return [MinuteBar(
+        bar.timestamp + timedelta(days=days), bar.open, bar.high, bar.low, bar.close,
+        bar.volume, bar.spread_bps,
+        bar.spread_observed_at + timedelta(days=days) if bar.spread_observed_at else None,
+    ) for bar in bars]
 
 
 def _run(bars_by_symbol, **overrides):
@@ -127,6 +137,49 @@ def test_portfolio_gross_cost_and_net_totals_reconcile() -> None:
     assert result.estimated_costs_by_component["exit_spread"] > 0
     assert abs(result.gross_pnl - result.estimated_costs - result.net_pnl) <= Decimal("1e-18")
     assert result.ending_equity == result.starting_equity + result.net_pnl
+
+
+def test_slippage_sensitivity_replays_same_sessions_and_reports_non_executable_results() -> None:
+    first = {"005930": _strategy_bars(0), "000660": _strategy_bars(1)}
+    second = {symbol: _shift_bars(bars, 1) for symbol, bars in first.items()}
+    config = QuantConfig(
+        commission_bps=Decimal(0), buy_commission_bps=Decimal("14.7"),
+        sell_commission_bps=Decimal("14.7"), sell_tax_bps=Decimal("20"),
+        slippage_bps=Decimal("10"), minimum_turnover=Decimal(0),
+        minimum_relative_volume=Decimal("1.5"),
+    )
+
+    results = analyze_slippage_sensitivity(
+        {date(2026, 11, 5): first, date(2026, 11, 6): second},
+        starting_equity=Decimal("1000000"), max_order_notional=Decimal("1000000"),
+        config=config, slippage_scenarios_bps=[Decimal(0), Decimal(10), Decimal(20)],
+    )
+
+    assert [item.slippage_bps_per_fill for item in results] == [Decimal(0), Decimal(10), Decimal(20)]
+    assert all(item.session_count == 2 and item.accepted_trade_count == 4 for item in results)
+    assert results[0].estimated_costs < results[1].estimated_costs < results[2].estimated_costs
+    assert results[0].net_pnl > results[1].net_pnl > results[2].net_pnl
+    assert all(item.ending_equity is None for item in results)
+    assert all(item.drawdown_basis == "maximum_independent_session" for item in results)
+    assert all(item.executable is False for item in results)
+
+    carried = analyze_slippage_sensitivity(
+        {date(2026, 11, 5): first, date(2026, 11, 6): second},
+        starting_equity=Decimal("1000000"), max_order_notional=Decimal("1000000"),
+        config=config, slippage_scenarios_bps=[Decimal(0), Decimal(10)],
+        carry_equity_between_sessions=True,
+    )
+    assert all(abs(item.ending_equity - (Decimal("1000000") + item.net_pnl)) <= Decimal("1e-8")
+               for item in carried)
+    assert all(item.drawdown_basis == "compounded_sequential_sessions" for item in carried)
+    assert all(item.executable is False for item in carried)
+
+    with pytest.raises(ValueError, match="unique"):
+        analyze_slippage_sensitivity(
+            {date(2026, 11, 5): first}, starting_equity=Decimal("1000000"),
+            max_order_notional=Decimal("1000000"), config=config,
+            slippage_scenarios_bps=[Decimal(5), Decimal(5)],
+        )
 
 
 def test_ai_filter_only_allows_quant_candidate_and_records_rejection() -> None:

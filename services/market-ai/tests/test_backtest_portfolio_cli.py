@@ -111,6 +111,29 @@ def test_portfolio_cli_requires_reviewed_multi_symbol_inputs_and_reports_non_exe
     assert payload["executable"] is False
 
 
+def test_portfolio_cli_reports_optional_slippage_scenarios_without_changing_base_result(tmp_path: Path) -> None:
+    first = _dataset(tmp_path / "005930.csv")
+    second = _dataset(tmp_path / "000660.csv")
+    base = subprocess.run(_command(first, second), cwd=REPOSITORY, capture_output=True, text=True, check=False)
+    scenario_command = _command(first, second)
+    for value in ("0", "5", "10", "20"):
+        scenario_command.extend(["--slippage-scenario-bps", value])
+    scenarios = subprocess.run(scenario_command, cwd=REPOSITORY, capture_output=True, text=True, check=False)
+
+    assert base.returncode == 0, base.stderr
+    assert scenarios.returncode == 0, scenarios.stderr
+    base_payload = json.loads(base.stdout)
+    scenario_payload = json.loads(scenarios.stdout)
+    assert scenario_payload["summary"] == base_payload["summary"]
+    assert scenario_payload["cost_assumptions_bps_per_fill"] == base_payload["cost_assumptions_bps_per_fill"]
+    sensitivity = scenario_payload["slippage_sensitivity"]
+    assert [item["slippage_bps_per_fill"] for item in sensitivity] == ["0", "5", "10", "20"]
+    assert all(item["session_count"] == 1 and item["accepted_trade_count"] == 0 for item in sensitivity)
+    assert all(item["net_pnl"] == "0" and item["executable"] is False for item in sensitivity)
+    assert all(item["drawdown_basis"] == "maximum_independent_session" for item in sensitivity)
+    assert scenario_payload["executable"] is False
+
+
 def test_portfolio_cli_fails_closed_when_active_ai_models_are_required_but_missing(tmp_path: Path) -> None:
     first = _dataset(tmp_path / "005930.csv")
     second = _dataset(tmp_path / "000660.csv")
