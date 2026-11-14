@@ -750,6 +750,28 @@ def test_model_without_data_rights_provenance_cannot_be_approved_or_selected(tmp
     assert registry.active_approved_model("KR", "005930") is None
 
 
+def test_model_list_distinguishes_internal_test_from_verified_holdout(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    verified_id = "lightgbm-" + "1" * 32
+    unverified_id = "xgboost-" + "2" * 32
+    not_run_id = "lightgbm-" + "3" * 32
+    _write_candidate(registry, verified_id)
+    _write_candidate(registry, unverified_id, record_holdout_event=False)
+    _write_candidate(registry, not_run_id, record_holdout_event=False)
+    not_run_path = tmp_path / f"{not_run_id}.json"
+    not_run = json.loads(not_run_path.read_text(encoding="utf-8"))
+    not_run.pop("heldout_evaluation")
+    not_run_path.write_text(json.dumps(not_run), encoding="utf-8")
+
+    statuses = {item["model_id"]: item["holdout_evaluation_status"] for item in registry.list_models()}
+
+    assert statuses == {
+        verified_id: "VERIFIED",
+        unverified_id: "UNVERIFIED",
+        not_run_id: "NOT_RUN",
+    }
+
+
 def test_model_with_previous_backtest_version_cannot_be_approved_or_selected(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)
     model_id = "lightgbm-" + "d" * 32

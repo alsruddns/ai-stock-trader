@@ -456,9 +456,16 @@ class LocalModelRegistry:
                 feature_compatible = self._supports_current_features(metadata)
                 label_compatible = self._supports_current_label(metadata)
                 model_compatible = feature_compatible and label_compatible
+                holdout_evaluation_verified = self._has_durable_holdout_evaluation(metadata)
+                heldout_evaluation = metadata.get("heldout_evaluation")
+                holdout_evaluation_status = (
+                    "NOT_RUN" if heldout_evaluation is None
+                    else "VERIFIED" if holdout_evaluation_verified
+                    else "UNVERIFIED"
+                )
                 approval_evidence_verified = (
                     self._has_valid_approval_evidence(metadata)
-                    and self._has_durable_holdout_evaluation(metadata)
+                    and holdout_evaluation_verified
                 )
                 approval_audit_verified = (self._has_durable_approval_event(metadata)
                                             if metadata.get("approved") else None)
@@ -475,6 +482,7 @@ class LocalModelRegistry:
                     "data_rights_verified": data_rights_verified,
                     "approval_evidence_verified": approval_evidence_verified,
                     "approval_audit_verified": approval_audit_verified,
+                    "holdout_evaluation_status": holdout_evaluation_status,
                     "approved": approved,
                     "active": metadata["model_id"] in active_model_ids and approved and model_compatible,
                     "artifact_sha256": metadata["artifact_sha256"],
