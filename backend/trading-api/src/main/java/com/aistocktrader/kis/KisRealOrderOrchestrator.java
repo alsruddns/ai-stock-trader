@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -74,77 +75,17 @@ public class KisRealOrderOrchestrator {
     public KisOrderIntentResponse submit(UUID idempotencyKey, OrderRequest request, String exchange,
                                          KisAccountSnapshot realAccount) {
         String requestHash = hash(request, exchange);
-        KisLiveRiskContext serverCheckedContext = null;
-        java.math.BigDecimal exitStopDistancePerShare = null;
-        if (request != null) {
-            boolean unresolvedOrder = intents.hasUnresolvedRealOrder(request.market(), idempotencyKey);
-            KisRealDailyRiskBaselineService.RiskInputs dailyRisk =
-                    dailyRiskBaselines.riskInputs(request.market(), realAccount);
-            KisMarketAiEvidenceClient.Evidence aiEvidence;
-            try {
-                if (marketAiEvidence == null) {
-                    aiEvidence = new KisMarketAiEvidenceClient.Evidence(false, false, null);
-                } else if (request.side() == com.aistocktrader.order.OrderSide.BUY) {
-                    aiEvidence = marketAiEvidence.inspect(request, exchange);
-                } else {
-                    var quote = marketAiEvidence.quoteForExit(request.market(), request.symbol(), exchange);
-                    aiEvidence = new KisMarketAiEvidenceClient.Evidence(false, true, null,
-                            null, null, quote.price());
-                }
-            } catch (RuntimeException unavailableEvidence) {
-                aiEvidence = new KisMarketAiEvidenceClient.Evidence(false, false, null);
-            }
-            if (request.side() == com.aistocktrader.order.OrderSide.BUY) {
-                if (aiEvidence.approvedModelCandidate() && aiEvidence.quoteFresh()
-                        && aiEvidence.modelId() != null && !aiEvidence.modelId().isBlank()
-                        && aiEvidence.strategyId() != null && !aiEvidence.strategyId().isBlank()
-                        && aiEvidence.stopDistancePerShare() != null
-                        && aiEvidence.stopDistancePerShare().signum() > 0) {
-                    exitStopDistancePerShare = aiEvidence.stopDistancePerShare();
-                }
-                String modelId = aiEvidence.approvedModelCandidate() ? aiEvidence.modelId() : null;
-                String strategyId = aiEvidence.approvedModelCandidate() ? aiEvidence.strategyId() : null;
-                request = new OrderRequest(request.market(), request.symbol(), request.side(), request.quantity(),
-                        request.limitPrice(), request.currency(), strategyId, modelId);
-                if (orderSizing != null) {
-                    request = orderSizing.capBuyQuantity(request, realAccount, aiEvidence.stopDistancePerShare());
-                }
-            }
-            if (orderSizing != null && request.side() == com.aistocktrader.order.OrderSide.BUY) {
-                request = orderSizing.capBuyQuantity(request, realAccount, aiEvidence.stopDistancePerShare());
-            }
-            Integer allMarketPositionCount = null;
-            int consecutiveLossCount = -1;
-            if (consecutiveLosses != null) {
-                var history = request.side() == com.aistocktrader.order.OrderSide.BUY
-                        ? consecutiveLosses.evaluate(request.market(), realAccount) : null;
-                if (history != null && history.isPresent()) {
-                    consecutiveLossCount = history.get().consecutiveLosses();
-                    allMarketPositionCount = history.get().totalOpenPositionsAcrossMarkets();
-                }
-            }
-            if (request.side() == com.aistocktrader.order.OrderSide.BUY) {
-                if (consecutiveLosses == null) {
-                    var count = portfolioPositions.countOpenPositionsAcrossMarkets(realAccount);
-                    if (count.isPresent()) allMarketPositionCount = count.getAsInt();
-                }
-            }
-            serverCheckedContext = new KisLiveRiskContext(aiEvidence.approvedModelCandidate(),
-                    aiEvidence.quoteFresh(), true, dailyRisk.marketOpen(), unresolvedOrder,
-                    dailyRisk.dailyLossPercent(), consecutiveLossCount,
-                    realAccount == null ? null : realAccount.accountEquity(), aiEvidence.stopDistancePerShare(),
-                    allMarketPositionCount, request.side() != com.aistocktrader.order.OrderSide.BUY
-                    || (aiEvidence.quotePrice() != null && request.limitPrice() != null
-                    && request.limitPrice().compareTo(aiEvidence.quotePrice()) <= 0),
-                    dailyRisk.continuousEntryWindowOpen());
-        }
-        KisLiveRiskDecision decision = riskGate.assess(request, exchange, realAccount, serverCheckedContext);
+        RiskAssessment assessment = assessRisk(request, exchange, realAccount, idempotencyKey);
+        request = assessment.request();
+        KisLiveRiskDecision decision = assessment.decision();
         KisOrderIntentStore.PreparedIntent prepared;
         try {
-            prepared = prepareIntent(idempotencyKey, requestHash, request, exchange, exitStopDistancePerShare);
+            prepared = prepareIntent(idempotencyKey, requestHash, request, exchange,
+                    assessment.exitStopDistancePerShare());
         } catch (DataIntegrityViolationException duplicateRace) {
             try {
-                prepared = prepareIntent(idempotencyKey, requestHash, request, exchange, exitStopDistancePerShare);
+                prepared = prepareIntent(idempotencyKey, requestHash, request, exchange,
+                        assessment.exitStopDistancePerShare());
             } catch (DataIntegrityViolationException reservationConflict) {
                 if (isRealMarketReservationConflict(reservationConflict)) {
                     throw new KisApiException(HttpStatus.LOCKED,
@@ -179,6 +120,89 @@ public class KisRealOrderOrchestrator {
             return KisOrderIntentResponse.from(intents.reject(idempotencyKey, "REAL_ORDER_LOCKED"));
         }
     }
+
+    /** Runs the same account, quote, sizing, and risk checks without reserving an intent or contacting KIS orders. */
+    public KisRealOrderPreflightResponse preflight(OrderRequest request, String exchange,
+                                                  KisAccountSnapshot realAccount) {
+        RiskAssessment assessment = assessRisk(request, exchange, realAccount, null);
+        return new KisRealOrderPreflightResponse(assessment.decision().approved(),
+                assessment.decision().reasons(), assessment.request(), Instant.now());
+    }
+
+    private RiskAssessment assessRisk(OrderRequest request, String exchange, KisAccountSnapshot realAccount,
+                                      UUID idempotencyKey) {
+        if (request == null) {
+            return new RiskAssessment(null, riskGate.assess(null, exchange, realAccount, null), null);
+        }
+        boolean unresolvedOrder = idempotencyKey == null
+                ? intents.hasUnresolvedRealOrder(request.market())
+                : intents.hasUnresolvedRealOrder(request.market(), idempotencyKey);
+        KisRealDailyRiskBaselineService.RiskInputs dailyRisk = dailyRiskBaselines == null
+                ? new KisRealDailyRiskBaselineService.RiskInputs(false, false, null)
+                : dailyRiskBaselines.riskInputs(request.market(), realAccount);
+        KisMarketAiEvidenceClient.Evidence aiEvidence;
+        try {
+            if (marketAiEvidence == null) {
+                aiEvidence = new KisMarketAiEvidenceClient.Evidence(false, false, null);
+            } else if (request.side() == com.aistocktrader.order.OrderSide.BUY) {
+                aiEvidence = marketAiEvidence.inspect(request, exchange);
+            } else {
+                var quote = marketAiEvidence.quoteForExit(request.market(), request.symbol(), exchange);
+                aiEvidence = new KisMarketAiEvidenceClient.Evidence(false, true, null,
+                        null, null, quote.price());
+            }
+        } catch (RuntimeException unavailableEvidence) {
+            aiEvidence = new KisMarketAiEvidenceClient.Evidence(false, false, null);
+        }
+        java.math.BigDecimal exitStopDistancePerShare = null;
+        if (request.side() == com.aistocktrader.order.OrderSide.BUY) {
+            if (aiEvidence.approvedModelCandidate() && aiEvidence.quoteFresh()
+                    && aiEvidence.modelId() != null && !aiEvidence.modelId().isBlank()
+                    && aiEvidence.strategyId() != null && !aiEvidence.strategyId().isBlank()
+                    && aiEvidence.stopDistancePerShare() != null
+                    && aiEvidence.stopDistancePerShare().signum() > 0) {
+                exitStopDistancePerShare = aiEvidence.stopDistancePerShare();
+            }
+            String modelId = aiEvidence.approvedModelCandidate() ? aiEvidence.modelId() : null;
+            String strategyId = aiEvidence.approvedModelCandidate() ? aiEvidence.strategyId() : null;
+            request = new OrderRequest(request.market(), request.symbol(), request.side(), request.quantity(),
+                    request.limitPrice(), request.currency(), strategyId, modelId);
+            if (orderSizing != null) {
+                request = orderSizing.capBuyQuantity(request, realAccount, aiEvidence.stopDistancePerShare());
+            }
+        }
+        if (orderSizing != null && request.side() == com.aistocktrader.order.OrderSide.BUY) {
+            request = orderSizing.capBuyQuantity(request, realAccount, aiEvidence.stopDistancePerShare());
+        }
+        Integer allMarketPositionCount = null;
+        int consecutiveLossCount = -1;
+        if (consecutiveLosses != null) {
+            var history = request.side() == com.aistocktrader.order.OrderSide.BUY
+                    ? consecutiveLosses.evaluate(request.market(), realAccount) : null;
+            if (history != null && history.isPresent()) {
+                consecutiveLossCount = history.get().consecutiveLosses();
+                allMarketPositionCount = history.get().totalOpenPositionsAcrossMarkets();
+            }
+        }
+        if (request.side() == com.aistocktrader.order.OrderSide.BUY && consecutiveLosses == null
+                && portfolioPositions != null) {
+            var count = portfolioPositions.countOpenPositionsAcrossMarkets(realAccount);
+            if (count.isPresent()) allMarketPositionCount = count.getAsInt();
+        }
+        KisLiveRiskContext context = new KisLiveRiskContext(aiEvidence.approvedModelCandidate(),
+                aiEvidence.quoteFresh(), true, dailyRisk.marketOpen(), unresolvedOrder,
+                dailyRisk.dailyLossPercent(), consecutiveLossCount,
+                realAccount == null ? null : realAccount.accountEquity(), aiEvidence.stopDistancePerShare(),
+                allMarketPositionCount, request.side() != com.aistocktrader.order.OrderSide.BUY
+                || (aiEvidence.quotePrice() != null && request.limitPrice() != null
+                && request.limitPrice().compareTo(aiEvidence.quotePrice()) <= 0),
+                dailyRisk.continuousEntryWindowOpen());
+        return new RiskAssessment(request, riskGate.assess(request, exchange, realAccount, context),
+                exitStopDistancePerShare);
+    }
+
+    private record RiskAssessment(OrderRequest request, KisLiveRiskDecision decision,
+                                  java.math.BigDecimal exitStopDistancePerShare) { }
 
     public KisOrderIntentResponse cancel(UUID idempotencyKey) {
         KisOrderIntent intent = intents.get(idempotencyKey);

@@ -94,6 +94,32 @@ class KisRealOrderOrchestratorTest {
     }
 
     @Test
+    void preflightUsesSharedRiskAssessmentWithoutCreatingIntentOrCallingBroker() {
+        OrderRequest request = buyRequest();
+        KisRealConsecutiveLossService consecutiveLosses = mock(KisRealConsecutiveLossService.class);
+        when(consecutiveLosses.evaluate(eq(Market.KR), any(KisAccountSnapshot.class))).thenReturn(
+                Optional.of(new KisRealConsecutiveLossService.RiskHistory(0, 0)));
+        KisRealOrderOrchestrator preflightOrchestrator = new KisRealOrderOrchestrator(orders, riskGate, intents,
+                dailyRiskBaselines, marketAiEvidence, portfolioPositions, consecutiveLosses,
+                new KisLiveOrderSizingService(safety,
+                        new KisLiveRiskLimits(BigDecimal.ONE, new BigDecimal("0.25"), BigDecimal.TEN, 3, 3)));
+        when(marketAiEvidence.inspect(request, null)).thenReturn(
+                new KisMarketAiEvidenceClient.Evidence(true, true, new BigDecimal("100"),
+                        "verified-model", "ORB_VWAP", new BigDecimal("70000")));
+
+        KisRealOrderPreflightResponse response = preflightOrchestrator.preflight(request, null, realAccount());
+
+        assertEquals(true, response.approved());
+        assertEquals(List.of(), response.reasons());
+        assertEquals("verified-model", response.effectiveOrder().modelId());
+        assertEquals("ORB_VWAP", response.effectiveOrder().strategyId());
+        verify(intents).hasUnresolvedRealOrder(Market.KR);
+        verify(intents, never()).prepare(any(), anyString(), any(), any(), any());
+        verify(intents, never()).reject(any(), anyString());
+        verifyNoInteractions(orders);
+    }
+
+    @Test
     void realSellUsesFreshQuoteWithoutRequiringAnActiveAiModel() {
         UUID key = UUID.randomUUID();
         OrderRequest sell = new OrderRequest(Market.KR, "005930", OrderSide.SELL, 1,

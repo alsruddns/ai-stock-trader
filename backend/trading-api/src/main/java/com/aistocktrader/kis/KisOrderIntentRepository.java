@@ -44,6 +44,9 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
     boolean existsByEnvironmentAndMarketAndStatusInAndIdempotencyKeyNot(
             KisEnvironment environment, com.aistocktrader.order.Market market,
             Collection<KisOrderStatus> statuses, UUID idempotencyKey);
+    boolean existsByEnvironmentAndMarketAndStatusIn(
+            KisEnvironment environment, com.aistocktrader.order.Market market,
+            Collection<KisOrderStatus> statuses);
 
     /** Restart recovery lookup for REAL BUY plans whose broker confirmed the entry is no longer open. */
     @Query("""

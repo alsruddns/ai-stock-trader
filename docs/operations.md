@@ -49,6 +49,7 @@ Set-Location .\services\market-ai
 - 실전: `KIS_REAL_APP_KEY`, `KIS_REAL_APP_SECRET`, `KIS_REAL_ACCOUNT_NUMBER`
 - 계좌번호는 KIS 계좌 앞 8자리와 상품 코드 뒤 2자리를 붙인 형식입니다.
 - Spring과 Python KIS 계좌조회는 전체 스위치 `KIS_ACCOUNT_READ_ENABLED=true`와 대상별 스위치가 모두 필요합니다. PAPER는 `KIS_PAPER_ACCOUNT_READ_ENABLED=true`, REAL은 `KIS_REAL_ACCOUNT_READ_ENABLED=true`입니다. REAL 스위치는 기본 false입니다.
+- REAL 주문 위험 조건만 계좌 읽기로 점검하려면 `POST /api/v1/kis/orders/real/preflight`를 사용합니다. 서버의 승인 모델·시세·REAL 잔고·미해결 주문·위험 한도를 주문 경로와 같은 평가 함수로 확인하고, `approved` 및 서버 수량조정 결과를 반환합니다. 주문 의도를 DB에 저장하지 않으며 KIS 주문/취소 요청을 전송하지 않습니다. 전체/REAL 계좌읽기 스위치는 필요하지만 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`를 유지할 수 있습니다. 결과는 해당 시점의 사전점검일 뿐 주문 승인이나 미래 상태를 보증하지 않습니다. 국내 운영 범위 밖 요청은 거부됩니다.
 - KIS REAL 체결 알림 구독은 추가 읽기 전용 기능이며 기본 잠금입니다. 사용하려면 `KIS_REAL_EXECUTION_NOTICES_ENABLED=true`, REAL 계좌조회 두 스위치, `KIS_REAL_HTS_ID` 및 REAL 자격정보가 모두 있어야 합니다. 알림을 받으면 저장된 주문번호와 일치하는 주문만 REST로 다시 조회해 체결 관측을 갱신합니다. 알림 자체로 주문을 내지 않으며, `KIS_REAL_ORDERS_ENABLED`나 `LIVE_TRADING_ENABLED`를 켜지 않습니다. 아직 실시간 KIS 연결 검증은 완료되지 않았습니다.
 - 소유자가 확인한 KIS 데이터 이용 범위는 로컬 저장·백테스트·AI 학습 허용입니다. 이 허용은 매매 성능 검증이나 실계좌 자동주문 승인과 별개입니다.
 - Python 실시간 시세 릴레이는 `KIS_WEBSOCKET_ENABLED=true`를 요구합니다. 국내 paper feed는 PAPER 자격정보를 사용합니다. 미국 시세 feed 구현은 유지하지만 현 운영 범위에서 미국 REST/WebSocket을 활성화하거나 PAPER ledger에 연결하지 않습니다. 관련 환경변수는 기본 `false`로 둡니다.
@@ -145,6 +146,8 @@ KIS 접근 토큰 요청은 Spring과 Python이 PostgreSQL `kis_token_issue_rate
 ## 실전 주문 게이트
 
 기본은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`입니다. REAL 내부 오케스트레이터는 REAL 자격정보와 전체/REAL 계좌 읽기 스위치, 세 주문 잠금, 해당 주문과 3초 이내에 결합된 서버 내부 위험 승인이 있어야만 주문 요청을 보냅니다. 신규 매수의 동시 보유 한도는 국내·미국 KIS 잔고를 모두 읽어 합산합니다. 어느 한 시장의 잔고가 없거나 오래됐거나 종목 중복으로 모호하면 `ALL_MARKET_POSITION_COUNT_REQUIRED`로 차단합니다. 주문 의도를 먼저 DB에 기록하고, 부분체결 취소에는 잔량을 쓰며, 불명 결과는 자동 재전송하지 않습니다. 주기적 실계좌 체결 조회는 별도 잠금으로 기본 비활성입니다. UNKNOWN 중 주문번호가 없는 건은 자동 추측·재주문하지 않습니다. P6의 paper 세션·장애 검증 전까지 세 주문 잠금을 열지 않습니다.
+
+현재 운영 범위가 `KR`뿐이면 교차시장 포지션·연속손실 근거는 미확인 상태로 처리하고, 이를 채우려고 미국 계좌나 세션 API를 호출하지 않습니다. 따라서 KR 매수 사전점검은 교차시장 위험 근거가 없다는 사유로 닫힐 수 있으며, 이를 우회해 매수를 허용하지 않습니다. 이후 운영 범위에 미국을 포함하고 해외 기능 검증을 별도로 마쳐야 이 통합 위험 근거가 계산됩니다.
 
 REAL 주문 위험검사는 Python AI·시세 API에서 현재 활성·승인·데이터 권리·검증 증거가 모두 유효한 모델과 요청 종목의 최근 `BUY_CANDIDATE` 결정을 확인합니다. 신호는 승인된 동일 모델이 생성하고 120초 이내여야 하며, ATR 손절 거리도 양수여야 합니다. KIS REST 시세는 출처·종목·시장과 3초 이내 시각을 확인합니다. API 장애, 불완전 응답, 종목 불일치 또는 오래된 값은 매수를 차단합니다. 이 API 연결과 위험 검사는 전체 실전 운용 검증을 대신하지 않습니다.
 

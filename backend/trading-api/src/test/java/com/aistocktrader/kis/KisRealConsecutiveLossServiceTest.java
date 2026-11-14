@@ -35,6 +35,26 @@ class KisRealConsecutiveLossServiceTest {
     }
 
     @Test
+    void domesticOnlyScopeKeepsCrossMarketRiskUnknownWithoutCallingOverseasApis() {
+        var fixture = new Fixture(true);
+        var scopedService = new KisRealConsecutiveLossService(
+                new KisProperties(true, true, true, true,
+                        new KisProperties.Account("", "", ""),
+                        new KisProperties.Account("app-key", "app-secret", "1234567890"),
+                        Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ofMillis(100)),
+                fixture.accounts, fixture.sessions, fixture.positionBaselines, fixture.dailyRiskBaselines,
+                fixture.intents, fixture.realOrders,
+                new KisRealTradingCostProperties("0", "0", "0", "0", "0", "0"),
+                MarketOperationalScope.domesticOnly());
+
+        var result = scopedService.evaluate(Market.KR, account(Market.KR, List.of()));
+
+        assertTrue(result.isEmpty());
+        verifyNoInteractions(fixture.accounts, fixture.sessions, fixture.positionBaselines,
+                fixture.dailyRiskBaselines, fixture.intents, fixture.realOrders);
+    }
+
+    @Test
     void usesLatestClosedSessionWhenOtherExchangeHasNoSessionOnItsLocalDate() {
         var fixture = new Fixture(true);
         Instant now = Instant.now();

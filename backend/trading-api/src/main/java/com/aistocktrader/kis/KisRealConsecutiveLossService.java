@@ -1,6 +1,7 @@
 package com.aistocktrader.kis;
 
 import com.aistocktrader.order.Market;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -10,6 +11,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -30,6 +32,7 @@ public class KisRealConsecutiveLossService {
     private final KisOrderIntentRepository intents;
     private final KisRealOrderClient realOrders;
     private final KisRealTradingCostProperties costs;
+    private final MarketOperationalScope operationalScope;
     private final KisRealizedPnlCalculator calculator = new KisRealizedPnlCalculator();
 
     public KisRealConsecutiveLossService(KisProperties properties, KisAccountClient accounts,
@@ -39,6 +42,19 @@ public class KisRealConsecutiveLossService {
                                          KisOrderIntentRepository intents,
                                          KisRealOrderClient realOrders,
                                          KisRealTradingCostProperties costs) {
+        this(properties, accounts, sessions, positionBaselines, dailyRiskBaselines, intents, realOrders, costs,
+                new MarketOperationalScope("KR,US"));
+    }
+
+    @Autowired
+    public KisRealConsecutiveLossService(KisProperties properties, KisAccountClient accounts,
+                                         KisMarketSessionClient sessions,
+                                         KisRealSessionPositionBaselineStore positionBaselines,
+                                         KisRealDailyRiskBaselineService dailyRiskBaselines,
+                                         KisOrderIntentRepository intents,
+                                         KisRealOrderClient realOrders,
+                                         KisRealTradingCostProperties costs,
+                                         MarketOperationalScope operationalScope) {
         this.properties = properties;
         this.accounts = accounts;
         this.sessions = sessions;
@@ -47,6 +63,7 @@ public class KisRealConsecutiveLossService {
         this.intents = intents;
         this.realOrders = realOrders;
         this.costs = costs;
+        this.operationalScope = operationalScope;
     }
 
     @Transactional(readOnly = true)
@@ -55,6 +72,9 @@ public class KisRealConsecutiveLossService {
                 || !properties.credentials(KisEnvironment.REAL).configured() || requestMarket == null) {
             return Optional.empty();
         }
+        // This risk history and position cap span both markets. Do not contact an out-of-scope
+        // exchange to fill missing evidence; return unknown so the caller's buy gate fails closed.
+        if (!operationalScope.allowedMarkets().containsAll(EnumSet.allOf(Market.class))) return Optional.empty();
         try {
             String fingerprint = dailyRiskBaselines.accountFingerprint();
             List<MarketLedgerInput> ledgers = new ArrayList<>();

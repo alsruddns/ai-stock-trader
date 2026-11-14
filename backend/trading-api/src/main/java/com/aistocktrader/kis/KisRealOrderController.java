@@ -76,6 +76,22 @@ public class KisRealOrderController {
                 MarketOperationalScope.domesticOnly(), false, false);
     }
 
+    /** Read-only REAL preflight; does not require or enable any order/trading switches. */
+    @PostMapping("/preflight")
+    public KisRealOrderPreflightResponse preflight(@Valid @RequestBody OrderRequest request,
+                                                  @RequestParam(required = false) String exchange) {
+        marketScope.require(request.market(), "KIS REAL order preflight");
+        requireRealAccountReadEnabled();
+        String normalizedExchange = exchange == null ? null : exchange.trim().toUpperCase(Locale.ROOT);
+        if (request.market() == com.aistocktrader.order.Market.US && !validUsExchange(normalizedExchange)) {
+            throw new KisApiException(HttpStatus.UNPROCESSABLE_ENTITY, "A supported US exchange is required.");
+        }
+        boolean buy = request.side() == com.aistocktrader.order.OrderSide.BUY;
+        KisAccountSnapshot account = accounts.getBalance(KisEnvironment.REAL, request.market(),
+                buy ? request.symbol() : null, buy ? request.limitPrice() : null, normalizedExchange);
+        return orders.preflight(request, normalizedExchange, account);
+    }
+
     @PostMapping
     public ResponseEntity<KisOrderIntentResponse> submit(
             @RequestHeader("Idempotency-Key") UUID idempotencyKey,
@@ -170,6 +186,13 @@ public class KisRealOrderController {
         if (requiresProtectiveExitManager && (!protectiveExitAutomationEnabled || !realReconciliationEnabled)) {
             throw new KisApiException(HttpStatus.LOCKED,
                     "REAL entries require enabled protective-exit automation and order reconciliation.");
+        }
+    }
+
+    private void requireRealAccountReadEnabled() {
+        if (!kisProperties.accountReadEnabled() || !kisProperties.realAccountReadEnabled()) {
+            throw new KisApiException(HttpStatus.LOCKED,
+                    "REAL preflight requires the global and REAL account-read switches; order switches remain independent.");
         }
     }
 

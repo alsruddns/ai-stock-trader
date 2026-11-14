@@ -68,6 +68,43 @@ class KisRealOrderControllerTest {
     }
 
     @Test
+    void readOnlyPreflightWorksWhileAllOrderSwitchesRemainLocked() {
+        KisRealOrderController controller = controller(
+                new TradingSafetyProperties("paper", false, false,
+                        BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)), properties(true, true));
+        OrderRequest request = buyRequest();
+        KisAccountSnapshot account = new KisAccountSnapshot(KisEnvironment.REAL, Market.KR, "KRW",
+                BigDecimal.valueOf(100_000), BigDecimal.valueOf(100_000), BigDecimal.valueOf(100_000),
+                List.of(), Instant.now(), "KIS_READ_ONLY_REST");
+        KisRealOrderPreflightResponse expected = new KisRealOrderPreflightResponse(false,
+                List.of("APPROVED_MODEL_CANDIDATE_REQUIRED"), request, Instant.now());
+        when(accounts.getBalance(KisEnvironment.REAL, Market.KR, "005930", BigDecimal.valueOf(1000), null))
+                .thenReturn(account);
+        when(orders.preflight(request, null, account)).thenReturn(expected);
+
+        KisRealOrderPreflightResponse actual = controller.preflight(request, null);
+
+        assertEquals(expected, actual);
+        verify(accounts).getBalance(KisEnvironment.REAL, Market.KR, "005930", BigDecimal.valueOf(1000), null);
+        verify(orders).preflight(request, null, account);
+        verify(orders, never()).submit(any(), any(), any(), any());
+        verifyNoInteractions(intents, marketAiEvidence);
+    }
+
+    @Test
+    void readOnlyPreflightRequiresOnlyAccountReadSwitches() {
+        KisRealOrderController controller = controller(
+                new TradingSafetyProperties("paper", false, false,
+                        BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)), properties(false, true));
+
+        KisApiException exception = assertThrows(KisApiException.class,
+                () -> controller.preflight(buyRequest(), null));
+
+        assertEquals(HttpStatus.LOCKED, exception.status());
+        verifyNoInteractions(accounts, orders, intents, marketAiEvidence);
+    }
+
+    @Test
     void paperModeRejectsRealReconciliationBeforeLoadingIntentOrCallingBroker() {
         KisRealOrderController controller = controller(
                 new TradingSafetyProperties("paper", false, false, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),

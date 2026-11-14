@@ -133,6 +133,13 @@ public class KisOrderIntentStore {
     }
 
     @Transactional(readOnly = true)
+    public boolean hasUnresolvedRealOrder(Market market) {
+        if (market == null) return true;
+        return repository.existsByEnvironmentAndMarketAndStatusIn(
+                KisEnvironment.REAL, market, UNRESOLVED_STATUSES);
+    }
+
+    @Transactional(readOnly = true)
     public KisOrderIntent get(UUID key) {
         return repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
     }

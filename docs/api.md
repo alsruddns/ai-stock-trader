@@ -16,6 +16,7 @@
 | GET | `/api/v1/kis/accounts/{paper\|real}/{KR\|US}/balance` | KIS 계좌 읽기 전용 잔고조회 |
 | GET | `/api/v1/kis/accounts/realized-pnl/real/{KR\|US}?from=YYYY-MM-DD&to=YYYY-MM-DD` | KIS REAL 기간손익 원문 조회(최대 31일, REAL 계좌읽기 스위치 필요) |
 | POST | `/api/v1/kis/orders/real` | REAL 주문 의도 제출 (`Idempotency-Key` 필수, 모든 REAL 주문·계좌 읽기 스위치 필요) |
+| POST | `/api/v1/kis/orders/real/preflight` | REAL 계좌·시세·공통 위험조건 사전점검, 주문 의도 저장 및 주문 미전송 (전체/REAL 계좌읽기 스위치만 필요) |
 | POST | `/api/v1/kis/orders/real/signals` | 모델 승인·시세·계좌 확인 후 서버 수량으로 REAL 매수 신호 제출 (가격·수량은 요청 불가) |
 | GET | `/api/v1/kis/orders/real/{idempotencyKey}` | 저장된 REAL 주문 의도 상태 조회 |
 | POST | `/api/v1/kis/orders/real/{idempotencyKey}/reconcile` | 저장된 REAL 주문의 KIS 상태 재조회 (REAL 주문·계좌 읽기 스위치 필요) |
@@ -31,6 +32,8 @@
 `GET /api/v1/ai/models` 응답의 `governance_audit`은 `integrity_verified`와 `event_count`를 제공합니다. 승인·활성화·롤백 이벤트는 앞 이벤트 SHA-256을 포함하는 JSONL 해시 체인으로 저장됩니다. 이벤트 내용 변경, 중간 이벤트 삭제, 순서 변경 또는 JSONL 파손이 발견되면 체인 전체를 무효로 보고 모델 승인과 활성 선택을 차단하며, 운영 화면은 무결성 실패를 표시합니다. 마지막 이벤트의 삭제처럼 로그 끝을 잘라낸 경우는 별도 외부 체크포인트 없이는 감지하지 못합니다. 이 로컬 해시 체인은 로그 변경 탐지용이며 외부 서명이나 원격 불변 저장소를 대체하지 않습니다.
 
 REAL 매수의 지정가는 서버가 읽은 최신 시세를 넘을 수 없습니다. 시장가격보다 낮은 지정가는 허용될 수 있으나 체결을 보장하지 않으며, 시세가 오래됐거나 없으면 주문 위험 게이트가 거부합니다.
+
+`POST /api/v1/kis/orders/real/preflight`는 요청한 국내 주문의 계좌·최신 AI/시세·세션·손실·포지션·주문 한도를 REAL 주문과 같은 오케스트레이터 경로로 점검합니다. Spring은 서버 기준으로 매수 수량을 줄일 수 있으며 응답의 `effectiveOrder`가 점검한 주문입니다. 성공 응답은 미래 주문의 보증이나 승인 토큰이 아닙니다. 이 API는 계좌·시세와 읽기 전용 위험 근거를 조회하지만 주문 의도 DB 저장, KIS 주문/취소 호출, 실거래 잠금 변경은 하지 않습니다. `KIS_ACCOUNT_READ_ENABLED=true`와 `KIS_REAL_ACCOUNT_READ_ENABLED=true`가 필요하고, 모든 REAL 주문 스위치는 계속 false로 둘 수 있습니다. 국내 전용 운영 범위는 그대로 적용됩니다.
 
 REAL 매수의 전략·모델 ID는 요청 본문 값으로 신뢰하지 않습니다. Spring은 FastAPI의 현재 완료 신호가 `BUY_CANDIDATE`이고, 신호의 모델 ID가 활성 승인·권리 검증 모델과 일치하며, 유효한 전략 ID·손절 거리·신선도가 확인될 때만 해당 서버 근거를 주문 이력에 기록합니다. 이 증거가 없으면 AI 매수 게이트를 통과하지 못합니다.
 
