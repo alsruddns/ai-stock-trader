@@ -105,6 +105,9 @@ jobs:
       - name: Run domestic PAPER order ledger price precision test only
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=OrderServiceTest#rejectsFractionalWonPaperLimitPriceBeforeAnyOrderLookupOrPersistence test
+      - name: Run domestic PAPER KIS preflight price precision test only
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode -Dtest=KisOrderOrchestratorTest#fractionalWonPaperOrderIsRejectedBeforeIntentOrAccountPreflight test
       - name: Run domestic-only execution notice subscription scope test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=KisRealExecutionNoticeClientTest#domesticOperationalScopeSubscribesOnlyToDomesticExecutionNotices test

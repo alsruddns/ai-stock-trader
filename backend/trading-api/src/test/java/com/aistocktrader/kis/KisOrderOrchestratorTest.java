@@ -25,6 +25,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class KisOrderOrchestratorTest {
@@ -55,6 +56,17 @@ class KisOrderOrchestratorTest {
         assertEquals(KisOrderStatus.UNKNOWN, response.status());
         verify(accounts, never()).getBalance(any(), any(), any(), any(), anyString());
         verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(), any(), any(), anyString());
+    }
+
+    @Test
+    void fractionalWonPaperOrderIsRejectedBeforeIntentOrAccountPreflight() {
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000.5"), Currency.KRW);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> orchestrator.submitPaperOrder(UUID.randomUUID(), request, null));
+
+        verifyNoInteractions(intents, accounts, orders);
     }
 
     @Test
