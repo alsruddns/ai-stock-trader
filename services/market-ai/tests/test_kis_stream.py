@@ -136,38 +136,43 @@ def test_stream_url_selects_distinct_paper_and_real_ports() -> None:
 
 
 def test_subscription_ack_tracker_requires_every_requested_subscription() -> None:
-    tracker = SubscriptionAckTracker({"H0STCNT0": 1, "HDFSCNT0": 2})
+    tracker = SubscriptionAckTracker({
+        ("H0STCNT0", "005930"), ("H0STASP0", "005930"), ("H0STCNT0", "000660"),
+    })
     assert tracker.complete is False
-    assert tracker.observe('{"header":{"tr_id":"HDFSCNT0"},"body":{"rt_cd":"0"}}') is False
+    assert tracker.observe('{"header":{"tr_id":"H0STCNT0","tr_key":"005930"},"body":{"rt_cd":"0"}}') is False
     assert tracker.status == {"accepted_count": 1, "required_count": 3, "complete": False}
-    assert tracker.observe('{"header":{"tr_id":"OTHER"},"body":{"rt_cd":"0"}}') is False
-    assert tracker.observe('{"header":{"tr_id":"HDFSCNT0"},"body":{"rt_cd":"0"}}') is False
-    assert tracker.observe('{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0"}}') is True
+    assert tracker.observe('{"header":{"tr_id":"OTHER","tr_key":"005930"},"body":{"rt_cd":"0"}}') is False
+    assert tracker.observe('{"header":{"tr_id":"H0STCNT0","tr_key":"000660"},"body":{"rt_cd":"0"}}') is False
+    assert tracker.observe('{"header":{"tr_id":"H0STASP0","tr_key":"005930"},"body":{"rt_cd":"0"}}') is True
     assert tracker.complete is True
 
 
-def test_subscription_ack_tracker_caps_duplicate_acknowledgements() -> None:
-    tracker = SubscriptionAckTracker({"H0STCNT0": 1})
-    positive_ack = '{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0"}}'
-    assert tracker.observe(positive_ack) is True
-    tracker.observe(positive_ack)
-    assert tracker.status == {"accepted_count": 1, "required_count": 1, "complete": True}
+def test_subscription_ack_tracker_does_not_count_duplicate_symbol_ack_for_another_symbol() -> None:
+    tracker = SubscriptionAckTracker({("H0STCNT0", "005930"), ("H0STCNT0", "000660")})
+    first_symbol_ack = '{"header":{"tr_id":"H0STCNT0","tr_key":"005930"},"body":{"rt_cd":"0"}}'
+    second_symbol_ack = '{"header":{"tr_id":"H0STCNT0","tr_key":"000660"},"body":{"rt_cd":"0"}}'
+    assert tracker.observe(first_symbol_ack) is False
+    assert tracker.observe(first_symbol_ack) is False
+    assert tracker.status == {"accepted_count": 1, "required_count": 2, "complete": False}
+    assert tracker.observe(second_symbol_ack) is True
+    assert tracker.status == {"accepted_count": 2, "required_count": 2, "complete": True}
 
 
 def test_subscription_ack_tracker_can_require_more_subscriptions_after_initial_connection() -> None:
-    tracker = SubscriptionAckTracker({"H0STCNT0": 1})
-    assert tracker.observe('{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0"}}') is True
+    tracker = SubscriptionAckTracker({("H0STCNT0", "005930")})
+    assert tracker.observe('{"header":{"tr_id":"H0STCNT0","tr_key":"005930"},"body":{"rt_cd":"0"}}') is True
 
-    tracker.require("H0STASP0")
+    tracker.require("H0STASP0", "005930")
 
     assert tracker.complete is False
     assert tracker.status == {"accepted_count": 1, "required_count": 2, "complete": False}
-    assert tracker.observe('{"header":{"tr_id":"H0STASP0"},"body":{"rt_cd":"0"}}') is True
+    assert tracker.observe('{"header":{"tr_id":"H0STASP0","tr_key":"005930"},"body":{"rt_cd":"0"}}') is True
 
 
 def test_subscription_ack_tracker_reports_sanitized_rejection_code_only() -> None:
-    tracker = SubscriptionAckTracker({"HDFSCNT0": 1})
-    rejection = ('{"header":{"tr_id":"HDFSCNT0"},"body":{"rt_cd":"1",'
+    tracker = SubscriptionAckTracker({("H0STCNT0", "005930")})
+    rejection = ('{"header":{"tr_id":"H0STCNT0","tr_key":"005930"},"body":{"rt_cd":"1",'
                  '"msg_cd":"SAFE_CODE","msg1":"private details"}}')
     with pytest.raises(SubscriptionAcknowledgementError) as exc:
         tracker.observe(rejection)
@@ -176,7 +181,11 @@ def test_subscription_ack_tracker_reports_sanitized_rejection_code_only() -> Non
 
 
 def test_subscription_ack_parser_rejects_untrusted_codes_and_oversized_frames() -> None:
-    malformed_code = '{"header":{"tr_id":"HDFSCNT0"},"body":{"rt_cd":"0","msg_cd":"private token!"}}'
+    malformed_code = '{"header":{"tr_id":"H0STCNT0","tr_key":"005930"},"body":{"rt_cd":"0","msg_cd":"private token!"}}'
     ack = parse_subscription_ack(malformed_code)
-    assert ack == {"transaction_id": "HDFSCNT0", "accepted": True, "broker_code": "UNSPECIFIED"}
+    assert ack == {
+        "transaction_id": "H0STCNT0", "subscription_key": "005930",
+        "accepted": True, "broker_code": "UNSPECIFIED",
+    }
+    assert parse_subscription_ack('{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0"}}') is None
     assert parse_subscription_ack("x" * 100_001) is None

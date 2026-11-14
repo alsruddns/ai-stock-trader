@@ -134,7 +134,7 @@ def test_monitor_adds_screened_watch_to_live_feed_subscription_queue(monkeypatch
             return None
         monkeypatch.setattr(runtime, "_prepare_watch", prepare)
         upstream = FakeUpstream()
-        tracker = SubscriptionAckTracker({"H0STCNT0": 1, "H0STASP0": 1})
+        tracker = SubscriptionAckTracker({("H0STCNT0", "005930"), ("H0STASP0", "005930")})
         acknowledgement_changed = asyncio.Event()
         writer = asyncio.create_task(
             runtime._write_subscription_updates(
@@ -1147,7 +1147,7 @@ def test_websocket_feed_is_not_running_until_all_kis_subscription_acks_arrive(mo
             self.received += 1
             if self.received == 1:
                 assert self.runtime.status()["stream_connections"]["real"] == "SUBSCRIBING"
-                return '{"header":{"tr_id":"HDFSCNT0"},"body":{"rt_cd":"0"}}'
+                return '{"header":{"tr_id":"HDFSCNT0","tr_key":"DNASAAPL"},"body":{"rt_cd":"0"}}'
             assert self.runtime.status()["stream_connections"]["real"] == "RUNNING"
             raise asyncio.CancelledError
 
@@ -1188,10 +1188,10 @@ def test_domestic_feed_waits_for_trade_and_orderbook_subscription_acks(monkeypat
             self.received += 1
             if self.received == 1:
                 assert self.runtime.status()["stream_connections"]["paper"] == "SUBSCRIBING"
-                return '{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0"}}'
+                return '{"header":{"tr_id":"H0STCNT0","tr_key":"005930"},"body":{"rt_cd":"0"}}'
             if self.received == 2:
                 assert self.runtime.status()["stream_connections"]["paper"] == "SUBSCRIBING"
-                return '{"header":{"tr_id":"H0STASP0"},"body":{"rt_cd":"0"}}'
+                return '{"header":{"tr_id":"H0STASP0","tr_key":"005930"},"body":{"rt_cd":"0"}}'
             assert self.runtime.status()["stream_connections"]["paper"] == "RUNNING"
             raise asyncio.CancelledError
 
@@ -1232,8 +1232,8 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(monkeypatch, dynamic_rt_
             self.release_dynamic_ack = asyncio.Event()
             self.sent = []
             self.acknowledgements_received = 0
-            self.incoming.put_nowait('{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0"}}')
-            self.incoming.put_nowait('{"header":{"tr_id":"H0STASP0"},"body":{"rt_cd":"0"}}')
+            self.incoming.put_nowait('{"header":{"tr_id":"H0STCNT0","tr_key":"005930"},"body":{"rt_cd":"0"}}')
+            self.incoming.put_nowait('{"header":{"tr_id":"H0STASP0","tr_key":"005930"},"body":{"rt_cd":"0"}}')
 
         async def __aenter__(self):
             return self
@@ -1251,7 +1251,10 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(monkeypatch, dynamic_rt_
                 if dynamic_rt_cd != "0":
                     body.update({"msg_cd": "SAFE_CODE", "msg1": "private details"})
                 self.incoming.put_nowait(
-                    json.dumps({"header": {"tr_id": subscription["tr_id"]}, "body": body})
+                    json.dumps({
+                        "header": {"tr_id": subscription["tr_id"], "tr_key": subscription["tr_key"]},
+                        "body": body,
+                    })
                 )
 
         async def recv(self):

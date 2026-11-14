@@ -1258,14 +1258,12 @@ class PaperSessionFeedMonitor:
                 async with websockets.connect(settings.websocket_url, ping_interval=30, close_timeout=3) as upstream:
                     connected_at = asyncio.get_running_loop().time()
                     active_watches = self._watches_by_feed.get(environment, list(watches))
-                    required_by_transaction_id: dict[str, int] = {}
+                    required_subscriptions: set[tuple[str, str]] = set()
                     for watch in active_watches:
-                        transaction_ids = ("H0STCNT0", "H0STASP0") if watch.market == "KR" else ("HDFSCNT0",)
-                        for transaction_id in transaction_ids:
-                            required_by_transaction_id[transaction_id] = (
-                                required_by_transaction_id.get(transaction_id, 0) + 1
-                            )
-                    subscription_tracker = SubscriptionAckTracker(required_by_transaction_id)
+                        for message in self._subscription_jsons(key, watch):
+                            subscription = json.loads(message)["body"]["input"]
+                            required_subscriptions.add((subscription["tr_id"], subscription["tr_key"]))
+                    subscription_tracker = SubscriptionAckTracker(required_subscriptions)
                     acknowledgement_changed = asyncio.Event()
                     self._set_connection_state(environment, "SUBSCRIBING")
                     self._set_subscription_ack_status(environment, subscription_tracker.status)
@@ -1504,8 +1502,8 @@ class PaperSessionFeedMonitor:
                     messages = self._subscription_jsons(key, watch, tr_type=tr_type)
                     if subscription_tracker is not None:
                         for message in messages:
-                            transaction_id = json.loads(message)["body"]["input"]["tr_id"]
-                            subscription_tracker.require(transaction_id)
+                                subscription = json.loads(message)["body"]["input"]
+                                subscription_tracker.require(subscription["tr_id"], subscription["tr_key"])
                         self._set_subscription_ack_status(environment, subscription_tracker.status)
                         self._set_connection_state(environment, "SUBSCRIBING")
                         if acknowledgement_changed is not None:

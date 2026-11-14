@@ -157,6 +157,8 @@ jobs:
         run: >-
           python -m pytest -q
           tests/test_paper_runtime.py::test_domestic_dynamic_watch_ack_controls_feed_state
+          tests/test_kis_stream.py::test_subscription_ack_tracker_requires_every_requested_subscription
+          tests/test_kis_stream.py::test_subscription_ack_tracker_does_not_count_duplicate_symbol_ack_for_another_symbol
       - name: Run domestic PAPER monitor signal and quote receipt tests only
         working-directory: services/market-ai
         run: >-

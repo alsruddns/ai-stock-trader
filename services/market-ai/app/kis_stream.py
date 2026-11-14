@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -18,6 +18,7 @@ Market = Literal["KR", "US"]
 _KR_SYMBOL = re.compile(r"^\d{6}$")
 _US_SYMBOL = re.compile(r"^[A-Z][A-Z0-9.\-]{0,14}$")
 _EXCHANGE_CODE = {"NAS": "DNAS", "NYS": "DNYS", "AMS": "DAMS"}
+_SUBSCRIPTION_KEY = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
 _WS_HOST = "ws://ops.koreainvestment.com:"
 
 
@@ -52,44 +53,49 @@ class SubscriptionAcknowledgementTimeoutError(RuntimeError):
 
 
 class SubscriptionAckTracker:
-    """Require one positive KIS acknowledgement for every requested transaction id."""
+    """Require a positive KIS acknowledgement for every requested transaction/key pair."""
 
-    def __init__(self, required_by_transaction_id: dict[str, int]) -> None:
-        if (not required_by_transaction_id
-                or any(not re.fullmatch(r"[A-Z0-9]{1,32}", key) or count < 1
-                       for key, count in required_by_transaction_id.items())):
+    def __init__(self, required_subscriptions: Iterable[tuple[str, str]]) -> None:
+        self._required: set[tuple[str, str]] = set()
+        for identity in required_subscriptions:
+            if (not isinstance(identity, tuple) or len(identity) != 2
+                    or not isinstance(identity[0], str) or not re.fullmatch(r"[A-Z0-9]{1,32}", identity[0])
+                    or not isinstance(identity[1], str) or not _SUBSCRIPTION_KEY.fullmatch(identity[1])):
+                raise ValueError("subscription acknowledgement requirements are invalid")
+            self._required.add((identity[0], identity[1].upper()))
+        if not self._required:
             raise ValueError("subscription acknowledgement requirements are invalid")
-        self._required = dict(required_by_transaction_id)
-        self._accepted: Counter[str] = Counter()
+        self._accepted: set[tuple[str, str]] = set()
 
     @property
     def complete(self) -> bool:
-        return all(self._accepted[key] >= count for key, count in self._required.items())
+        return self._required.issubset(self._accepted)
 
     @property
     def status(self) -> dict[str, int | bool]:
         return {
-            "accepted_count": sum(min(self._accepted[key], count) for key, count in self._required.items()),
-            "required_count": sum(self._required.values()),
+            "accepted_count": len(self._accepted.intersection(self._required)),
+            "required_count": len(self._required),
             "complete": self.complete,
         }
 
-    def require(self, transaction_id: str, count: int = 1) -> None:
-        if not re.fullmatch(r"[A-Z0-9]{1,32}", transaction_id) or count < 1:
+    def require(self, transaction_id: str, subscription_key: str) -> None:
+        if (not re.fullmatch(r"[A-Z0-9]{1,32}", transaction_id)
+                or not isinstance(subscription_key, str) or not _SUBSCRIPTION_KEY.fullmatch(subscription_key)):
             raise ValueError("subscription acknowledgement requirement is invalid")
-        self._required[transaction_id] = self._required.get(transaction_id, 0) + count
+        self._required.add((transaction_id, subscription_key.upper()))
 
     def observe(self, frame: str | bytes) -> bool:
         acknowledgement = parse_subscription_ack(frame)
         if acknowledgement is None:
             return self.complete
         transaction_id = acknowledgement["transaction_id"]
-        if transaction_id not in self._required:
+        identity = (transaction_id, acknowledgement["subscription_key"])
+        if identity not in self._required:
             return self.complete
         if not acknowledgement["accepted"]:
             raise SubscriptionAcknowledgementError(acknowledgement["broker_code"])
-        if self._accepted[transaction_id] < self._required[transaction_id]:
-            self._accepted[transaction_id] += 1
+        self._accepted.add(identity)
         return self.complete
 
 
@@ -108,14 +114,18 @@ def parse_subscription_ack(frame: str | bytes) -> dict[str, str | bool] | None:
     header = message.get("header") if isinstance(message.get("header"), dict) else {}
     body = message.get("body") if isinstance(message.get("body"), dict) else {}
     transaction_id = header.get("tr_id")
+    subscription_key = header.get("tr_key")
     response_code = body.get("rt_cd")
     if not isinstance(transaction_id, str) or not re.fullmatch(r"[A-Z0-9]{1,32}", transaction_id):
+        return None
+    if not isinstance(subscription_key, str) or not _SUBSCRIPTION_KEY.fullmatch(subscription_key):
         return None
     if str(response_code) not in {"0", "1"}:
         return None
     broker_code = body.get("msg_cd")
     return {
         "transaction_id": transaction_id,
+        "subscription_key": subscription_key.upper(),
         "accepted": str(response_code) == "0",
         "broker_code": (
             broker_code if isinstance(broker_code, str)
