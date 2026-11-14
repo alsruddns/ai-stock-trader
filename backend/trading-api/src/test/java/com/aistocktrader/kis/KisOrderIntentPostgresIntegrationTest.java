@@ -436,6 +436,31 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    @Transactional
+    void realProtectiveExitCandidateQueryPagesDomesticPlansInPostgres() {
+        UUID key = UUID.randomUUID();
+        OrderRequest buy = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW, "ORB_VWAP", "approved-model");
+        try {
+            store.prepare(key, "d".repeat(64), KisEnvironment.REAL, buy, null,
+                    new BigDecimal("500"), new BigDecimal("2"));
+            KisOrderIntent entry = kisOrderRepository.findById(key).orElseThrow();
+            entry.reconcile(1, 0, new BigDecimal("70000"), false, false);
+            entityManager.flush();
+            entityManager.clear();
+
+            var page = kisOrderRepository.findRealExitCandidates(KisEnvironment.REAL, List.of(Market.KR),
+                    List.of(KisRealExitStatus.ARMED, KisRealExitStatus.EXIT_PENDING), PageRequest.of(0, 50));
+
+            assertTrue(page.getContent().stream().anyMatch(candidate -> candidate.getIdempotencyKey().equals(key)));
+            assertEquals(0, page.getNumber());
+            assertEquals(50, page.getSize());
+        } finally {
+            kisOrderRepository.deleteById(key);
+        }
+    }
+
+    @Test
     void concurrentPostgresProtectiveExitClaimsAllowOnlyOneWorker() throws Exception {
         UUID entryKey = UUID.randomUUID();
         UUID exitKeyA = UUID.randomUUID();

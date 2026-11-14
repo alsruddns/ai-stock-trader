@@ -5,6 +5,8 @@ import com.aistocktrader.order.Currency;
 import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderRequest;
 import com.aistocktrader.order.OrderSide;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -16,8 +18,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import org.mockito.ArgumentCaptor;
 
 class KisRealProtectiveExitMonitorTest {
     private KisOrderIntentRepository intents;
@@ -44,8 +48,8 @@ class KisRealProtectiveExitMonitorTest {
         monitor = new KisRealProtectiveExitMonitor(true, true, safety, kis,
                 MarketOperationalScope.domesticOnly(), intents, accounts, sessions, marketData, orders);
         plan = armedPlan();
-        when(intents.findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.REAL), anyList()))
-                .thenReturn(List.of(plan));
+        when(intents.findRealExitCandidates(eq(KisEnvironment.REAL), anyCollection(), anyCollection(),
+                any(Pageable.class))).thenReturn(new PageImpl<>(List.of(plan)));
         when(intents.findExitManagedRealBuyCandidates(KisEnvironment.REAL, Market.KR, "005930"))
                 .thenReturn(List.of(plan));
         Instant now = Instant.now();
@@ -93,18 +97,38 @@ class KisRealProtectiveExitMonitorTest {
     }
 
     @Test
-    void domesticOnlyScopeSkipsOutOfScopeProtectiveExitBeforeSessionOrAccountAccess() {
-        KisOrderIntent usPlan = new KisOrderIntent(UUID.randomUUID(), "us-hash", KisEnvironment.REAL,
-                new OrderRequest(Market.US, "AAPL", OrderSide.BUY, 2,
-                        new BigDecimal("100"), Currency.USD), "NASD",
-                new BigDecimal("95"), new BigDecimal("105"));
-        usPlan.reconcile(2, 0, new BigDecimal("100"), false, false);
-        when(intents.findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.REAL), anyList()))
-                .thenReturn(List.of(usPlan));
+    void domesticOnlyScopeFiltersProtectiveExitCandidatesInDatabase() {
+        when(intents.findRealExitCandidates(eq(KisEnvironment.REAL), anyCollection(), anyCollection(),
+                any(Pageable.class))).thenAnswer(invocation -> {
+            Pageable pageable = invocation.getArgument(3);
+            return new PageImpl<KisOrderIntent>(List.of(), pageable, 1);
+        });
 
         monitor.monitorRealPositions();
 
+        verify(intents).findRealExitCandidates(eq(KisEnvironment.REAL), eq(List.of(Market.KR)),
+                eq(List.of(KisRealExitStatus.ARMED, KisRealExitStatus.EXIT_PENDING)), any(Pageable.class));
         verify(intents, never()).findExitManagedRealBuyCandidates(any(), any(), anyString());
+        verifyNoInteractions(accounts, sessions, marketData, orders);
+    }
+
+    @Test
+    void domesticProtectiveExitMonitorRotatesAcrossCandidatePages() {
+        when(intents.findRealExitCandidates(eq(KisEnvironment.REAL), anyCollection(), anyCollection(),
+                any(Pageable.class))).thenAnswer(invocation -> {
+            Pageable pageable = invocation.getArgument(3);
+            return new PageImpl<KisOrderIntent>(List.of(), pageable, 120);
+        });
+
+        monitor.monitorRealPositions();
+        monitor.monitorRealPositions();
+        monitor.monitorRealPositions();
+        monitor.monitorRealPositions();
+
+        ArgumentCaptor<Pageable> pageCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(intents, times(4)).findRealExitCandidates(eq(KisEnvironment.REAL), eq(List.of(Market.KR)),
+                eq(List.of(KisRealExitStatus.ARMED, KisRealExitStatus.EXIT_PENDING)), pageCaptor.capture());
+        assertEquals(List.of(0, 1, 2, 0), pageCaptor.getAllValues().stream().map(Pageable::getPageNumber).toList());
         verifyNoInteractions(accounts, sessions, marketData, orders);
     }
 
@@ -159,8 +183,8 @@ class KisRealProtectiveExitMonitorTest {
     void pendingFilledExitClosesPlanWithoutSubmittingAgain() {
         UUID exitKey = UUID.randomUUID();
         plan = exitPendingPlan(exitKey);
-        when(intents.findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(eq(KisEnvironment.REAL), anyList()))
-                .thenReturn(List.of(plan));
+        when(intents.findRealExitCandidates(eq(KisEnvironment.REAL), anyCollection(), anyCollection(),
+                any(Pageable.class))).thenReturn(new PageImpl<>(List.of(plan)));
         var sell = new KisOrderIntent(exitKey, "sell-hash", KisEnvironment.REAL,
                 new OrderRequest(Market.KR, "005930", OrderSide.SELL, 2,
                         new BigDecimal("93.99"), Currency.KRW), null);

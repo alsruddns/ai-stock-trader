@@ -37,6 +37,17 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
                                                        Pageable pageable);
     List<KisOrderIntent> findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(
             KisEnvironment environment, Collection<KisRealExitStatus> statuses);
+    @Query("""
+            select intent from KisOrderIntent intent
+             where intent.environment = :environment
+               and intent.market in :markets
+               and intent.realExitStatus in :statuses
+             order by intent.updatedAt asc, intent.idempotencyKey asc
+            """)
+    Page<KisOrderIntent> findRealExitCandidates(@Param("environment") KisEnvironment environment,
+                                                @Param("markets") Collection<com.aistocktrader.order.Market> markets,
+                                                @Param("statuses") Collection<KisRealExitStatus> statuses,
+                                                Pageable pageable);
     List<KisOrderIntent> findByEnvironmentAndMarketAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
             KisEnvironment environment, com.aistocktrader.order.Market market, Instant createdAt);
     java.util.Optional<KisOrderIntent> findByEnvironmentAndMarketAndBrokerOrderNumber(

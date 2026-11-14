@@ -5,6 +5,8 @@ import com.aistocktrader.order.Currency;
 import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderRequest;
 import com.aistocktrader.order.OrderSide;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,6 +18,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Optional REAL-only protective exits; disabled unless the dedicated automation switch is enabled. */
 @Component
@@ -25,6 +28,7 @@ public class KisRealProtectiveExitMonitor {
     private static final Duration FLATTEN_BEFORE_CLOSE = Duration.ofMinutes(5);
     private static final List<KisRealExitStatus> MONITORED =
             List.of(KisRealExitStatus.ARMED, KisRealExitStatus.EXIT_PENDING);
+    private static final int PAGE_SIZE = 50;
 
     private final boolean automationEnabled;
     private final boolean reconciliationEnabled;
@@ -37,6 +41,7 @@ public class KisRealProtectiveExitMonitor {
     private final KisMarketAiEvidenceClient marketData;
     private final KisRealOrderOrchestrator orders;
     private final KisRealExitPolicy policy = new KisRealExitPolicy(Duration.ofSeconds(3));
+    private final AtomicInteger nextPage = new AtomicInteger();
 
     public KisRealProtectiveExitMonitor(
             @Value("${kis.real-protective-exit-automation-enabled:false}") boolean automationEnabled,
@@ -61,8 +66,13 @@ public class KisRealProtectiveExitMonitor {
     public void monitorRealPositions() {
         if (!enabled()) return;
         try {
-            intents.findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(KisEnvironment.REAL, MONITORED)
-                    .stream().filter(plan -> marketScope.allowedMarkets().contains(plan.getMarket()))
+            List<Market> allowedMarkets = marketScope.allowedMarkets().stream().sorted().toList();
+            if (allowedMarkets.isEmpty()) return;
+            int pageNumber = nextPage.get();
+            Page<KisOrderIntent> page = intents.findRealExitCandidates(KisEnvironment.REAL, allowedMarkets,
+                    MONITORED, PageRequest.of(pageNumber, PAGE_SIZE));
+            nextPage.set(page.getTotalPages() == 0 || pageNumber + 1 >= page.getTotalPages() ? 0 : pageNumber + 1);
+            page.getContent().stream().filter(plan -> allowedMarkets.contains(plan.getMarket()))
                     .forEach(this::processSafely);
         } catch (RuntimeException exception) {
             log.warn("KIS REAL protective-exit scan failed ({})", exception.getClass().getSimpleName());

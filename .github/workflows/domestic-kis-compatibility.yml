@@ -178,6 +178,9 @@ jobs:
       - name: Verify PAPER reconciliation pages only domestic intents in PostgreSQL
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#paperReconciliationQueryPagesDomesticOrdersInStableUpdatedOrder' test
+      - name: Verify REAL protective-exit candidates page domestic plans in PostgreSQL
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#realProtectiveExitCandidateQueryPagesDomesticPlansInPostgres' test
       - name: Verify PAPER reconciliation job polls KIS fills into PostgreSQL
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#paperReconciliationJobPollsKisDailyFillIntoPostgres' test
