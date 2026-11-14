@@ -83,4 +83,32 @@ class KisOrderControllerTest {
         verify(intents).get(key);
         verifyNoInteractions(orders);
     }
+
+    @Test
+    void hidesRealIntentFromPaperReconciliationRoute() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY,
+                1, new BigDecimal("70000"), Currency.KRW);
+        when(intents.get(key)).thenReturn(new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null));
+
+        KisApiException exception = assertThrows(KisApiException.class, () -> controller.reconcile(key));
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.status());
+        verify(intents).get(key);
+        verifyNoInteractions(orders);
+    }
+
+    @Test
+    void hidesRealIntentFromPaperCancellationRoute() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY,
+                1, new BigDecimal("70000"), Currency.KRW);
+        when(intents.get(key)).thenReturn(new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null));
+
+        KisApiException exception = assertThrows(KisApiException.class, () -> controller.cancel(key, null));
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.status());
+        verify(intents).get(key);
+        verifyNoInteractions(orders);
+    }
 }
