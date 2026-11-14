@@ -1,6 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
 - **P5 세션 응답 식별 누락 시 환경 재시작 보류 (작업일 2026-11-15):** 환경 갱신 가드의 회귀검사에 시장 코드 미확인 및 세션 날짜 파싱 불가 사례를 추가했습니다. 불완전한 세션 응답은 감시 작업을 찾을 수 없더라도 환경 재시작을 허용하지 않는 동작을 확인했으며, `scripts/test-local-stack-env-reload.ps1` 집중검사와 `git diff --check`가 통과했습니다. 국내 세션 감시는 11월 16일 08:45 KST 예약 상태이며 아직 실행 전입니다. 로컬 읽기 전용 상태 확인에서 FastAPI health와 분봉 저장은 정상, 대기 분봉 0건, PAPER/REAL 주문 및 자동매매 잠금은 비활성으로 확인했습니다. 최근 WebSocket 끊김 이력은 남아 있으나 health가 연결로 표시되어 과거 오류를 현재 장애로 단정하지 않았습니다. KIS API나 주문은 호출하지 않았습니다.
+- **P5 재시작 보류 회귀검사 CI 통과 (작업일 2026-11-15):** `e67c2a2`의 KRX session monitor safety run `43649932031`과 Windows PAPER preflight run `43649932041`이 모두 성공했습니다. 두 Windows workflow 모두 `scripts/test-local-stack-env-reload.ps1`의 실패 폐쇄 검사를 포함하며, 전체 프로젝트 테스트는 실행하지 않았습니다.
 
 - **P1 종료 공지된 국내 KIS 종목분석 API 런타임 재검사 (작업일 2026-11-15):** 2026-11-11 종료 시행 후 운영 체크아웃에서 `scripts/test-retired-kis-analysis.ps1`를 실행했습니다. 스캐너는 Spring/FastAPI 런타임 소스(Java/Kotlin/Python)에서 종료된 7개 재무 API 함수명·직접 경로를 찾지 못하고 통과했습니다. 회귀 Pester 5/5가 helper 이름, 직접 REST 경로, 분리 저장된 경로 접미사를 포함해 통과했습니다. 넓은 검색에서 발견된 이름은 차단 스캐너와 회귀 fixture 안의 문자열뿐이며 런타임 호출은 아닙니다. KIS 계좌·시세·주문 요청은 하지 않았습니다.
 
