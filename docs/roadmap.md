@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P2 격리 PostgreSQL 주문 복구 통합검사 (작업일 2026-11-15):** 별도 임시 PostgreSQL 16 클러스터와 임시 Spring 포트에서 Flyway 30개 마이그레이션, REAL 위험·체결 기준선 PostgreSQL 검사 3건, 로컬 PAPER 주문 생성·정정 멱등성·키 충돌 거부, DB 중단 시 상세정보를 누설하지 않는 HTTP 503, DB 재기동 후 주문 상태 복구를 확인했습니다. API 주문 스위치와 REAL 조회·대사는 비활성이었고 KIS 요청은 없었습니다. 임시 DB와 Spring 프로세스는 종료·삭제됐으며 기존 운영 PostgreSQL에는 연결하지 않았습니다.
+
 - **P5 세션 응답 식별 누락 시 환경 재시작 보류 (작업일 2026-11-15):** 환경 갱신 가드의 회귀검사에 시장 코드 미확인 및 세션 날짜 파싱 불가 사례를 추가했습니다. 불완전한 세션 응답은 감시 작업을 찾을 수 없더라도 환경 재시작을 허용하지 않는 동작을 확인했으며, `scripts/test-local-stack-env-reload.ps1` 집중검사와 `git diff --check`가 통과했습니다. 국내 세션 감시는 11월 16일 08:45 KST 예약 상태이며 아직 실행 전입니다. 로컬 읽기 전용 상태 확인에서 FastAPI health와 분봉 저장은 정상, 대기 분봉 0건, PAPER/REAL 주문 및 자동매매 잠금은 비활성으로 확인했습니다. 최근 WebSocket 끊김 이력은 남아 있으나 health가 연결로 표시되어 과거 오류를 현재 장애로 단정하지 않았습니다. KIS API나 주문은 호출하지 않았습니다.
 - **P5 재시작 보류 회귀검사 CI 통과 (작업일 2026-11-15):** `e67c2a2`의 KRX session monitor safety run `43649932031`과 Windows PAPER preflight run `43649932041`이 모두 성공했습니다. 두 Windows workflow 모두 `scripts/test-local-stack-env-reload.ps1`의 실패 폐쇄 검사를 포함하며, 전체 프로젝트 테스트는 실행하지 않았습니다.
 
