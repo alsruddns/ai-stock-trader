@@ -14,12 +14,16 @@ Describe 'LEAN multi-session backtest summary' {
                 market = 'KR'; symbol = '005930'; session = '2026-11-13'; bars = 380
                 signals = 0; trades = 0; orders = 0; python_net_pnl = '0'; lean_net_pnl = '0'
                 pnl_delta = '0'; parity = 'passed'; model_id = ''; model_artifact_sha256 = ''
+                replay_session = '2026-11-13'; dataset_sha256 = ('a' * 64); staged_dataset_sha256 = ('b' * 64)
+                rights_reviewed = $true; cost_source = 'env_local'
                 cost_assumptions_bps = @{ buy = '1'; sell = '2' }
             },
             [pscustomobject]@{
                 market = 'KR'; symbol = '005930'; session = '2026-11-11'; bars = 380
                 signals = 3; trades = 3; orders = 6; python_net_pnl = '-1728.25'; lean_net_pnl = '-1728.25'
                 pnl_delta = '0'; parity = 'passed'; model_id = ''; model_artifact_sha256 = ''
+                replay_session = '2026-11-11'; dataset_sha256 = ('c' * 64); staged_dataset_sha256 = ('d' * 64)
+                rights_reviewed = $true; cost_source = 'env_local'
                 cost_assumptions_bps = @{ buy = '1'; sell = '2' }
             }
         )
@@ -70,5 +74,19 @@ Describe 'LEAN multi-session backtest summary' {
         Assert-ThrowsContaining {
             New-LeanBacktestRangeSummary -Market KR -Symbol '005930' -SessionResults $script:results
         } 'same model artifact'
+    }
+
+    It 'preserves dataset hashes and rights review for each session' {
+        $summary = New-LeanBacktestRangeSummary -Market KR -Symbol '005930' -SessionResults $script:results
+
+        $summary.cost_source | Should Be 'env_local'
+        $summary.sessions[0].dataset_sha256 | Should Be ('c' * 64)
+        $summary.sessions[0].staged_dataset_sha256 | Should Be ('d' * 64)
+        $summary.sessions[0].rights_reviewed | Should Be $true
+
+        $script:results[0].rights_reviewed = $false
+        Assert-ThrowsContaining {
+            New-LeanBacktestRangeSummary -Market KR -Symbol '005930' -SessionResults $script:results
+        } 'rights have not been reviewed'
     }
 }

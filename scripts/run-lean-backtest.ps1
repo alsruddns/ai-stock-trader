@@ -226,6 +226,9 @@ if ($leanBars -ne $prepared.bars -or $leanSignals -ne $prepared.signals -or $lea
     failed_orders = $leanFailedOrders
     model_id = [string]$prepared.model_id
     model_artifact_sha256 = [string]$prepared.model_artifact_sha256
+    dataset_sha256 = [string]$prepared.dataset_sha256
+    staged_dataset_sha256 = [string]$prepared.staged_dataset_sha256
+    rights_reviewed = [bool]$prepared.rights_reviewed
     python_net_pnl = $pythonPnl.ToString([cultureinfo]::InvariantCulture)
     lean_net_pnl = $leanPnl.ToString([cultureinfo]::InvariantCulture)
     pnl_delta = $pnlDelta.ToString([cultureinfo]::InvariantCulture)
