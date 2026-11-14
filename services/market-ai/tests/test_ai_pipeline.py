@@ -131,6 +131,28 @@ def test_training_and_inference_require_timestamped_spread_observations() -> Non
                    for sample in samples)
 
 
+def test_training_labels_do_not_cross_into_the_next_exchange_session() -> None:
+    sessions = _sample_sessions()
+    first_session, next_session = sorted(sessions)[:2]
+    costs = Decimal("20")
+
+    first_only = build_training_samples(
+        {first_session: sessions[first_session]}, market="KR", horizon_bars=5,
+        round_trip_cost_bps=costs,
+    )
+    next_session_changed = [
+        _bar(bar.timestamp, bar.close + Decimal("100"), bar.volume)
+        for bar in sessions[next_session]
+    ]
+    with_next_session = build_training_samples(
+        {first_session: sessions[first_session], next_session: next_session_changed},
+        market="KR", horizon_bars=5, round_trip_cost_bps=costs,
+    )
+    first_session_with_next = [sample for sample in with_next_session if sample.session == first_session]
+
+    assert first_session_with_next == first_only
+
+
 def test_probability_series_uses_only_current_and_prior_bars() -> None:
     bars = _sample_sessions()[date(2026, 10, 1)][:24]
 
