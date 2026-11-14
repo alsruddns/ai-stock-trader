@@ -24,7 +24,7 @@ def test_active_approved_entry_filter_loads_once_and_uses_model_threshold(tmp_pa
         "artifact": model_id + ".joblib",
         "artifact_sha256": "b" * 64,
         "threshold": 0.7,
-        "training_config": {"symbol": "005930"},
+        "training_config": {"symbol": "005930", "backtest_opening_range_bars": 5},
     }
     class Model:
         calls = 0
@@ -67,7 +67,7 @@ def test_active_model_rejects_invalid_probability_distribution(tmp_path, monkeyp
         "artifact": model_id + ".joblib",
         "artifact_sha256": "d" * 64,
         "threshold": 0.5,
-        "training_config": {"symbol": "005930"},
+        "training_config": {"symbol": "005930", "backtest_opening_range_bars": 5},
     }
     model = SimpleNamespace(classes_=[0, 1],
                             predict_proba=lambda _features: np.asarray([[0.2, 0.9]], dtype=np.float32))
