@@ -131,6 +131,12 @@ jobs:
           tests/test_data_export.py::test_kr_session_coverage_reports_domestic_websocket_and_rest_source_counts
           tests/test_data_export.py::test_training_export_source_gate_requires_a_complete_spread_populated_kis_session
           tests/test_data_import.py::test_minute_bar_loader_groups_valid_timezone_aware_sessions
+      - name: Run domestic KIS whole-won price parsing tests only
+        working-directory: services/market-ai
+        run: >-
+          python -m pytest -q
+          tests/test_market_stream.py::test_domestic_trade_parser_rejects_fractional_won_prices
+          tests/test_market_stream.py::test_domestic_orderbook_parser_discards_fractional_won_quotes
       - name: Verify domestic PAPER status preserves quote observation timestamps
         working-directory: services/market-ai
         run: >-

@@ -47,6 +47,12 @@ def _number(value: str, name: str) -> Decimal:
     return parsed
 
 
+def _require_whole_krw(value: Decimal, name: str) -> Decimal:
+    if value != value.to_integral_value():
+        raise ValueError(f"KIS domestic {name} must be a whole KRW amount")
+    return value
+
+
 def _parse_time(date_value: str, time_value: str, zone: str) -> datetime:
     day = datetime.strptime(date_value, "%Y%m%d").date()
     clock = datetime.strptime(time_value, "%H%M%S").time()
@@ -109,6 +115,12 @@ def parse_trade_frame_with_diagnostics(
         tick = get_tick(row)
         if tick.price <= 0:
             raise ValueError("KIS trade price must be positive")
+        if market == "KR":
+            _require_whole_krw(tick.price, "trade price")
+            if tick.ask is not None:
+                _require_whole_krw(tick.ask, "ask price")
+            if tick.bid is not None:
+                _require_whole_krw(tick.bid, "bid price")
         ticks.append(tick)
     return ticks, non_regular_records
 
@@ -152,8 +164,8 @@ def parse_domestic_orderbook_frame_with_diagnostics(
         try:
             clock = datetime.strptime(row[1], "%H%M%S").time()
             timestamp = datetime.combine(reference.date(), clock, zone)
-            bid_value = _number(row[13], "best bid")
-            ask_value = _number(row[3], "best ask")
+            bid_value = _require_whole_krw(_number(row[13], "best bid"), "best bid")
+            ask_value = _require_whole_krw(_number(row[3], "best ask"), "best ask")
         except (ValueError, IndexError):
             continue
         if not row[0].strip():

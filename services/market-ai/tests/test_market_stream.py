@@ -48,6 +48,17 @@ def test_parse_domestic_multi_record_frame_uses_trade_volume_not_cumulative_volu
     assert [tick.volume for tick in ticks] == [3, 5]
 
 
+@pytest.mark.parametrize(("field", "value"), [(2, "73500.5"), (10, "73510.5"), (11, "73500.5")])
+def test_domestic_trade_parser_rejects_fractional_won_prices(field: int, value: str) -> None:
+    frame = _frame("H0STCNT0", 47, {
+        0: "005930", 1: "100101", 2: "73500", 10: "73510", 11: "73500",
+        12: "3", 33: "20261105", 45: "73500", 46: "2", field: value,
+    })
+
+    with pytest.raises(ValueError, match="whole KRW amount"):
+        parse_trade_frame(frame, "KR")
+
+
 @pytest.mark.parametrize("market_class", ["1", "3", "5", ""])
 def test_domestic_trade_parser_excludes_non_regular_market_ticks(market_class: str) -> None:
     frame = _frame("H0STCNT0", 47, {
@@ -105,6 +116,15 @@ def test_parse_domestic_orderbook_frame_extracts_best_prices_from_official_colum
     assert quotes[0].timestamp.isoformat() == "2026-11-06T10:01:01+09:00"
     assert quotes[0].bid == Decimal("73500")
     assert quotes[0].ask == Decimal("73510")
+
+
+@pytest.mark.parametrize(("field", "value"), [(3, "73510.5"), (13, "73500.5")])
+def test_domestic_orderbook_parser_discards_fractional_won_quotes(field: int, value: str) -> None:
+    frame = _frame("H0STASP0", 63, {
+        0: "005930", 1: "100101", 3: "73510", 13: "73500", 62: "2", field: value,
+    })
+
+    assert parse_domestic_orderbook_frame(frame) == []
 
 
 @pytest.mark.parametrize("market_class", ["1", "3", "5", ""])
