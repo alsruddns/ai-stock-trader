@@ -464,6 +464,17 @@ def test_quant_baseline_reports_candidate_coverage_and_cost_adjusted_label_rate(
     }
 
 
+def test_empty_backtest_keeps_total_profit_zero_but_trade_rates_unavailable() -> None:
+    metrics = ai_pipeline._backtest_metrics([])
+
+    assert metrics["trade_count"] == 0.0
+    assert metrics["gross_pnl"] == "0"
+    assert metrics["estimated_costs"] == "0"
+    assert metrics["net_pnl"] == "0"
+    assert metrics["win_rate"] is None
+    assert metrics["average_trade_net_pnl"] is None
+
+
 def test_candidate_metrics_leave_unobserved_outcomes_unavailable() -> None:
     no_candidates = _quant_baseline_metrics([
         TrainingSample(date(2026, 10, 1), "t1", (), 1, False, 20.0),
@@ -1246,8 +1257,8 @@ def test_holdout_evaluation_rolls_back_manifest_when_audit_write_fails_and_allow
     monkeypatch.setattr(ai_pipeline, "_quant_baseline_metrics", lambda *_args, **_kwargs: {"accuracy": 0.5})
     monkeypatch.setattr(ai_pipeline, "_backtest_metrics", lambda _results: {
         "session_count": 5.0, "signal_count": 0.0, "trade_count": 0.0,
-        "winning_trades": 0.0, "win_rate": 0.0, "gross_pnl": "0",
-        "estimated_costs": "0", "net_pnl": "0", "average_trade_net_pnl": "0",
+        "winning_trades": 0.0, "win_rate": None, "gross_pnl": "0",
+        "estimated_costs": "0", "net_pnl": "0", "average_trade_net_pnl": None,
     })
     monkeypatch.setattr(ai_pipeline, "backtest_orb_vwap", lambda *_args, **_kwargs: object())
     import joblib

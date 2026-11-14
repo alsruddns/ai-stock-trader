@@ -439,11 +439,11 @@ def _backtest_metrics(results: list[Any]) -> dict[str, Any]:
         "signal_count": float(sum(result.signals for result in results)),
         "trade_count": float(len(trades)),
         "winning_trades": float(sum(trade.net_pnl > 0 for trade in trades)),
-        "win_rate": float(sum(trade.net_pnl > 0 for trade in trades) / len(trades)) if trades else 0.0,
+        "win_rate": float(sum(trade.net_pnl > 0 for trade in trades) / len(trades)) if trades else None,
         "gross_pnl": str(sum((result.gross_pnl for result in results), Decimal(0))),
         "estimated_costs": str(sum((result.costs for result in results), Decimal(0))),
         "net_pnl": str(net_pnl),
-        "average_trade_net_pnl": str(net_pnl / len(trades)) if trades else "0",
+        "average_trade_net_pnl": str(net_pnl / len(trades)) if trades else None,
     }
 
 
