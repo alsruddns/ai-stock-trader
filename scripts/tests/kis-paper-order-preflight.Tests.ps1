@@ -83,6 +83,13 @@ Describe 'Isolated KIS PAPER lifecycle port' {
         $portParameter = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'TemporaryPort' }
         $portParameter.DefaultValue.SafeGetValue() | Should Be 18081
     }
+
+    It 'keeps the isolated PAPER order switch off and omits write opt-in during read-only preflight' {
+        $scriptText = Get-Content (Join-Path $PSScriptRoot '../test-kis-paper-order-lifecycle-isolated.ps1') -Raw
+        $scriptText.Contains('$env:KIS_PAPER_ORDERS_ENABLED = if ($PreflightOnly) { ''false'' } else { ''true'' }') | Should Be $true
+        $scriptText.Contains("if (-not `$PreflightOnly) { `$testArguments += '-EnablePaperOrdersForThisRun' }") | Should Be $true
+        $scriptText.Contains("`$expectedPaperOrdersEnabled = `$env:KIS_PAPER_ORDERS_ENABLED -eq 'true'") | Should Be $true
+    }
 }
 
 Describe 'Domestic KIS PAPER lifecycle fail-closed guard' {

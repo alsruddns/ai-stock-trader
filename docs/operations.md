@@ -133,7 +133,7 @@ KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는
 
 KIS PAPER lifecycle 검증은 국내에서만 진행합니다. KIS 공식 저장소의 모의투자 API 지원표는 국내 `주식정정취소가능주문조회`를 모의투자 미지원으로 표시합니다. 같은 공식 API 예제는 정정·취소 POST 전에 이 조회를 호출해 `psbl_qty`를 확인하라고 요구하므로, 취소 가능수량을 다른 API 값으로 추정하거나 우회하지 않습니다. 따라서 `KR -ConfirmPaperOrderAndCancel`은 네트워크 요청 전에 거부됩니다. [KIS 공식 모의투자 API 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#3-api-%EC%A0%9C%EA%B3%B5-%EB%AA%A9%EB%A1%9D) · [KIS 공식 취소가능수량 조회 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_psbl_rvsecncl/inquire_psbl_rvsecncl.py).
 
-취소 조회 지원을 기다리는 동안 PAPER 주문 제출과 읽기 전용 대조만 따로 검증하려면 `-ConfirmPaperOrderSubmitAndObserve`를 사용할 수 있습니다. 이 동작은 시세·계좌·주문 한도·국내 장중 여부를 먼저 확인한 뒤 1주 PAPER 지정가 매수를 제출하고, 같은 멱등 키로 최대 5회 상태를 대조합니다. 주문을 취소하지 않으며, 미체결 주문이 열려 남을 수 있습니다. 체결되거나 결과가 불명확하면 자동 재전송하지 않고 해당 PAPER 포지션/주문을 수동 확인해야 합니다. 격리 실행기는 일회성 Spring 프로세스에서만 PAPER 주문 스위치를 켜고 REAL 자격정보·주문은 비활성화합니다. 이 검증은 취소 및 전체 주문 수명주기 통과로 간주하지 않습니다. 미국 주문·취소 검증은 수행하지 않습니다.
+취소 조회 지원을 기다리는 동안 PAPER 주문 제출과 읽기 전용 대조만 따로 검증하려면 `-ConfirmPaperOrderSubmitAndObserve`를 사용할 수 있습니다. 이 동작은 시세·계좌·주문 한도·국내 장중 여부를 먼저 확인한 뒤 1주 PAPER 지정가 매수를 제출하고, 같은 멱등 키로 최대 5회 상태를 대조합니다. 주문을 취소하지 않으며, 미체결 주문이 열려 남을 수 있습니다. 체결되거나 결과가 불명확하면 자동 재전송하지 않고 해당 PAPER 포지션/주문을 수동 확인해야 합니다. 격리 실행기는 이 명시적 제출 모드에서만 일회성 Spring 프로세스의 PAPER 주문 스위치를 켜고 REAL 자격정보·주문은 비활성화합니다. 읽기 전용 `-PreflightOnly`는 격리 Spring 프로세스에서도 PAPER 주문 스위치를 끄고 별도 쓰기 opt-in을 전달하지 않습니다. 이 검증은 취소 및 전체 주문 수명주기 통과로 간주하지 않습니다. 미국 주문·취소 검증은 수행하지 않습니다.
 
 주문 제출 모드는 Python 거래소 캘린더를 확인합니다. `-ConfirmPaperOrderSubmitAndObserve`는 PAPER 주문 1주를 실제 모의계좌에 전송할 수 있으므로, 사용자가 승인한 검증 작업에서만 명시적으로 실행하고 열린 주문/체결 상태를 계속 확인해야 합니다. 읽기 전용 국내 `-PreflightOnly`는 장외에서도 실행할 수 있습니다.
 

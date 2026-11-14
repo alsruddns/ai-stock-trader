@@ -69,7 +69,7 @@ try {
 
     $env:SERVER_ADDRESS = '127.0.0.1'
     $env:SERVER_PORT = [string]$TemporaryPort
-    $env:KIS_PAPER_ORDERS_ENABLED = 'true'
+    $env:KIS_PAPER_ORDERS_ENABLED = if ($PreflightOnly) { 'false' } else { 'true' }
     $env:KIS_REAL_APP_KEY = ''
     $env:KIS_REAL_APP_SECRET = ''
     $env:KIS_REAL_ACCOUNT_NUMBER = ''
@@ -109,8 +109,10 @@ try {
         if ($temporaryApi.HasExited) { throw "Isolated Spring Boot exited before becoming ready. Logs: $stderrPath" }
         try {
             $operations = Invoke-RestMethod -Uri $operationsUrl -TimeoutSec 3
+            $expectedPaperOrdersEnabled = $env:KIS_PAPER_ORDERS_ENABLED -eq 'true'
             if ($operations.tradingMode -eq 'paper' -and $operations.liveTrading -eq 'disabled' -and
-                $operations.kisPaperOrdersEnabled -and -not $operations.kisRealOrdersEnabled -and
+                ([bool]$operations.kisPaperOrdersEnabled -eq $expectedPaperOrdersEnabled) -and
+                -not $operations.kisRealOrdersEnabled -and
                 -not $operations.kisRealReconciliationEnabled -and -not $operations.paperAutomationEnabled) {
                 $ready = $true
                 break
@@ -125,8 +127,8 @@ try {
     $limitText = $LimitPrice.ToString([Globalization.CultureInfo]::InvariantCulture)
     $testArguments = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $testScript,
         '-Market', $Market, '-Symbol', $Symbol, '-LimitPrice', $limitText, '-Exchange', $Exchange,
-        '-SpringApiBaseUrl', "http://127.0.0.1:$TemporaryPort", '-MarketAiApiBaseUrl', $MarketAiApiBaseUrl,
-        '-EnablePaperOrdersForThisRun')
+        '-SpringApiBaseUrl', "http://127.0.0.1:$TemporaryPort", '-MarketAiApiBaseUrl', $MarketAiApiBaseUrl)
+    if (-not $PreflightOnly) { $testArguments += '-EnablePaperOrdersForThisRun' }
     if ($PreflightOnly) { $testArguments += '-PreflightOnly' }
     elseif ($ConfirmPaperOrderSubmitAndObserve) { $testArguments += '-ConfirmPaperOrderSubmitAndObserve' }
     else { $testArguments += '-ConfirmPaperOrderAndCancel' }
