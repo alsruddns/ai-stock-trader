@@ -22,6 +22,8 @@ on:
       - 'scripts/lib/local-stack-activation.ps1'
       - 'scripts/tests/safe-http-diagnostic.Tests.ps1'
       - 'scripts/restart-local-stack-task.ps1'
+      - 'scripts/register-market-data-session-horizon.ps1'
+      - 'scripts/register-post-session-refresh-task.ps1'
       - '.github/workflows/krx-session-monitor-safety.yml'
   workflow_dispatch:
 
@@ -57,7 +59,9 @@ jobs:
             'scripts/restart-local-stack-task.ps1',
             'scripts/run-local-stack-task.ps1',
             'scripts/test-local-stack-env-reload.ps1',
-            'scripts/lib/local-stack-activation.ps1'
+            'scripts/lib/local-stack-activation.ps1',
+            'scripts/register-market-data-session-horizon.ps1',
+            'scripts/register-post-session-refresh-task.ps1'
           )) {
             $tokens = $null
             $errors = $null
@@ -73,6 +77,11 @@ jobs:
           $continuityResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -TestName 'Domestic full-session feed continuity gate' -PassThru
           if ($continuityResult.FailedCount -gt 0 -or $continuityResult.PassedCount -ne 1) {
             throw "Domestic full-session continuity test failed: passed=$($continuityResult.PassedCount), failed=$($continuityResult.FailedCount)."
+          }
+
+          $postSessionResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -TestName 'Domestic post-session refresh task verification' -PassThru
+          if ($postSessionResult.FailedCount -gt 0 -or $postSessionResult.PassedCount -ne 4) {
+            throw "Domestic post-session refresh task tests failed: passed=$($postSessionResult.PassedCount), failed=$($postSessionResult.FailedCount)."
           }
 
           $reconnectResult = Invoke-Pester -Path 'scripts/tests/paper-session-monitor-status.Tests.ps1' -TestName 'Domestic PAPER monitor reconnect tolerance' -PassThru

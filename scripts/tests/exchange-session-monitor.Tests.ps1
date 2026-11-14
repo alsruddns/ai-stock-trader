@@ -311,6 +311,59 @@ function New-TestScheduledTask($State, $Arguments, $TriggerType, $StartBoundary,
     }
 }
 
+function New-TestPostSessionRefreshTask($Arguments, $StartBoundary, $StartWhenAvailable = $false) {
+    [pscustomobject]@{
+        State = 'Ready'
+        Actions = @([pscustomobject]@{ Arguments = $Arguments })
+        Triggers = @([pscustomobject]@{
+            Enabled = $true
+            CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskTimeTrigger' }
+            StartBoundary = $StartBoundary
+        })
+        Principal = [pscustomobject]@{ RunLevel = 'Limited'; LogonType = 'Interactive' }
+        Settings = [pscustomobject]@{
+            WakeToRun = $true; StartWhenAvailable = $StartWhenAvailable
+            DisallowStartIfOnBatteries = $false; StopIfGoingOnBatteries = $false
+            MultipleInstances = 'IgnoreNew'; ExecutionTimeLimit = 'PT5M'
+        }
+    }
+}
+
+Describe 'Domestic post-session refresh task verification' {
+    It 'computes the scheduled KRX refresh in KST' {
+        (Get-KrxPostSessionRefreshTime '2026-11-16').ToString('o') | Should Be '2026-11-16T15:45:00.0000000+09:00'
+    }
+
+    It 'accepts a matching domestic no-catch-up restart task' {
+        $task = New-TestPostSessionRefreshTask `
+            '-File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
+            '2026-11-16T15:45:00+09:00'
+        (Test-PostSessionRefreshTaskDefinition $task 'C:\repo\scripts\restart-local-stack-task.ps1' `
+            ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))) | Should Be $true
+    }
+
+    It 'rejects the Confirm string that broke the prior Windows task action' {
+        $task = New-TestPostSessionRefreshTask `
+            '-File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly -Confirm:$false' `
+            '2026-11-16T15:45:00+09:00'
+        (Test-PostSessionRefreshTaskDefinition $task 'C:\repo\scripts\restart-local-stack-task.ps1' `
+            ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))) | Should Be $false
+    }
+
+    It 'rejects delayed execution and any task that is not domestic-only' {
+        $delayed = New-TestPostSessionRefreshTask `
+            '-File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
+            '2026-11-16T15:45:00+09:00' $true
+        $wrongScope = New-TestPostSessionRefreshTask `
+            '-File "C:\repo\scripts\restart-local-stack-task.ps1"' `
+            '2026-11-16T15:45:00+09:00'
+        (Test-PostSessionRefreshTaskDefinition $delayed 'C:\repo\scripts\restart-local-stack-task.ps1' `
+            ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))) | Should Be $false
+        (Test-PostSessionRefreshTaskDefinition $wrongScope 'C:\repo\scripts\restart-local-stack-task.ps1' `
+            ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))) | Should Be $false
+    }
+}
+
 Describe 'Existing market session task verification' {
     It 'registers domestic sessions by default and permits the overseas horizon explicitly' {
         (@(Get-SessionMonitorMarkets) -join ',') | Should Be 'KR'

@@ -70,6 +70,7 @@ try {
 }
 
 $registrar = Join-Path $PSScriptRoot 'register-market-data-session-monitor.ps1'
+$postSessionRegistrar = Join-Path $PSScriptRoot 'register-post-session-refresh-task.ps1'
 $monitorPath = Join-Path $PSScriptRoot 'test-paper-websocket-monitor.ps1'
 $taskRows = @()
 foreach ($market in @('KR', 'US')) {
@@ -91,7 +92,29 @@ $toRegister = @($taskRows | Where-Object { $null -eq $_.ExistingTask })
 Write-Output "Future sessions covered: $(@($taskRows | Where-Object {$_.Market -eq 'KR'}).Count) KR and $(@($taskRows | Where-Object {$_.Market -eq 'US'}).Count) US; adding $($toRegister.Count) missing tasks."
 foreach ($row in $toRegister) {
     if ($PSCmdlet.ShouldProcess($row.TaskName, "Register read-only $($row.Market) session monitor for $($row.Date) at $($row.RunAt.ToString('HH:mm')) KST")) {
-        & $registrar -Feed $row.Feed -SessionDate $row.Date -Confirm:$false
+        & $registrar -Feed $row.Feed -SessionDate $row.Date
+    }
+}
+
+$postSessionRows = @($taskRows | Where-Object { $_.Market -eq 'KR' } | ForEach-Object {
+    $dateKey = ([DateTime]::ParseExact($_.Date, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)).ToString('yyyyMMdd')
+    $taskName = "AIStockTrader-PostSessionRefresh-$dateKey"
+    $expectedRunAt = Get-KrxPostSessionRefreshTime $_.Date
+    $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($existingTask -and -not (Test-PostSessionRefreshTaskDefinition `
+            -Task $existingTask -RestartPath (Join-Path $PSScriptRoot 'restart-local-stack-task.ps1') `
+            -ExpectedRunAt $expectedRunAt)) {
+        throw "Existing task '$taskName' does not match the safe domestic post-session refresh definition; refusing to replace it."
+    }
+    [pscustomobject]@{
+        Date = $_.Date; RunAt = $expectedRunAt; TaskName = $taskName; ExistingTask = $existingTask
+    }
+})
+$postSessionToRegister = @($postSessionRows | Where-Object { $null -eq $_.ExistingTask })
+Write-Output "Domestic post-session refreshes covered: $($postSessionRows.Count); adding $($postSessionToRegister.Count) missing tasks."
+foreach ($row in $postSessionToRegister) {
+    if ($PSCmdlet.ShouldProcess($row.TaskName, "Register domestic closed-session API refresh for $($row.Date) at $($row.RunAt.ToString('HH:mm')) KST")) {
+        & $postSessionRegistrar -SessionDate $row.Date
     }
 }
 

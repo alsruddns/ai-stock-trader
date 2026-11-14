@@ -78,3 +78,47 @@ function Test-SessionMonitorRefreshTaskDefinition {
         return $false
     }
 }
+
+function Test-PostSessionRefreshTaskDefinition {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Task,
+        [Parameter(Mandatory)][string]$RestartPath,
+        [Parameter(Mandatory)][DateTimeOffset]$ExpectedRunAt
+    )
+
+    if (-not $Task -or $Task.State -ne 'Ready' -or
+        $Task.Principal.RunLevel -ne 'Limited' -or $Task.Principal.LogonType -ne 'Interactive' -or
+        -not [bool]$Task.Settings.WakeToRun -or [bool]$Task.Settings.StartWhenAvailable -or
+        [bool]$Task.Settings.DisallowStartIfOnBatteries -or [bool]$Task.Settings.StopIfGoingOnBatteries -or
+        $Task.Settings.MultipleInstances -ne 'IgnoreNew' -or
+        [string]$Task.Settings.ExecutionTimeLimit -ne 'PT5M' -or
+        @($Task.Actions).Count -ne 1 -or @($Task.Triggers).Count -ne 1) { return $false }
+
+    $action = $Task.Actions[0]
+    $trigger = $Task.Triggers[0]
+    $arguments = [string]$action.Arguments
+    if (-not [bool]$trigger.Enabled -or $trigger.CimClass.CimClassName -ne 'MSFT_TaskTimeTrigger' -or
+        $arguments -notmatch [regex]::Escape($RestartPath) -or
+        $arguments -notmatch '(?:^|\s)-DomesticOnly(?:\s|$)' -or
+        $arguments -match '(?:^|\s)-Confirm(?::|\s|$)|(?:^|\s)-WhatIf(?:\s|$)') { return $false }
+
+    try {
+        $scheduledAt = [DateTimeOffset]::Parse([string]$trigger.StartBoundary).ToUniversalTime()
+        return $scheduledAt -eq $ExpectedRunAt.ToUniversalTime()
+    } catch {
+        return $false
+    }
+}
+
+function Get-KrxPostSessionRefreshTime([string]$SessionDate, [string]$RunTime = '15:45') {
+    try {
+        $runLocal = [DateTime]::ParseExact(
+            "$SessionDate $RunTime", 'yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture
+        )
+        $koreaZone = [TimeZoneInfo]::FindSystemTimeZoneById('Korea Standard Time')
+        return [DateTimeOffset]::new($runLocal, $koreaZone.GetUtcOffset($runLocal))
+    } catch {
+        throw 'Korean post-session refresh date or time is invalid.'
+    }
+}

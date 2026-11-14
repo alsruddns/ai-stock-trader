@@ -51,6 +51,7 @@ jobs:
             'scripts/lib/market-session-scheduler.ps1',
             'scripts/register-market-data-session-monitor.ps1',
             'scripts/register-market-data-session-horizon.ps1',
+            'scripts/register-post-session-refresh-task.ps1',
             'scripts/update-market-data-session-monitor-duration.ps1',
             'scripts/enable-local-automation-task-wake.ps1',
             'scripts/lib/paper-safety.ps1',
@@ -171,6 +172,21 @@ jobs:
           ) | Out-Null
           if ($parseErrors.Count -gt 0) {
             $parseErrors | ForEach-Object { Write-Error "$restartScript`: $($_.Message)" }
+          }
+
+          foreach ($refreshScript in @(
+            'scripts/lib/market-session-scheduler.ps1',
+            'scripts/register-market-data-session-horizon.ps1',
+            'scripts/register-post-session-refresh-task.ps1'
+          )) {
+            $refreshTokens = $null
+            $refreshErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $refreshScript), [ref]$refreshTokens, [ref]$refreshErrors
+            ) | Out-Null
+            if ($refreshErrors.Count -gt 0) {
+              $refreshErrors | ForEach-Object { Write-Error "$refreshScript`: $($_.Message)" }
+            }
           }
 
           & 'scripts/test-local-stack-activation.ps1'
