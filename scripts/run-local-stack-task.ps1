@@ -76,6 +76,39 @@ function Get-EnvironmentReloadDecision([bool]$EnvironmentChanged, [bool]$Exchang
     return 'DEFER'
 }
 
+function Test-LocalSessionFinalizationWindowElapsed($Sessions, [DateTimeOffset]$NowUtc,
+                                                    [string[]]$Markets = @('KR'),
+                                                    [int]$GraceMinutes = 20) {
+    if ($GraceMinutes -lt 0 -or
+        -not (Test-LocalSessionsFreshAndClosed $Sessions $NowUtc $Markets)) { return $false }
+    foreach ($market in $Markets) {
+        $session = @($Sessions | Where-Object { [string]$_.market -eq $market }) | Select-Object -First 1
+        if ($null -eq $session.PSObject.Properties['is_session']) { return $false }
+        if (-not [bool]$session.is_session) { continue }
+        if ($null -eq $session.PSObject.Properties['close_at']) { return $false }
+        $closeAt = [DateTimeOffset]::MinValue
+        if (-not [DateTimeOffset]::TryParse([string]$session.close_at, [ref]$closeAt)) { return $false }
+        if ($NowUtc.ToUniversalTime() -lt $closeAt.ToUniversalTime().AddMinutes($GraceMinutes)) { return $false }
+    }
+    return $true
+}
+
+function Test-LocalSessionMonitorRunning($Sessions, [hashtable]$TaskStates) {
+    foreach ($session in $Sessions) {
+        $market = [string]$session.market
+        if ($market -notin @('KR', 'US')) { return $true }
+        $sessionDate = [string]$session.session_date
+        if ($sessionDate -notmatch '^\d{4}-\d{2}-\d{2}$') { return $true }
+        $sessionDateKey = $sessionDate.Replace('-', '')
+        $taskPrefix = if ($market -eq 'KR') { 'KRX' } else { 'US' }
+        $taskName = "AIStockTrader-$taskPrefix-Session-Monitor-$SessionDateKey"
+        if ($TaskStates.ContainsKey($taskName) -and [string]$TaskStates[$taskName] -notin @('Ready', 'Disabled')) {
+            return $true
+        }
+    }
+    return $false
+}
+
 function Test-LocalExchangesClosedForEnvironmentReload {
     $nowUtc = [DateTimeOffset]::UtcNow
     try {
@@ -86,7 +119,17 @@ function Test-LocalExchangesClosedForEnvironmentReload {
         $sessions = foreach ($market in $pendingMarkets) {
             Invoke-RestMethod -Uri "http://127.0.0.1:18000/api/v1/market/sessions/$market" -TimeoutSec 3
         }
-        return Test-LocalSessionsFreshAndClosed $sessions $nowUtc $pendingMarkets
+        if (-not (Test-LocalSessionFinalizationWindowElapsed $sessions $nowUtc $pendingMarkets)) { return $false }
+        $taskStates = @{}
+        foreach ($session in $sessions) {
+            $market = [string]$session.market
+            $dateKey = ([string]$session.session_date).Replace('-', '')
+            $taskPrefix = if ($market -eq 'KR') { 'KRX' } else { 'US' }
+            $taskName = "AIStockTrader-$taskPrefix-Session-Monitor-$dateKey"
+            $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            if ($task) { $taskStates[$taskName] = [string]$task.State }
+        }
+        return -not (Test-LocalSessionMonitorRunning $sessions $taskStates)
     } catch {
         return $false
     }
@@ -265,7 +308,7 @@ try {
                     if ($currentEnvironmentHash -ne $pendingEnvironmentHash) {
                         $pendingEnvironmentHash = $currentEnvironmentHash
                         $nextEnvironmentReloadCheckUtc = [DateTimeOffset]::MinValue
-                        Write-TaskLog 'Local environment file changed; reload is deferred until all configured operational markets are confirmed closed.'
+                        Write-TaskLog 'Local environment file changed; reload is deferred until markets are closed and post-close session validation is complete.'
                     }
                     $nowUtc = [DateTimeOffset]::UtcNow
                     if ($nowUtc -ge $nextEnvironmentReloadCheckUtc) {

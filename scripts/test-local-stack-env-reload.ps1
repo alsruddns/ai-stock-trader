@@ -33,7 +33,18 @@ $reloadDecisionFunction = $runnerAst.Find({
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
         $node.Name -eq 'Get-EnvironmentReloadDecision'
 }, $true)
-if ($null -eq $sessionGateFunction -or $null -eq $reloadDecisionFunction) {
+$sessionFinalizationFunction = $runnerAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Test-LocalSessionFinalizationWindowElapsed'
+}, $true)
+$sessionMonitorRunningFunction = $runnerAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Test-LocalSessionMonitorRunning'
+}, $true)
+if ($null -eq $sessionGateFunction -or $null -eq $reloadDecisionFunction -or
+    $null -eq $sessionFinalizationFunction -or $null -eq $sessionMonitorRunningFunction) {
     throw 'The environment reload session gate was not found.'
 }
 $operationalMarketsFunction = $runnerAst.Find({
@@ -55,23 +66,63 @@ try {
     . ([ScriptBlock]::Create($importFunction.Extent.Text))
     . ([ScriptBlock]::Create($restorePythonPathFunction.Extent.Text))
     . ([ScriptBlock]::Create($sessionGateFunction.Extent.Text))
+    . ([ScriptBlock]::Create($sessionFinalizationFunction.Extent.Text))
+    . ([ScriptBlock]::Create($sessionMonitorRunningFunction.Extent.Text))
     . ([ScriptBlock]::Create($reloadDecisionFunction.Extent.Text))
     . ([ScriptBlock]::Create($operationalMarketsFunction.Extent.Text))
 
     $nowUtc = [DateTimeOffset]::UtcNow
     $closedSessions = @([pscustomobject]@{
-        market = 'KR'; is_open = $false; evaluated_at = $nowUtc.ToString('o')
+        market = 'KR'; is_open = $false; is_session = $true
+        close_at = '2026-11-16T15:30:00+09:00'; evaluated_at = $nowUtc.ToString('o')
     })
     $openSessions = @([pscustomobject]@{
-        market = 'KR'; is_open = $true; evaluated_at = $nowUtc.ToString('o')
+        market = 'KR'; is_open = $true; is_session = $true
+        close_at = '2026-11-16T15:30:00+09:00'; evaluated_at = $nowUtc.ToString('o')
     })
     $staleSessions = @([pscustomobject]@{
-        market = 'KR'; is_open = $false; evaluated_at = $nowUtc.AddSeconds(-31).ToString('o')
+        market = 'KR'; is_open = $false; is_session = $true
+        close_at = '2026-11-16T15:30:00+09:00'; evaluated_at = $nowUtc.AddSeconds(-31).ToString('o')
     })
     if (-not (Test-LocalSessionsFreshAndClosed $closedSessions $nowUtc @('KR')) -or
         (Test-LocalSessionsFreshAndClosed $openSessions $nowUtc @('KR')) -or
         (Test-LocalSessionsFreshAndClosed $staleSessions $nowUtc @('KR'))) {
         throw 'The environment reload gate did not require a fresh closed domestic session.'
+    }
+    $closeAt = [DateTimeOffset]::Parse('2026-11-16T15:30:00+09:00')
+    $recentlyClosed = @([pscustomobject]@{
+        market = 'KR'; is_open = $false; is_session = $true
+        close_at = $closeAt.ToString('o'); evaluated_at = $closeAt.AddMinutes(1).ToString('o')
+    })
+    $nineteenMinutesAfterClose = $closeAt.AddMinutes(19)
+    $recentlyClosed[0].evaluated_at = $nineteenMinutesAfterClose.ToString('o')
+    if (Test-LocalSessionFinalizationWindowElapsed $recentlyClosed $nineteenMinutesAfterClose @('KR') -GraceMinutes 20) {
+        throw 'The environment reload gate did not wait for the full post-close finalization buffer.'
+    }
+    $twentyMinutesAfterClose = $closeAt.AddMinutes(20)
+    $recentlyClosed[0].evaluated_at = $twentyMinutesAfterClose.ToString('o')
+    if (-not (Test-LocalSessionFinalizationWindowElapsed $recentlyClosed $twentyMinutesAfterClose @('KR') -GraceMinutes 20)) {
+        throw 'A completed post-close finalization buffer was not accepted.'
+    }
+    $nonSession = @([pscustomobject]@{
+        market = 'KR'; is_open = $false; is_session = $false; close_at = $null
+        evaluated_at = $nowUtc.ToString('o')
+    })
+    if (-not (Test-LocalSessionFinalizationWindowElapsed $nonSession $nowUtc @('KR') -GraceMinutes 20)) {
+        throw 'A fresh exchange holiday response should not wait for a close time.'
+    }
+    $currentSession = @([pscustomobject]@{ market = 'KR'; session_date = '2026-11-16' })
+    $usSession = @([pscustomobject]@{ market = 'US'; session_date = '2026-11-16' })
+    $activeMonitor = @{ 'AIStockTrader-KRX-Session-Monitor-20261116' = 'Running' }
+    $queuedMonitor = @{ 'AIStockTrader-KRX-Session-Monitor-20261116' = 'Queued' }
+    $inactiveMonitor = @{ 'AIStockTrader-KRX-Session-Monitor-20261116' = 'Ready' }
+    $usActiveMonitor = @{ 'AIStockTrader-US-Session-Monitor-20261116' = 'Running' }
+    if (-not (Test-LocalSessionMonitorRunning $currentSession $activeMonitor) -or
+        -not (Test-LocalSessionMonitorRunning $currentSession $queuedMonitor) -or
+        (Test-LocalSessionMonitorRunning $currentSession $inactiveMonitor) -or
+        (Test-LocalSessionMonitorRunning $currentSession $usActiveMonitor) -or
+        -not (Test-LocalSessionMonitorRunning $usSession $usActiveMonitor)) {
+        throw 'The environment reload gate did not defer only for an active configured-market monitor.'
     }
     if ((@(Get-OperationalMarketsFromEnvironment @{ MARKET_OPERATIONAL_SCOPE = 'KR' }) -join ',') -ne 'KR') {
         throw 'The active domestic operational scope was not selected.'
