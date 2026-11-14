@@ -396,34 +396,38 @@ def _metrics(model: Any, samples: list[TrainingSample]) -> dict[str, float | Non
     metrics["roc_auc"] = float(roc_auc_score(y, probabilities)) if len(set(y)) == 2 else None
     # P5 runs inference only after ORB/VWAP passes, so evaluate the same hybrid candidate here.
     predicted_candidates = [
-        sample.label for sample, prediction in zip(samples, predictions)
+        sample for sample, prediction in zip(samples, predictions)
         if prediction == 1 and sample.quant_candidate
     ]
     selected_net_returns = [
-        sample.forward_net_return_bps
-        for sample, prediction in zip(samples, predictions)
-        if prediction == 1 and sample.quant_candidate and sample.forward_net_return_bps is not None
+        sample.forward_net_return_bps for sample in predicted_candidates
+        if sample.forward_net_return_bps is not None
     ]
     metrics["candidate_count"] = float(len(predicted_candidates))
     metrics["candidate_coverage"] = float(len(predicted_candidates) / len(samples))
     metrics["candidate_positive_rate"] = (
-        float(sum(predicted_candidates) / len(predicted_candidates)) if predicted_candidates else 0.0
+        float(sum(sample.label for sample in predicted_candidates) / len(predicted_candidates))
+        if predicted_candidates else None
     )
     metrics["candidate_mean_forward_net_bps"] = (
-        float(sum(selected_net_returns) / len(selected_net_returns)) if selected_net_returns else 0.0
+        float(sum(selected_net_returns) / len(selected_net_returns))
+        if predicted_candidates and len(selected_net_returns) == len(predicted_candidates) else None
     )
     return metrics
 
 
-def _quant_baseline_metrics(samples: list[TrainingSample]) -> dict[str, float]:
+def _quant_baseline_metrics(samples: list[TrainingSample]) -> dict[str, float | None]:
     selected = [sample for sample in samples if sample.quant_candidate]
     candidates = [sample.label for sample in selected]
     net_returns = [sample.forward_net_return_bps for sample in selected if sample.forward_net_return_bps is not None]
     return {
         "candidate_count": float(len(candidates)),
         "candidate_coverage": float(len(candidates) / len(samples)) if samples else 0.0,
-        "candidate_positive_rate": float(sum(candidates) / len(candidates)) if candidates else 0.0,
-        "candidate_mean_forward_net_bps": float(sum(net_returns) / len(net_returns)) if net_returns else 0.0,
+        "candidate_positive_rate": float(sum(candidates) / len(candidates)) if candidates else None,
+        "candidate_mean_forward_net_bps": (
+            float(sum(net_returns) / len(net_returns))
+            if candidates and len(net_returns) == len(candidates) else None
+        ),
     }
 
 

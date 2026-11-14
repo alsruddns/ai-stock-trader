@@ -464,6 +464,23 @@ def test_quant_baseline_reports_candidate_coverage_and_cost_adjusted_label_rate(
     }
 
 
+def test_candidate_metrics_leave_unobserved_outcomes_unavailable() -> None:
+    no_candidates = _quant_baseline_metrics([
+        TrainingSample(date(2026, 10, 1), "t1", (), 1, False, 20.0),
+    ])
+    incomplete_returns = _quant_baseline_metrics([
+        TrainingSample(date(2026, 10, 1), "t1", (), 1, True, 20.0),
+        TrainingSample(date(2026, 10, 1), "t2", (), 0, True, None),
+    ])
+
+    assert no_candidates["candidate_count"] == 0.0
+    assert no_candidates["candidate_coverage"] == 0.0
+    assert no_candidates["candidate_positive_rate"] is None
+    assert no_candidates["candidate_mean_forward_net_bps"] is None
+    assert incomplete_returns["candidate_positive_rate"] == 0.5
+    assert incomplete_returns["candidate_mean_forward_net_bps"] is None
+
+
 def test_ai_candidate_metrics_apply_the_same_quant_gate_as_paper_runtime() -> None:
     class FixedModel:
         classes_ = [0, 1]
@@ -485,6 +502,18 @@ def test_ai_candidate_metrics_apply_the_same_quant_gate_as_paper_runtime() -> No
     assert metrics["candidate_coverage"] == 0.5
     assert metrics["candidate_positive_rate"] == 0.5
     assert metrics["candidate_mean_forward_net_bps"] == 2.5
+
+
+def test_ai_candidate_metrics_leave_no_candidate_result_unavailable() -> None:
+    model = SimpleNamespace(classes_=[0, 1], predict_proba=lambda _features: [[0.9, 0.1]])
+    samples = [TrainingSample(date(2026, 10, 1), "t1", (0.0,), 1, True, 10.0)]
+
+    metrics = _metrics(model, samples)
+
+    assert metrics["candidate_count"] == 0.0
+    assert metrics["candidate_coverage"] == 0.0
+    assert metrics["candidate_positive_rate"] is None
+    assert metrics["candidate_mean_forward_net_bps"] is None
 
 
 def test_ai_metrics_leave_roc_auc_unavailable_for_single_class_evaluation() -> None:
