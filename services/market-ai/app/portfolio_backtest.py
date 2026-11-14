@@ -87,27 +87,55 @@ def aggregate_compounded_drawdown(
     """Combine per-session marks into a sequential high-water drawdown."""
     if not isinstance(starting_equity, Decimal) or not starting_equity.is_finite() or starting_equity <= 0:
         raise ValueError("starting equity must be a positive finite decimal")
+    if not isinstance(sessions, list) or not sessions:
+        raise ValueError("compounded drawdown requires at least one ordered session")
     high_water = starting_equity
     maximum_amount = Decimal(0)
     maximum_percent = Decimal(0)
     observations = 0
-    for session in sessions:
+    previous_date: date | None = None
+    previous_ending_equity: Decimal | None = None
+    for index, session in enumerate(sessions):
+        if not isinstance(session, PortfolioBacktestResult):
+            raise ValueError("compounded drawdown sessions must be portfolio results")
+        if (not isinstance(session.session, date) or isinstance(session.session, datetime)
+                or session.market != "KR"):
+            raise ValueError("compounded drawdown requires domestic session dates")
+        if previous_date is not None and session.session <= previous_date:
+            raise ValueError("compounded drawdown sessions must be strictly chronological")
+        if (not isinstance(session.starting_equity, Decimal) or not session.starting_equity.is_finite()
+                or session.starting_equity <= 0
+                or not isinstance(session.ending_equity, Decimal) or not session.ending_equity.is_finite()
+                or session.ending_equity < 0):
+            raise ValueError("session equity is invalid for compounded drawdown")
+        expected_starting_equity = starting_equity if index == 0 else previous_ending_equity
+        if abs(session.starting_equity - expected_starting_equity) > _PORTFOLIO_TOTAL_TOLERANCE:
+            raise ValueError("compounded drawdown session equity is not sequential")
         minimum = session.minimum_bar_marked_equity
         maximum = session.maximum_bar_marked_equity
+        session_drawdown = session.max_bar_marked_drawdown_amount
+        session_drawdown_percent = session.max_bar_marked_drawdown_percent
+        session_observations = session.bar_marked_equity_observations
         if (not isinstance(minimum, Decimal) or not minimum.is_finite()
                 or not isinstance(maximum, Decimal) or not maximum.is_finite()
                 or minimum < 0 or maximum < minimum
-                or not session.max_bar_marked_drawdown_amount.is_finite()
-                or not session.max_bar_marked_drawdown_percent.is_finite()
-                or session.bar_marked_equity_observations < 1):
+                or maximum < session.starting_equity
+                or not isinstance(session_drawdown, Decimal) or not session_drawdown.is_finite()
+                or session_drawdown < 0
+                or not isinstance(session_drawdown_percent, Decimal) or not session_drawdown_percent.is_finite()
+                or session_drawdown_percent < 0
+                or not isinstance(session_observations, int) or isinstance(session_observations, bool)
+                or session_observations < 1):
             raise ValueError("session equity marks are invalid for compounded drawdown")
         from_prior_high = max(Decimal(0), high_water - minimum)
         from_prior_high_percent = from_prior_high * Decimal(100) / high_water
-        maximum_amount = max(maximum_amount, from_prior_high, session.max_bar_marked_drawdown_amount)
+        maximum_amount = max(maximum_amount, from_prior_high, session_drawdown)
         maximum_percent = max(maximum_percent, from_prior_high_percent,
-                              session.max_bar_marked_drawdown_percent)
+                              session_drawdown_percent)
         high_water = max(high_water, maximum)
-        observations += session.bar_marked_equity_observations
+        observations += session_observations
+        previous_date = session.session
+        previous_ending_equity = session.ending_equity
     return CompoundedDrawdown(maximum_amount, maximum_percent, observations)
 
 

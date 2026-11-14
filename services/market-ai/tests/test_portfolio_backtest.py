@@ -206,6 +206,7 @@ def test_compounded_drawdown_carries_prior_session_high_water_mark() -> None:
         max_bar_marked_drawdown_percent=Decimal("14.2857142857"),
         minimum_bar_marked_equity=Decimal("800000"),
         maximum_bar_marked_equity=Decimal("1050000"),
+        session=baseline.session + timedelta(days=1),
     )
 
     result = aggregate_compounded_drawdown(Decimal("1000000"), [first, second])
@@ -213,6 +214,30 @@ def test_compounded_drawdown_carries_prior_session_high_water_mark() -> None:
     assert result.maximum_amount == Decimal("300000")
     assert result.maximum_percent == Decimal("27.27272727272727272727272727")
     assert result.observations == baseline.bar_marked_equity_observations * 2
+
+
+def test_compounded_drawdown_rejects_nonchronological_or_disconnected_sessions() -> None:
+    baseline = _run({"005930": _bars(0), "000660": _bars(1)})
+    next_session = replace(baseline, session=baseline.session + timedelta(days=1))
+    disconnected_session = replace(next_session, starting_equity=Decimal("999999"))
+
+    with pytest.raises(ValueError, match="strictly chronological"):
+        aggregate_compounded_drawdown(Decimal("1000000"), [next_session, baseline])
+    with pytest.raises(ValueError, match="not sequential"):
+        aggregate_compounded_drawdown(Decimal("1000000"), [baseline, disconnected_session])
+
+
+def test_compounded_drawdown_rejects_duplicate_sessions_and_invalid_observation_counts() -> None:
+    baseline = _run({"005930": _bars(0), "000660": _bars(1)})
+    duplicate = replace(baseline)
+    invalid_observations = replace(
+        baseline, session=baseline.session + timedelta(days=1), bar_marked_equity_observations=True,
+    )
+
+    with pytest.raises(ValueError, match="strictly chronological"):
+        aggregate_compounded_drawdown(Decimal("1000000"), [baseline, duplicate])
+    with pytest.raises(ValueError, match="equity marks"):
+        aggregate_compounded_drawdown(Decimal("1000000"), [baseline, invalid_observations])
 
 
 def test_portfolio_drawdown_marks_adverse_intrabar_low_before_exit(monkeypatch) -> None:
