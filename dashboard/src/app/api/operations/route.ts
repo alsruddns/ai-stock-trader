@@ -436,10 +436,27 @@ export async function GET() {
   const trainingTasks = (localOperationsReport?.validationTaskSchedule?.tasks ?? [])
     .filter((task) => task.kind === "P4_MODEL_TRAIN" && task.market === "KR"
       && task.enabled && task.symbol);
-  const trainingPairs = [...new Map(trainingTasks.map((task) => [`${task.market}:${task.symbol}`, task])).values()];
-  const trainingReadinessRows = await Promise.all(trainingPairs.map(async (task) => {
-    const key = `${task.market}:${task.symbol}`;
-    return [key, await fetchTrainingReadiness(pythonBase, task.market ?? "", task.symbol ?? "")] as const;
+  const trackedPaperDecisions = paperSessionResult && typeof paperSessionResult === "object"
+    ? (paperSessionResult as { mode?: string; decisions?: Record<string, { market?: string; symbol?: string }> })
+    : null;
+  const readinessSymbolSet = new Set<string>();
+  if (operationalMarkets.has("KR")) {
+    for (const task of trainingTasks) {
+      const symbol = task.symbol?.trim().toUpperCase();
+      if (symbol && /^\d{6}$/.test(symbol)) readinessSymbolSet.add(symbol);
+    }
+    if (trackedPaperDecisions?.mode === "PAPER") {
+      for (const item of Object.values(trackedPaperDecisions.decisions ?? {})) {
+        if (item.market !== "KR" || typeof item.symbol !== "string") continue;
+        const symbol = item.symbol.trim().toUpperCase();
+        if (/^\d{6}$/.test(symbol)) readinessSymbolSet.add(symbol);
+      }
+    }
+  }
+  const readinessSymbols = [...readinessSymbolSet].slice(0, 20);
+  const trainingReadinessRows = await Promise.all(readinessSymbols.map(async (symbol) => {
+    const key = `KR:${symbol}`;
+    return [key, await fetchTrainingReadiness(pythonBase, "KR", symbol)] as const;
   }));
   const decisions = paperSessionResult && typeof paperSessionResult === "object"
     ? (paperSessionResult as { decisions?: Record<string, { market?: string; symbol?: string }> }).decisions ?? {}
