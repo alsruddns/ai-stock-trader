@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P5 Windows 운영 체크아웃 동기화 및 다음 세션 준비 (작업일 2026-11-15):** 다음 KRX 전체 세션 감시 작업이 사용하는 `C:\Users\achie\git\ai-stock-trader` 체크아웃이 원격 `develop`보다 11개 커밋 뒤였고 로컬 소스 변경은 없었습니다. `git pull --ff-only`로 `15480bc`까지 fast-forward했으며 `.env_local`은 기존대로 Git 제외인지 확인했습니다. 로컬 Python API health `ok`, PAPER feed와 분봉 저장 `RUNNING`, pending 0건; Spring은 `PAPER`, 시장 `KR`, PAPER 주문·자동매매 및 REAL 주문·승인 비활성을 확인했습니다. 2026-11-16 08:45 KST 세션 감시 작업은 `Ready`이고 현재 운영 체크아웃의 감시 스크립트를 가리킵니다. 예약 상태가 장중 실행·데이터 품질을 보장하지는 않으며 실제 KIS 주문은 호출하지 않았습니다.
+
 - **P2/P6 정상 주문 응답 코드 수정 CI 결과 (작업일 2026-11-15):** `9c25c41`의 Domestic KIS API compatibility 실행 `43640588189`에서 신규 PAPER·REAL 주문접수 회귀검사를 포함한 Spring 국내 운영 범위, KIS 호환성, PostgreSQL 스냅샷·복구 통합, Dashboard lint/type-check 등 4개 job이 모두 성공했습니다. 주문·계좌 API는 호출하지 않았습니다.
 
 - **P2/P6 KIS 정상 주문 응답 코드 처리 수정 (작업일 2026-11-15):** 공식 KIS 국내·미국 주문 샘플의 성공 판정은 `rt_cd == "0"`인데, 두 주문 어댑터가 영수증에 `msg_cd`를 기록해 `MCA00000` 같은 정상 메시지 코드 응답도 주문 의도에서 접수로 인정되지 않고 `UNKNOWN`으로 남을 수 있었습니다. PAPER·REAL 영수증은 이미 검증된 `rt_cd`를 보존하도록 수정하고, `msg_cd=MCA00000` 성공 응답이 각각 `ACCEPTED`로 전환되는 모의 검사를 추가했습니다. 주문 클라이언트 집중검사 58/58, 양쪽 오케스트레이터 집중검사 43/43 통과; 전체 테스트는 실행하지 않았습니다. 국내 KIS CI에 두 성공 응답 회귀검사를 명시적으로 연결했습니다. 실제 PAPER/REAL 주문은 전송하지 않았습니다.
