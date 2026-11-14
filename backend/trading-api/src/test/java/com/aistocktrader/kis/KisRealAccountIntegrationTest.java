@@ -1,6 +1,9 @@
 package com.aistocktrader.kis;
 
 import com.aistocktrader.order.Market;
+import com.aistocktrader.order.Currency;
+import com.aistocktrader.order.OrderRequest;
+import com.aistocktrader.order.OrderSide;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -20,6 +23,8 @@ class KisRealAccountIntegrationTest {
     @Autowired private KisAccountClient client;
     @Autowired private KisRealOrderClient realOrders;
     @Autowired private KisMarketSessionClient sessions;
+    @Autowired private KisMarketAiEvidenceClient marketAiEvidence;
+    @Autowired private KisRealOrderController realOrderController;
 
     @BeforeAll
     static void assertReadOnlyGates() {
@@ -67,6 +72,23 @@ class KisRealAccountIntegrationTest {
         assertNotNull(snapshot.orderableCash(), "Domestic REAL orderable cash must be mapped for this symbol and price.");
         assertTrue(snapshot.orderableCash().signum() >= 0, "Domestic REAL orderable cash cannot be negative.");
         assertNotNull(snapshot.positions(), "Domestic REAL positions must be present even when the account is empty.");
+    }
+
+    @Test
+    void preflightsDomesticRealBuyWithFreshQuoteWithoutSubmittingAnOrder() {
+        var quote = marketAiEvidence.quoteForExit(Market.KR, "005930", null);
+        var request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                quote.price(), Currency.KRW);
+
+        KisRealOrderPreflightResponse response = realOrderController.preflight(request, null);
+
+        assertNotNull(response);
+        assertNotNull(response.assessedAt());
+        assertEquals(Market.KR, response.effectiveOrder().market());
+        assertEquals("005930", response.effectiveOrder().symbol());
+        assertTrue(response.effectiveOrder().quantity() > 0);
+        System.out.printf("KIS REAL domestic order-free preflight approved=%s reasonCount=%d (financial values suppressed)%n",
+                response.approved(), response.reasons().size());
     }
 
     @Test
