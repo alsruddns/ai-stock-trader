@@ -85,9 +85,9 @@ Set-Location .\services\market-ai
 
 국내 후보 API에서 `freshness_verified`와 `executable`은 항상 `false`입니다. 거래대금·스프레드는 1차 필터 정보이며, 종목 구독·AI 신호·주문을 생성하지 않습니다. KRX 종가 단일가 구간과 거래소 휴장 중에는 조회를 거부합니다. 미국 후보 구현에 필요한 REAL 시세 설정은 현재 활성화하지 않습니다.
 
-실행 중인 PAPER 시세 감시기에 국내 필터 통과 종목을 추가하는 구현 경로는 `POST /api/v1/market/candidates/KR/subscribe?minimum_turnover=1000000000`입니다. 현재 설정과 사용자 범위를 고려해 별도 잠금 `PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED`를 켜지 않았으며, 미국 구독 경로는 실행하지 않습니다. 모니터와 국내 WebSocket이 연결된 연속매매 시간에만 동작하며 PAPER 모드와 실전 거래 비활성도 다시 검사합니다. 등록 요청은 KIS 승인이나 신호·주문 가능성을 보증하지 않습니다. 감시기 추가는 실시간 시세 취득만 수행하고 기본 잠금은 `false`입니다.
+실행 중인 PAPER 시세 감시기에 국내 필터 통과 종목을 추가하는 구현 경로는 `POST /api/v1/market/candidates/KR/subscribe?minimum_turnover=1000000000`입니다. 기본 잠금 `PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED`는 `false`이며, 미국 구독 경로는 현재 실행하지 않습니다. 모니터와 국내 WebSocket이 연결된 연속매매 시간에만 동작하며 PAPER 모드와 실전 거래 비활성도 다시 검사합니다. 등록 요청은 KIS 승인이나 신호·주문 가능성을 보증하지 않습니다. 감시기 추가는 실시간 시세 취득만 수행합니다.
 
-후보 자동 갱신 코드는 두 시장을 지원하지만 현재 자동 구독·갱신은 국내만 개발·검증 대상으로 남겨 두고 실제 스위치는 끕니다. 미국 feed나 `PAPER_CANDIDATE_US_EXCHANGE`를 활성화하지 않습니다. `PAPER_CANDIDATE_LIMIT`은 1~20이며 기본 10입니다. 앱이 국내 장 시작 뒤 켜졌거나 장 전에 feed가 연결되지 않으면 해당 세션은 건너뜁니다. PAPER 자동매매가 켜져 있거나 PAPER 모드·실거래 잠금 조건이 어긋나면 갱신하지 않습니다. 순위는 감시 종목 선택에만 쓰며, 장전 스프레드가 없더라도 양수 가격·거래량과 거래대금 기준으로 구독할 수 있습니다. 실제 PAPER 매수 후보 생성에는 별도의 장중 신선 시세·스프레드·전략·승인 모델·위험 검사가 계속 적용됩니다.
+후보 자동 갱신 코드는 두 시장을 지원하지만 이 프로젝트의 실행·검증은 국내만 합니다. 기본값은 `PAPER_CANDIDATE_AUTO_REFRESH_ENABLED=false`, `PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED=false`입니다. 2026-11-15부터 이 Windows 로컬 환경에서는 국내 데이터 축적을 위해 두 스위치만 켰습니다. 현재 수동 감시 종목은 KR이며 자동 후보는 거래대금 10억 원 이상, 최대 10종목, 스프레드 15bp 이하 조건으로 국내 정규장 5분 전 검색합니다. 동작은 국내 KIS PAPER REST 조회와 WebSocket 시세 구독만 수행하며 주문·취소를 보내지 않습니다. 미국 feed나 `PAPER_CANDIDATE_US_EXCHANGE`는 설정하지 않았습니다. PAPER 자동매매가 켜져 있거나 PAPER 모드·실거래 잠금 조건이 어긋나면 갱신하지 않습니다. 장 시작 뒤에 앱을 켰거나 장 전에 feed가 연결되지 않으면 그 세션은 건너뜁니다. 실제 PAPER 매수 후보 생성에는 별도의 장중 신선 시세·스프레드·전략·승인 모델·위험 검사가 계속 적용됩니다.
 
 국내 후보 목록 교체 구현은 `POST /api/v1/market/candidates/KR/refresh-subscriptions?minimum_turnover=1000000000`입니다. 미국 경로는 현재 실행하지 않습니다. 교체 전 Spring PAPER 운영 요약의 보유 종목·미체결 주문을 확인합니다. 보유 종목 구독은 유지하고, 미체결 주문이 하나라도 있으면 이전 후보 구독 전체를 보존합니다. Spring 응답 누락·오류·형식 불일치는 교체 작업을 중단합니다. 제거 대상은 이 API로 추가된 후보 구독으로 한정하며 `.env_local`의 수동 `PAPER_WATCHLIST` 종목은 유지합니다. 실시간 해제 요청의 KIS 승인 응답은 아직 검증되지 않았습니다.
 
