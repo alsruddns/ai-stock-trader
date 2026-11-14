@@ -565,6 +565,10 @@ def test_training_readiness_counts_only_complete_approved_websocket_sessions(mon
         "session_count": 1,
         "positive_label_count": 0,
         "negative_label_count": 355,
+        "session_class_counts": [{
+            "session_date": "2026-11-05", "sample_count": 355,
+            "positive": 0, "negative": 355,
+        }],
         "partition_sample_counts": None,
         "partition_session_counts": None,
         "partition_class_counts": None,

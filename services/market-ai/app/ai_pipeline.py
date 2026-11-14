@@ -301,12 +301,21 @@ def assess_training_samples(samples: list[TrainingSample]) -> dict[str, Any]:
     dates = sorted({sample.session for sample in samples})
     positive = sum(sample.label == 1 for sample in samples)
     negative = sum(sample.label == 0 for sample in samples)
+    session_counts = {session.isoformat(): {"sample_count": 0, "positive": 0, "negative": 0}
+                      for session in dates}
+    for sample in samples:
+        counts = session_counts[sample.session.isoformat()]
+        counts["sample_count"] += 1
+        counts["positive" if sample.label == 1 else "negative"] += 1
     result: dict[str, Any] = {
         "ready": False,
         "sample_count": len(samples),
         "session_count": len(dates),
         "positive_label_count": positive,
         "negative_label_count": negative,
+        "session_class_counts": [
+            {"session_date": session, **counts} for session, counts in session_counts.items()
+        ],
         "partition_sample_counts": None,
         "partition_session_counts": None,
         "partition_class_counts": None,

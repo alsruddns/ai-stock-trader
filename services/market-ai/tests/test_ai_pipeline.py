@@ -373,6 +373,15 @@ def test_training_sample_readiness_matches_partition_and_class_gates() -> None:
     assert ready["sample_count"] == 520
     assert ready["partition_sample_counts"] == {"train": 200, "validation": 120, "test": 200}
     assert ready["partition_session_counts"] == {"train": 5, "validation": 3, "test": 5}
+    assert ready["session_class_counts"] == [
+        {
+            "session_date": session.isoformat(),
+            "sample_count": 40,
+            "positive": 20,
+            "negative": 20,
+        }
+        for session in sessions
+    ]
     assert ready["partition_class_counts"] == {
         "train": {"positive": 100, "negative": 100},
         "validation": {"positive": 60, "negative": 60},
