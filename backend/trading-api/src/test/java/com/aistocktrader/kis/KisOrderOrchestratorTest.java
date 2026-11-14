@@ -78,6 +78,26 @@ class KisOrderOrchestratorTest {
     }
 
     @Test
+    void paperSymbolReservationConflictStopsBeforeAccountOrBrokerAccess() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = buyRequest();
+        var conflict = new DataIntegrityViolationException("duplicate unresolved PAPER symbol order",
+                new org.hibernate.exception.ConstraintViolationException(
+                        "duplicate unresolved PAPER symbol order", null,
+                        "uq_kis_paper_unresolved_order_per_market_symbol"));
+        when(intents.prepare(key, KisOrderOrchestrator.hash(request, null), request, null))
+                .thenThrow(conflict, conflict);
+
+        KisApiException exception = assertThrows(KisApiException.class,
+                () -> orchestrator.submitPaperOrder(key, request, null));
+
+        assertEquals(HttpStatus.LOCKED, exception.status());
+        verify(intents, org.mockito.Mockito.times(2))
+                .prepare(key, KisOrderOrchestrator.hash(request, null), request, null);
+        verifyNoInteractions(accounts, orders, marketEvidence);
+    }
+
+    @Test
     void fractionalWonPaperOrderIsRejectedBeforeIntentOrAccountPreflight() {
         OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
                 new BigDecimal("70000.5"), Currency.KRW);

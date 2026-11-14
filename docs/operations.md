@@ -129,6 +129,8 @@ KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는
 
 ### KIS PAPER 주문 수명주기 통합 확인
 
+PostgreSQL 마이그레이션 V30부터 미해결 KIS PAPER 주문은 시장·종목별 하나만 예약할 수 있습니다. `SUBMITTING`, `ACCEPTED`, `PARTIALLY_FILLED`, `CANCEL_PENDING`, `UNKNOWN` 상태가 남아 있으면 다른 멱등키의 같은 종목 주문을 DB 고유 인덱스가 차단하며, 이 제약 경합은 주문 전 `423 LOCKED` 응답으로 변환됩니다. 서로 다른 종목 주문은 각각 예약할 수 있고, 같은 멱등키 재요청은 기존 의도를 반환합니다. 주문 취소가 확인되지 않아 `ACCEPTED` 또는 `UNKNOWN`이 남으면 해당 종목의 새 PAPER 주문이 대사로 `FILLED`, `REJECTED`, `CANCELLED` 등 종료될 때까지 막힙니다.
+
 `KIS_PAPER_RECONCILIATION_ENABLED=true`는 PAPER 계좌 읽기가 허용된 경우에만 동작하는 읽기 전용 주문 상태 poller입니다. `ACCEPTED`, `PARTIALLY_FILLED`, `CANCEL_PENDING`, `UNKNOWN` intent를 국내 운영 범위에서 페이지별 최대 50건씩 순환 조회합니다. 페이지는 `updatedAt`, `id` 순으로 정렬되어 첫 50건 이후의 주문도 다음 poll에서 차례로 확인합니다. 알려진 브로커 주문번호가 있는 주문만 KIS 일별 체결조회로 다시 확인합니다. 이 작업은 `KIS_PAPER_ORDERS_ENABLED`가 꺼져 있어도 조회 스위치 두 개, PAPER 자격정보, PAPER 실행 모드가 맞으면 실행할 수 있지만 주문·취소 POST는 하지 않습니다. 주문번호가 없는 UNKNOWN 주문은 증권사 기록과의 유일한 연결 키가 없으므로 자동 조회·재전송하지 않고 수동 확인 대상으로 남깁니다. 기본값은 `false`이며 poll 간격 기본값은 30초입니다.
 
 KIS PAPER lifecycle 검증은 국내에서만 진행합니다. KIS 공식 저장소의 모의투자 API 지원표는 국내 `주식정정취소가능주문조회`를 모의투자 미지원으로 표시합니다. 같은 공식 API 예제는 정정·취소 POST 전에 이 조회를 호출해 `psbl_qty`를 확인하라고 요구하므로, 취소 가능수량을 다른 API 값으로 추정하거나 우회하지 않습니다. 따라서 `KR -ConfirmPaperOrderAndCancel`은 네트워크 요청 전에 거부됩니다. [KIS 공식 모의투자 API 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#3-api-%EC%A0%9C%EA%B3%B5-%EB%AA%A9%EB%A1%9D) · [KIS 공식 취소가능수량 조회 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_psbl_rvsecncl/inquire_psbl_rvsecncl.py).

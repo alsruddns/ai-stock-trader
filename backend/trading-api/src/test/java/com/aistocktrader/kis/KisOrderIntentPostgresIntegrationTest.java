@@ -124,6 +124,35 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    void paperKisOrdersReserveOneUnresolvedOrderPerSymbolInPostgres() {
+        UUID firstKey = UUID.randomUUID();
+        UUID secondKey = UUID.randomUUID();
+        UUID thirdKey = UUID.randomUUID();
+        OrderRequest firstRequest = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("207000"), Currency.KRW);
+        OrderRequest secondRequest = new OrderRequest(Market.KR, "000660", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        OrderRequest thirdRequest = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("207000"), Currency.KRW);
+
+        try {
+            store.prepare(firstKey, KisOrderOrchestrator.hash(firstRequest, null), firstRequest, null);
+            store.prepare(secondKey, KisOrderOrchestrator.hash(secondRequest, null), secondRequest, null);
+
+            assertThrows(DataIntegrityViolationException.class, () -> store.prepare(thirdKey,
+                    KisOrderOrchestrator.hash(thirdRequest, null), thirdRequest, null));
+            assertTrue(repository.findById(thirdKey).isEmpty());
+
+            store.reject(firstKey, "TEST_REJECTED");
+            store.prepare(thirdKey, KisOrderOrchestrator.hash(thirdRequest, null), thirdRequest, null);
+            assertEquals(KisOrderStatus.SUBMITTING, repository.findById(secondKey).orElseThrow().getStatus());
+            assertEquals(KisOrderStatus.SUBMITTING, repository.findById(thirdKey).orElseThrow().getStatus());
+        } finally {
+            repository.deleteAllById(List.of(firstKey, secondKey, thirdKey));
+        }
+    }
+
+    @Test
     void concurrentDuplicatePaperAmendmentsWithSameKeyCreateOneHistoryRow() throws Exception {
         UUID orderKey = UUID.randomUUID();
         UUID amendmentKey = UUID.randomUUID();
@@ -821,10 +850,18 @@ class KisOrderIntentPostgresIntegrationTest {
         UUID unknownWithoutBrokerKey = UUID.randomUUID();
         UUID realKey = UUID.randomUUID();
         try {
-            store.prepare(earlierKey, hash("paper-page-earlier"), KisEnvironment.PAPER, request(), null);
+            OrderRequest earlierRequest = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                    new BigDecimal("70000"), Currency.KRW);
+            OrderRequest laterRequest = new OrderRequest(Market.KR, "000660", OrderSide.BUY, 1,
+                    new BigDecimal("70000"), Currency.KRW);
+            OrderRequest unknownRequest = new OrderRequest(Market.KR, "035420", OrderSide.BUY, 1,
+                    new BigDecimal("70000"), Currency.KRW);
+            store.prepare(earlierKey, hash("paper-page-earlier"), KisEnvironment.PAPER, earlierRequest, null);
             store.accept(earlierKey, receipt("paper", "PG" + UUID.randomUUID().toString().replace("-", "").substring(0, 16)));
-            store.prepare(laterKey, hash("paper-page-later"), KisEnvironment.PAPER, request(), null);
-            store.accept(laterKey, receipt("paper", "PG" + UUID.randomUUID().toString().replace("-", "").substring(0, 16)));
+            store.prepare(laterKey, hash("paper-page-later"), KisEnvironment.PAPER, laterRequest, null);
+            store.accept(laterKey, new KisOrderReceipt("paper", "KR", "000660", "BUY",
+                    "PG" + UUID.randomUUID().toString().replace("-", "").substring(0, 16),
+                    "ITORG01", "0", Instant.now()));
 
             OrderRequest usRequest = new OrderRequest(Market.US, "AAPL", OrderSide.BUY, 1,
                     new BigDecimal("100"), Currency.USD);
@@ -834,7 +871,7 @@ class KisOrderIntentPostgresIntegrationTest {
                     "ITORG01", "0", Instant.now()));
 
             KisOrderIntent unknownWithoutBroker = new KisOrderIntent(unknownWithoutBrokerKey,
-                    hash("paper-page-unknown"), KisEnvironment.PAPER, request(), null);
+                    hash("paper-page-unknown"), KisEnvironment.PAPER, unknownRequest, null);
             unknownWithoutBroker.markUnknown();
             repository.saveAndFlush(unknownWithoutBroker);
 
@@ -1564,7 +1601,9 @@ class KisOrderIntentPostgresIntegrationTest {
         UUID recentKey = UUID.randomUUID();
         try {
             store.prepare(staleKey, hash("stale-submission"), KisEnvironment.PAPER, request(), null);
-            store.prepare(recentKey, hash("recent-submission"), KisEnvironment.PAPER, request(), null);
+            OrderRequest recentRequest = new OrderRequest(Market.KR, "000660", OrderSide.BUY, 1,
+                    new BigDecimal("70000"), Currency.KRW);
+            store.prepare(recentKey, hash("recent-submission"), KisEnvironment.PAPER, recentRequest, null);
             Instant cutoff = Instant.now().minusSeconds(60);
             jdbcTemplate.update("UPDATE kis_order_intent SET updated_at = ? WHERE idempotency_key = ?",
                     Timestamp.from(cutoff.minusSeconds(1)), staleKey);

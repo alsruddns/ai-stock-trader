@@ -5,6 +5,7 @@ import com.aistocktrader.order.Currency;
 import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderRequest;
 import com.aistocktrader.order.OrderSide;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 
@@ -44,8 +45,16 @@ public class KisOrderOrchestrator {
         try {
             prepared = intents.prepare(idempotencyKey, requestHash, request, exchange);
         } catch (org.springframework.dao.DataIntegrityViolationException duplicateRace) {
-            // Re-run the store's hash and environment checks after the concurrent insert wins.
-            prepared = intents.prepare(idempotencyKey, requestHash, request, exchange);
+            try {
+                // Re-run the store's hash and environment checks after the concurrent insert wins.
+                prepared = intents.prepare(idempotencyKey, requestHash, request, exchange);
+            } catch (org.springframework.dao.DataIntegrityViolationException reservationConflict) {
+                if (isPaperMarketReservationConflict(reservationConflict)) {
+                    throw new KisApiException(HttpStatus.LOCKED,
+                            "An unresolved PAPER order is already reserved for this symbol.");
+                }
+                throw reservationConflict;
+            }
         }
         KisOrderIntent intent = prepared.intent();
         if (!prepared.createdNow()) {
@@ -195,6 +204,17 @@ public class KisOrderOrchestrator {
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable.", exception);
         }
+    }
+
+    private static boolean isPaperMarketReservationConflict(
+            org.springframework.dao.DataIntegrityViolationException exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException constraint
+                    && "uq_kis_paper_unresolved_order_per_market_symbol".equals(constraint.getConstraintName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String normalizeExchange(String exchange) {

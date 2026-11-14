@@ -5,6 +5,7 @@ on:
     branches: [develop]
     paths:
       - 'backend/trading-api/src/main/java/**'
+      - 'backend/trading-api/src/main/resources/db/migration/**'
       - 'backend/trading-api/src/main/resources/application.yml'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealDailyRiskBaselineServiceTest.java'
       - 'backend/trading-api/src/main/java/com/aistocktrader/kis/KisOrderIntentStore.java'
@@ -207,6 +208,9 @@ jobs:
       - name: Verify ambiguous PAPER submissions stay locked after application restart
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#submittingPaperIntentRecoversAsUnknownAfterApplicationRestartWithoutBrokerResubmission' test
+      - name: Verify PAPER symbol reservation blocks duplicate exposure in PostgreSQL
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#paperKisOrdersReserveOneUnresolvedOrderPerSymbolInPostgres' test
       - name: Verify stale KIS submissions recover to UNKNOWN in PostgreSQL
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#scheduledRecoveryMarksOnlyStaleSubmittingIntentsUnknown' test
