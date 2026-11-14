@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from app import data_provenance
 from app.data_provenance import (
     load_data_provenance,
     validate_data_provenance,
@@ -303,6 +304,70 @@ def test_model_session_integrity_audits_real_bar_grid_and_spread_timestamps() ->
     bars[10].spread_observed_at = None
     with pytest.raises(ValueError, match="complete exchange session"):
         validate_model_session_integrity(market="KR", symbol="005930", sessions={session_date: bars})
+
+
+def test_training_cli_rejects_off_grid_session_before_creating_registry(
+    tmp_path, monkeypatch, capsys,
+) -> None:
+    repository = Path(__file__).resolve().parents[3]
+    session_date = date(2026, 11, 2)
+    window = exchange_continuous_session_window(
+        "KR", datetime(2026, 11, 2, 12, tzinfo=ZoneInfo("Asia/Seoul")),
+    )
+    assert window is not None
+    opened, closed = window
+    expected_bars = int((closed - opened).total_seconds() // 60)
+    csv = tmp_path / "off-grid-training.csv"
+    rows = ["symbol,timestamp,open,high,low,close,volume,spread_bps,spread_observed_at\n"]
+    for index in range(expected_bars):
+        timestamp = opened + timedelta(minutes=index)
+        if index == 50:
+            timestamp += timedelta(seconds=30)
+        observed_at = timestamp + timedelta(seconds=10)
+        rows.append(
+            f"005930,{timestamp.isoformat()},10000,10000,10000,10000,100,5,{observed_at.isoformat()}\n"
+        )
+    csv.write_text("".join(rows), encoding="utf-8")
+    digest = hashlib.sha256(csv.read_bytes()).hexdigest()
+    payload = _payload(digest)
+    coverage_row = {
+        "session_date": session_date.isoformat(), "bars": expected_bars,
+        "expected_bars": expected_bars, "complete": True,
+        "bars_with_spread": expected_bars, "spread_complete": True,
+        "bars_with_spread_observation_time": expected_bars,
+        "spread_observation_time_complete": True,
+        "sources": ["KIS_PAPER_WEBSOCKET"],
+        "source_counts": {"KIS_PAPER_WEBSOCKET": expected_bars},
+    }
+    payload["coverage"] = {
+        "observed_session_count": 1, "observed_bar_count": expected_bars,
+        "complete_session_count": 1, "spread_complete_session_count": 1,
+        "spread_observation_time_complete_session_count": 1, "sessions": [coverage_row],
+    }
+    csv.with_name(csv.name + ".provenance.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    original_validator = data_provenance.validate_model_training_coverage
+    monkeypatch.setattr(
+        data_provenance, "validate_model_training_coverage",
+        lambda provenance, *, market, sessions: original_validator(
+            provenance, market=market, sessions=sessions, minimum_sessions=1,
+        ),
+    )
+    registry = tmp_path / "models"
+    script = repository / "scripts" / "train-ai-models.py"
+    monkeypatch.setattr(sys, "argv", [
+        str(script), str(csv), "--market", "KR", "--symbol", "005930",
+        "--registry", str(registry), "--round-trip-cost-bps", "30",
+        "--buy-commission-bps", "5", "--sell-commission-bps", "5",
+        "--sell-tax-bps", "10", "--slippage-bps", "5",
+    ])
+
+    with pytest.raises(SystemExit) as result:
+        runpy.run_path(str(script), run_name="__main__")
+
+    assert result.value.code == 2
+    assert "complete exchange session with timestamped spreads" in capsys.readouterr().err
+    assert not registry.exists()
 
 
 @pytest.mark.parametrize(
