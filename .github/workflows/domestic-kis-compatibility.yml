@@ -19,6 +19,7 @@ on:
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealizedPnlCalculatorTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealOrderControllerTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisOrderControllerMarketScopeTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisOrderControllerTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/health/OperationsControllerTest.java'
       - 'services/market-ai/app/**'
       - 'scripts/export-daily-report.ps1'
@@ -129,6 +130,9 @@ jobs:
       - name: Run domestic-only PAPER order intent scope test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=KisOrderControllerMarketScopeTest#blocksOutOfScopePaperIntentReadReconciliationAndCancellationBeforeBrokerAccess test
+      - name: Run PAPER order controller boundary tests
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode -Dtest=KisOrderControllerTest test
       - name: Run domestic-only REAL order intent scope test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=KisRealOrderControllerTest#domesticScopeBlocksOutOfScopeRealIntentReadReconciliationAndCancellationBeforeBrokerAccess test
