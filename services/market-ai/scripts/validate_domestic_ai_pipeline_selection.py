@@ -60,8 +60,8 @@ def main() -> int:
         )
 
     selected_count = sum(_case_count(test) for test in tests if test.name not in EXCLUDED_TESTS)
-    if selected_count != 73:
-        raise SystemExit(f"Expected 73 domestic AI pipeline tests, found {selected_count}.")
+    if selected_count != 74:
+        raise SystemExit(f"Expected 74 domestic AI pipeline tests, found {selected_count}.")
     api_source = API_TEST_FILE.read_text(encoding="utf-8")
     api_tree = ast.parse(api_source, filename=str(API_TEST_FILE))
     api_tests = [node for node in api_tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
