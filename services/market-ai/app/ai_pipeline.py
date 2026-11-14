@@ -9,6 +9,8 @@ import os
 import re
 import tempfile
 import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -36,7 +38,7 @@ MIN_MODEL_TRAIN_SAMPLES = 30
 MIN_MODEL_VALIDATION_SAMPLES = 10
 MIN_MODEL_TEST_SAMPLES = 10
 _REGISTRY_LOCKS_GUARD = threading.Lock()
-_REGISTRY_LOCKS: dict[Path, threading.RLock] = {}
+_REGISTRY_LOCKS: dict[Path, tuple[threading.RLock, threading.local]] = {}
 _GOVERNANCE_GENESIS_SHA256 = "0" * 64
 
 
@@ -454,7 +456,57 @@ class LocalModelRegistry:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         with _REGISTRY_LOCKS_GUARD:
-            self._governance_lock = _REGISTRY_LOCKS.setdefault(self.root, threading.RLock())
+            state = _REGISTRY_LOCKS.get(self.root)
+            if state is None:
+                state = (threading.RLock(), threading.local())
+                _REGISTRY_LOCKS[self.root] = state
+            self._governance_lock, self._governance_local = state
+
+    @contextmanager
+    def _governance_guard(self):
+        """Serialize registry governance across threads and separate processes."""
+        with self._governance_lock:
+            depth = getattr(self._governance_local, "depth", 0)
+            if depth:
+                self._governance_local.depth = depth + 1
+                try:
+                    yield
+                finally:
+                    self._governance_local.depth -= 1
+                return
+
+            lock_path = self.root / ".governance.lock"
+            with lock_path.open("a+b") as lock_file:
+                lock_file.seek(0, os.SEEK_END)
+                if lock_file.tell() == 0:
+                    lock_file.write(b"\0")
+                    lock_file.flush()
+                lock_file.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    deadline = time.monotonic() + 30
+                    while True:
+                        try:
+                            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                            break
+                        except OSError:
+                            if time.monotonic() >= deadline:
+                                raise TimeoutError("timed out waiting for model registry governance lock")
+                            time.sleep(0.05)
+                else:
+                    import fcntl
+
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                self._governance_local.depth = 1
+                try:
+                    yield
+                finally:
+                    self._governance_local.depth = 0
+                    if os.name == "nt":
+                        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     @property
     def _active_path(self) -> Path:
@@ -544,7 +596,7 @@ class LocalModelRegistry:
             raise ValueError("market, symbol, and independent holdout sessions are required")
         holdout_start = holdout_dates[0]
         eligible: list[tuple[float, str, int, str, str]] = []
-        with self._governance_lock:
+        with self._governance_guard():
             for item in self.list_models():
                 if (item.get("integrity_error") or item.get("approved")
                         or item.get("market") != normalized_market
@@ -819,7 +871,7 @@ class LocalModelRegistry:
 
     def governance_audit_status(self) -> dict[str, Any]:
         """Expose audit-chain integrity separately from the event list."""
-        with self._governance_lock:
+        with self._governance_guard():
             try:
                 events = self._read_governance_events()
                 return {"integrity_verified": True, "event_count": len(events)}
@@ -971,7 +1023,7 @@ class LocalModelRegistry:
         justification = note.strip()[:1000]
         if not reviewer or len(justification) < 20:
             raise ValueError("reviewer and an approval note of at least 20 characters are required")
-        with self._governance_lock:
+        with self._governance_guard():
             metadata = self.manifest(model_id)
             if metadata.get("market") not in {"KR", "US"}:
                 raise ValueError("market scope must be KR or US before model approval")
@@ -1078,7 +1130,7 @@ class LocalModelRegistry:
         justification = note.strip()[:1000]
         if not operator or len(justification) < 20:
             raise ValueError("operator and a change note of at least 20 characters are required")
-        with self._governance_lock:
+        with self._governance_guard():
             metadata = self.manifest(model_id)
             if not self._supports_current_model_contract(metadata):
                 raise ValueError("model feature schema is outdated and cannot be activated")
@@ -1125,7 +1177,7 @@ class LocalModelRegistry:
             return event
 
     def governance_events(self, limit: int = 50) -> list[dict[str, Any]]:
-        with self._governance_lock:
+        with self._governance_guard():
             try:
                 events = self._read_governance_events()
                 return events[-max(1, min(limit, 200)):]
@@ -1133,25 +1185,26 @@ class LocalModelRegistry:
                 return []
 
     def _record_governance_event(self, event: dict[str, Any]) -> None:
-        events = self._read_governance_events()
-        chained_event = dict(event)
-        chained_event["previous_event_sha256"] = (
-            str(events[-1]["event_sha256"]) if events else _GOVERNANCE_GENESIS_SHA256
-        )
-        chained_event["event_sha256"] = self._governance_event_sha256(chained_event)
-        existing = self._audit_path.read_bytes() if self._audit_path.is_file() else b""
-        line = (json.dumps(chained_event, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
-        fd, temporary = tempfile.mkstemp(prefix=".governance-audit-", suffix=".tmp", dir=self.root)
-        try:
-            with os.fdopen(fd, "wb") as stream:
-                stream.write(existing)
-                stream.write(line)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, self._audit_path)
-        finally:
-            if os.path.exists(temporary):
-                os.unlink(temporary)
+        with self._governance_guard():
+            events = self._read_governance_events()
+            chained_event = dict(event)
+            chained_event["previous_event_sha256"] = (
+                str(events[-1]["event_sha256"]) if events else _GOVERNANCE_GENESIS_SHA256
+            )
+            chained_event["event_sha256"] = self._governance_event_sha256(chained_event)
+            existing = self._audit_path.read_bytes() if self._audit_path.is_file() else b""
+            line = (json.dumps(chained_event, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+            fd, temporary = tempfile.mkstemp(prefix=".governance-audit-", suffix=".tmp", dir=self.root)
+            try:
+                with os.fdopen(fd, "wb") as stream:
+                    stream.write(existing)
+                    stream.write(line)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, self._audit_path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
 
     @staticmethod
     def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -1321,7 +1374,7 @@ class LocalModelRegistry:
             raise ValueError("dataset_sha256 must be a lowercase SHA-256 digest")
         if market not in {"KR", "US"}:
             raise ValueError("market must be KR or US")
-        with self._governance_lock:
+        with self._governance_guard():
             metadata = self.manifest(model_id)
             if metadata.get("approved") is True:
                 raise ValueError("approved models cannot be rewritten with new evaluation evidence")

@@ -2,6 +2,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 import hashlib
 import json
+import multiprocessing
 from types import SimpleNamespace
 
 import pytest
@@ -27,6 +28,17 @@ from app.ai_pipeline import (
 from app.data_provenance import MIN_MODEL_TRAINING_SESSIONS
 from app.quant import MinuteBar
 from app.market_calendar import exchange_session_window
+
+
+def _append_registry_audit_events(root: str, worker_id: int, event_count: int) -> None:
+    registry = LocalModelRegistry(root)
+    for sequence in range(event_count):
+        with registry._governance_guard():
+            registry._record_governance_event({
+                "action": "multiprocess_lock_test",
+                "worker_id": worker_id,
+                "sequence": sequence,
+            })
 
 
 def _bar(timestamp: datetime, close: Decimal, volume: int = 1000) -> MinuteBar:
@@ -741,6 +753,42 @@ def test_registry_instances_for_same_model_directory_share_governance_lock(tmp_p
 
     assert first._governance_lock is second._governance_lock
     assert first._governance_lock is not separate._governance_lock
+
+
+def test_registry_governance_guard_is_reentrant(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    with registry._governance_guard():
+        with registry._governance_guard():
+            registry._record_governance_event({"action": "nested_lock_test"})
+
+    assert registry.governance_audit_status() == {"integrity_verified": True, "event_count": 1}
+
+
+def test_registry_governance_audit_is_serialized_across_processes(tmp_path) -> None:
+    context = multiprocessing.get_context("spawn")
+    worker_count = 3
+    events_per_worker = 4
+    workers = [
+        context.Process(target=_append_registry_audit_events,
+                        args=(str(tmp_path), worker_id, events_per_worker))
+        for worker_id in range(worker_count)
+    ]
+
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=30)
+    for worker in workers:
+        if worker.is_alive():
+            worker.terminate()
+            worker.join(timeout=5)
+        assert worker.exitcode == 0
+
+    registry = LocalModelRegistry(tmp_path)
+    assert registry.governance_audit_status() == {
+        "integrity_verified": True,
+        "event_count": worker_count * events_per_worker,
+    }
 
 
 def test_legacy_model_with_outdated_feature_schema_cannot_be_approved_or_selected(tmp_path) -> None:
