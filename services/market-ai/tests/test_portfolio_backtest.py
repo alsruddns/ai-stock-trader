@@ -99,6 +99,35 @@ def test_portfolio_position_sizing_reserves_the_configured_maximum_exit_spread(m
     assert result.executable is False
 
 
+def test_portfolio_stop_loss_stays_within_risk_budget_under_reserved_costs(monkeypatch) -> None:
+    _signals_at_lengths(monkeypatch, {0: {21}})
+    monkeypatch.setattr("app.portfolio_backtest._atr", lambda _bars, _period: Decimal("10"))
+    monkeypatch.setattr("app.portfolio_backtest._vwap", lambda _bars: Decimal("1"))
+    first = _bars(0)
+    stop_stamp = first[22].timestamp
+    first[22] = MinuteBar(
+        stop_stamp, Decimal("100"), Decimal("103"), Decimal("80"), Decimal("90"), 1000,
+        Decimal("5"), stop_stamp + timedelta(seconds=30),
+    )
+    config = QuantConfig(
+        commission_bps=Decimal(0), buy_commission_bps=Decimal("14.7"),
+        sell_commission_bps=Decimal("14.7"), sell_tax_bps=Decimal("20"),
+        slippage_bps=Decimal("10"), maximum_spread_bps=Decimal("1000"),
+    )
+
+    result = backtest_domestic_portfolio(
+        {"005930": first, "000660": _bars(1)},
+        starting_equity=Decimal("100000"), max_order_notional=Decimal("100000"), config=config,
+    )
+
+    assert len(result.trades) == 1
+    trade = result.trades[0]
+    assert trade.exit_reason == "ATR_STOP"
+    assert trade.net_pnl < 0
+    assert -trade.net_pnl <= Decimal("250")
+    assert result.executable is False
+
+
 def test_portfolio_reports_trade_risk_as_the_one_share_entry_blocker(monkeypatch) -> None:
     _signals_at_lengths(monkeypatch, {0: {21}})
     monkeypatch.setattr("app.portfolio_backtest._atr", lambda _bars, _period: Decimal("100"))
