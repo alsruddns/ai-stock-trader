@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P5 국내 PAPER 구독 거부 진단 보강 (작업일 2026-11-15):** KIS WebSocket이 구독을 거부하면 상태 API가 안전 형식 검증을 거친 거래 ID와 종목 코드까지 남기도록 했습니다. 원문 메시지와 토큰은 계속 저장·노출하지 않습니다. 구독 거부 파서 및 런타임 재연결 집중검사 5/5 통과. 이 변경은 원인 식별을 돕는 진단 개선이며 KIS 오류 원인 확인이나 실제 세션 복구를 입증하지 않습니다. 주문·취소·계좌 요청은 수행하지 않았습니다.
+
 - **P2 JVM 재시작 주문복구 검사의 운영 DB 격리 (작업일 2026-11-15):** `scripts/test-paper-process-restart.ps1`가 `.env_local` 자격정보와 운영 PostgreSQL을 읽지 않도록 바꾸고, 임시 loopback PostgreSQL 16/17·임시 Spring 포트·빈 KIS 환경으로 실행되게 했습니다. 실제 실행에서 PAPER 장부 주문이 별도 Spring JVM 재시작 후 같은 ID/상태로 복구되고 같은 멱등키 재전송이 기존 주문을 반환했으며, 임시 장부 주문은 격리 DB에서 취소됐습니다. `No KIS request was made` 성공을 확인했고 임시 DB 디렉터리와 JVM이 남지 않았습니다. Windows PAPER preflight workflow에서도 Java 21과 격리 재시작 검사를 실행하도록 연결했으며 로컬 PowerShell 통합검사 및 workflow YAML 구문 검사가 통과했습니다. 이는 로컬 주문원장 재시작 복구 검증이며 KIS 모의계좌 주문 수명주기 검증은 아닙니다.
 - **P2 격리 주문복구 Windows CI 통과 (작업일 2026-11-15):** `1e5ffb9`의 Windows PAPER preflight run `43651150165`에서 PowerShell 안전검사와 PostgreSQL 17 임시 클러스터를 사용한 Spring JVM 재시작·멱등 재전송 검사가 모두 통과했습니다. KIS 자격정보 없이 로컬 PAPER 주문 장부만 검증했으며 전체 프로젝트 테스트는 실행하지 않았습니다.
 

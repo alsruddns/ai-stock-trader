@@ -271,6 +271,8 @@ class PaperSessionFeedMonitor:
             "stream_last_recovery_seconds_by_feed": {"paper": None, "real": None},
             "orders_enabled": False,
             "subscription_acknowledgements_by_feed": {}, "last_subscription_error_code": None,
+            "last_subscription_error_transaction_id": None,
+            "last_subscription_error_subscription_key": None,
             "automation_state": "DISABLED", "automation_error": None,
             "bar_storage_state": "DISABLED", "bar_storage_error": None,
             "bar_storage_failure_kind": None,
@@ -1395,6 +1397,8 @@ class PaperSessionFeedMonitor:
                                 except SubscriptionAcknowledgementError as exc:
                                     self._set_status(
                                         last_subscription_error_code=exc.broker_code,
+                                        last_subscription_error_transaction_id=exc.transaction_id,
+                                        last_subscription_error_subscription_key=exc.subscription_key,
                                         subscription_acknowledgements_by_feed={
                                             **self.status().get("subscription_acknowledgements_by_feed", {}),
                                             environment: subscription_tracker.status,
@@ -1403,7 +1407,11 @@ class PaperSessionFeedMonitor:
                                     raise
                                 self._set_subscription_ack_status(environment, subscription_tracker.status)
                                 if acknowledged:
-                                    self._set_status(last_subscription_error_code=None)
+                                    self._set_status(
+                                        last_subscription_error_code=None,
+                                        last_subscription_error_transaction_id=None,
+                                        last_subscription_error_subscription_key=None,
+                                    )
                                     self._set_connection_state(environment, "RUNNING")
                                     failure_stage = "websocket_receive"
                             self._record_frame_metadata(environment, frame)

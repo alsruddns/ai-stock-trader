@@ -43,8 +43,21 @@ class StreamSettings:
 class SubscriptionAcknowledgementError(RuntimeError):
     """A KIS WebSocket subscription was explicitly rejected."""
 
-    def __init__(self, broker_code: str | None) -> None:
+    def __init__(
+        self,
+        broker_code: str | None,
+        transaction_id: str | None = None,
+        subscription_key: str | None = None,
+    ) -> None:
         self.broker_code = broker_code
+        self.transaction_id = (
+            transaction_id if isinstance(transaction_id, str)
+            and re.fullmatch(r"[A-Z0-9]{1,32}", transaction_id) else None
+        )
+        self.subscription_key = (
+            subscription_key.upper() if isinstance(subscription_key, str)
+            and _SUBSCRIPTION_KEY.fullmatch(subscription_key) else None
+        )
         super().__init__("KIS WebSocket subscription was rejected")
 
 
@@ -99,7 +112,9 @@ class SubscriptionAckTracker:
         if identity not in self._required:
             return self.complete
         if not acknowledgement["accepted"]:
-            raise SubscriptionAcknowledgementError(acknowledgement["broker_code"])
+            raise SubscriptionAcknowledgementError(
+                acknowledgement["broker_code"], transaction_id, acknowledgement["subscription_key"],
+            )
         operation = self._pending_operations.pop(identity, "subscribe")
         if operation == "unsubscribe":
             self._required.discard(identity)

@@ -183,13 +183,15 @@ def test_subscription_ack_tracker_removes_confirmed_unsubscriptions_from_active_
     assert tracker.status == {"accepted_count": 1, "required_count": 1, "complete": True}
 
 
-def test_subscription_ack_tracker_reports_sanitized_rejection_code_only() -> None:
+def test_subscription_ack_tracker_reports_sanitized_rejection_diagnostics() -> None:
     tracker = SubscriptionAckTracker({("H0STCNT0", "005930")})
     rejection = ('{"header":{"tr_id":"H0STCNT0","tr_key":"005930"},"body":{"rt_cd":"1",'
                  '"msg_cd":"SAFE_CODE","msg1":"private details"}}')
     with pytest.raises(SubscriptionAcknowledgementError) as exc:
         tracker.observe(rejection)
     assert exc.value.broker_code == "SAFE_CODE"
+    assert exc.value.transaction_id == "H0STCNT0"
+    assert exc.value.subscription_key == "005930"
     assert "private details" not in str(exc.value)
 
 
