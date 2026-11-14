@@ -14,6 +14,9 @@ on:
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealOrderReconciliationJobTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisPaperOrderReconciliationJobTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealProtectiveExitMonitorTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisDomesticCostReconcilerTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisDomesticCostReconciliationServiceTest.java'
+      - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealizedPnlCalculatorTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisRealOrderControllerTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/kis/KisOrderControllerMarketScopeTest.java'
       - 'backend/trading-api/src/test/java/com/aistocktrader/health/OperationsControllerTest.java'
@@ -132,6 +135,9 @@ jobs:
       - name: Run domestic-only operational market scope summary test
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=OperationsControllerTest#operationsSummaryReportsOnlyWhetherEnvironmentCredentialsAreConfigured+operationsSummaryMarksUnknownPaperOrderWithoutBrokerReferenceForManualReview' test
+      - name: Run domestic REAL cost and realized P&L reconciliation tests
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisDomesticCostReconcilerTest,KisDomesticCostReconciliationServiceTest,KisRealizedPnlCalculatorTest' test
 
   spring-order-postgres-snapshot-validation:
     runs-on: ubuntu-latest
