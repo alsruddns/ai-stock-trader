@@ -439,6 +439,30 @@ def test_ai_metrics_leave_roc_auc_unavailable_for_single_class_evaluation() -> N
     metrics = _metrics(model, samples)
 
     assert metrics["roc_auc"] is None
+    assert metrics["positive_recall"] == 1.0
+    assert metrics["specificity"] is None
+    assert metrics["balanced_accuracy"] is None
+
+
+def test_ai_metrics_expose_rare_positive_failures_hidden_by_accuracy() -> None:
+    model = SimpleNamespace(
+        classes_=[0, 1],
+        predict_proba=lambda features: [[0.99, 0.01] for _ in features],
+    )
+    samples = [
+        TrainingSample(date(2026, 10, 1), f"t{index}", (float(index),), int(index == 0))
+        for index in range(100)
+    ]
+
+    metrics = _metrics(model, samples)
+
+    assert metrics["accuracy"] == 0.99
+    assert metrics["positive_label_rate"] == 0.01
+    assert metrics["predicted_positive_rate"] == 0.0
+    assert metrics["positive_precision"] is None
+    assert metrics["positive_recall"] == 0.0
+    assert metrics["specificity"] == 1.0
+    assert metrics["balanced_accuracy"] == 0.5
 
 
 def test_ai_candidate_metrics_reject_malformed_binary_probabilities() -> None:

@@ -344,6 +344,22 @@ def _metrics(model: Any, samples: list[TrainingSample]) -> dict[str, float | Non
     probabilities = _positive_probabilities(model, x)
     predictions = (probabilities >= 0.5).astype(int)
     metrics = {"accuracy": float(accuracy_score(y, predictions)), "brier": float(brier_score_loss(y, probabilities))}
+    actual_positive = sum(label == 1 for label in y)
+    actual_negative = sum(label == 0 for label in y)
+    predicted_positive = int(predictions.sum())
+    true_positive = sum(label == 1 and prediction == 1 for label, prediction in zip(y, predictions))
+    true_negative = sum(label == 0 and prediction == 0 for label, prediction in zip(y, predictions))
+    positive_recall = true_positive / actual_positive if actual_positive else None
+    specificity = true_negative / actual_negative if actual_negative else None
+    metrics["positive_label_rate"] = actual_positive / len(y) if y else None
+    metrics["predicted_positive_rate"] = predicted_positive / len(y) if y else None
+    metrics["positive_precision"] = true_positive / predicted_positive if predicted_positive else None
+    metrics["positive_recall"] = positive_recall
+    metrics["specificity"] = specificity
+    metrics["balanced_accuracy"] = (
+        (positive_recall + specificity) / 2
+        if positive_recall is not None and specificity is not None else None
+    )
     # ROC-AUC is undefined for a single-class evaluation set. Keep it unavailable
     # instead of emitting 0.5, which looks like a measured neutral result.
     metrics["roc_auc"] = float(roc_auc_score(y, probabilities)) if len(set(y)) == 2 else None
