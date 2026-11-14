@@ -162,8 +162,16 @@ foreach ($market in @('KR', 'US')) {
     $endpointStatus["python.market_data_quality_$market"] = [ordered]@{ state = $qualityResult.state; httpStatus = $qualityResult.http_status; errorType = $qualityResult.error_type }
     $marketDataQuality[$market] = $qualityResult.data
 }
+$trainingReadinessKr = Get-AiTraderTrainingReadinessSummary `
+    -PythonApiBaseUrl $PythonApiBaseUrl -PaperSession $paperSession -OperationalMarkets $operationalMarkets
+$endpointStatus['python.training_readiness_KR'] = [ordered]@{
+    state = $trainingReadinessKr.state
+    httpStatus = $trainingReadinessKr.httpStatus
+    errorType = $trainingReadinessKr.errorType
+}
+$trainingReadiness = [ordered]@{ KR = $trainingReadinessKr }
 
-$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 15 -Force
+$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 16 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
 $endpointStates = @($endpointStatus.GetEnumerator() |
@@ -190,6 +198,7 @@ $report | Add-Member -MemberType NoteProperty -Name validationTaskSchedule -Valu
 $report | Add-Member -MemberType NoteProperty -Name marketSessions -Value $marketSessions -Force
 $report | Add-Member -MemberType NoteProperty -Name marketDataQuality -Value $marketDataQuality -Force
 $report | Add-Member -MemberType NoteProperty -Name marketDataQualitySummary -Value (Get-AiTraderMarketDataQualitySummary -EndpointStatus $endpointStatus -MarketDataQuality $marketDataQuality -OperationalMarkets $operationalMarkets) -Force
+$report | Add-Member -MemberType NoteProperty -Name trainingReadiness -Value $trainingReadiness -Force
 
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $reportName = "operations-{0}.json" -f (Get-Date -Format "yyyy-MM-dd")

@@ -365,7 +365,7 @@ Describe 'Daily operations report endpoint health summary' {
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
         $archivedReport = Get-Content -LiteralPath $archivePath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 15
+        $report.reportSchemaVersion | Should Be 16
         $archivedReport.generatedAt | Should Be $report.generatedAt
         $archivedReport.tradingMode | Should Be $report.tradingMode
         $report.pythonConnected | Should Be $true
@@ -427,6 +427,13 @@ Describe 'Daily operations report endpoint health summary' {
             if ($Uri -like '*api/v1/paper/session') { return @{ decisions = @{ kr = @{ market = 'KR'; symbol = '005930' } } } }
             if ($Uri -like '*api/v1/ai/models') { return @{ models = @() } }
             if ($Uri -like '*api/v1/market/sessions/*') { return @{ market = $Uri } }
+            if ($Uri -like '*api/v1/market/training-readiness/KR/005930') {
+                return @{
+                    eligible_sessions = 2; minimum_required_sessions = 13; additional_sessions_needed = 11
+                    consecutive_eligible_sessions = 1; minimum_met = $false
+                    training_preflight = @{ ready = $false; sample_count = $null; positive_label_count = $null; negative_label_count = $null; reasons = @('insufficient_eligible_sessions') }
+                }
+            }
             if ($Uri -like '*session-quality/KR*') {
                 return @{ market = 'KR'; sessions = @(@{ full_session_complete = $false; observed_completed_bars = 302; spread_bars = 302; spread_observation_time_bars = 301 }) }
             }
@@ -449,6 +456,60 @@ Describe 'Daily operations report endpoint health summary' {
         $report.marketDataQualitySummary.incompleteSessions | Should Be 1
         $report.marketDataQualitySummary.sessionsMissingSpreads | Should Be 0
         $report.marketDataQualitySummary.sessionsMissingSpreadObservationTimes | Should Be 1
+        $report.trainingReadiness.KR.symbols[0].eligibleSessions | Should Be 2
+        $report.trainingReadiness.KR.symbols[0].additionalSessionsNeeded | Should Be 11
+        $report.trainingReadiness.KR.symbols[0].trainingPreflightReady | Should Be $false
+        $report.endpointStatus.'python.training_readiness_KR'.state | Should Be 'AVAILABLE'
+    }
+
+    It 'reports allowlisted KR training readiness and never requests US readiness' {
+        $global:AIStockTraderTrainingReadinessRequests = @()
+        Mock Invoke-RestMethod {
+            $global:AIStockTraderTrainingReadinessRequests += [string]$Uri
+            if ($Uri -like '*api/v1/operations/summary') { return [pscustomobject]@{ tradingMode = 'paper'; operationalMarkets = @('KR') } }
+            if ($Uri -like '*api/v1/health') { return @{ status = 'ok' } }
+            if ($Uri -like '*api/v1/paper/session') {
+                return @{ decisions = @{
+                    kr = @{ market = 'KR'; symbol = '005930' }
+                    us = @{ market = 'US'; symbol = 'AAPL' }
+                } }
+            }
+            if ($Uri -like '*api/v1/ai/models') { return @{ models = @() } }
+            if ($Uri -like '*/api/v1/market/sessions/KR') { return @{ market = 'KR' } }
+            if ($Uri -like '*session-quality/KR*') { return @{ market = 'KR'; sessions = @() } }
+            if ($Uri -like '*training-readiness/KR/005930') {
+                return @{
+                    eligible_sessions = 2; minimum_required_sessions = 13; additional_sessions_needed = 11
+                    consecutive_eligible_sessions = 1; minimum_met = $false
+                    training_preflight = @{
+                        ready = $false; sample_count = 710; positive_label_count = 9; negative_label_count = 701
+                        reasons = @('insufficient_eligible_sessions'); appSecret = 'must-not-leak'
+                    }
+                    accountNumber = '98765432'
+                }
+            }
+            throw 'Unexpected report endpoint.'
+        }
+        Mock Get-ScheduledTask { @() }
+
+        $outputPath = Join-Path $TestDrive 'training-readiness-operations-report.json'
+        & (Join-Path $PSScriptRoot '..\export-daily-report.ps1') `
+            -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath `
+            -ModelRetrainingReportDirectory (Join-Path $TestDrive 'no-retraining-runs') `
+            -DomesticSessionEvidencePath (Join-Path $TestDrive 'no-monitor-progress.jsonl') | Out-Null
+        $json = Get-Content -LiteralPath $outputPath -Raw
+        $report = $json | ConvertFrom-Json
+
+        $report.reportSchemaVersion | Should Be 16
+        $report.trainingReadiness.KR.state | Should Be 'AVAILABLE'
+        $report.trainingReadiness.KR.symbols.Count | Should Be 1
+        $report.trainingReadiness.KR.symbols[0].symbol | Should Be '005930'
+        $report.trainingReadiness.KR.symbols[0].sampleCount | Should Be 710
+        $report.trainingReadiness.KR.symbols[0].reasons[0] | Should Be 'insufficient_eligible_sessions'
+        $json | Should Not Match '98765432|must-not-leak|accountNumber|appSecret'
+        @($global:AIStockTraderTrainingReadinessRequests | Where-Object { $_ -like '*training-readiness*' }).Count | Should Be 1
+        $global:AIStockTraderTrainingReadinessRequests -join "`n" | Should Not Match 'training-readiness/US'
+        Remove-Variable -Name AIStockTraderTrainingReadinessRequests -Scope Global -ErrorAction SilentlyContinue
     }
 
     It 'marks timestamp coverage complete only when every observed bar has a spread observation time' {
@@ -546,5 +607,34 @@ Describe 'Daily operations report endpoint health summary' {
         $report.endpointStatus.'local.model_retraining'.errorType | Should Be 'InvalidOperationException'
         $json = Get-Content -LiteralPath $outputPath -Raw
         $json | Should Not Match 'private diagnostic|domestic diagnostic'
+    }
+}
+
+Describe 'P4 training readiness report boundary' {
+    It 'rejects inconsistent domestic readiness counts instead of reporting a ready result' {
+        Mock Invoke-AiTraderOptionalJsonRequest {
+            return [pscustomobject]@{
+                state = 'AVAILABLE'; http_status = $null; error_type = $null
+                data = @{
+                    eligible_sessions = 2; minimum_required_sessions = 13; additional_sessions_needed = 10
+                    consecutive_eligible_sessions = 1; minimum_met = $false
+                    training_preflight = @{
+                        ready = $false; sample_count = $null; positive_label_count = $null; negative_label_count = $null
+                        reasons = @('insufficient_eligible_sessions')
+                    }
+                }
+            }
+        }
+        $session = [pscustomobject]@{
+            decisions = [pscustomobject]@{ domestic = [pscustomobject]@{ market = 'KR'; symbol = '005930' } }
+        }
+
+        $summary = Get-AiTraderTrainingReadinessSummary `
+            -PythonApiBaseUrl 'http://python.test' -PaperSession $session -OperationalMarkets @('KR')
+
+        $summary.state | Should Be 'INVALID_RESPONSE'
+        $summary.symbols.Count | Should Be 1
+        $summary.symbols[0].state | Should Be 'INVALID_RESPONSE'
+        $summary.symbols[0].errorType | Should Be 'InvalidResponse'
     }
 }

@@ -25,6 +25,8 @@ Describe 'Domestic-only daily operations report market scope' {
         $report.endpointStatus.'python.market_session_KR'.state | Should Be 'AVAILABLE'
         $report.endpointStatus.'python.market_session_US'.state | Should Be 'OUT_OF_SCOPE'
         $report.endpointStatus.'python.market_data_quality_US'.state | Should Be 'OUT_OF_SCOPE'
+        $report.endpointStatus.'python.training_readiness_KR'.state | Should Be 'SKIPPED_NO_SYMBOLS'
         $requestedUris | Should Not Match '/api/v1/market/(sessions|session-quality)/US'
+        $requestedUris | Should Not Match '/api/v1/market/training-readiness/US/'
     }
 }

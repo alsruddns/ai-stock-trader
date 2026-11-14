@@ -28,6 +28,141 @@ function Invoke-AiTraderOptionalJsonRequest {
     }
 }
 
+function Test-AiTraderNonNegativeInteger {
+    param([AllowNull()]$Value)
+
+    if ($null -eq $Value -or $Value -is [bool]) { return $false }
+    try {
+        $number = [decimal]$Value
+        return $number -ge 0 -and $number -le [int]::MaxValue -and [decimal]::Truncate($number) -eq $number
+    } catch {
+        return $false
+    }
+}
+
+function Get-AiTraderTrainingReadinessSummary {
+    param(
+        [Parameter(Mandatory)][string]$PythonApiBaseUrl,
+        [AllowNull()]$PaperSession,
+        [string[]]$OperationalMarkets = @('KR')
+    )
+
+    if ('KR' -notin $OperationalMarkets) {
+        return [pscustomobject]@{ state = 'OUT_OF_SCOPE'; httpStatus = $null; errorType = $null; symbols = @() }
+    }
+    if ($null -eq $PaperSession -or $null -eq $PaperSession.decisions) {
+        return [pscustomobject]@{ state = 'SKIPPED_NO_DECISIONS'; httpStatus = $null; errorType = $null; symbols = @() }
+    }
+
+    $symbols = @($PaperSession.decisions.PSObject.Properties |
+        ForEach-Object { $_.Value } |
+        Where-Object { $_.market -eq 'KR' -and $_.symbol -match '^\d{6}$' } |
+        ForEach-Object { ([string]$_.symbol).Trim() } |
+        Select-Object -Unique)
+    if ($symbols.Count -lt 1) {
+        return [pscustomobject]@{ state = 'SKIPPED_NO_SYMBOLS'; httpStatus = $null; errorType = $null; symbols = @() }
+    }
+    if ($symbols.Count -gt 50) {
+        return [pscustomobject]@{ state = 'SKIPPED_SYMBOL_LIMIT'; httpStatus = $null; errorType = $null; symbols = @() }
+    }
+
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $endpointStates = [System.Collections.Generic.List[string]]::new()
+    $httpStatuses = [System.Collections.Generic.List[int]]::new()
+    foreach ($symbol in $symbols) {
+        $url = "$PythonApiBaseUrl/api/v1/market/training-readiness/KR/$([Uri]::EscapeDataString($symbol))"
+        $response = Invoke-AiTraderOptionalJsonRequest $url
+        if ($response.state -ne 'AVAILABLE') {
+            $endpointStates.Add([string]$response.state)
+            if ($null -ne $response.http_status) { $httpStatuses.Add([int]$response.http_status) }
+            $rows.Add([ordered]@{ symbol = $symbol; state = [string]$response.state; errorType = $response.error_type })
+            continue
+        }
+
+        $data = $response.data
+        $preflight = if ($null -ne $data) { $data.training_preflight } else { $null }
+        $countsValid = $null -ne $data -and
+            (Test-AiTraderNonNegativeInteger $data.eligible_sessions) -and
+            (Test-AiTraderNonNegativeInteger $data.minimum_required_sessions) -and
+            (Test-AiTraderNonNegativeInteger $data.additional_sessions_needed) -and
+            (Test-AiTraderNonNegativeInteger $data.consecutive_eligible_sessions)
+        $flagsValid = $null -ne $data -and ($data.minimum_met -is [bool]) -and
+            $null -ne $preflight -and ($preflight.ready -is [bool])
+        $preflightCountsValid = $null -ne $preflight -and
+            (($null -eq $preflight.sample_count) -or (Test-AiTraderNonNegativeInteger $preflight.sample_count)) -and
+            (($null -eq $preflight.positive_label_count) -or (Test-AiTraderNonNegativeInteger $preflight.positive_label_count)) -and
+            (($null -eq $preflight.negative_label_count) -or (Test-AiTraderNonNegativeInteger $preflight.negative_label_count))
+        if ($preflightCountsValid -and $null -ne $preflight.sample_count) {
+            $preflightCountsValid = $null -ne $preflight.positive_label_count -and
+                $null -ne $preflight.negative_label_count -and
+                ([decimal]$preflight.positive_label_count + [decimal]$preflight.negative_label_count -eq [decimal]$preflight.sample_count)
+        } elseif ($preflightCountsValid) {
+            $preflightCountsValid = $null -eq $preflight.positive_label_count -and $null -eq $preflight.negative_label_count
+        }
+        $reasonsValid = $null -ne $preflight -and $preflight.reasons -is [array]
+        if ($reasonsValid) {
+            foreach ($reason in $preflight.reasons) {
+                if ($reason -isnot [string] -or $reason.Length -gt 80 -or $reason -notmatch '^[A-Za-z0-9_]+$') {
+                    $reasonsValid = $false
+                    break
+                }
+            }
+        }
+        $relationshipsValid = $false
+        if ($countsValid -and $flagsValid) {
+            $eligible = [decimal]$data.eligible_sessions
+            $minimum = [decimal]$data.minimum_required_sessions
+            $additional = [decimal]$data.additional_sessions_needed
+            $consecutive = [decimal]$data.consecutive_eligible_sessions
+            $expectedAdditional = [Math]::Max([decimal]0, $minimum - $eligible)
+            $relationshipsValid = $consecutive -le $eligible -and
+                $additional -eq $expectedAdditional -and
+                ([bool]$data.minimum_met -eq ($eligible -ge $minimum))
+            if ($relationshipsValid -and $preflight.ready) {
+                $relationshipsValid = [bool]$data.minimum_met -and $null -ne $preflight.sample_count -and
+                    $preflight.reasons.Count -eq 0
+            }
+        }
+        if (-not $countsValid -or -not $flagsValid -or -not $preflightCountsValid -or -not $reasonsValid -or -not $relationshipsValid) {
+            $endpointStates.Add('INVALID_RESPONSE')
+            $rows.Add([ordered]@{ symbol = $symbol; state = 'INVALID_RESPONSE'; errorType = 'InvalidResponse' })
+            continue
+        }
+
+        $endpointStates.Add('AVAILABLE')
+        $preflightReasons = @($preflight.reasons | Select-Object -First 10)
+        $rows.Add([ordered]@{
+            symbol = $symbol
+            state = 'AVAILABLE'
+            eligibleSessions = [int]$data.eligible_sessions
+            minimumRequiredSessions = [int]$data.minimum_required_sessions
+            additionalSessionsNeeded = [int]$data.additional_sessions_needed
+            consecutiveEligibleSessions = [int]$data.consecutive_eligible_sessions
+            minimumMet = [bool]$data.minimum_met
+            trainingPreflightReady = [bool]$preflight.ready
+            sampleCount = if (Test-AiTraderNonNegativeInteger $preflight.sample_count) { [int]$preflight.sample_count } else { $null }
+            positiveLabelCount = if (Test-AiTraderNonNegativeInteger $preflight.positive_label_count) { [int]$preflight.positive_label_count } else { $null }
+            negativeLabelCount = if (Test-AiTraderNonNegativeInteger $preflight.negative_label_count) { [int]$preflight.negative_label_count } else { $null }
+            reasons = $preflightReasons
+        })
+    }
+
+    $uniqueStates = @($endpointStates | Select-Object -Unique)
+    $state = if ($uniqueStates.Count -eq 1) { $uniqueStates[0] } else { 'PARTIAL' }
+    $httpStatus = if ($httpStatuses.Count -eq $symbols.Count -and @($httpStatuses | Select-Object -Unique).Count -eq 1) {
+        $httpStatuses[0]
+    } else { $null }
+    $failedRows = @($rows | Where-Object { $_.state -ne 'AVAILABLE' })
+    $errorTypes = @($failedRows | ForEach-Object { $_.errorType } | Where-Object { $_ } | Select-Object -Unique)
+    $errorType = if ($errorTypes.Count -eq 0) { $null } elseif ($errorTypes.Count -eq 1) { $errorTypes[0] } else { 'Multiple' }
+    return [pscustomobject]@{
+        state = $state
+        httpStatus = $httpStatus
+        errorType = $errorType
+        symbols = @($rows)
+    }
+}
+
 function Set-AiTraderAtomicJsonFile {
     param(
         [Parameter(Mandatory)][string]$Path,
