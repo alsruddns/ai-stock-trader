@@ -46,6 +46,7 @@ if ($PaperOnly) {
     $env:TRADING_MODE = 'paper'
     $env:LIVE_TRADING_ENABLED = 'false'
     $env:KIS_REAL_ORDERS_ENABLED = 'false'
+    $env:REAL_TRADING_APPROVAL_CONFIRMED = 'false'
 }
 
 if (-not $env:POSTGRES_PASSWORD -or $env:POSTGRES_PASSWORD -eq 'replace_with_your_local_postgres_password') {

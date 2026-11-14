@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 type Ops = {
   generatedAt: string; tradingMode: string; liveTrading: string; paperAutomationEnabled: boolean;
   operationalMarkets: string[];
-  kisAccountReadsEnabled: boolean; kisPaperAccountReadsEnabled: boolean; kisPaperOrdersEnabled: boolean; kisPaperDomesticCancelSupported: boolean; kisRealOrdersEnabled: boolean; kisRealAccountReadsEnabled: boolean; kisRealReconciliationEnabled: boolean; realProtectiveExitManagerEnabled: boolean; kisRealProtectiveExitAutomationEnabled: boolean;
+  kisAccountReadsEnabled: boolean; kisPaperAccountReadsEnabled: boolean; kisPaperOrdersEnabled: boolean; kisPaperDomesticCancelSupported: boolean; kisRealOrdersEnabled: boolean; kisRealAccountReadsEnabled: boolean; kisRealReconciliationEnabled: boolean; realTradingApprovalConfirmed: boolean; realProtectiveExitManagerEnabled: boolean; kisRealProtectiveExitAutomationEnabled: boolean;
   kisPaperCredentialsConfigured: boolean; kisRealCredentialsConfigured: boolean;
   kisRealKrCostsConfigured: boolean; kisRealUsCostsConfigured: boolean;
   realOrderCounts: Record<string, number>;
@@ -256,7 +256,7 @@ export default function Dashboard() {
       <StatusCard title="P3 저장 분봉 품질" good={qualitySessions.length > 0 && completeQualityCount === qualitySessions.length} value={qualitySummary} detail={qualityDetails || "정규장 세션 날짜에 대한 PostgreSQL 자료가 필요합니다."} />
       <StatusCard title="P4 모델 학습 데이터" good={trainingReadiness.length > 0 && trainingReadiness.every((item) => item.minimum_met && item.training_preflight?.ready === true)} value={trainingReadinessSummary} detail={trainingReadinessDetail} />
       <StatusCard title="P7 Windows 예약작업" good={Boolean(localReportFresh && localReport?.localStackTask?.state === "Running" && localReport.sessionMonitorSchedule?.state === "AVAILABLE" && localReport.validationTaskSchedule?.state === "AVAILABLE")} value={localReport ? `감시 활성 KR ${marketMonitorEnabled(localReport.sessionMonitorSchedule, "KR")} / US ${marketMonitorEnabled(localReport.sessionMonitorSchedule, "US")} · 검증 활성 ${enabledTaskCount(localReport.validationTaskSchedule)}` : "상태 확인 불가"} detail={localReport ? `등록 감시 ${localReport.sessionMonitorSchedule?.registeredCount ?? 0}개 · 검증 ${localReport.validationTaskSchedule?.registeredCount ?? 0}개 · 보고서 ${time(localReport.generatedAt)}${localReportFresh ? " · 최신" : " · 오래된 보고서"}` : "최신 Windows 운영 보고서가 없습니다."} />
-      <StatusCard title="실거래 주문" good={false} value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} detail={`실주문 ${ops?.liveTrading.toUpperCase() ?? "DISABLED"} · KIS_REAL_ORDERS_ENABLED`} />
+      <StatusCard title="실거래 주문" good={false} value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} detail={`실주문 ${ops?.liveTrading.toUpperCase() ?? "DISABLED"} · KIS_REAL_ORDERS_ENABLED · 별도승인 ${ops?.realTradingApprovalConfirmed ? "확인" : "잠금"}`} />
       <StatusCard title="REAL 신규매수 보호" good={false} value={realEntryGatesOpen ? "진입 설정 열림" : "진입 잠금"} detail={`보호청산 · 주문대조 · 계좌조회 · 비용률 형식 KR ${ops?.kisRealKrCostsConfigured ? "유효" : "미설정"}/US ${ops?.kisRealUsCostsConfigured ? "유효" : "미설정"} 필요`} />
       <StatusCard title="KIS 모의 주문" good={false} value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} detail="별도 활성 스위치" />
       <StatusCard title="국내 PAPER 취소" good={ops?.kisPaperDomesticCancelSupported ?? false} value={ops?.kisPaperDomesticCancelSupported ? "지원 확인됨" : "잠금"} detail="모의 취소 가능수량 조회 계약 미확인 · 시험 주문 제출 차단" />
@@ -301,6 +301,7 @@ export default function Dashboard() {
           <RiskRow label="운영 모드" value={ops?.tradingMode.toUpperCase() ?? "PAPER"} />
           <RiskRow label="실거래 허용" value={ops?.liveTrading.toUpperCase() ?? "DISABLED"} />
           <RiskRow label="KIS 실주문 스위치" value={ops?.kisRealOrdersEnabled ? "설정 켜짐" : "잠금"} />
+          <RiskRow label="실전 전환 별도 승인" value={ops?.realTradingApprovalConfirmed ? "확인됨" : "잠금"} />
           <RiskRow label="KIS 실계좌 조회" value={ops?.kisRealAccountReadsEnabled ? "사용" : "잠금"} />
           <RiskRow label="REAL 체결 자동대조" value={ops?.kisRealReconciliationEnabled ? "설정 켜짐" : "잠금"} />
           <RiskRow label="보호청산 준비" value={ops?.realProtectiveExitManagerEnabled ? "설정 켜짐" : "잠금"} />

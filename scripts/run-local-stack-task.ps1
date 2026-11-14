@@ -146,6 +146,7 @@ function Import-LocalEnvironment {
     $env:TRADING_MODE = 'paper'
     $env:LIVE_TRADING_ENABLED = 'false'
     $env:KIS_REAL_ORDERS_ENABLED = 'false'
+    $env:REAL_TRADING_APPROVAL_CONFIRMED = 'false'
     $environmentHashAfter = (Get-FileHash -LiteralPath $envPath -Algorithm SHA256).Hash
     if ($environmentHashAfter -ne $environmentHashBefore) {
         throw 'Local environment file changed while configuration was being loaded.'

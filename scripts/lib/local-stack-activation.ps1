@@ -27,7 +27,7 @@ function Assert-LocalStackPaperLocks {
     param([Parameter(Mandatory)][hashtable]$Environment)
 
     foreach ($name in @('LIVE_TRADING_ENABLED', 'KIS_PAPER_ORDERS_ENABLED',
-            'KIS_REAL_ORDERS_ENABLED', 'PAPER_AUTOTRADING_ENABLED')) {
+            'KIS_REAL_ORDERS_ENABLED', 'REAL_TRADING_APPROVAL_CONFIRMED', 'PAPER_AUTOTRADING_ENABLED')) {
         if ([string]$Environment[$name] -eq 'true') {
             throw "Local stack activation refused because $name is enabled."
         }

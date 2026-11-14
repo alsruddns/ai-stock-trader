@@ -7,6 +7,7 @@ Describe 'Scheduled model work PAPER safety gate' {
             LIVE_TRADING_ENABLED = 'false'
             KIS_PAPER_ORDERS_ENABLED = 'false'
             KIS_REAL_ORDERS_ENABLED = 'false'
+            REAL_TRADING_APPROVAL_CONFIRMED = 'false'
             PAPER_AUTOTRADING_ENABLED = 'false'
         }
 
@@ -25,13 +26,14 @@ Describe 'Scheduled model work PAPER safety gate' {
 
     It 'rejects live mode or any enabled order/automation switch' {
         $keys = @('TRADING_MODE', 'LIVE_TRADING_ENABLED', 'KIS_PAPER_ORDERS_ENABLED',
-            'KIS_REAL_ORDERS_ENABLED', 'PAPER_AUTOTRADING_ENABLED')
+            'KIS_REAL_ORDERS_ENABLED', 'REAL_TRADING_APPROVAL_CONFIRMED', 'PAPER_AUTOTRADING_ENABLED')
         foreach ($key in $keys) {
             $settings = @{
                 TRADING_MODE = 'paper'
                 LIVE_TRADING_ENABLED = 'false'
                 KIS_PAPER_ORDERS_ENABLED = 'false'
                 KIS_REAL_ORDERS_ENABLED = 'false'
+                REAL_TRADING_APPROVAL_CONFIRMED = 'false'
                 PAPER_AUTOTRADING_ENABLED = 'false'
             }
             $settings[$key] = if ($key -eq 'TRADING_MODE') { 'real' } else { 'true' }
@@ -50,6 +52,7 @@ TRADING_MODE=paper
 LIVE_TRADING_ENABLED=false
 KIS_PAPER_ORDERS_ENABLED=false
 KIS_REAL_ORDERS_ENABLED=false
+REAL_TRADING_APPROVAL_CONFIRMED=false
 PAPER_AUTOTRADING_ENABLED=false
 KIS_APP_SECRET=TEST_ONLY_PLACEHOLDER
 '@ | Set-Content -LiteralPath (Join-Path $directory '.env_local')

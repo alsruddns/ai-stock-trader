@@ -282,6 +282,21 @@ class KisRealOrderControllerTest {
     }
 
     @Test
+    void realBuyEntryStaysLockedUntilSeparateOperatorApprovalIsConfirmed() {
+        TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true, true,
+                BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100));
+        KisRealOrderController controller = new KisRealOrderController(orders, intents, accounts,
+                properties(true, true), safety, marketAiEvidence, false, true, true);
+
+        KisApiException exception = assertThrows(KisApiException.class,
+                () -> controller.submit(UUID.randomUUID(), null, buyRequest()));
+
+        assertEquals(HttpStatus.LOCKED, exception.status());
+        org.junit.jupiter.api.Assertions.assertTrue(exception.getMessage().contains("separate real-trading approval"));
+        verifyNoInteractions(accounts, orders, marketAiEvidence);
+    }
+
+    @Test
     void realBuyEntryStaysLockedWhenProtectiveAutomationOrReconciliationIsOff() {
         TradingSafetyProperties safety = new TradingSafetyProperties("real", true, true, true,
                 BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100));
@@ -297,9 +312,10 @@ class KisRealOrderControllerTest {
 
     @Test
     void realSellRemainsAvailableWhenNewEntryGateIsClosed() {
-        KisRealOrderController controller = controller(
+        KisRealOrderController controller = new KisRealOrderController(orders, intents, accounts,
+                properties(true, true),
                 new TradingSafetyProperties("real", true, true, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
-                properties(true, true));
+                marketAiEvidence, false, false, false);
         UUID key = UUID.randomUUID();
         OrderRequest sell = new OrderRequest(Market.KR, "005930", OrderSide.SELL, 1,
                 BigDecimal.valueOf(1000), Currency.KRW);

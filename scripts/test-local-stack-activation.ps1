@@ -15,12 +15,13 @@ $safeEnvironment = @{
     LIVE_TRADING_ENABLED = 'false'
     KIS_PAPER_ORDERS_ENABLED = 'false'
     KIS_REAL_ORDERS_ENABLED = 'false'
+    REAL_TRADING_APPROVAL_CONFIRMED = 'false'
     PAPER_AUTOTRADING_ENABLED = 'false'
 }
 Assert-LocalStackPaperLocks -Environment $safeEnvironment
 
 foreach ($switchName in @('LIVE_TRADING_ENABLED', 'KIS_PAPER_ORDERS_ENABLED',
-        'KIS_REAL_ORDERS_ENABLED', 'PAPER_AUTOTRADING_ENABLED')) {
+        'KIS_REAL_ORDERS_ENABLED', 'REAL_TRADING_APPROVAL_CONFIRMED', 'PAPER_AUTOTRADING_ENABLED')) {
     $unsafeEnvironment = $safeEnvironment.Clone()
     $unsafeEnvironment[$switchName] = 'true'
     $rejected = $false

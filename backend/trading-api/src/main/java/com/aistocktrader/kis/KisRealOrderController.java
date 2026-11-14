@@ -30,6 +30,7 @@ public class KisRealOrderController {
     private final KisProperties kisProperties;
     private final TradingSafetyProperties safety;
     private final MarketOperationalScope marketScope;
+    private final boolean realTradingApprovalConfirmed;
     private final boolean protectiveExitAutomationEnabled;
     private final boolean realReconciliationEnabled;
 
@@ -38,6 +39,7 @@ public class KisRealOrderController {
                                   KisAccountClient accounts, KisProperties kisProperties,
                                   TradingSafetyProperties safety, KisMarketAiEvidenceClient marketAiEvidence,
                                   MarketOperationalScope marketScope,
+                                  @Value("${trading.real-approval-confirmed:false}") boolean realTradingApprovalConfirmed,
                                   @Value("${kis.real-protective-exit-automation-enabled:false}") boolean protectiveExitAutomationEnabled,
                                   @Value("${kis.real-reconciliation-enabled:false}") boolean realReconciliationEnabled) {
         this.orders = orders;
@@ -47,6 +49,7 @@ public class KisRealOrderController {
         this.kisProperties = kisProperties;
         this.safety = safety;
         this.marketScope = marketScope;
+        this.realTradingApprovalConfirmed = realTradingApprovalConfirmed;
         this.protectiveExitAutomationEnabled = protectiveExitAutomationEnabled;
         this.realReconciliationEnabled = realReconciliationEnabled;
     }
@@ -56,7 +59,7 @@ public class KisRealOrderController {
                                   KisAccountClient accounts, KisProperties kisProperties,
                                   TradingSafetyProperties safety, KisMarketAiEvidenceClient marketAiEvidence) {
         this(orders, intents, accounts, kisProperties, safety, marketAiEvidence,
-                MarketOperationalScope.domesticOnly(), false, false);
+                MarketOperationalScope.domesticOnly(), false, false, false);
     }
 
     /** Compatibility constructor for tests configuring optional worker switches. */
@@ -65,7 +68,18 @@ public class KisRealOrderController {
                                   TradingSafetyProperties safety, KisMarketAiEvidenceClient marketAiEvidence,
                                   boolean protectiveExitAutomationEnabled, boolean realReconciliationEnabled) {
         this(orders, intents, accounts, kisProperties, safety, marketAiEvidence,
-                MarketOperationalScope.domesticOnly(), protectiveExitAutomationEnabled, realReconciliationEnabled);
+                MarketOperationalScope.domesticOnly(), true, protectiveExitAutomationEnabled, realReconciliationEnabled);
+    }
+
+    /** Explicit approval variant for focused safety-gate tests. */
+    public KisRealOrderController(KisRealOrderOrchestrator orders, KisOrderIntentStore intents,
+                                  KisAccountClient accounts, KisProperties kisProperties,
+                                  TradingSafetyProperties safety, KisMarketAiEvidenceClient marketAiEvidence,
+                                  boolean realTradingApprovalConfirmed, boolean protectiveExitAutomationEnabled,
+                                  boolean realReconciliationEnabled) {
+        this(orders, intents, accounts, kisProperties, safety, marketAiEvidence,
+                MarketOperationalScope.domesticOnly(), realTradingApprovalConfirmed,
+                protectiveExitAutomationEnabled, realReconciliationEnabled);
     }
 
     /** Compatibility constructor for tests that exercise only the locked/raw-order paths. */
@@ -73,7 +87,7 @@ public class KisRealOrderController {
                                   KisAccountClient accounts, KisProperties kisProperties,
                                   TradingSafetyProperties safety) {
         this(orders, intents, accounts, kisProperties, safety, null,
-                MarketOperationalScope.domesticOnly(), false, false);
+                MarketOperationalScope.domesticOnly(), false, false, false);
     }
 
     /** Read-only REAL preflight; does not require or enable any order/trading switches. */
@@ -178,6 +192,10 @@ public class KisRealOrderController {
                 || !kisProperties.accountReadEnabled() || !kisProperties.realAccountReadEnabled()) {
             throw new KisApiException(HttpStatus.LOCKED,
                     "REAL order path is locked; live trading and both REAL account-read switches must be enabled.");
+        }
+        if (requiresProtectiveExitManager && !realTradingApprovalConfirmed) {
+            throw new KisApiException(HttpStatus.LOCKED,
+                    "REAL entry is locked until the separate real-trading approval switch is confirmed.");
         }
         if (requiresProtectiveExitManager && !safety.realProtectiveExitManagerEnabled()) {
             throw new KisApiException(HttpStatus.LOCKED,

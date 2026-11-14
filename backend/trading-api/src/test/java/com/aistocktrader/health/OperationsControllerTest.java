@@ -61,6 +61,7 @@ class OperationsControllerTest {
         assertEquals(false, summary.kisPaperAccountReadsEnabled());
         assertEquals(false, summary.kisPaperDomesticCancelSupported());
         assertEquals(false, summary.realProtectiveExitManagerEnabled());
+        assertEquals(false, summary.realTradingApprovalConfirmed());
         assertEquals(false, summary.kisRealProtectiveExitAutomationEnabled());
         assertEquals(List.of("KR"), summary.operationalMarkets());
     }
