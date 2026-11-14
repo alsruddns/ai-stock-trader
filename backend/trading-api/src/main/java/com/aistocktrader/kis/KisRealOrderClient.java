@@ -110,7 +110,7 @@ public class KisRealOrderClient {
         JsonNode response = post(path, trId, body, request, exchange, riskDecision);
         JsonNode output = response.path("output");
         return new KisOrderReceipt("real", market.name(), symbol.toUpperCase(Locale.ROOT), side.name(),
-                text(output, "ODNO"), text(output, "KRX_FWDG_ORD_ORGNO"), text(response, "msg_cd"), Instant.now());
+                text(output, "ODNO"), text(output, "KRX_FWDG_ORD_ORGNO"), text(response, "rt_cd"), Instant.now());
     }
 
     public void cancelRealOrder(Market market, String symbol, String brokerOrderNumber,

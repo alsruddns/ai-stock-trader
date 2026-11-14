@@ -108,7 +108,7 @@ public class KisOrderClient {
         JsonNode output = result.path("output");
         return new KisOrderReceipt("paper", market.name(), symbol.toUpperCase(Locale.ROOT), side.name(),
                 text(output, "ODNO"), text(output, "KRX_FWDG_ORD_ORGNO"),
-                text(result, "msg_cd"), Instant.now());
+                text(result, "rt_cd"), Instant.now());
     }
 
     public void cancelPaperOrder(Market market, String symbol, String brokerOrderNumber,

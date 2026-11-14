@@ -65,7 +65,7 @@ class KisOrderClientTest {
                 .andExpect(jsonPath("$.EXCG_ID_DVSN_CD").value("KRX"))
                 .andExpect(jsonPath("$.SLL_TYPE").value(""))
                 .andExpect(jsonPath("$.CNDT_PRIC").value(""))
-                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"msg_cd\":\"0\",\"output\":{\"ODNO\":\"1234\",\"KRX_FWDG_ORD_ORGNO\":\"ORG01\"}}",
+                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"msg_cd\":\"MCA00000\",\"msg1\":\"정상처리 되었습니다.\",\"output\":{\"ODNO\":\"1234\",\"KRX_FWDG_ORD_ORGNO\":\"ORG01\"}}",
                         org.springframework.http.MediaType.APPLICATION_JSON));
 
         KisOrderReceipt result = client(true, builder).placePaperLimitOrder(
@@ -74,6 +74,12 @@ class KisOrderClientTest {
         assertEquals("1234", result.brokerOrderNumber());
         assertEquals("ORG01", result.brokerOrganizationNumber());
         assertEquals("paper", result.environment());
+        assertEquals("0", result.responseCode());
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new com.aistocktrader.order.OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
+                        new BigDecimal("70000"), Currency.KRW), null);
+        intent.accept(result);
+        assertEquals(KisOrderStatus.ACCEPTED, intent.getStatus());
         server.verify();
     }
 

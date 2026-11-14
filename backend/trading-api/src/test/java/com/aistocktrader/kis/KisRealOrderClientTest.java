@@ -118,6 +118,12 @@ class KisRealOrderClientTest {
         assertEquals("real", receipt.environment());
         assertEquals("7001", receipt.brokerOrderNumber());
         assertEquals("ORG01", receipt.brokerOrganizationNumber());
+        assertEquals("0", receipt.responseCode());
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                        new BigDecimal("70000"), Currency.KRW), null);
+        intent.accept(receipt);
+        assertEquals(KisOrderStatus.ACCEPTED, intent.getStatus());
         server.verify();
     }
 
