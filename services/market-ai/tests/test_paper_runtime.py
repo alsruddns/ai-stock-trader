@@ -1221,6 +1221,117 @@ def test_domestic_feed_waits_for_trade_and_orderbook_subscription_acks(monkeypat
     assert runtime.status()["last_stream_failure_environment"] == "paper"
 
 
+@pytest.mark.parametrize(("dynamic_rt_cd", "expected_state", "expected_ack"), [
+    ("0", "RUNNING", {"accepted_count": 4, "required_count": 4, "complete": True}),
+    ("1", "RECONNECTING", {"accepted_count": 2, "required_count": 4, "complete": False}),
+])
+def test_domestic_dynamic_watch_ack_controls_feed_state(monkeypatch, dynamic_rt_cd, expected_state, expected_ack) -> None:
+    class DynamicAckConnection:
+        def __init__(self):
+            self.incoming = asyncio.Queue()
+            self.release_dynamic_ack = asyncio.Event()
+            self.sent = []
+            self.acknowledgements_received = 0
+            self.incoming.put_nowait('{"header":{"tr_id":"H0STCNT0"},"body":{"rt_cd":"0"}}')
+            self.incoming.put_nowait('{"header":{"tr_id":"H0STASP0"},"body":{"rt_cd":"0"}}')
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send(self, message):
+            payload = json.loads(message)
+            self.sent.append(payload)
+            subscription = payload["body"]["input"]
+            if subscription["tr_key"] == "000660":
+                await self.release_dynamic_ack.wait()
+                body = {"rt_cd": dynamic_rt_cd}
+                if dynamic_rt_cd != "0":
+                    body.update({"msg_cd": "SAFE_CODE", "msg1": "private details"})
+                self.incoming.put_nowait(
+                    json.dumps({"header": {"tr_id": subscription["tr_id"]}, "body": body})
+                )
+
+        async def recv(self):
+            if self.acknowledgements_received == 4 and self.incoming.empty():
+                raise asyncio.CancelledError
+            frame = await self.incoming.get()
+            self.acknowledgements_received += 1
+            return frame
+
+    async def scenario():
+        original_sleep = asyncio.sleep
+        runtime = PaperSessionFeedMonitor()
+        initial = PaperWatch("KR", "005930")
+        candidate = PaperWatch("KR", "000660")
+        runtime._watches_by_feed = {"paper": [initial]}
+        runtime._subscription_update_queues = {"paper": asyncio.Queue()}
+        runtime._set_status(
+            enabled=True, subscriptions=1, stream_connections={"paper": "CONNECTING"},
+        )
+        async def prepare(_watch):
+            return None
+        monkeypatch.setattr(runtime, "_prepare_watch", prepare)
+        connection = DynamicAckConnection()
+        monkeypatch.setattr("app.paper_runtime.approval_key", lambda _settings: "approval")
+        if dynamic_rt_cd != "0":
+            async def stop_after_rejection(_delay):
+                raise asyncio.CancelledError
+            monkeypatch.setattr("app.paper_runtime.asyncio.sleep", stop_after_rejection)
+        monkeypatch.setitem(
+            sys.modules, "websockets", SimpleNamespace(connect=lambda *_args, **_kwargs: connection),
+        )
+        settings = SimpleNamespace(kis=SimpleNamespace(environment="paper"), websocket_url="ws://mock.invalid")
+        run_task = asyncio.create_task(runtime._run((initial,), settings))
+
+        async def wait_for_state(expected):
+            for _ in range(500):
+                if runtime.status()["stream_connections"]["paper"] == expected:
+                    return
+                await original_sleep(0.002)
+            raise AssertionError(f"paper feed did not reach {expected}")
+
+        try:
+            await wait_for_state("RUNNING")
+            add_task = asyncio.create_task(runtime.add_watches((candidate,), discovered=True))
+            await wait_for_state("SUBSCRIBING")
+            assert runtime.status()["subscription_acknowledgements_by_feed"]["paper"] == {
+                "accepted_count": 2, "required_count": 4, "complete": False,
+            }
+            connection.release_dynamic_ack.set()
+            result = await add_task
+            assert result == {"added": [candidate.key], "subscriptions": 2}
+            await wait_for_state(expected_state)
+            try:
+                await asyncio.wait_for(run_task, timeout=1)
+            except asyncio.CancelledError:
+                pass
+        finally:
+            if not run_task.done():
+                run_task.cancel()
+            try:
+                await run_task
+            except asyncio.CancelledError:
+                pass
+
+        assert [(message["body"]["input"]["tr_id"], message["header"]["tr_type"])
+                for message in connection.sent] == [
+            ("H0STCNT0", "1"), ("H0STASP0", "1"), ("H0STCNT0", "1"), ("H0STASP0", "1"),
+        ]
+        status = runtime.status()
+        assert status["stream_connections"]["paper"] == expected_state
+        assert status["subscription_acknowledgements_by_feed"]["paper"] == expected_ack
+        if dynamic_rt_cd == "1":
+            assert status["last_subscription_error_code"] == "SAFE_CODE"
+            assert "private details" not in str(status)
+        else:
+            assert status["last_subscription_error_code"] is None
+
+    asyncio.run(scenario())
+
+
 def test_runtime_routes_domestic_orderbook_updates_to_matching_symbol_aggregator(monkeypatch) -> None:
     zone = ZoneInfo("Asia/Seoul")
     watch = parse_watchlist("KR:005930")[0]
