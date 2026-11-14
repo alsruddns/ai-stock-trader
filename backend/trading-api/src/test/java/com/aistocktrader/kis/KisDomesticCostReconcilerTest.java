@@ -68,8 +68,8 @@ class KisDomesticCostReconcilerTest {
                 reconciler.reconcile(summary, modeled(), new BigDecimal("1001")).status());
     }
 
-    private KisRealizedPnlCalculator.Result modeled() {
-        return calculator.calculate(List.of(), List.of(
+    private KisRealizedPnlCalculator.CostEstimate modeled() {
+        return calculator.estimateCosts(List.of(
                 fill("buy", OrderSide.BUY, "10000", 1),
                 fill("sell", OrderSide.SELL, "10000", 2)),
                 new KisRealizedPnlCalculator.Costs(new BigDecimal("5"), new BigDecimal("5"), new BigDecimal("2")));

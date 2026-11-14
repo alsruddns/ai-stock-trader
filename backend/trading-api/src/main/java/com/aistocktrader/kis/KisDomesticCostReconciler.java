@@ -13,7 +13,7 @@ final class KisDomesticCostReconciler {
             new Field("sll_fee_smtl", "sellCommission"),
             new Field("sll_tltx_smtl", "sellTax"));
 
-    Result reconcile(JsonNode brokerSummary, KisRealizedPnlCalculator.Result modeled,
+    Result reconcile(JsonNode brokerSummary, KisRealizedPnlCalculator.CostEstimate modeled,
                      BigDecimal tolerance) {
         if (brokerSummary == null || modeled == null || !modeled.valid() || tolerance == null
                 || tolerance.signum() < 0 || tolerance.compareTo(new BigDecimal("1000")) > 0) {
@@ -54,11 +54,11 @@ final class KisDomesticCostReconciler {
         return null;
     }
 
-    private static BigDecimal modeledValue(KisRealizedPnlCalculator.Result modeled, String field) {
+    private static BigDecimal modeledValue(KisRealizedPnlCalculator.CostEstimate modeled, String field) {
         return switch (field) {
-            case "buyCommission" -> modeled.estimatedBuyCommission();
-            case "sellCommission" -> modeled.estimatedSellCommission();
-            case "sellTax" -> modeled.estimatedSellTax();
+            case "buyCommission" -> modeled.buyCommission();
+            case "sellCommission" -> modeled.sellCommission();
+            case "sellTax" -> modeled.sellTax();
             default -> null;
         };
     }

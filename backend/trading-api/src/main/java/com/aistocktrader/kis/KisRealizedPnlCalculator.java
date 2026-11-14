@@ -83,6 +83,28 @@ final class KisRealizedPnlCalculator {
                 estimatedBuyCommission, estimatedSellCommission, estimatedSellTax);
     }
 
+    CostEstimate estimateCosts(List<TradeFill> fills, Costs costs) {
+        if (fills == null || costs == null || !costs.valid()) return CostEstimate.invalid();
+        Set<String> fillIds = new HashSet<>();
+        BigDecimal buyCommission = BigDecimal.ZERO;
+        BigDecimal sellCommission = BigDecimal.ZERO;
+        BigDecimal sellTax = BigDecimal.ZERO;
+        for (TradeFill fill : fills) {
+            if (fill == null || fill.id() == null || fill.id().isBlank() || !fillIds.add(fill.id())
+                    || fill.symbol() == null || fill.symbol().isBlank() || fill.side() == null
+                    || fill.quantity() <= 0 || fill.averagePrice() == null || fill.averagePrice().signum() <= 0
+                    || fill.executedAt() == null) return CostEstimate.invalid();
+            BigDecimal notional = fill.averagePrice().multiply(BigDecimal.valueOf(fill.quantity()));
+            if (fill.side() == OrderSide.BUY) {
+                buyCommission = buyCommission.add(currencyCost(notional, costs.buyCommissionBps()));
+            } else {
+                sellCommission = sellCommission.add(currencyCost(notional, costs.sellCommissionBps()));
+                sellTax = sellTax.add(currencyCost(notional, costs.sellTaxBps()));
+            }
+        }
+        return new CostEstimate(true, buyCommission, sellCommission, sellTax);
+    }
+
     private static BigDecimal currencyCost(BigDecimal notional, BigDecimal rateBps) {
         return notional.multiply(rateBps).divide(TEN_THOUSAND, 0, RoundingMode.HALF_UP);
     }
@@ -107,6 +129,9 @@ final class KisRealizedPnlCalculator {
         static Result invalid() {
             return new Result(false, -1, List.of(), Map.of(), null, null, null);
         }
+    }
+    record CostEstimate(boolean valid, BigDecimal buyCommission, BigDecimal sellCommission, BigDecimal sellTax) {
+        static CostEstimate invalid() { return new CostEstimate(false, null, null, null); }
     }
 
     private static final class Inventory {

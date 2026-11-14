@@ -50,6 +50,8 @@ public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, 
                                                 Pageable pageable);
     List<KisOrderIntent> findByEnvironmentAndMarketAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
             KisEnvironment environment, com.aistocktrader.order.Market market, Instant createdAt);
+    List<KisOrderIntent> findByEnvironmentAndMarketAndLastFillAtGreaterThanEqualAndLastFillAtLessThanOrderByLastFillAtAsc(
+            KisEnvironment environment, com.aistocktrader.order.Market market, Instant fromInclusive, Instant toExclusive);
     java.util.Optional<KisOrderIntent> findByEnvironmentAndMarketAndBrokerOrderNumber(
             KisEnvironment environment, com.aistocktrader.order.Market market, String brokerOrderNumber);
     boolean existsByEnvironmentAndMarketAndStatusInAndIdempotencyKeyNot(
