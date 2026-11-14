@@ -240,6 +240,16 @@ def main() -> int:
             "ending_equity": str(ending_equity) if ending_equity is not None else None,
             "ending_equity_note": None if ending_equity is not None else
             "Independent sessions do not produce a single sequential ending-equity value.",
+            "portfolio_return_percent": (
+                str((ending_equity - args.starting_equity) * Decimal(100) / args.starting_equity)
+                if ending_equity is not None else None
+            ),
+            "portfolio_return_basis": (
+                "compounded sequential ending equity divided by starting equity minus one"
+                if ending_equity is not None else None
+            ),
+            "portfolio_return_note": None if ending_equity is not None else
+            "Independent sessions do not produce one portfolio return percentage.",
             "gross_pnl": str(gross_pnl),
             "estimated_costs": str(estimated_costs),
             "estimated_costs_by_component": {

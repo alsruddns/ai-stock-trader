@@ -102,6 +102,11 @@ def test_portfolio_cli_requires_reviewed_multi_symbol_inputs_and_reports_non_exe
     ) == Decimal(payload["summary"]["net_pnl_across_independent_sessions"])
     assert payload["summary"]["max_bar_marked_drawdown_amount"] is None
     assert payload["summary"]["max_bar_marked_drawdown_percent"] is None
+    assert payload["summary"]["portfolio_return_percent"] is None
+    assert payload["summary"]["portfolio_return_basis"] is None
+    assert payload["summary"]["portfolio_return_note"] == (
+        "Independent sessions do not produce one portfolio return percentage."
+    )
     assert payload["summary"]["executable"] is False
     assert payload["executable"] is False
 
@@ -134,6 +139,13 @@ def test_portfolio_cli_can_carry_completed_equity_forward_between_sessions(tmp_p
     assert payload["sessions"][0]["starting_consecutive_losses"] == 0
     assert payload["sessions"][1]["starting_consecutive_losses"] == payload["sessions"][0]["ending_consecutive_losses"]
     assert payload["summary"]["ending_equity"] == payload["sessions"][1]["ending_equity"]
+    expected_return = (Decimal(payload["summary"]["ending_equity"])
+                       - Decimal(payload["summary"]["starting_equity"])) * Decimal(100) / Decimal(
+                           payload["summary"]["starting_equity"]
+                       )
+    assert Decimal(payload["summary"]["portfolio_return_percent"]) == expected_return
+    assert "compounded sequential ending equity" in payload["summary"]["portfolio_return_basis"]
+    assert payload["summary"]["portfolio_return_note"] is None
     assert Decimal(payload["summary"]["starting_equity"]) + Decimal(payload["summary"]["net_pnl"]) == Decimal(
         payload["summary"]["ending_equity"]
     )
