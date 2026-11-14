@@ -250,6 +250,7 @@ class PaperSessionFeedMonitor:
             "market_data_diagnostics_by_feed": {
                 feed: {
                     "trade_market_class_filtered": 0, "orderbook_market_class_filtered": 0,
+                    "trade_quote_fields_invalid": 0,
                     "trade_parse_errors": 0, "orderbook_parse_errors": 0,
                     "trade_symbol_mismatches": 0, "orderbook_symbol_mismatches": 0,
                     "encrypted_market_frames_rejected": 0,
@@ -1620,20 +1621,29 @@ class PaperSessionFeedMonitor:
                         self._status["last_orderbook_received_at_by_feed"] = received
             return
         mismatch_recorded = False
+        parse_diagnostics_recorded = False
         for watch in watches:
             expected = "H0STCNT0" if watch.market == "KR" else "HDFSCNT0"
             if transaction_id != expected:
                 continue
             try:
-                ticks, filtered = parse_trade_frame_with_diagnostics(payload, watch.market, watch.exchange)
-            except ValueError:
-                self._increment_market_data_diagnostic(
-                    self._feed_by_watch.get(watch.key, self._feed_for_watch(watch)), "trade_parse_errors",
+                ticks, filtered, invalid_quote_fields = parse_trade_frame_with_diagnostics(
+                    payload, watch.market, watch.exchange,
                 )
+            except ValueError:
+                if not parse_diagnostics_recorded:
+                    self._increment_market_data_diagnostic(
+                        self._feed_by_watch.get(watch.key, self._feed_for_watch(watch)), "trade_parse_errors",
+                    )
+                    parse_diagnostics_recorded = True
                 continue
             feed = self._feed_by_watch.get(watch.key, self._feed_for_watch(watch))
-            if filtered:
-                self._increment_market_data_diagnostic(feed, "trade_market_class_filtered", filtered)
+            if not parse_diagnostics_recorded:
+                if filtered:
+                    self._increment_market_data_diagnostic(feed, "trade_market_class_filtered", filtered)
+                if invalid_quote_fields:
+                    self._increment_market_data_diagnostic(feed, "trade_quote_fields_invalid", invalid_quote_fields)
+                parse_diagnostics_recorded = True
             matching_ticks = [tick for tick in ticks if tick.symbol.upper() == watch.symbol.upper()]
             if not filtered and not mismatch_recorded:
                 subscribed_symbols = {

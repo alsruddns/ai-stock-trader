@@ -53,15 +53,17 @@ def _require_whole_krw(value: Decimal, name: str) -> Decimal:
     return value
 
 
-def _optional_whole_krw(value: str, name: str) -> Decimal | None:
-    """Return only positive integral domestic quote values; invalid quotes stay absent."""
+def _optional_whole_krw(value: str, name: str) -> tuple[Decimal | None, bool]:
+    """Return a usable quote and whether its wire value was malformed."""
     try:
         parsed = _number(value, name)
     except ValueError:
-        return None
-    if parsed <= 0 or parsed != parsed.to_integral_value():
-        return None
-    return parsed
+        return None, True
+    if parsed <= 0:
+        return None, False
+    if parsed != parsed.to_integral_value():
+        return None, True
+    return parsed, False
 
 
 def _parse_time(date_value: str, time_value: str, zone: str) -> datetime:
@@ -76,12 +78,13 @@ def parse_trade_frame(frame: str, market: str, exchange: str | None = None) -> l
 
 def parse_trade_frame_with_diagnostics(
     frame: str, market: str, exchange: str | None = None,
-) -> tuple[list[TradeTick], int]:
+) -> tuple[list[TradeTick], int, int]:
     """Parse official KIS H0STCNT0 or HDFSCNT0 pipe/caret market-data frames.
 
     Account notices and encrypted frames are rejected. Only market price, volume,
     timestamps and best bid/ask fields are returned. The second result counts
-    domestic records excluded because their market-class code is not regular trading.
+    domestic records excluded because their market-class code is not regular trading;
+    the third counts malformed optional domestic bid/ask fields.
     """
     parts = frame.split("|", 3)
     if len(parts) != 4 or parts[0] != "0":
@@ -97,39 +100,48 @@ def parse_trade_frame_with_diagnostics(
     if market == "KR" and tr_id == "H0STCNT0":
         # KIS's official 47-column schema places VI_STND_PRC at 45 and MARKET_CLS_CODE at 46.
         width, zone = 47, "Asia/Seoul"
-        get_tick = lambda row: TradeTick(
-            market="KR", symbol=row[0], timestamp=_parse_time(row[33], row[1], zone),
-            price=_number(row[2], "price"), volume=abs(int(row[12])),  # CNTG_VOL, not ACML_VOL
-            ask=_optional_whole_krw(row[10], "ask"), bid=_optional_whole_krw(row[11], "bid"),
-        )
+
+        def get_tick(row: list[str]) -> tuple[TradeTick, int]:
+            ask, invalid_ask = _optional_whole_krw(row[10], "ask")
+            bid, invalid_bid = _optional_whole_krw(row[11], "bid")
+            tick = TradeTick(
+                market="KR", symbol=row[0], timestamp=_parse_time(row[33], row[1], zone),
+                price=_number(row[2], "price"), volume=abs(int(row[12])),  # CNTG_VOL, not ACML_VOL
+                ask=ask, bid=bid,
+            )
+            return tick, int(invalid_ask) + int(invalid_bid)
     elif market == "US" and tr_id == "HDFSCNT0":
         if exchange not in {"NAS", "NYS", "AMS"}:
             raise ValueError("US tick parsing requires exchange NAS, NYS, or AMS")
         width, zone = 26, "America/New_York"
-        get_tick = lambda row: TradeTick(
-            market="US", symbol=row[1], timestamp=_parse_time(row[3], row[5], zone),
-            price=_number(row[11], "price"), volume=abs(int(row[19])),  # per-trade execution volume
-            ask=_number(row[16], "ask"), bid=_number(row[15], "bid"),
-        )
+
+        def get_tick(row: list[str]) -> tuple[TradeTick, int]:
+            return TradeTick(
+                market="US", symbol=row[1], timestamp=_parse_time(row[3], row[5], zone),
+                price=_number(row[11], "price"), volume=abs(int(row[19])),  # per-trade execution volume
+                ask=_number(row[16], "ask"), bid=_number(row[15], "bid"),
+            ), 0
     else:
         raise ValueError("KIS frame transaction does not match the selected market")
     if len(fields) < width * count:
         raise ValueError("KIS frame did not contain all declared records")
     ticks: list[TradeTick] = []
     non_regular_records = 0
+    invalid_quote_fields = 0
     for index in range(count):
         row = fields[index * width:(index + 1) * width]
         if market == "KR" and row[46].strip() != "2":
             # KIS MARKET_CLS_CODE: only regular-session executions enter strategy bars.
             non_regular_records += 1
             continue
-        tick = get_tick(row)
+        tick, invalid_quote_count = get_tick(row)
+        invalid_quote_fields += invalid_quote_count
         if tick.price <= 0:
             raise ValueError("KIS trade price must be positive")
         if market == "KR":
             _require_whole_krw(tick.price, "trade price")
         ticks.append(tick)
-    return ticks, non_regular_records
+    return ticks, non_regular_records, invalid_quote_fields
 
 
 def parse_domestic_orderbook_frame(

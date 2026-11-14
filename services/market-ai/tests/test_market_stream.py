@@ -70,12 +70,15 @@ def test_domestic_trade_parser_keeps_execution_when_optional_quote_is_fractional
         12: "3", 33: "20261105", 45: "73500", 46: "2", field: "73510.5" if field == 10 else "73500.5",
     })
 
-    tick = parse_trade_frame(frame, "KR")[0]
+    ticks, filtered, invalid_quotes = parse_trade_frame_with_diagnostics(frame, "KR")
+    tick = ticks[0]
 
     assert tick.price == Decimal("73500")
     assert tick.volume == 3
     assert tick.bid == expected_bid
     assert tick.ask == expected_ask
+    assert filtered == 0
+    assert invalid_quotes == 1
 
 
 @pytest.mark.parametrize(("field", "value", "expected_bid", "expected_ask"), [
@@ -90,12 +93,15 @@ def test_domestic_trade_parser_keeps_execution_when_optional_quote_is_malformed(
         12: "3", 33: "20261105", 45: "73500", 46: "2", field: value,
     })
 
-    tick = parse_trade_frame(frame, "KR")[0]
+    ticks, filtered, invalid_quotes = parse_trade_frame_with_diagnostics(frame, "KR")
+    tick = ticks[0]
 
     assert tick.price == Decimal("73500")
     assert tick.volume == 3
     assert tick.bid == expected_bid
     assert tick.ask == expected_ask
+    assert filtered == 0
+    assert invalid_quotes == 1
 
 
 @pytest.mark.parametrize("market_class", ["1", "3", "5", ""])
@@ -114,10 +120,11 @@ def test_domestic_trade_diagnostics_count_filtered_market_classes() -> None:
         12: "3", 33: "20261105", 45: "2", 46: "3",
     })
 
-    ticks, filtered = parse_trade_frame_with_diagnostics(frame, "KR")
+    ticks, filtered, invalid_quotes = parse_trade_frame_with_diagnostics(frame, "KR")
 
     assert ticks == []
     assert filtered == 1
+    assert invalid_quotes == 0
 
 
 def test_domestic_trade_parser_uses_market_class_field_after_vi_reference_price() -> None:

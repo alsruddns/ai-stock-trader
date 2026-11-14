@@ -534,7 +534,10 @@ def test_collector_persists_bars_when_paper_order_worker_is_disabled(
         "app.paper_runtime.normalize_stream_frame",
         lambda _frame: {"kind": "data", "encrypted": "0", "transaction_id": transaction_id, "count": "1", "payload": "tick"},
     )
-    monkeypatch.setattr("app.paper_runtime.parse_trade_frame_with_diagnostics", lambda *_args: ([tick], 0))
+    monkeypatch.setattr(
+        "app.paper_runtime.parse_trade_frame_with_diagnostics",
+        lambda *_args: ([tick], 0, 1 if market == "KR" else 0),
+    )
 
     runtime._consume("fixture", (watch,))
 
@@ -553,12 +556,15 @@ def test_collector_persists_bars_when_paper_order_worker_is_disabled(
     assert status["last_tick_received_at_by_feed"][other_feed] is None
     assert status["bars_closed_by_feed"][feed] == 1
     assert status["bars_closed_by_feed"][other_feed] == 0
+    assert status["market_data_diagnostics_by_feed"][feed]["trade_quote_fields_invalid"] == (
+        1 if market == "KR" else 0
+    )
 
 
 def test_runtime_reports_market_class_filtered_domestic_frames_without_counting_ticks(monkeypatch) -> None:
     runtime = PaperSessionFeedMonitor()
     watch = parse_watchlist("KR:005930")[0]
-    monkeypatch.setattr("app.paper_runtime.parse_trade_frame_with_diagnostics", lambda *_args: ([], 1))
+    monkeypatch.setattr("app.paper_runtime.parse_trade_frame_with_diagnostics", lambda *_args: ([], 1, 0))
 
     runtime._consume("0|H0STCNT0|1|payload", (watch,))
 
@@ -584,7 +590,7 @@ def test_runtime_reports_parse_errors_and_symbol_mismatch_for_domestic_trade_fra
         "KR", "999999", datetime.fromisoformat("2026-11-05T10:12:00+09:00"), Decimal("100"), 1,
         Decimal("99"), Decimal("101"),
     )
-    monkeypatch.setattr("app.paper_runtime.parse_trade_frame_with_diagnostics", lambda *_args: ([other], 0))
+    monkeypatch.setattr("app.paper_runtime.parse_trade_frame_with_diagnostics", lambda *_args: ([other], 0, 0))
     runtime._consume("0|H0STCNT0|1|payload", (watch, second_watch))
     assert runtime.status()["market_data_diagnostics_by_feed"]["paper"]["trade_symbol_mismatches"] == 1
 
@@ -605,7 +611,7 @@ def test_runtime_reports_domestic_market_data_receipts_per_symbol(monkeypatch) -
         "app.paper_runtime.normalize_stream_frame",
         lambda _frame: {"kind": "data", "encrypted": "0", "transaction_id": "H0STCNT0", "count": "1", "payload": "tick"},
     )
-    monkeypatch.setattr("app.paper_runtime.parse_trade_frame_with_diagnostics", lambda *_args: ([trade], 0))
+    monkeypatch.setattr("app.paper_runtime.parse_trade_frame_with_diagnostics", lambda *_args: ([trade], 0, 2))
     runtime._consume("trade", (samsung, hynix))
 
     quote = OrderBookQuote("KR", "000660", timestamp, Decimal("99"), Decimal("101"))
@@ -627,6 +633,7 @@ def test_runtime_reports_domestic_market_data_receipts_per_symbol(monkeypatch) -
     assert "trade_ticks_received" not in per_symbol[hynix.key]
     assert status["market_data_diagnostics_by_feed"]["paper"]["trade_symbol_mismatches"] == 0
     assert status["market_data_diagnostics_by_feed"]["paper"]["orderbook_symbol_mismatches"] == 0
+    assert status["market_data_diagnostics_by_feed"]["paper"]["trade_quote_fields_invalid"] == 2
     minute_quality = status["market_data_minute_quality_by_watch_by_feed"]["paper"]
     minute = timestamp.replace(second=0, microsecond=0).isoformat()
     assert minute_quality[samsung.key][minute]["trade_ticks_received"] == 1
