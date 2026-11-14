@@ -71,6 +71,75 @@ def _command(*datasets: Path | tuple[str, Path]) -> list[str]:
     return command
 
 
+def test_portfolio_cli_loads_and_validates_domestic_costs_from_local_env(tmp_path: Path) -> None:
+    first = _dataset(tmp_path / "005930.csv")
+    second = _dataset(tmp_path / "000660.csv")
+    profile = tmp_path / ".env_local"
+    profile.write_text(
+        "KIS_APP_SECRET=DO_NOT_PRINT_ME\n"
+        "BACKTEST_KR_BUY_COMMISSION_BPS=15.06833\n"
+        "BACKTEST_KR_SELL_COMMISSION_BPS='15.06833'\n"
+        "BACKTEST_KR_SELL_TAX_BPS=20\n"
+        "BACKTEST_KR_SLIPPAGE_BPS=10\n"
+        "BACKTEST_KR_ROUND_TRIP_COST_BPS=70.13666\n",
+        encoding="utf-8",
+    )
+    command = [
+        sys.executable, str(CLI), "--dataset", f"005930={first}", "--dataset", f"000660={second}",
+        "--starting-equity", "1000000", "--max-order-notional", "1000000", "--minimum-turnover", "0",
+        "--costs-from-env", "--cost-env-file", str(profile),
+    ]
+
+    completed = subprocess.run(command, cwd=REPOSITORY, capture_output=True, text=True, check=False)
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["cost_assumptions_bps_per_fill"] == {
+        "buy_commission": "15.06833", "sell_commission": "15.06833", "sell_tax": "20", "slippage": "10",
+    }
+    assert payload["cost_assumptions_round_trip_bps"] == "70.13666"
+    assert payload["cost_assumptions_source"] == "local_env_file"
+    assert "DO_NOT_PRINT_ME" not in completed.stdout
+    assert "DO_NOT_PRINT_ME" not in completed.stderr
+
+    mixed = subprocess.run(
+        command + ["--buy-commission-bps", "14.7"], cwd=REPOSITORY,
+        capture_output=True, text=True, check=False,
+    )
+    assert mixed.returncode == 2
+    assert "cannot be combined with explicit cost arguments" in mixed.stderr
+    assert "DO_NOT_PRINT_ME" not in mixed.stdout
+    assert "DO_NOT_PRINT_ME" not in mixed.stderr
+
+def test_portfolio_cli_rejects_inconsistent_local_round_trip_cost_without_revealing_settings(
+    tmp_path: Path,
+) -> None:
+    first = _dataset(tmp_path / "005930.csv")
+    second = _dataset(tmp_path / "000660.csv")
+    profile = tmp_path / ".env_local"
+    profile.write_text(
+        "KIS_APP_SECRET=DO_NOT_PRINT_ME\n"
+        "BACKTEST_KR_BUY_COMMISSION_BPS=15.06833\n"
+        "BACKTEST_KR_SELL_COMMISSION_BPS=15.06833\n"
+        "BACKTEST_KR_SELL_TAX_BPS=20\n"
+        "BACKTEST_KR_SLIPPAGE_BPS=10\n"
+        "BACKTEST_KR_ROUND_TRIP_COST_BPS=70\n",
+        encoding="utf-8",
+    )
+    command = [
+        sys.executable, str(CLI), "--dataset", f"005930={first}", "--dataset", f"000660={second}",
+        "--starting-equity", "1000000", "--max-order-notional", "1000000",
+        "--costs-from-env", "--cost-env-file", str(profile),
+    ]
+
+    completed = subprocess.run(command, cwd=REPOSITORY, capture_output=True, text=True, check=False)
+
+    assert completed.returncode == 2
+    assert "round-trip cost does not match its components" in completed.stderr
+    assert "DO_NOT_PRINT_ME" not in completed.stdout
+    assert "DO_NOT_PRINT_ME" not in completed.stderr
+
+
 def test_portfolio_cli_requires_reviewed_multi_symbol_inputs_and_reports_non_executable(tmp_path: Path) -> None:
     first = _dataset(tmp_path / "005930.csv")
     second = _dataset(tmp_path / "000660.csv")

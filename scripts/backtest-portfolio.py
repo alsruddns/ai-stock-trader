@@ -6,7 +6,7 @@ import json
 import sys
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -35,6 +35,61 @@ def _dataset_argument(value: str) -> tuple[str, Path]:
     return normalized, Path(path.strip())
 
 
+def _load_local_cost_profile(path: Path) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal]:
+    """Read only domestic backtest cost keys; never expose other local settings."""
+    keys = {
+        "BACKTEST_KR_BUY_COMMISSION_BPS": "buy_commission",
+        "BACKTEST_KR_SELL_COMMISSION_BPS": "sell_commission",
+        "BACKTEST_KR_SELL_TAX_BPS": "sell_tax",
+        "BACKTEST_KR_SLIPPAGE_BPS": "slippage",
+        "BACKTEST_KR_ROUND_TRIP_COST_BPS": "round_trip",
+    }
+    values: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except OSError as exc:
+        raise ValueError("local domestic backtest cost profile is unavailable") from exc
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        name, value = stripped.split("=", 1)
+        name = name.strip()
+        if name not in keys:
+            continue
+        if name in values:
+            raise ValueError("local domestic backtest cost profile contains duplicate keys")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        values[name] = value
+    missing = set(keys) - values.keys()
+    if missing:
+        raise ValueError("local domestic backtest cost profile is incomplete")
+    try:
+        parsed = {keys[name]: Decimal(value) for name, value in values.items()}
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("local domestic backtest cost profile has invalid numeric values") from exc
+    if any(not value.is_finite() or value < 0 for value in parsed.values()):
+        raise ValueError("local domestic backtest cost profile has invalid numeric values")
+    expected_round_trip = (parsed["buy_commission"] + parsed["sell_commission"]
+                           + parsed["sell_tax"] + Decimal(2) * parsed["slippage"])
+    if not expected_round_trip.is_finite() or parsed["round_trip"] != expected_round_trip:
+        raise ValueError("local domestic backtest round-trip cost does not match its components")
+    if expected_round_trip <= 0:
+        raise ValueError("local domestic backtest cost profile must include positive costs")
+    return (parsed["buy_commission"], parsed["sell_commission"],
+            parsed["sell_tax"], parsed["slippage"], parsed["round_trip"])
+
+
+def _default_local_cost_profile(repository: Path) -> Path:
+    for name in (".env_local", ".env"):
+        candidate = repository / name
+        if candidate.is_file():
+            return candidate
+    return repository / ".env_local"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Replay domestic one-symbol candidate trades under shared portfolio capital and risk limits."
@@ -45,11 +100,15 @@ def main() -> int:
                         help="hypothetical KRW capital; this does not query a broker account")
     parser.add_argument("--max-order-notional", type=Decimal, required=True,
                         help="hard simulated per-entry KRW notional ceiling")
-    parser.add_argument("--buy-commission-bps", type=Decimal, required=True)
-    parser.add_argument("--sell-commission-bps", type=Decimal, required=True)
-    parser.add_argument("--sell-tax-bps", type=Decimal, required=True)
-    parser.add_argument("--slippage-bps", type=Decimal, required=True,
+    parser.add_argument("--buy-commission-bps", type=Decimal)
+    parser.add_argument("--sell-commission-bps", type=Decimal)
+    parser.add_argument("--sell-tax-bps", type=Decimal)
+    parser.add_argument("--slippage-bps", type=Decimal,
                         help="estimated slippage for each fill")
+    parser.add_argument("--costs-from-env", action="store_true",
+                        help="load domestic costs from the ignored .env_local (fallback .env) profile")
+    parser.add_argument("--cost-env-file", type=Path,
+                        help="local cost profile path used with --costs-from-env")
     parser.add_argument("--slippage-scenario-bps", type=Decimal, action="append", default=None,
                         help="optional per-fill slippage stress case; repeat to compare scenarios")
     parser.add_argument("--capital-scenario", type=Decimal, action="append", default=None,
@@ -63,6 +122,26 @@ def main() -> int:
     parser.add_argument("--registry", type=Path, default=Path(".local/models"),
                         help="local model registry used with --with-active-ai-models")
     args = parser.parse_args()
+    cost_arguments = (args.buy_commission_bps, args.sell_commission_bps,
+                      args.sell_tax_bps, args.slippage_bps)
+    if args.costs_from_env:
+        if any(value is not None for value in cost_arguments):
+            parser.error("--costs-from-env cannot be combined with explicit cost arguments")
+        profile_path = args.cost_env_file or _default_local_cost_profile(repository)
+        try:
+            (args.buy_commission_bps, args.sell_commission_bps,
+             args.sell_tax_bps, args.slippage_bps, cost_round_trip_bps) = _load_local_cost_profile(profile_path)
+        except ValueError as exc:
+            parser.error(str(exc))
+        cost_assumptions_source = "local_env_file"
+    else:
+        if args.cost_env_file is not None:
+            parser.error("--cost-env-file requires --costs-from-env")
+        if any(value is None for value in cost_arguments):
+            parser.error("provide all four explicit cost arguments or use --costs-from-env")
+        cost_round_trip_bps = (args.buy_commission_bps + args.sell_commission_bps
+                               + args.sell_tax_bps + Decimal(2) * args.slippage_bps)
+        cost_assumptions_source = "explicit_cli"
     try:
         require_cli_operational_market("KR", "portfolio quant backtest")
     except ValueError as exc:
@@ -419,6 +498,8 @@ def main() -> int:
             "sell_tax": str(args.sell_tax_bps),
             "slippage": str(args.slippage_bps),
         },
+        "cost_assumptions_round_trip_bps": str(cost_round_trip_bps),
+        "cost_assumptions_source": cost_assumptions_source,
         "slippage_sensitivity": slippage_sensitivity,
         "capital_sensitivity": capital_sensitivity,
         "risk_limits": {
