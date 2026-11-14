@@ -37,6 +37,19 @@ final class KisDomesticCostReconciler {
         return mismatches.isEmpty() ? Result.matched() : Result.mismatched(mismatches);
     }
 
+    Result reconcileRealizedPnl(JsonNode brokerSummary, BigDecimal modeledNetPnl, BigDecimal tolerance) {
+        if (brokerSummary == null || modeledNetPnl == null || tolerance == null
+                || tolerance.signum() < 0 || tolerance.compareTo(new BigDecimal("1000")) > 0) {
+            return Result.unavailable(List.of("invalid_input"));
+        }
+        JsonNode summary = singleObject(brokerSummary);
+        if (summary == null) return Result.unavailable(List.of("summary_shape"));
+        BigDecimal actual = decimal(summary.get("tot_rlzt_pfls"));
+        if (actual == null) return Result.unavailable(List.of("tot_rlzt_pfls"));
+        return actual.subtract(modeledNetPnl).abs().compareTo(tolerance) <= 0
+                ? Result.matched() : Result.mismatched(List.of("tot_rlzt_pfls"));
+    }
+
     private static JsonNode singleObject(JsonNode summary) {
         if (summary.isObject()) return summary;
         if (summary.isArray() && summary.size() == 1 && summary.get(0).isObject()) return summary.get(0);

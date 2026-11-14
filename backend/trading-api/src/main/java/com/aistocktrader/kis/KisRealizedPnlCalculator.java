@@ -42,6 +42,8 @@ final class KisRealizedPnlCalculator {
         ordered.sort(Comparator.comparing(TradeFill::executedAt).thenComparing(fill -> fill.id().toString()));
 
         List<RealizedTrade> realized = new ArrayList<>();
+        BigDecimal totalGrossRealizedPnl = BigDecimal.ZERO;
+        BigDecimal totalNetRealizedPnl = BigDecimal.ZERO;
         BigDecimal estimatedBuyCommission = BigDecimal.ZERO;
         BigDecimal estimatedSellCommission = BigDecimal.ZERO;
         BigDecimal estimatedSellTax = BigDecimal.ZERO;
@@ -66,7 +68,9 @@ final class KisRealizedPnlCalculator {
                         .add(costs.sellTaxBps()).divide(TEN_THOUSAND, 12, RoundingMode.HALF_UP));
                 BigDecimal net = gross.subtract(sellCost);
                 position.sell(quantity);
-                realized.add(new RealizedTrade(fill.id(), symbol, fill.executedAt(), net));
+                realized.add(new RealizedTrade(fill.id(), symbol, fill.executedAt(), gross, net));
+                totalGrossRealizedPnl = totalGrossRealizedPnl.add(gross);
+                totalNetRealizedPnl = totalNetRealizedPnl.add(net);
             }
         }
 
@@ -80,7 +84,8 @@ final class KisRealizedPnlCalculator {
             if (position.quantity.signum() > 0) openPositions.put(symbol, position.quantity);
         });
         return new Result(true, consecutiveLosses, List.copyOf(realized), Map.copyOf(openPositions),
-                estimatedBuyCommission, estimatedSellCommission, estimatedSellTax);
+                estimatedBuyCommission, estimatedSellCommission, estimatedSellTax,
+                totalGrossRealizedPnl, totalNetRealizedPnl);
     }
 
     CostEstimate estimateCosts(List<TradeFill> fills, Costs costs) {
@@ -122,12 +127,13 @@ final class KisRealizedPnlCalculator {
             return value != null && value.signum() >= 0 && value.compareTo(new BigDecimal("1000")) <= 0;
         }
     }
-    record RealizedTrade(String id, String symbol, Instant executedAt, BigDecimal netPnl) { }
+    record RealizedTrade(String id, String symbol, Instant executedAt, BigDecimal grossPnl, BigDecimal netPnl) { }
     record Result(boolean valid, int consecutiveLosses, List<RealizedTrade> trades,
                   Map<String, BigDecimal> openPositions, BigDecimal estimatedBuyCommission,
-                  BigDecimal estimatedSellCommission, BigDecimal estimatedSellTax) {
+                  BigDecimal estimatedSellCommission, BigDecimal estimatedSellTax,
+                  BigDecimal grossRealizedPnl, BigDecimal netRealizedPnl) {
         static Result invalid() {
-            return new Result(false, -1, List.of(), Map.of(), null, null, null);
+            return new Result(false, -1, List.of(), Map.of(), null, null, null, null, null);
         }
     }
     record CostEstimate(boolean valid, BigDecimal buyCommission, BigDecimal sellCommission, BigDecimal sellTax) {

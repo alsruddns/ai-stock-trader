@@ -38,6 +38,8 @@ class KisRealizedPnlCalculatorTest {
         assertTrue(result.valid());
         assertEquals(1, result.consecutiveLosses());
         assertTrue(result.trades().getFirst().netPnl().signum() < 0);
+        assertMoney("-5", result.grossRealizedPnl());
+        assertMoney("-12", result.netRealizedPnl());
         assertMoney("5", result.estimatedBuyCommission());
         assertMoney("5", result.estimatedSellCommission());
         assertMoney("2", result.estimatedSellTax());

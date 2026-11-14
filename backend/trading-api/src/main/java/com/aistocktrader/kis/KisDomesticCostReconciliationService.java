@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -26,18 +27,24 @@ public class KisDomesticCostReconciliationService {
     private final KisRealOrderClient brokerOrders;
     private final KisOrderIntentRepository intents;
     private final KisRealTradingCostProperties costs;
+    private final KisRealSessionPositionBaselineStore positionBaselines;
+    private final KisRealDailyRiskBaselineService riskBaselines;
     private final KisRealizedPnlCalculator calculator = new KisRealizedPnlCalculator();
     private final KisDomesticCostReconciler reconciler = new KisDomesticCostReconciler();
 
     public KisDomesticCostReconciliationService(KisProperties properties, KisAccountClient accounts,
                                                  KisRealOrderClient brokerOrders,
                                                  KisOrderIntentRepository intents,
-                                                 KisRealTradingCostProperties costs) {
+                                                 KisRealTradingCostProperties costs,
+                                                 KisRealSessionPositionBaselineStore positionBaselines,
+                                                 KisRealDailyRiskBaselineService riskBaselines) {
         this.properties = properties;
         this.accounts = accounts;
         this.brokerOrders = brokerOrders;
         this.intents = intents;
         this.costs = costs;
+        this.positionBaselines = positionBaselines;
+        this.riskBaselines = riskBaselines;
     }
 
     public Reconciliation reconcile(LocalDate sessionDate) {
@@ -70,6 +77,8 @@ public class KisDomesticCostReconciliationService {
                     || order.getStatus() == null || !TERMINAL.contains(order.getStatus())
                     || order.getFilledQuantity() == null || order.getFilledQuantity() <= 0
                     || order.getAverageFillPrice() == null || order.getAverageFillPrice().signum() <= 0
+                    || order.getCreatedAt() == null || order.getCreatedAt().isBefore(from)
+                    || !order.getCreatedAt().isBefore(to)
                     || order.getLastFillAt() == null || order.getLastFillAt().isBefore(from)
                     || !order.getLastFillAt().isBefore(to)
                     || order.getBrokerOrderNumber() == null || order.getBrokerOrderNumber().isBlank()
@@ -123,8 +132,59 @@ public class KisDomesticCostReconciliationService {
         BigDecimal roundingTolerance = BigDecimal.valueOf(Math.max(1, fills.size()));
         KisDomesticCostReconciler.Result comparison = reconciler.reconcile(statement.summary(), estimate,
                 roundingTolerance);
-        return new Reconciliation(sessionDate, comparison.status(), fills.size(),
-                comparison.unavailableFields(), comparison.mismatchedFields());
+        KisDomesticCostReconciler.Result pnlComparison = reconcileRealizedPnl(sessionDate, fills,
+                configuredCosts, statement.summary(), roundingTolerance);
+        List<String> unavailable = new ArrayList<>();
+        comparison.unavailableFields().forEach(field -> unavailable.add("cost:" + field));
+        pnlComparison.unavailableFields().forEach(field -> unavailable.add("realized_pnl:" + field));
+        List<String> mismatched = new ArrayList<>();
+        comparison.mismatchedFields().forEach(field -> mismatched.add("cost:" + field));
+        pnlComparison.mismatchedFields().forEach(field -> mismatched.add("realized_pnl:" + field));
+        KisDomesticCostReconciler.Status status = !unavailable.isEmpty()
+                ? KisDomesticCostReconciler.Status.UNAVAILABLE
+                : !mismatched.isEmpty() ? KisDomesticCostReconciler.Status.MISMATCH
+                : KisDomesticCostReconciler.Status.MATCHED;
+        return new Reconciliation(sessionDate, status, comparison.status(), pnlComparison.status(), fills.size(),
+                unavailable, mismatched);
+    }
+
+    private KisDomesticCostReconciler.Result reconcileRealizedPnl(LocalDate sessionDate,
+            List<KisRealizedPnlCalculator.TradeFill> fills, KisRealizedPnlCalculator.Costs configuredCosts,
+            com.fasterxml.jackson.databind.JsonNode summary, BigDecimal tolerance) {
+        String fingerprint;
+        try {
+            fingerprint = riskBaselines.accountFingerprint();
+        } catch (RuntimeException exception) {
+            return KisDomesticCostReconciler.Result.unavailable(List.of("opening_inventory_baseline"));
+        }
+        java.util.Optional<KisRealSessionPositionBaselineStore.PositionBaseline> baseline;
+        try {
+            baseline = positionBaselines.get(Market.KR, sessionDate, fingerprint);
+        } catch (RuntimeException exception) {
+            return KisDomesticCostReconciler.Result.unavailable(List.of("opening_inventory_baseline"));
+        }
+        if (baseline.isEmpty()) {
+            return KisDomesticCostReconciler.Result.unavailable(List.of("opening_inventory_baseline"));
+        }
+        var value = baseline.get();
+        Instant openingAt = sessionDate.atTime(LocalTime.of(9, 0)).atZone(KOREA).toInstant();
+        if (value.market() != Market.KR || !sessionDate.equals(value.sessionDate())
+                || !fingerprint.equals(value.accountFingerprint()) || !"KRW".equals(value.currency())
+                || !"KIS_READ_ONLY_REST".equals(value.source()) || value.capturedAt() == null
+                || value.capturedAt().isBefore(openingAt)
+                || value.capturedAt().isAfter(openingAt.plusSeconds(180))
+                || value.positions() == null || value.positionCount() != value.positions().size()) {
+            return KisDomesticCostReconciler.Result.unavailable(List.of("opening_inventory_baseline"));
+        }
+        List<KisRealizedPnlCalculator.OpeningPosition> opening = value.positions().stream()
+                .map(position -> new KisRealizedPnlCalculator.OpeningPosition(position.symbol(),
+                        position.quantity(), position.averagePurchasePrice()))
+                .toList();
+        KisRealizedPnlCalculator.Result modeled = calculator.calculate(opening, fills, configuredCosts);
+        if (!modeled.valid()) {
+            return KisDomesticCostReconciler.Result.unavailable(List.of("realized_pnl_calculation"));
+        }
+        return reconciler.reconcileRealizedPnl(summary, modeled.netRealizedPnl(), tolerance);
     }
 
     private static String identity(String organization, String orderNumber) {
@@ -137,6 +197,8 @@ public class KisDomesticCostReconciliationService {
     }
 
     public record Reconciliation(LocalDate sessionDate, KisDomesticCostReconciler.Status status,
+                                 KisDomesticCostReconciler.Status costStatus,
+                                 KisDomesticCostReconciler.Status realizedPnlStatus,
                                  int matchedOrderCount, List<String> unavailableReasons,
                                  List<String> mismatchedFields) {
         public Reconciliation {
@@ -144,7 +206,9 @@ public class KisDomesticCostReconciliationService {
             mismatchedFields = List.copyOf(mismatchedFields);
         }
         static Reconciliation unavailable(LocalDate date, List<String> reasons, int count) {
-            return new Reconciliation(date, KisDomesticCostReconciler.Status.UNAVAILABLE, count, reasons, List.of());
+            return new Reconciliation(date, KisDomesticCostReconciler.Status.UNAVAILABLE,
+                    KisDomesticCostReconciler.Status.UNAVAILABLE, KisDomesticCostReconciler.Status.UNAVAILABLE,
+                    count, reasons, List.of());
         }
     }
 }

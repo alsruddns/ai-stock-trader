@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -31,8 +32,10 @@ class KisDomesticCostReconciliationServiceTest {
     private final KisOrderIntentRepository intents = mock(KisOrderIntentRepository.class);
     private final KisRealTradingCostProperties costs = new KisRealTradingCostProperties(
             "5", "5", "2", "", "", "");
+    private final KisRealSessionPositionBaselineStore positionBaselines = mock(KisRealSessionPositionBaselineStore.class);
+    private final KisRealDailyRiskBaselineService riskBaselines = mock(KisRealDailyRiskBaselineService.class);
     private final KisDomesticCostReconciliationService service = new KisDomesticCostReconciliationService(
-            properties, accounts, brokerOrders, intents, costs);
+            properties, accounts, brokerOrders, intents, costs, positionBaselines, riskBaselines);
 
     @Test
     void reconcilesOnlyWhenTheWholeLocalFillSetMatchesBrokerOrdersAndCosts() throws Exception {
@@ -43,14 +46,38 @@ class KisDomesticCostReconciliationServiceTest {
         when(brokerOrders.getRealSessionExecutions(Market.KR, DATE)).thenReturn(List.of(
                 execution("100", OrderSide.BUY), execution("200", OrderSide.SELL)));
         when(accounts.getRealizedPnlStatement(Market.KR, DATE, DATE, null)).thenReturn(statement(
-                "{\"buy_fee_smtl\":\"5\",\"sll_fee_smtl\":\"5\",\"sll_tltx_smtl\":\"2\"}"));
+                "{\"buy_fee_smtl\":\"5\",\"sll_fee_smtl\":\"5\",\"sll_tltx_smtl\":\"2\",\"tot_rlzt_pfls\":\"-12\"}"));
+        stubOpeningBaseline();
 
         var result = service.reconcile(DATE);
 
         assertEquals(KisDomesticCostReconciler.Status.MATCHED, result.status());
+        assertEquals(KisDomesticCostReconciler.Status.MATCHED, result.costStatus());
+        assertEquals(KisDomesticCostReconciler.Status.MATCHED, result.realizedPnlStatus());
         assertEquals(2, result.matchedOrderCount());
         assertEquals(List.of(), result.unavailableReasons());
         assertEquals(List.of(), result.mismatchedFields());
+    }
+
+    @Test
+    void keepsCostComparisonButDoesNotClaimPnlMatchWithoutOpeningInventory() throws Exception {
+        var buy = order(OrderSide.BUY, "100", "buy-id");
+        var sell = order(OrderSide.SELL, "200", "sell-id");
+        when(intents.findByEnvironmentAndMarketAndLastFillAtGreaterThanEqualAndLastFillAtLessThanOrderByLastFillAtAsc(
+                any(), any(), any(), any())).thenReturn(List.of(buy, sell));
+        when(brokerOrders.getRealSessionExecutions(Market.KR, DATE)).thenReturn(List.of(
+                execution("100", OrderSide.BUY), execution("200", OrderSide.SELL)));
+        when(accounts.getRealizedPnlStatement(Market.KR, DATE, DATE, null)).thenReturn(statement(
+                "{\"buy_fee_smtl\":\"5\",\"sll_fee_smtl\":\"5\",\"sll_tltx_smtl\":\"2\",\"tot_rlzt_pfls\":\"-12\"}"));
+        when(riskBaselines.accountFingerprint()).thenReturn("a".repeat(64));
+        when(positionBaselines.get(Market.KR, DATE, "a".repeat(64))).thenReturn(Optional.empty());
+
+        var result = service.reconcile(DATE);
+
+        assertEquals(KisDomesticCostReconciler.Status.UNAVAILABLE, result.status());
+        assertEquals(KisDomesticCostReconciler.Status.MATCHED, result.costStatus());
+        assertEquals(KisDomesticCostReconciler.Status.UNAVAILABLE, result.realizedPnlStatus());
+        assertEquals(List.of("realized_pnl:opening_inventory_baseline"), result.unavailableReasons());
     }
 
     @Test
@@ -82,13 +109,15 @@ class KisDomesticCostReconciliationServiceTest {
 
     private KisOrderIntent order(OrderSide side, String brokerNumber, String suffix) {
         KisOrderIntent order = mock(KisOrderIntent.class);
-        Instant fillAt = DATE.atTime(10, 0).atZone(ZoneId.of("Asia/Seoul")).toInstant();
+        Instant fillAt = DATE.atTime(side == OrderSide.BUY ? 10 : 10, side == OrderSide.BUY ? 0 : 1)
+                .atZone(ZoneId.of("Asia/Seoul")).toInstant();
         when(order.getEnvironment()).thenReturn(KisEnvironment.REAL);
         when(order.getMarket()).thenReturn(Market.KR);
         when(order.getStatus()).thenReturn(KisOrderStatus.FILLED);
         when(order.getFilledQuantity()).thenReturn(1);
         when(order.getAverageFillPrice()).thenReturn(new BigDecimal("10000"));
         when(order.getLastFillAt()).thenReturn(fillAt);
+        when(order.getCreatedAt()).thenReturn(DATE.atTime(9, 30).atZone(ZoneId.of("Asia/Seoul")).toInstant());
         when(order.getBrokerOrderNumber()).thenReturn(brokerNumber);
         when(order.getBrokerOrganizationNumber()).thenReturn("00001");
         when(order.getIdempotencyKey()).thenReturn(UUID.nameUUIDFromBytes(suffix.getBytes()));
@@ -105,5 +134,14 @@ class KisDomesticCostReconciliationServiceTest {
         ObjectMapper mapper = new ObjectMapper();
         return new KisRealizedPnlStatement(Market.KR, DATE, DATE, null, Instant.now(), mapper.createArrayNode(),
                 mapper.readTree(summary), "KIS_READ_ONLY_REALIZED_PNL_REST");
+    }
+
+    private void stubOpeningBaseline() {
+        String fingerprint = "a".repeat(64);
+        when(riskBaselines.accountFingerprint()).thenReturn(fingerprint);
+        when(positionBaselines.get(Market.KR, DATE, fingerprint)).thenReturn(Optional.of(
+                new KisRealSessionPositionBaselineStore.PositionBaseline(Market.KR, DATE, fingerprint, "KRW",
+                        DATE.atTime(9, 1).atZone(ZoneId.of("Asia/Seoul")).toInstant(), 0,
+                        "KIS_READ_ONLY_REST", List.of())));
     }
 }

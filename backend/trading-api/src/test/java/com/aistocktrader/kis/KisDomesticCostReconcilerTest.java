@@ -68,6 +68,29 @@ class KisDomesticCostReconcilerTest {
                 reconciler.reconcile(summary, modeled(), new BigDecimal("1001")).status());
     }
 
+    @Test
+    void comparesKisTotalRealizedPnlIncludingNegativeAmountsWithoutReturningMoney() throws Exception {
+        var matching = reconciler.reconcileRealizedPnl(mapper.readTree("{\"tot_rlzt_pfls\":\"-12\"}"),
+                new BigDecimal("-12.50"), BigDecimal.ONE);
+        var mismatching = reconciler.reconcileRealizedPnl(mapper.readTree("{\"tot_rlzt_pfls\":\"-8\"}"),
+                new BigDecimal("-12"), BigDecimal.ONE);
+
+        assertEquals(KisDomesticCostReconciler.Status.MATCHED, matching.status());
+        assertEquals(KisDomesticCostReconciler.Status.MISMATCH, mismatching.status());
+        assertEquals(List.of("tot_rlzt_pfls"), mismatching.mismatchedFields());
+    }
+
+    @Test
+    void missingOrMalformedRealizedPnlSummaryFailsClosed() throws Exception {
+        var missing = reconciler.reconcileRealizedPnl(mapper.readTree("{}"), BigDecimal.ZERO, BigDecimal.ONE);
+        var malformed = reconciler.reconcileRealizedPnl(mapper.readTree("{\"tot_rlzt_pfls\":\"NaN\"}"),
+                BigDecimal.ZERO, BigDecimal.ONE);
+
+        assertEquals(KisDomesticCostReconciler.Status.UNAVAILABLE, missing.status());
+        assertEquals(List.of("tot_rlzt_pfls"), missing.unavailableFields());
+        assertEquals(KisDomesticCostReconciler.Status.UNAVAILABLE, malformed.status());
+    }
+
     private KisRealizedPnlCalculator.CostEstimate modeled() {
         return calculator.estimateCosts(List.of(
                 fill("buy", OrderSide.BUY, "10000", 1),
