@@ -68,3 +68,33 @@ function Get-KisPaperOrderLifecycleResult {
         message = 'Broker state is not a confirmed zero-fill cancellation. Do not resubmit; reconcile this key manually.'
     }
 }
+
+function Get-KisPaperOrderSubmitObservationResult {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object]$Intent)
+
+    $filledQuantity = 0
+    $hasValidFillQuantity = $null -ne $Intent.filledQuantity -and
+        [int]::TryParse([string]$Intent.filledQuantity, [ref]$filledQuantity) -and $filledQuantity -ge 0
+    $fillLabel = if ($hasValidFillQuantity) { [string]$filledQuantity } else { 'unknown' }
+
+    if ($Intent.status -eq 'REJECTED' -and $hasValidFillQuantity -and $filledQuantity -eq 0) {
+        return [pscustomobject]@{ exitCode = 1; filledQuantity = $fillLabel; orderRemainsOpen = $false
+            message = 'KIS PAPER rejected the order with zero fills; no accepted order remains.' }
+    }
+    if ($Intent.status -eq 'CANCELLED' -and $hasValidFillQuantity -and $filledQuantity -eq 0) {
+        return [pscustomobject]@{ exitCode = 0; filledQuantity = $fillLabel; orderRemainsOpen = $false
+            message = 'KIS PAPER reports the order closed with zero fills.' }
+    }
+    if ($hasValidFillQuantity -and $filledQuantity -gt 0) {
+        return [pscustomobject]@{ exitCode = 2; filledQuantity = $fillLabel; orderRemainsOpen = $false
+            message = "A simulated fill occurred ($fillLabel share(s)); review and reconcile the PAPER position. No further order was sent." }
+    }
+    if ($Intent.status -eq 'ACCEPTED' -and $hasValidFillQuantity -and $filledQuantity -eq 0) {
+        return [pscustomobject]@{ exitCode = 2; filledQuantity = $fillLabel; orderRemainsOpen = $true
+            message = 'KIS PAPER accepted the order with zero fills observed, but it may remain open. This is an incomplete lifecycle check; do not resubmit and arrange safe cancellation or expiry. Cancelability was not tested.' }
+    }
+
+    return [pscustomobject]@{ exitCode = 2; filledQuantity = $fillLabel; orderRemainsOpen = $null
+        message = 'PAPER order state or fill quantity is unresolved. Do not resubmit; inspect and reconcile this idempotency key manually.' }
+}

@@ -7,7 +7,8 @@ param(
     [string]$MarketAiApiBaseUrl = 'http://127.0.0.1:18000',
     [switch]$PreflightOnly,
     [switch]$EnablePaperOrdersForThisRun,
-    [switch]$ConfirmPaperOrderAndCancel
+    [switch]$ConfirmPaperOrderAndCancel,
+    [switch]$ConfirmPaperOrderSubmitAndObserve
 )
 
 $originalEnvironment = @{}
@@ -23,15 +24,18 @@ try {
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\domestic-only-validation.ps1')
 Assert-DomesticOnlyValidation -Market $Market -Operation 'KIS PAPER order lifecycle validation'
-if ($PreflightOnly -and $ConfirmPaperOrderAndCancel) {
-    throw 'Choose either -PreflightOnly or -ConfirmPaperOrderAndCancel, not both.'
+if (@([bool]$PreflightOnly, [bool]$ConfirmPaperOrderAndCancel, [bool]$ConfirmPaperOrderSubmitAndObserve | Where-Object { $_ }).Count -ne 1) {
+    throw 'Choose exactly one mode: -PreflightOnly, -ConfirmPaperOrderAndCancel, or -ConfirmPaperOrderSubmitAndObserve.'
 }
-if (-not $PreflightOnly -and -not $ConfirmPaperOrderAndCancel) {
-    throw 'No request was sent. Re-run with -ConfirmPaperOrderAndCancel only when you intend to submit and immediately cancel one KIS PAPER share.'
+if (-not $PreflightOnly -and -not $ConfirmPaperOrderAndCancel -and -not $ConfirmPaperOrderSubmitAndObserve) {
+    throw 'No request was sent. Choose an explicit PAPER validation mode.'
 }
 if ($LimitPrice -le 0) { throw 'LimitPrice must be positive.' }
 if ($Market -eq 'KR' -and $ConfirmPaperOrderAndCancel) {
     throw 'Domestic PAPER cancel preflight is unsupported; no order was submitted. Use -PreflightOnly or wait until KIS documents a PAPER cancel-quantity query.'
+}
+if ($ConfirmPaperOrderSubmitAndObserve -and -not $EnablePaperOrdersForThisRun -and $env:KIS_PAPER_ORDERS_ENABLED -ne 'true') {
+    throw 'PAPER order submission requires an explicit one-run enable switch or a PAPER-orders-enabled isolated service.'
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -68,7 +72,7 @@ if ($EnablePaperOrdersForThisRun) {
 if ($env:KIS_ENVIRONMENT -ne 'paper' -or $env:TRADING_MODE -ne 'paper' -or
     $env:LIVE_TRADING_ENABLED -ne 'false' -or
     ($PreflightOnly -and -not $EnablePaperOrdersForThisRun -and $env:KIS_PAPER_ORDERS_ENABLED -ne 'false') -or
-    (($ConfirmPaperOrderAndCancel -or $EnablePaperOrdersForThisRun) -and $env:KIS_PAPER_ORDERS_ENABLED -ne 'true') -or
+    (($ConfirmPaperOrderAndCancel -or $ConfirmPaperOrderSubmitAndObserve -or $EnablePaperOrdersForThisRun) -and $env:KIS_PAPER_ORDERS_ENABLED -ne 'true') -or
     $env:KIS_REAL_ORDERS_ENABLED -ne 'false' -or $env:KIS_REAL_RECONCILIATION_ENABLED -ne 'false' -or
     $env:PAPER_AUTOTRADING_ENABLED -ne 'false') {
     throw 'Requires PAPER mode, the matching PAPER order switch, and live orders, REAL reconciliation, and paper automation disabled.'
@@ -204,6 +208,26 @@ if ($intent.status -eq 'FILLED') {
 }
 if ($intent.status -notin @('ACCEPTED', 'PARTIALLY_FILLED', 'CANCEL_PENDING')) {
     throw "Unexpected PAPER order state '$($intent.status)'. Inspect key $idempotencyKey; do not resubmit."
+}
+
+if ($ConfirmPaperOrderSubmitAndObserve) {
+    for ($attempt = 0; $attempt -lt 5 -and $intent.status -in @('ACCEPTED', 'PARTIALLY_FILLED'); $attempt++) {
+        Start-Sleep -Seconds 1
+        try {
+            $intent = Invoke-RestMethod -Method Post -Uri "$SpringApiBaseUrl/api/v1/kis/orders/paper/$idempotencyKey/reconcile" -TimeoutSec 20
+        } catch {
+            # Reconcile the existing idempotency key only; never submit a replacement.
+            $intent = Get-Intent $idempotencyKey
+        }
+    }
+    if ($intent.environment -ne 'paper' -or $intent.idempotencyKey -ne $idempotencyKey) {
+        throw "Reconciliation response did not match this PAPER request. Inspect order key $idempotencyKey; do not resubmit."
+    }
+    $observation = Get-KisPaperOrderSubmitObservationResult -Intent $intent
+    Write-Output "PAPER submit observation: market=$Market symbol=$normalizedSymbol status=$($intent.status) filled=$($observation.filledQuantity) order_remains_open=$($observation.orderRemainsOpen) key=$idempotencyKey"
+    Write-Output $observation.message
+    if ($observation.exitCode -ne 0) { exit $observation.exitCode }
+    exit 0
 }
 
 if ($intent.status -ne 'CANCEL_PENDING') {

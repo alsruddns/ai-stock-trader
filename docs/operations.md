@@ -131,9 +131,11 @@ KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는
 
 `KIS_PAPER_RECONCILIATION_ENABLED=true`는 PAPER 계좌 읽기가 허용된 경우에만 동작하는 읽기 전용 주문 상태 poller입니다. `ACCEPTED`, `PARTIALLY_FILLED`, `CANCEL_PENDING`, `UNKNOWN` intent를 국내 운영 범위에서 페이지별 최대 50건씩 순환 조회합니다. 페이지는 `updatedAt`, `id` 순으로 정렬되어 첫 50건 이후의 주문도 다음 poll에서 차례로 확인합니다. 알려진 브로커 주문번호가 있는 주문만 KIS 일별 체결조회로 다시 확인합니다. 이 작업은 `KIS_PAPER_ORDERS_ENABLED`가 꺼져 있어도 조회 스위치 두 개, PAPER 자격정보, PAPER 실행 모드가 맞으면 실행할 수 있지만 주문·취소 POST는 하지 않습니다. 주문번호가 없는 UNKNOWN 주문은 증권사 기록과의 유일한 연결 키가 없으므로 자동 조회·재전송하지 않고 수동 확인 대상으로 남깁니다. 기본값은 `false`이며 poll 간격 기본값은 30초입니다.
 
-KIS PAPER 주문·취소 lifecycle 스크립트는 구현되어 있지만, 현재 허용된 브로커 검증은 국내 읽기 전용 GET뿐입니다. KIS 공식 저장소의 모의투자 API 지원표는 국내 `주식정정취소가능주문조회`를 모의투자 미지원으로 표시합니다. 같은 공식 API 예제는 정정·취소 POST 전에 이 조회를 호출해 `psbl_qty`를 확인하라고 요구하므로, 취소 가능수량을 다른 API 값으로 추정하거나 우회하지 않습니다. 따라서 `KR -ConfirmPaperOrderAndCancel`은 네트워크 요청 전에 거부되며, KIS가 PAPER 지원을 공식적으로 추가하기 전까지 이 lifecycle 검증은 막힌 상태입니다. [KIS 공식 모의투자 API 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#3-api-%EC%A0%9C%EA%B3%B5-%EB%AA%A9%EB%A1%9D) · [KIS 공식 취소가능수량 조회 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_psbl_rvsecncl/inquire_psbl_rvsecncl.py). 미국 주문·취소 검증은 현재 수행하지 않습니다. `-PreflightOnly`도 사용자가 별도 국내 확인을 요청한 경우에만 읽기 전용으로 실행합니다.
+KIS PAPER lifecycle 검증은 국내에서만 진행합니다. KIS 공식 저장소의 모의투자 API 지원표는 국내 `주식정정취소가능주문조회`를 모의투자 미지원으로 표시합니다. 같은 공식 API 예제는 정정·취소 POST 전에 이 조회를 호출해 `psbl_qty`를 확인하라고 요구하므로, 취소 가능수량을 다른 API 값으로 추정하거나 우회하지 않습니다. 따라서 `KR -ConfirmPaperOrderAndCancel`은 네트워크 요청 전에 거부됩니다. [KIS 공식 모의투자 API 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#3-api-%EC%A0%9C%EA%B3%B5-%EB%AA%A9%EB%A1%9D) · [KIS 공식 취소가능수량 조회 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_psbl_rvsecncl/inquire_psbl_rvsecncl.py).
 
-주문 제출 모드는 Python 거래소 캘린더를 확인하지만, 현재 KIS PAPER lifecycle 검증 범위에서는 주문 제출을 실행하지 않습니다. 읽기 전용 국내 `-PreflightOnly`는 장외에서도 실행할 수 있습니다.
+취소 조회 지원을 기다리는 동안 PAPER 주문 제출과 읽기 전용 대조만 따로 검증하려면 `-ConfirmPaperOrderSubmitAndObserve`를 사용할 수 있습니다. 이 동작은 시세·계좌·주문 한도·국내 장중 여부를 먼저 확인한 뒤 1주 PAPER 지정가 매수를 제출하고, 같은 멱등 키로 최대 5회 상태를 대조합니다. 주문을 취소하지 않으며, 미체결 주문이 열려 남을 수 있습니다. 체결되거나 결과가 불명확하면 자동 재전송하지 않고 해당 PAPER 포지션/주문을 수동 확인해야 합니다. 격리 실행기는 일회성 Spring 프로세스에서만 PAPER 주문 스위치를 켜고 REAL 자격정보·주문은 비활성화합니다. 이 검증은 취소 및 전체 주문 수명주기 통과로 간주하지 않습니다. 미국 주문·취소 검증은 수행하지 않습니다.
+
+주문 제출 모드는 Python 거래소 캘린더를 확인합니다. `-ConfirmPaperOrderSubmitAndObserve`는 PAPER 주문 1주를 실제 모의계좌에 전송할 수 있으므로, 사용자가 승인한 검증 작업에서만 명시적으로 실행하고 열린 주문/체결 상태를 계속 확인해야 합니다. 읽기 전용 국내 `-PreflightOnly`는 장외에서도 실행할 수 있습니다.
 
 ```powershell
 .\scripts\test-kis-paper-order-lifecycle-isolated.ps1 -Market KR -Symbol 069500 -LimitPrice 75000 -PreflightOnly
@@ -141,9 +143,9 @@ KIS PAPER 주문·취소 lifecycle 스크립트는 구현되어 있지만, 현�
 
 미국 PAPER lifecycle 예약 작업 `AIStockTrader-US-Paper-Lifecycle-Smoke-20261109`은 2026-11-09에 `Disabled` 상태로 확인했으며 실행된 적이 없습니다. 미국 세션 감시와 P4 작업도 모두 `Disabled`입니다. 이 작업을 다시 등록하거나 실행하지 마세요. 이후 단계에서 해외 운영 검증 범위가 바뀌면 별도 계획과 승인에 따라 재검토합니다.
 
-PAPER lifecycle 스크립트의 1주 제한·가격 신선도·주문가능액 검사는 구현상 안전장치일 뿐 현재 테스트 허용을 뜻하지 않습니다. 실제 KIS PAPER 주문은 현 단계에서 전송하지 않습니다.
+PAPER lifecycle 스크립트의 1주 제한·가격 신선도·주문가능액 검사는 구현상 안전장치이며 주문 취소 지원 공백을 해소하지 않습니다. 실전(REAL) 주문은 계속 비활성 상태입니다.
 
-해당 lifecycle 구현은 1주 수량·가격 신선도·주문가능액·멱등 대조·취소를 검사하지만, 이 장벽을 우회해 주문 테스트를 실행하지 않습니다. 실제 KIS PAPER 주문은 현 단계에서 전송하지 않습니다.
+제출·관찰 경로는 취소 지원 공백을 우회하지 않습니다. 명시적으로 실행하면 실제 KIS PAPER 계좌에 1주 지정가 주문을 보낼 수 있으며, 미체결 주문이 남을 수 있습니다. 이 경로를 사용하는 운영자는 기존 주문 키와 체결 상태를 확인하고, 취소 가능수량 확인 없이 주문을 재전송하거나 임의 취소하지 않습니다. 이 기능 개발·검사에서는 실제 KIS PAPER 주문을 전송하지 않았습니다.
 
 주문을 보내지 않고 현재 PAPER 시세와 종목별 주문가능금액만 읽기 전용으로 확인하려면 `.env_local`의 주문 잠금을 그대로 둔 채 `scripts/test-kis-paper-order-lifecycle.ps1`에 `-PreflightOnly`를 전달합니다. 예: `-Market KR -Symbol 069500 -LimitPrice 75000 -PreflightOnly`. 이 모드는 주문 잠금이 꺼져 있는 Spring 설정만 허용하고, 시세와 계좌 확인이 모두 최신·충분할 때만 통과합니다. 마지막 실행 결과는 Git 무시 경로 `.local/validation/paper-preflight-latest.json`에 원자적으로 기록하며 결과·실패 단계·시세 freshness 및 주문가능금액 검사 통과 여부, 주문·취소 미전송 여부만 포함합니다. 실제 가격, 주문가능 잔액, 계좌번호, API 키·시크릿, 오류 원문은 저장하지 않습니다. 실패한 사전점검도 같은 파일을 최신 실패 결과로 교체합니다.
 

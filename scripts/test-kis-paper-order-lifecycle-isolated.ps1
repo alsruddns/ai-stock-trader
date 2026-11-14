@@ -7,14 +7,15 @@ param(
     [string]$MarketAiApiBaseUrl = 'http://127.0.0.1:18000',
     [ValidateRange(1024, 65535)] [int]$TemporaryPort = 18081,
     [switch]$PreflightOnly,
+    [switch]$ConfirmPaperOrderSubmitAndObserve,
     [switch]$ConfirmPaperOrderAndCancel
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\domestic-only-validation.ps1')
 Assert-DomesticOnlyValidation -Market $Market -Operation 'KIS PAPER order lifecycle validation'
-if ($PreflightOnly -eq $ConfirmPaperOrderAndCancel) {
-    throw 'Choose exactly one mode: -PreflightOnly or -ConfirmPaperOrderAndCancel.'
+if (@([bool]$PreflightOnly, [bool]$ConfirmPaperOrderSubmitAndObserve, [bool]$ConfirmPaperOrderAndCancel | Where-Object { $_ }).Count -ne 1) {
+    throw 'Choose exactly one mode: -PreflightOnly, -ConfirmPaperOrderSubmitAndObserve, or -ConfirmPaperOrderAndCancel.'
 }
 if ($LimitPrice -le 0) { throw 'LimitPrice must be positive.' }
 if ($Market -eq 'KR' -and $ConfirmPaperOrderAndCancel) {
@@ -126,7 +127,9 @@ try {
         '-Market', $Market, '-Symbol', $Symbol, '-LimitPrice', $limitText, '-Exchange', $Exchange,
         '-SpringApiBaseUrl', "http://127.0.0.1:$TemporaryPort", '-MarketAiApiBaseUrl', $MarketAiApiBaseUrl,
         '-EnablePaperOrdersForThisRun')
-    if ($PreflightOnly) { $testArguments += '-PreflightOnly' } else { $testArguments += '-ConfirmPaperOrderAndCancel' }
+    if ($PreflightOnly) { $testArguments += '-PreflightOnly' }
+    elseif ($ConfirmPaperOrderSubmitAndObserve) { $testArguments += '-ConfirmPaperOrderSubmitAndObserve' }
+    else { $testArguments += '-ConfirmPaperOrderAndCancel' }
     & $powershellPath @testArguments
     if ($LASTEXITCODE -ne 0) { throw "PAPER lifecycle test exited with code $LASTEXITCODE." }
 } finally {

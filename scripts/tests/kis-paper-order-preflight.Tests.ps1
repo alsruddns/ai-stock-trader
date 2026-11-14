@@ -43,6 +43,36 @@ Describe 'KIS PAPER order lifecycle completion result' {
     }
 }
 
+Describe 'KIS PAPER submit and observe result' {
+    It 'accepts a broker-accepted zero-fill order but warns that it remains open' {
+        $result = Get-KisPaperOrderSubmitObservationResult -Intent @{ status = 'ACCEPTED'; filledQuantity = 0 }
+        $result.exitCode | Should Be 2
+        $result.orderRemainsOpen | Should Be $true
+        $result.message | Should Match 'incomplete lifecycle check; do not resubmit'
+        $result.message | Should Match 'Cancelability was not tested'
+    }
+
+    It 'requires position review after any observed simulated fill' {
+        $result = Get-KisPaperOrderSubmitObservationResult -Intent @{ status = 'PARTIALLY_FILLED'; filledQuantity = 1 }
+        $result.exitCode | Should Be 2
+        $result.orderRemainsOpen | Should Be $false
+        $result.message | Should Match 'review and reconcile the PAPER position'
+    }
+
+    It 'reports a clean broker rejection separately' {
+        $result = Get-KisPaperOrderSubmitObservationResult -Intent @{ status = 'REJECTED'; filledQuantity = 0 }
+        $result.exitCode | Should Be 1
+        $result.orderRemainsOpen | Should Be $false
+    }
+
+    It 'fails closed for an unknown status or missing fill quantity' {
+        $result = Get-KisPaperOrderSubmitObservationResult -Intent @{ status = 'UNKNOWN'; filledQuantity = $null }
+        $result.exitCode | Should Be 2
+        $result.orderRemainsOpen | Should Be $null
+        $result.message | Should Match 'Do not resubmit'
+    }
+}
+
 Describe 'Isolated KIS PAPER lifecycle port' {
     It 'defaults the temporary Spring API to the dedicated 18081 loopback port' {
         $tokens = $null
@@ -74,6 +104,35 @@ Describe 'Domestic KIS PAPER lifecycle fail-closed guard' {
                 -Market KR -Symbol '069500' -LimitPrice 50000 -ConfirmPaperOrderAndCancel
         } catch { $message = $_.Exception.Message }
         $message | Should Be $expected
+    }
+}
+
+Describe 'KIS PAPER submit-and-observe opt-in guard' {
+    It 'requires the explicit isolated PAPER order enable before loading credentials or calling an API' {
+        $previous = $env:KIS_PAPER_ORDERS_ENABLED
+        try {
+            $env:KIS_PAPER_ORDERS_ENABLED = 'false'
+            $message = $null
+            try {
+                & (Join-Path $PSScriptRoot '../test-kis-paper-order-lifecycle.ps1') `
+                    -Market KR -Symbol '069500' -LimitPrice 50000 -ConfirmPaperOrderSubmitAndObserve
+            } catch { $message = $_.Exception.Message }
+            $message | Should Be 'PAPER order submission requires an explicit one-run enable switch or a PAPER-orders-enabled isolated service.'
+        } finally {
+            if ($null -eq $previous) { Remove-Item Env:KIS_PAPER_ORDERS_ENABLED -ErrorAction SilentlyContinue }
+            else { $env:KIS_PAPER_ORDERS_ENABLED = $previous }
+        }
+    }
+
+    It 'never sends a cancellation request from the submit-and-observe branch' {
+        $scriptText = Get-Content (Join-Path $PSScriptRoot '../test-kis-paper-order-lifecycle.ps1') -Raw
+        $submitStart = $scriptText.IndexOf('if ($ConfirmPaperOrderSubmitAndObserve) {')
+        $cancelStart = $scriptText.IndexOf('$cancelUri =', $submitStart)
+        $submitStart | Should BeGreaterThan -1
+        $cancelStart | Should BeGreaterThan $submitStart
+        $submitBranch = $scriptText.Substring($submitStart, $cancelStart - $submitStart)
+        $submitBranch | Should Not Match '\$cancelUri|/cancel'
+        $submitBranch | Should Match 'do not resubmit'
     }
 }
 
