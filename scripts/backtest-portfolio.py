@@ -57,11 +57,9 @@ def main() -> int:
     except ValueError as exc:
         parser.error(str(exc))
 
-    symbols = [symbol for symbol, _path in args.dataset]
+    symbols = {symbol for symbol, _path in args.dataset}
     if len(symbols) < 2:
         parser.error("portfolio backtest requires at least two distinct KR symbols")
-    if len(set(symbols)) != len(symbols):
-        parser.error("each KR symbol may be supplied only once")
     costs = (args.buy_commission_bps, args.sell_commission_bps, args.sell_tax_bps, args.slippage_bps)
     if any(not value.is_finite() or value < 0 for value in costs) or sum(costs) <= 0:
         parser.error("cost assumptions must be finite, non-negative, and at least one must be positive")
@@ -72,7 +70,7 @@ def main() -> int:
         parser.error("capital, order notional, and strategy thresholds are invalid")
 
     data: dict[str, dict[date, list]] = {}
-    dataset_records: dict[str, dict[str, object]] = {}
+    dataset_sources: dict[str, list[dict[str, object]]] = {}
     for symbol, csv_path in args.dataset:
         try:
             snapshot = csv_path.read_bytes()
@@ -81,11 +79,31 @@ def main() -> int:
                                                 source_bytes=snapshot)
         except (OSError, ValueError) as exc:
             parser.error(f"{symbol} dataset rejected: {exc}")
-        data[symbol] = sessions
-        dataset_records[symbol] = {
+        symbol_sessions = data.setdefault(symbol, {})
+        duplicate_sessions = set(symbol_sessions).intersection(sessions)
+        if duplicate_sessions:
+            parser.error(f"{symbol} input files contain duplicate KR session dates")
+        symbol_sessions.update(sessions)
+        dataset_sources.setdefault(symbol, []).append({
+            "file_name": csv_path.name,
             "dataset_sha256": hashlib.sha256(snapshot).hexdigest(),
             "data_rights_verified": True,
             "data_provenance": provenance,
+            "session_count": len(sessions),
+            "bar_count": sum(map(len, sessions.values())),
+        })
+
+    dataset_records: dict[str, dict[str, object]] = {}
+    for symbol in sorted(data):
+        sessions = data[symbol]
+        sources = sorted(dataset_sources[symbol], key=lambda source: str(source["file_name"]))
+        dataset_records[symbol] = {
+            # Preserve the original single-file fields while exposing the full
+            # parent-file chain for multi-session runs.
+            "dataset_sha256": sources[0]["dataset_sha256"] if len(sources) == 1 else None,
+            "data_rights_verified": all(source["data_rights_verified"] is True for source in sources),
+            "data_provenance": sources[0]["data_provenance"] if len(sources) == 1 else None,
+            "source_files": sources,
             "session_count": len(sessions),
             "bar_count": sum(map(len, sessions.values())),
         }

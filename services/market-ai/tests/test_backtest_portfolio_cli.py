@@ -11,13 +11,14 @@ REPOSITORY = Path(__file__).resolve().parents[3]
 CLI = REPOSITORY / "scripts" / "backtest-portfolio.py"
 
 
-def _dataset(path: Path, session_date: str = "2026-11-05") -> Path:
+def _dataset(path: Path, session_date: str = "2026-11-05", symbol: str | None = None) -> Path:
+    symbol = symbol or path.stem
     start = datetime.fromisoformat(f"{session_date}T09:00:00+09:00")
     lines = ["timestamp,open,high,low,close,volume,spread_bps,spread_observed_at,symbol"]
     for index in range(380):
         stamp = start + timedelta(minutes=index)
         observed = stamp + timedelta(seconds=30)
-        lines.append(f"{stamp.isoformat()},100,101,99,100,1000,5,{observed.isoformat()},{path.stem}")
+        lines.append(f"{stamp.isoformat()},100,101,99,100,1000,5,{observed.isoformat()},{symbol}")
     content = ("\n".join(lines) + "\n").encode()
     path.write_bytes(content)
     digest = hashlib.sha256(content).hexdigest()
@@ -58,12 +59,13 @@ def _multi_session_dataset(path: Path) -> Path:
     return first
 
 
-def _command(*datasets: Path) -> list[str]:
+def _command(*datasets: Path | tuple[str, Path]) -> list[str]:
     command = [sys.executable, str(CLI), "--starting-equity", "1000000", "--max-order-notional", "1000000",
                "--buy-commission-bps", "5", "--sell-commission-bps", "5", "--sell-tax-bps", "0",
                "--slippage-bps", "5", "--minimum-turnover", "0"]
     for path in datasets:
-        command.extend(["--dataset", f"{path.stem}={path}"])
+        symbol, csv_path = path if isinstance(path, tuple) else (path.stem, path)
+        command.extend(["--dataset", f"{symbol}={csv_path}"])
     return command
 
 
@@ -139,6 +141,46 @@ def test_portfolio_cli_can_carry_completed_equity_forward_between_sessions(tmp_p
     assert payload["summary"]["max_bar_marked_drawdown_percent"] == "0"
     assert payload["summary"]["bar_marked_equity_observations"] == 2280
     assert payload["executable"] is False
+
+
+def test_portfolio_cli_preserves_provenance_for_multiple_source_files_per_symbol(tmp_path: Path) -> None:
+    first_005930 = _dataset(tmp_path / "005930-20261105.csv", "2026-11-05", "005930")
+    next_005930 = _dataset(tmp_path / "005930-20261106.csv", "2026-11-06", "005930")
+    first_000660 = _dataset(tmp_path / "000660-20261105.csv", "2026-11-05", "000660")
+    next_000660 = _dataset(tmp_path / "000660-20261106.csv", "2026-11-06", "000660")
+    command = _command(("005930", first_005930), ("005930", next_005930),
+                       ("000660", first_000660), ("000660", next_000660))
+    command.append("--carry-equity-between-sessions")
+
+    completed = subprocess.run(command, cwd=REPOSITORY, capture_output=True, text=True, check=False)
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert len(payload["sessions"]) == 2
+    assert {item["date"] for item in payload["sessions"]} == {"2026-11-05", "2026-11-06"}
+    for symbol in ("005930", "000660"):
+        dataset = payload["datasets"][symbol]
+        assert dataset["dataset_sha256"] is None
+        assert dataset["data_provenance"] is None
+        assert dataset["data_rights_verified"] is True
+        assert dataset["session_count"] == 2
+        assert dataset["bar_count"] == 760
+        assert len(dataset["source_files"]) == 2
+        assert all(source["data_rights_verified"] is True for source in dataset["source_files"])
+        assert all(len(source["dataset_sha256"]) == 64 for source in dataset["source_files"])
+
+
+def test_portfolio_cli_rejects_duplicate_session_across_symbol_source_files(tmp_path: Path) -> None:
+    first_005930 = _dataset(tmp_path / "005930-a.csv", "2026-11-05", "005930")
+    duplicate_005930 = _dataset(tmp_path / "005930-b.csv", "2026-11-05", "005930")
+    first_000660 = _dataset(tmp_path / "000660.csv", "2026-11-05", "000660")
+
+    completed = subprocess.run(_command(("005930", first_005930), ("005930", duplicate_005930),
+                                        ("000660", first_000660)), cwd=REPOSITORY,
+                               capture_output=True, text=True, check=False)
+
+    assert completed.returncode == 2
+    assert "duplicate KR session dates" in completed.stderr
 
 
 def test_portfolio_cli_rejects_symbol_session_mismatch(tmp_path: Path) -> None:
