@@ -28,6 +28,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -62,6 +63,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
@@ -149,6 +151,28 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(KisOrderStatus.SUBMITTING, repository.findById(thirdKey).orElseThrow().getStatus());
         } finally {
             repository.deleteAllById(List.of(firstKey, secondKey, thirdKey));
+        }
+    }
+
+    @Test
+    void paperSymbolReservationConflictReturnsLockedBeforeKisCallsInPostgres() {
+        UUID existingKey = UUID.randomUUID();
+        UUID blockedKey = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("207000"), Currency.KRW);
+
+        try {
+            store.prepare(existingKey, KisOrderOrchestrator.hash(request, null), KisEnvironment.PAPER, request, null);
+
+            KisApiException conflict = assertThrows(KisApiException.class,
+                    () -> kisOrders.submitPaperOrder(blockedKey, request, null));
+
+            assertEquals(HttpStatus.LOCKED, conflict.status());
+            assertTrue(repository.findById(blockedKey).isEmpty());
+            verifyNoInteractions(kisAccountClient, kisOrderClient, kisMarketSessionClient, kisMarketAiEvidenceClient);
+        } finally {
+            repository.deleteById(existingKey);
+            repository.deleteById(blockedKey);
         }
     }
 

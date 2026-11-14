@@ -213,6 +213,12 @@ public class KisOrderOrchestrator {
                     && "uq_kis_paper_unresolved_order_per_market_symbol".equals(constraint.getConstraintName())) {
                 return true;
             }
+            if (cause instanceof org.postgresql.util.PSQLException postgres
+                    && postgres.getServerErrorMessage() != null
+                    && "uq_kis_paper_unresolved_order_per_market_symbol"
+                            .equals(postgres.getServerErrorMessage().getConstraint())) {
+                return true;
+            }
         }
         return false;
     }
