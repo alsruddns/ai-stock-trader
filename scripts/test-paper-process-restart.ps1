@@ -5,7 +5,15 @@ $originalEnvironment = @{}
 foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerator()) {
     $originalEnvironment[[string]$entry.Key] = [string]$entry.Value
 }
-$pgBin = 'C:\Program Files\PostgreSQL\16\bin'
+$pgCandidates = @()
+if ($env:PGBIN) { $pgCandidates += $env:PGBIN }
+$pgCandidates += @('C:\Program Files\PostgreSQL\16\bin', 'C:\Program Files\PostgreSQL\17\bin')
+$pgBin = $pgCandidates | Select-Object -Unique | Where-Object {
+    (Test-Path -LiteralPath (Join-Path $_ 'initdb.exe')) -and
+    (Test-Path -LiteralPath (Join-Path $_ 'pg_ctl.exe')) -and
+    (Test-Path -LiteralPath (Join-Path $_ 'createdb.exe'))
+} | Select-Object -First 1
+if (-not $pgBin) { throw 'PostgreSQL 16/17 binaries for the isolated restart test were not found.' }
 foreach ($binary in @('initdb.exe', 'pg_ctl.exe', 'createdb.exe')) {
     if (-not (Test-Path -LiteralPath (Join-Path $pgBin $binary))) {
         throw "Isolated PostgreSQL test binary is missing: $binary"

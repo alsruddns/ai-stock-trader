@@ -23,6 +23,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Check PowerShell syntax and PAPER preflight rules
         shell: powershell
         run: |
@@ -47,6 +52,7 @@ jobs:
             'scripts/lib/retired-kis-analysis-scan.ps1',
             'scripts/test-retired-kis-analysis.ps1',
             'scripts/test-paper-websocket-monitor.ps1',
+            'scripts/test-paper-process-restart.ps1',
             'scripts/lib/exchange-session-monitor.ps1',
             'scripts/lib/market-session-scheduler.ps1',
             'scripts/register-market-data-session-monitor.ps1',
@@ -190,3 +196,10 @@ jobs:
           }
 
           & 'scripts/test-local-stack-activation.ps1'
+
+      - name: Verify isolated PAPER order recovery after Spring restart
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & 'scripts/test-paper-process-restart.ps1'
+          if ($LASTEXITCODE -ne 0) { throw 'Isolated PAPER process restart integration failed.' }
