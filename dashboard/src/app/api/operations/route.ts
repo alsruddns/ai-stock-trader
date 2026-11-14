@@ -78,6 +78,8 @@ type LocalOperationsReport = {
     barsDelta: number | null;
     orderbookFramesDelta: number | null;
     orderbookUpdatesDelta: number | null;
+    subscriptionAcknowledgementsAvailable: boolean;
+    subscriptionAcknowledgements: { acceptedCount: number; requiredCount: number; complete: boolean } | null;
     maxNoTickSeconds: number | null;
     maxStatusUnavailableSeconds: number | null;
     failureStage: string | null;
@@ -330,6 +332,20 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
     const barStorageReason = !barStorageDiagnosticAvailable ? "STATUS_UNAVAILABLE"
       : barStorageState !== "RUNNING" ? "STORAGE_NOT_RUNNING"
         : barStoragePendingCount > 0 ? "PENDING_BARS" : "READY";
+    const rawAcknowledgements = asObject(rawMonitor?.subscriptionAcknowledgements);
+    const acceptedAcknowledgements = boundedNonNegativeInteger(rawAcknowledgements?.acceptedCount, 1000000);
+    const requiredAcknowledgements = boundedNonNegativeInteger(rawAcknowledgements?.requiredCount, 1000000);
+    const acknowledgementComplete = optionalBoolean(rawAcknowledgements?.complete);
+    const subscriptionAcknowledgementsAvailable = rawMonitor?.subscriptionAcknowledgementsAvailable === true
+      && acceptedAcknowledgements !== null && requiredAcknowledgements !== null
+      && acceptedAcknowledgements <= requiredAcknowledgements
+      && acknowledgementComplete !== null
+      && acknowledgementComplete === (acceptedAcknowledgements === requiredAcknowledgements);
+    const subscriptionAcknowledgements = subscriptionAcknowledgementsAvailable ? {
+      acceptedCount: acceptedAcknowledgements!,
+      requiredCount: requiredAcknowledgements!,
+      complete: acknowledgementComplete!,
+    } : null;
     const domesticSessionMonitor = rawMonitor && typeof rawMonitor.state === "string" ? {
       state: rawMonitor.state,
       recordedAt: optionalString(rawMonitor.recordedAt),
@@ -341,6 +357,8 @@ async function readLocalOperationsReport(): Promise<LocalOperationsReport | null
       barsDelta: optionalNumber(rawMonitor.barsDelta),
       orderbookFramesDelta: optionalNumber(rawMonitor.orderbookFramesDelta),
       orderbookUpdatesDelta: optionalNumber(rawMonitor.orderbookUpdatesDelta),
+      subscriptionAcknowledgementsAvailable,
+      subscriptionAcknowledgements,
       maxNoTickSeconds: optionalNumber(rawMonitor.maxNoTickSeconds),
       maxStatusUnavailableSeconds: boundedNonNegativeNumber(rawMonitor.maxStatusUnavailableSeconds, 600),
       failureStage: optionalString(rawMonitor.failureStage),

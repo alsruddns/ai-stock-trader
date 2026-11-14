@@ -379,7 +379,7 @@ Describe 'Daily operations report endpoint health summary' {
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
         $archivedReport = Get-Content -LiteralPath $archivePath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 16
+        $report.reportSchemaVersion | Should Be 17
         $archivedReport.generatedAt | Should Be $report.generatedAt
         $archivedReport.tradingMode | Should Be $report.tradingMode
         $report.pythonConnected | Should Be $true
@@ -514,7 +514,7 @@ Describe 'Daily operations report endpoint health summary' {
         $json = Get-Content -LiteralPath $outputPath -Raw
         $report = $json | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 16
+        $report.reportSchemaVersion | Should Be 17
         $report.trainingReadiness.KR.state | Should Be 'AVAILABLE'
         $report.trainingReadiness.KR.symbols.Count | Should Be 1
         $report.trainingReadiness.KR.symbols[0].symbol | Should Be '005930'

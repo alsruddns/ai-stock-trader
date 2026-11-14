@@ -181,12 +181,14 @@ function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
     $orderbookUpdatesProperty = if ($Status) { $Status.PSObject.Properties['orderbook_updates_by_feed'] } else { $null }
     $quoteQualityProperty = if ($Status) { $Status.PSObject.Properties['orderbook_quote_quality_by_feed'] } else { $null }
     $processingProperty = if ($Status) { $Status.PSObject.Properties['market_data_diagnostics_by_feed'] } else { $null }
+    $acknowledgementsProperty = if ($Status) { $Status.PSObject.Properties['subscription_acknowledgements_by_feed'] } else { $null }
     foreach ($feed in $feedNames) {
         $frameValue = if ($framesProperty) { $framesProperty.Value.PSObject.Properties[$feed] } else { $null }
         $transactionValue = if ($transactionsProperty) { $transactionsProperty.Value.PSObject.Properties[$feed] } else { $null }
         $orderbookUpdatesValue = if ($orderbookUpdatesProperty) { $orderbookUpdatesProperty.Value.PSObject.Properties[$feed] } else { $null }
         $quoteQualityValue = if ($quoteQualityProperty) { $quoteQualityProperty.Value.PSObject.Properties[$feed] } else { $null }
         $processingValue = if ($processingProperty) { $processingProperty.Value.PSObject.Properties[$feed] } else { $null }
+        $acknowledgementsValue = if ($acknowledgementsProperty) { $acknowledgementsProperty.Value.PSObject.Properties[$feed] } else { $null }
         $frameCount = 0L
         $valid = $null -ne $frameValue -and $null -ne $transactionValue -and
             [long]::TryParse([string]$frameValue.Value, [ref]$frameCount) -and $frameCount -ge 0
@@ -234,6 +236,30 @@ function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
                 $processingCounts[$counterName] = $count
             }
         }
+        $acknowledgementCounts = $null
+        $acknowledgementsAvailable = $false
+        if ($acknowledgementsValue -and $acknowledgementsValue.Value) {
+            $ack = $acknowledgementsValue.Value
+            $acceptedProperty = $ack.PSObject.Properties['accepted_count']
+            $requiredProperty = $ack.PSObject.Properties['required_count']
+            $completeProperty = $ack.PSObject.Properties['complete']
+            $acceptedCount = 0L
+            $requiredCount = 0L
+            $validCounts = $acceptedProperty -and $requiredProperty -and
+                [long]::TryParse([string]$acceptedProperty.Value, [ref]$acceptedCount) -and
+                [long]::TryParse([string]$requiredProperty.Value, [ref]$requiredCount) -and
+                $acceptedCount -ge 0 -and $acceptedCount -le 1000000 -and
+                $requiredCount -ge 0 -and $requiredCount -le 1000000 -and $acceptedCount -le $requiredCount
+            if ($validCounts -and $completeProperty -and $completeProperty.Value -is [bool] -and
+                [bool]$completeProperty.Value -eq ($acceptedCount -eq $requiredCount)) {
+                $acknowledgementsAvailable = $true
+                $acknowledgementCounts = [ordered]@{
+                    accepted_count = $acceptedCount
+                    required_count = $requiredCount
+                    complete = [bool]$completeProperty.Value
+                }
+            }
+        }
         $result[$feed] = [ordered]@{
             available = [bool]$valid
             frames_received = if ($valid) { $frameCount } else { $null }
@@ -244,6 +270,8 @@ function Get-MonitorFeedDiagnostics($Status, [string]$SelectedFeed) {
             quote_quality = if ($quoteQualityValid) { $quoteQualityCounts } else { $null }
             processing_diagnostics_available = [bool]$processingValid
             processing_diagnostics = if ($processingValid) { $processingCounts } else { $null }
+            subscription_acknowledgements_available = [bool]$acknowledgementsAvailable
+            subscription_acknowledgements = $acknowledgementCounts
         }
     }
     return $result
@@ -325,6 +353,8 @@ function Get-MonitorFeedDiagnosticsDelta($InitialStatus, $CurrentStatus, [string
             quote_quality = $quoteDelta.counts
             processing_diagnostics_available = $processingDelta.available
             processing_diagnostics = $processingDelta.counts
+            subscription_acknowledgements_available = [bool]$end.subscription_acknowledgements_available
+            subscription_acknowledgements = $end.subscription_acknowledgements
         }
     }
     return $result

@@ -63,6 +63,8 @@ Describe 'Domestic KRX session monitor report summary' {
                     paper = [ordered]@{
                         transaction_counts_available = $true; transaction_counts = [ordered]@{ H0STASP0 = 900 }
                         orderbook_updates_available = $true; orderbook_updates = 850
+                        subscription_acknowledgements_available = $true
+                        subscription_acknowledgements = [ordered]@{ accepted_count = 2; required_count = 2; complete = $true }
                     }
                 }
             }
@@ -81,6 +83,10 @@ Describe 'Domestic KRX session monitor report summary' {
         $summary.barsDelta | Should Be 5
         $summary.orderbookFramesDelta | Should Be 900
         $summary.orderbookUpdatesDelta | Should Be 850
+        $summary.subscriptionAcknowledgementsAvailable | Should Be $true
+        $summary.subscriptionAcknowledgements.acceptedCount | Should Be 2
+        $summary.subscriptionAcknowledgements.requiredCount | Should Be 2
+        $summary.subscriptionAcknowledgements.complete | Should Be $true
         $summary.symbolMarketDataStatus | Should Be 'AVAILABLE'
         $summary.symbolMarketData.Count | Should Be 2
         $summary.symbolMarketData[0].symbol | Should Be '005930'
@@ -134,6 +140,8 @@ Describe 'Domestic KRX session monitor report summary' {
                 paper = [ordered]@{
                     transaction_counts_available = $true; transaction_counts = [ordered]@{ H0STASP0 = '-1' }
                     orderbook_updates_available = $true; orderbook_updates = '-1'
+                    subscription_acknowledgements_available = $true
+                    subscription_acknowledgements = [ordered]@{ accepted_count = 2; required_count = 1; complete = $true; raw = 'private diagnostic' }
                     raw_payload = 'private diagnostic'
                 }
             }
@@ -146,7 +154,9 @@ Describe 'Domestic KRX session monitor report summary' {
         $summary.state | Should Be 'RUNNING'
         $summary.orderbookFramesDelta | Should Be $null
         $summary.orderbookUpdatesDelta | Should Be $null
-        $json | Should Not Match 'private diagnostic|raw_payload'
+        $summary.subscriptionAcknowledgementsAvailable | Should Be $false
+        $summary.subscriptionAcknowledgements | Should Be $null
+        $json | Should Not Match 'private diagnostic|raw_payload|subscription_acknowledgements'
     }
 
     It 'rejects non-domestic or malformed per-symbol data without exposing raw fields' {

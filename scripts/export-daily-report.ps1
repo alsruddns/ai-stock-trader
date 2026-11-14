@@ -171,7 +171,7 @@ $endpointStatus['python.training_readiness_KR'] = [ordered]@{
 }
 $trainingReadiness = [ordered]@{ KR = $trainingReadinessKr }
 
-$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 16 -Force
+$report | Add-Member -MemberType NoteProperty -Name reportSchemaVersion -Value 17 -Force
 $report | Add-Member -MemberType NoteProperty -Name generatedAt -Value ([DateTimeOffset]::Now.ToString('o')) -Force
 $report | Add-Member -MemberType NoteProperty -Name pythonConnected -Value ($healthResult.state -eq 'AVAILABLE' -and $null -ne $pythonHealth) -Force
 $endpointStates = @($endpointStatus.GetEnumerator() |

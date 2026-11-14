@@ -556,6 +556,19 @@ function Get-AiTraderDomesticSessionMonitorSummary {
     $orderbookUpdates = 0
     $hasOrderbookUpdates = $paperDiagnosticValue -and $paperDiagnosticValue.orderbook_updates_available -eq $true -and
         [int]::TryParse([string]$paperDiagnosticValue.orderbook_updates, [ref]$orderbookUpdates) -and $orderbookUpdates -ge 0
+    $rawAcknowledgements = if ($paperDiagnosticValue) { $paperDiagnosticValue.subscription_acknowledgements } else { $null }
+    $acceptedAcknowledgements = 0L
+    $requiredAcknowledgements = 0L
+    $hasSubscriptionAcknowledgements = $paperDiagnosticValue -and
+        $paperDiagnosticValue.subscription_acknowledgements_available -eq $true -and
+        $rawAcknowledgements -and
+        [long]::TryParse([string]$rawAcknowledgements.accepted_count, [ref]$acceptedAcknowledgements) -and
+        [long]::TryParse([string]$rawAcknowledgements.required_count, [ref]$requiredAcknowledgements) -and
+        $acceptedAcknowledgements -ge 0 -and $acceptedAcknowledgements -le 1000000 -and
+        $requiredAcknowledgements -ge 0 -and $requiredAcknowledgements -le 1000000 -and
+        $acceptedAcknowledgements -le $requiredAcknowledgements -and
+        ($rawAcknowledgements.complete -is [bool]) -and
+        ([bool]$rawAcknowledgements.complete -eq ($acceptedAcknowledgements -eq $requiredAcknowledgements))
     return [ordered]@{
         state = ([string]$record.result).ToUpperInvariant()
         recordedAt = $recordedAt
@@ -567,6 +580,14 @@ function Get-AiTraderDomesticSessionMonitorSummary {
         barsDelta = if ($hasBars) { $bars } else { $null }
         orderbookFramesDelta = if ($hasOrderbookFrames) { $orderbookFrames } else { $null }
         orderbookUpdatesDelta = if ($hasOrderbookUpdates) { $orderbookUpdates } else { $null }
+        subscriptionAcknowledgementsAvailable = [bool]$hasSubscriptionAcknowledgements
+        subscriptionAcknowledgements = if ($hasSubscriptionAcknowledgements) {
+            [ordered]@{
+                acceptedCount = $acceptedAcknowledgements
+                requiredCount = $requiredAcknowledgements
+                complete = [bool]$rawAcknowledgements.complete
+            }
+        } else { $null }
         maxNoTickSeconds = if ($hasMaxNoTick) { [Math]::Round($maxNoTick, 1) } else { $null }
         failureStage = if ($record.failure_stage -in $knownStages) { [string]$record.failure_stage } else { $null }
         failureCode = if ($record.failure_code -in $knownFailureCodes) { [string]$record.failure_code } else { $null }

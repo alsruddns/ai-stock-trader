@@ -397,6 +397,50 @@ Describe 'Paper session feed quote-quality diagnostics' {
     }
 }
 
+Describe 'Subscription acknowledgement diagnostics for domestic session evidence' {
+    It 'keeps only valid counts and completion state for the selected feed' {
+        $status = [pscustomobject]@{
+            subscription_acknowledgements_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{ accepted_count = 2; required_count = 2; complete = $true; raw = 'private detail' }
+                real = [pscustomobject]@{ accepted_count = 0; required_count = 2; complete = $false }
+            }
+        }
+
+        $diagnostics = Get-MonitorFeedDiagnostics $status 'paper'
+        $delta = Get-MonitorFeedDiagnosticsDelta $status $status 'paper'
+        $json = $delta | ConvertTo-Json -Compress -Depth 5
+
+        $diagnostics.paper.subscription_acknowledgements_available | Should Be $true
+        $diagnostics.paper.subscription_acknowledgements.accepted_count | Should Be 2
+        $diagnostics.paper.subscription_acknowledgements.required_count | Should Be 2
+        $diagnostics.paper.subscription_acknowledgements.complete | Should Be $true
+        $delta.paper.subscription_acknowledgements_available | Should Be $true
+        $delta.paper.subscription_acknowledgements.complete | Should Be $true
+        $json | Should Not Match 'private detail|raw'
+    }
+
+    It 'fails closed for missing, malformed, or contradictory acknowledgement counts' {
+        $missing = Get-MonitorFeedDiagnostics ([pscustomobject]@{}) 'paper'
+        $malformed = Get-MonitorFeedDiagnostics ([pscustomobject]@{
+            subscription_acknowledgements_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{ accepted_count = -1; required_count = 2; complete = $false }
+            }
+        }) 'paper'
+        $contradictory = Get-MonitorFeedDiagnostics ([pscustomobject]@{
+            subscription_acknowledgements_by_feed = [pscustomobject]@{
+                paper = [pscustomobject]@{ accepted_count = 1; required_count = 2; complete = $true }
+            }
+        }) 'paper'
+
+        $missing.paper.subscription_acknowledgements_available | Should Be $false
+        $missing.paper.subscription_acknowledgements | Should Be $null
+        $malformed.paper.subscription_acknowledgements_available | Should Be $false
+        $malformed.paper.subscription_acknowledgements | Should Be $null
+        $contradictory.paper.subscription_acknowledgements_available | Should Be $false
+        $contradictory.paper.subscription_acknowledgements | Should Be $null
+    }
+}
+
 Describe 'Per-symbol feed diagnostics for domestic session evidence' {
     It 'validates and returns only domestic symbol counts and UTC timestamps' {
         $status = [pscustomobject]@{
