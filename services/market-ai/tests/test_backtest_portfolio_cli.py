@@ -134,6 +134,42 @@ def test_portfolio_cli_reports_optional_slippage_scenarios_without_changing_base
     assert scenario_payload["executable"] is False
 
 
+def test_portfolio_cli_reports_capital_scenarios_without_changing_base_result(tmp_path: Path) -> None:
+    first = _dataset(tmp_path / "005930.csv")
+    second = _dataset(tmp_path / "000660.csv")
+    base = subprocess.run(_command(first, second), cwd=REPOSITORY, capture_output=True, text=True, check=False)
+    scenario_command = _command(first, second)
+    for value in ("5000000", "10000000", "20000000"):
+        scenario_command.extend(["--capital-scenario", value])
+    scenarios = subprocess.run(scenario_command, cwd=REPOSITORY, capture_output=True, text=True, check=False)
+
+    assert base.returncode == 0, base.stderr
+    assert scenarios.returncode == 0, scenarios.stderr
+    base_payload = json.loads(base.stdout)
+    scenario_payload = json.loads(scenarios.stdout)
+    assert scenario_payload["summary"] == base_payload["summary"]
+    assert scenario_payload["sessions"] == base_payload["sessions"]
+    sensitivity = scenario_payload["capital_sensitivity"]
+    assert [item["starting_equity"] for item in sensitivity] == ["5000000", "10000000", "20000000"]
+    assert [item["max_order_notional"] for item in sensitivity] == ["5000000", "10000000", "20000000"]
+    assert all(item["session_count"] == 1 and item["accepted_trade_count"] == 0 for item in sensitivity)
+    assert all(item["net_pnl"] == "0" and item["return_percent"] is None for item in sensitivity)
+    assert all(item["return_basis"] is None for item in sensitivity)
+    assert all(item["executable"] is False for item in sensitivity)
+    assert scenario_payload["executable"] is False
+
+
+def test_portfolio_cli_rejects_duplicate_capital_scenarios(tmp_path: Path) -> None:
+    first = _dataset(tmp_path / "005930.csv")
+    second = _dataset(tmp_path / "000660.csv")
+    command = _command(first, second) + ["--capital-scenario", "1000000", "--capital-scenario", "1000000"]
+
+    completed = subprocess.run(command, cwd=REPOSITORY, capture_output=True, text=True, check=False)
+
+    assert completed.returncode == 2
+    assert "capital scenarios must be unique positive finite KRW values" in completed.stderr
+
+
 def test_portfolio_cli_fails_closed_when_active_ai_models_are_required_but_missing(tmp_path: Path) -> None:
     first = _dataset(tmp_path / "005930.csv")
     second = _dataset(tmp_path / "000660.csv")
@@ -148,7 +184,8 @@ def test_portfolio_cli_fails_closed_when_active_ai_models_are_required_but_missi
 def test_portfolio_cli_can_carry_completed_equity_forward_between_sessions(tmp_path: Path) -> None:
     first = _multi_session_dataset(tmp_path / "005930.csv")
     second = _multi_session_dataset(tmp_path / "000660.csv")
-    command = _command(first, second) + ["--carry-equity-between-sessions"]
+    command = _command(first, second) + ["--carry-equity-between-sessions",
+                                         "--capital-scenario", "1000000", "--capital-scenario", "2000000"]
 
     completed = subprocess.run(command, cwd=REPOSITORY, capture_output=True, text=True, check=False)
 
@@ -180,6 +217,12 @@ def test_portfolio_cli_can_carry_completed_equity_forward_between_sessions(tmp_p
     assert payload["summary"]["trade_metrics"]["by_symbol"]["005930"]["trade_count"] == 0
     assert all(session["trade_metrics"]["profit_factor_status"] == "no_trades"
                for session in payload["sessions"])
+    sensitivity = payload["capital_sensitivity"]
+    assert [item["starting_equity"] for item in sensitivity] == ["1000000", "2000000"]
+    assert [item["max_order_notional"] for item in sensitivity] == ["1000000", "2000000"]
+    assert all(item["ending_equity"] == item["starting_equity"] for item in sensitivity)
+    assert all(item["return_percent"] == "0" for item in sensitivity)
+    assert all(item["return_basis"] == "compounded_sequential_sessions" for item in sensitivity)
     assert payload["executable"] is False
 
 

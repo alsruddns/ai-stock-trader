@@ -18,7 +18,8 @@ from app.ai_pipeline import LocalModelRegistry
 from app.backtest_metrics import summarize_net_trade_pnls
 from app.market_scope import require_cli_operational_market
 from app.portfolio_backtest import (
-    aggregate_compounded_drawdown, analyze_slippage_sensitivity, backtest_domestic_portfolio,
+    aggregate_compounded_drawdown, analyze_capital_sensitivity, analyze_slippage_sensitivity,
+    backtest_domestic_portfolio,
 )
 from app.quant import QuantConfig
 
@@ -48,6 +49,8 @@ def main() -> int:
                         help="estimated slippage for each fill")
     parser.add_argument("--slippage-scenario-bps", type=Decimal, action="append", default=None,
                         help="optional per-fill slippage stress case; repeat to compare scenarios")
+    parser.add_argument("--capital-scenario", type=Decimal, action="append", default=None,
+                        help="optional hypothetical starting capital in KRW; repeat to compare whole-share sizing")
     parser.add_argument("--minimum-turnover", type=Decimal, default=Decimal("1000000"))
     parser.add_argument("--maximum-spread-bps", type=Decimal, default=Decimal("15"))
     parser.add_argument("--carry-equity-between-sessions", action="store_true",
@@ -73,6 +76,10 @@ def main() -> int:
                 for value in args.slippage_scenario_bps)
             or len(set(args.slippage_scenario_bps)) != len(args.slippage_scenario_bps)):
         parser.error("slippage scenarios must be unique, finite values between zero and 10000 bps")
+    if args.capital_scenario is not None and (
+            any(not value.is_finite() or value <= 0 for value in args.capital_scenario)
+            or len(set(args.capital_scenario)) != len(args.capital_scenario)):
+        parser.error("capital scenarios must be unique positive finite KRW values")
     if (not args.starting_equity.is_finite() or args.starting_equity <= 0
             or not args.max_order_notional.is_finite() or args.max_order_notional <= 0
             or not args.minimum_turnover.is_finite() or args.minimum_turnover < 0
@@ -263,6 +270,43 @@ def main() -> int:
             )
         ]
 
+    capital_sensitivity = None
+    if args.capital_scenario is not None:
+        sessions_by_date = {
+            session: {symbol: data[symbol][session] for symbol in sorted(data)}
+            for session in sorted(reference_sessions)
+        }
+        capital_sensitivity = [
+            {
+                "starting_equity": str(item.starting_equity),
+                "max_order_notional": str(item.max_order_notional),
+                "session_count": item.session_count,
+                "accepted_trade_count": item.accepted_trade_count,
+                "gross_pnl": str(item.gross_pnl),
+                "estimated_costs": str(item.estimated_costs),
+                "net_pnl": str(item.net_pnl),
+                "ending_equity": str(item.ending_equity) if item.ending_equity is not None else None,
+                "maximum_drawdown_amount": str(item.maximum_drawdown_amount),
+                "maximum_drawdown_percent": str(item.maximum_drawdown_percent),
+                "drawdown_basis": item.drawdown_basis,
+                "rejected_entries_by_reason": item.rejected_entries_by_reason,
+                "return_percent": str(
+                    (item.ending_equity - item.starting_equity) * Decimal(100) / item.starting_equity
+                ) if item.ending_equity is not None else None,
+                "return_basis": "compounded_sequential_sessions" if item.ending_equity is not None else None,
+                "executable": item.executable,
+            }
+            for item in analyze_capital_sensitivity(
+                sessions_by_date,
+                starting_equity=args.starting_equity,
+                max_order_notional=args.max_order_notional,
+                config=config,
+                capital_scenarios=args.capital_scenario,
+                carry_equity_between_sessions=args.carry_equity_between_sessions,
+                entry_filter=ai_entry_filter if args.with_active_ai_models else None,
+            )
+        ]
+
     print(json.dumps({
         "market": "KR",
         "datasets": dataset_records,
@@ -326,6 +370,7 @@ def main() -> int:
             "slippage": str(args.slippage_bps),
         },
         "slippage_sensitivity": slippage_sensitivity,
+        "capital_sensitivity": capital_sensitivity,
         "risk_limits": {
             "trade_risk_equity_pct": "0.25",
             "max_position_equity_pct": "10",

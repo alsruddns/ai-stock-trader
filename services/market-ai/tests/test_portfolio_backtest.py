@@ -5,7 +5,8 @@ from decimal import Decimal
 import pytest
 
 from app.portfolio_backtest import (
-    aggregate_compounded_drawdown, analyze_slippage_sensitivity, backtest_domestic_portfolio,
+    aggregate_compounded_drawdown, analyze_capital_sensitivity, analyze_slippage_sensitivity,
+    backtest_domestic_portfolio,
 )
 from app.quant import MinuteBar, QuantConfig
 
@@ -179,6 +180,38 @@ def test_slippage_sensitivity_replays_same_sessions_and_reports_non_executable_r
             {date(2026, 11, 5): first}, starting_equity=Decimal("1000000"),
             max_order_notional=Decimal("1000000"), config=config,
             slippage_scenarios_bps=[Decimal(5), Decimal(5)],
+        )
+
+
+def test_capital_sensitivity_scales_percentage_caps_and_reports_rejections() -> None:
+    first = {"005930": _strategy_bars(0), "000660": _strategy_bars(1)}
+    second = {symbol: _shift_bars(bars, 1) for symbol, bars in first.items()}
+    config = QuantConfig(
+        commission_bps=Decimal(0), slippage_bps=Decimal(0),
+        minimum_turnover=Decimal(0), minimum_relative_volume=Decimal("1.5"),
+    )
+
+    results = analyze_capital_sensitivity(
+        {date(2026, 11, 5): first, date(2026, 11, 6): second},
+        starting_equity=Decimal("1000000"), max_order_notional=Decimal("1000000"),
+        config=config, capital_scenarios=[Decimal("1000000"), Decimal("2000000")],
+    )
+
+    assert [item.starting_equity for item in results] == [Decimal("1000000"), Decimal("2000000")]
+    assert [item.max_order_notional for item in results] == [Decimal("1000000"), Decimal("2000000")]
+    assert all(item.session_count == 2 for item in results)
+    assert all(item.accepted_trade_count > 0 for item in results)
+    assert all(abs(item.gross_pnl - item.estimated_costs - item.net_pnl) <= Decimal("1e-18")
+               for item in results)
+    assert all(item.ending_equity is None for item in results)
+    assert all(item.drawdown_basis == "maximum_independent_session" for item in results)
+    assert all(item.executable is False for item in results)
+
+    with pytest.raises(ValueError, match="unique"):
+        analyze_capital_sensitivity(
+            {date(2026, 11, 5): first}, starting_equity=Decimal("1000000"),
+            max_order_notional=Decimal("1000000"), config=config,
+            capital_scenarios=[Decimal("1000000"), Decimal("1000000")],
         )
 
 

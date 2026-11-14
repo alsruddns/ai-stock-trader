@@ -102,6 +102,8 @@ LightGBM·XGBoost 학습용 선택 의존성은 `python -m pip install -e ".[dev
 
 슬리피지 비용 민감도를 함께 보려면 `--slippage-scenario-bps`를 반복 지정합니다. 예를 들어 `--slippage-scenario-bps 0 --slippage-scenario-bps 5 --slippage-scenario-bps 10 --slippage-scenario-bps 20`은 동일한 입력 데이터·수수료·매도세·전략으로 편도 체결 슬리피지만 바꿔 각 시나리오의 비용, 순손익, 체결 수와 낙폭을 JSON의 `slippage_sensitivity`에 기록합니다. 기본 백테스트 결과는 입력한 `--slippage-bps`를 그대로 사용하며, 이 시나리오 결과도 실체결 추정이나 주문 가능 판정이 아닙니다.
 
+가상 자본 규모에 따른 정수 주식 수량·공유 자금 민감도는 `--capital-scenario`를 반복 지정해 비교할 수 있습니다. 각 시나리오에 시작 자본과 주문 명목 한도를 같은 비율로 확대하고, 거래당 위험 0.25%와 종목 배정 10% 한도는 유지합니다. JSON의 `capital_sensitivity`에는 체결 수, 비용 후 손익, 낙폭, 자본 규모별 진입 거부 사유를 기록합니다. 기본 결과를 바꾸지 않으며 모든 시나리오의 `executable`은 `false`입니다. 이 분석은 가상 자본 규모 효과만 비교하고, 전략 승인이나 실계좌 자금 적합성을 의미하지 않습니다.
+
 ```powershell
 python .\scripts\backtest-portfolio.py `
   --dataset 005930=.\data\licensed\005930.csv `

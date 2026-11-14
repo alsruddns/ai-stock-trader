@@ -97,6 +97,23 @@ class SlippageSensitivityResult:
     executable: bool = False
 
 
+@dataclass(frozen=True)
+class CapitalSensitivityResult:
+    starting_equity: Decimal
+    max_order_notional: Decimal
+    session_count: int
+    accepted_trade_count: int
+    gross_pnl: Decimal
+    estimated_costs: Decimal
+    net_pnl: Decimal
+    ending_equity: Decimal | None
+    maximum_drawdown_amount: Decimal
+    maximum_drawdown_percent: Decimal
+    drawdown_basis: str
+    rejected_entries_by_reason: dict[str, int]
+    executable: bool = False
+
+
 def analyze_slippage_sensitivity(
     sessions_by_date: dict[date, dict[str, list[MinuteBar]]], *,
     starting_equity: Decimal, max_order_notional: Decimal, config: QuantConfig,
@@ -178,6 +195,106 @@ def analyze_slippage_sensitivity(
             maximum_drawdown_amount=drawdown_amount,
             maximum_drawdown_percent=drawdown_percent,
             drawdown_basis=drawdown_basis,
+        ))
+    return tuple(results)
+
+
+def analyze_capital_sensitivity(
+    sessions_by_date: dict[date, dict[str, list[MinuteBar]]], *,
+    starting_equity: Decimal, max_order_notional: Decimal, config: QuantConfig,
+    capital_scenarios: list[Decimal], carry_equity_between_sessions: bool = False,
+    entry_filter: Callable[[str, list[MinuteBar]], bool] | None = None,
+) -> tuple[CapitalSensitivityResult, ...]:
+    """Replay identical sessions at scaled capital while preserving percentage risk caps.
+
+    The simulated order-notional ceiling scales by the same factor as starting
+    equity. This isolates whole-share and shared-capital effects without changing
+    the approved percentage-based trade-risk or position-allocation limits.
+    """
+    if (not isinstance(starting_equity, Decimal) or not starting_equity.is_finite()
+            or starting_equity <= 0):
+        raise ValueError("starting equity must be a positive finite decimal")
+    if (not isinstance(max_order_notional, Decimal) or not max_order_notional.is_finite()
+            or max_order_notional <= 0):
+        raise ValueError("maximum order notional must be a positive finite decimal")
+    if not isinstance(sessions_by_date, dict) or not sessions_by_date:
+        raise ValueError("capital sensitivity requires domestic session data")
+    if not isinstance(capital_scenarios, list) or not capital_scenarios:
+        raise ValueError("at least one capital scenario is required")
+    scenarios: list[Decimal] = []
+    for value in capital_scenarios:
+        if not isinstance(value, Decimal) or not value.is_finite() or value <= 0:
+            raise ValueError("capital scenarios must be positive finite decimals")
+        if value in scenarios:
+            raise ValueError("capital scenarios must be unique")
+        scenarios.append(value)
+    if not isinstance(config, QuantConfig):
+        raise ValueError("capital sensitivity requires a quant cost configuration")
+    session_dates = list(sessions_by_date)
+    if any(not isinstance(session, date) or isinstance(session, datetime) for session in session_dates):
+        raise ValueError("capital sensitivity dates must be domestic session dates")
+    if not isinstance(carry_equity_between_sessions, bool):
+        raise ValueError("carry-equity mode must be a boolean")
+
+    ordered_sessions = sorted(session_dates)
+    results: list[CapitalSensitivityResult] = []
+    for scenario_equity in scenarios:
+        scale = scenario_equity / starting_equity
+        scenario_order_notional = max_order_notional * scale
+        session_results: list[PortfolioBacktestResult] = []
+        equity = scenario_equity
+        consecutive_losses = 0
+        for session in ordered_sessions:
+            session_result = backtest_domestic_portfolio(
+                sessions_by_date[session],
+                starting_equity=equity if carry_equity_between_sessions else scenario_equity,
+                max_order_notional=scenario_order_notional,
+                config=config,
+                initial_consecutive_losses=consecutive_losses if carry_equity_between_sessions else 0,
+                entry_filter=entry_filter,
+            )
+            session_results.append(session_result)
+            if carry_equity_between_sessions:
+                equity = session_result.ending_equity
+                consecutive_losses = session_result.ending_consecutive_losses
+
+        gross_pnl = sum((item.gross_pnl for item in session_results), Decimal(0))
+        estimated_costs = sum((item.estimated_costs for item in session_results), Decimal(0))
+        net_pnl = sum((item.net_pnl for item in session_results), Decimal(0))
+        if abs(gross_pnl - estimated_costs - net_pnl) > _PORTFOLIO_TOTAL_TOLERANCE:
+            raise ValueError("capital sensitivity totals do not reconcile")
+        rejected: dict[str, int] = {}
+        for item in session_results:
+            for _symbol, reason in item.rejected_entries:
+                rejected[reason] = rejected.get(reason, 0) + 1
+        if carry_equity_between_sessions:
+            drawdown = aggregate_compounded_drawdown(scenario_equity, session_results)
+            drawdown_amount = drawdown.maximum_amount
+            drawdown_percent = drawdown.maximum_percent
+            drawdown_basis = "compounded_sequential_sessions"
+            ending_equity: Decimal | None = equity
+        else:
+            drawdown_amount = max(
+                (item.max_bar_marked_drawdown_amount for item in session_results), default=Decimal(0),
+            )
+            drawdown_percent = max(
+                (item.max_bar_marked_drawdown_percent for item in session_results), default=Decimal(0),
+            )
+            drawdown_basis = "maximum_independent_session"
+            ending_equity = None
+        results.append(CapitalSensitivityResult(
+            starting_equity=scenario_equity,
+            max_order_notional=scenario_order_notional,
+            session_count=len(session_results),
+            accepted_trade_count=sum(len(item.trades) for item in session_results),
+            gross_pnl=gross_pnl,
+            estimated_costs=estimated_costs,
+            net_pnl=net_pnl,
+            ending_equity=ending_equity,
+            maximum_drawdown_amount=drawdown_amount,
+            maximum_drawdown_percent=drawdown_percent,
+            drawdown_basis=drawdown_basis,
+            rejected_entries_by_reason=dict(sorted(rejected.items())),
         ))
     return tuple(results)
 
