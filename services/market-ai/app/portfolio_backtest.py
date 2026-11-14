@@ -106,8 +106,17 @@ def aggregate_compounded_drawdown(
         if (not isinstance(session.starting_equity, Decimal) or not session.starting_equity.is_finite()
                 or session.starting_equity <= 0
                 or not isinstance(session.ending_equity, Decimal) or not session.ending_equity.is_finite()
-                or session.ending_equity < 0):
+                or session.ending_equity < 0
+                or not isinstance(session.gross_pnl, Decimal) or not session.gross_pnl.is_finite()
+                or not isinstance(session.estimated_costs, Decimal) or not session.estimated_costs.is_finite()
+                or session.estimated_costs < 0
+                or not isinstance(session.net_pnl, Decimal) or not session.net_pnl.is_finite()):
             raise ValueError("session equity is invalid for compounded drawdown")
+        if (abs(session.gross_pnl - session.estimated_costs - session.net_pnl)
+                > _PORTFOLIO_TOTAL_TOLERANCE
+                or abs(session.starting_equity + session.net_pnl - session.ending_equity)
+                > _PORTFOLIO_TOTAL_TOLERANCE):
+            raise ValueError("session PnL does not reconcile to compounded equity")
         expected_starting_equity = starting_equity if index == 0 else previous_ending_equity
         if abs(session.starting_equity - expected_starting_equity) > _PORTFOLIO_TOTAL_TOLERANCE:
             raise ValueError("compounded drawdown session equity is not sequential")

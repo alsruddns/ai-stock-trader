@@ -219,7 +219,11 @@ def test_compounded_drawdown_carries_prior_session_high_water_mark() -> None:
 def test_compounded_drawdown_rejects_nonchronological_or_disconnected_sessions() -> None:
     baseline = _run({"005930": _bars(0), "000660": _bars(1)})
     next_session = replace(baseline, session=baseline.session + timedelta(days=1))
-    disconnected_session = replace(next_session, starting_equity=Decimal("999999"))
+    disconnected_start = Decimal("999999")
+    disconnected_session = replace(
+        next_session, starting_equity=disconnected_start,
+        ending_equity=disconnected_start + next_session.net_pnl,
+    )
 
     with pytest.raises(ValueError, match="strictly chronological"):
         aggregate_compounded_drawdown(Decimal("1000000"), [next_session, baseline])
@@ -238,6 +242,14 @@ def test_compounded_drawdown_rejects_duplicate_sessions_and_invalid_observation_
         aggregate_compounded_drawdown(Decimal("1000000"), [baseline, duplicate])
     with pytest.raises(ValueError, match="equity marks"):
         aggregate_compounded_drawdown(Decimal("1000000"), [baseline, invalid_observations])
+
+
+def test_compounded_drawdown_rejects_session_equity_that_does_not_reconcile_with_pnl() -> None:
+    baseline = _run({"005930": _bars(0), "000660": _bars(1)})
+    inconsistent = replace(baseline, ending_equity=baseline.ending_equity + Decimal("1"))
+
+    with pytest.raises(ValueError, match="PnL does not reconcile"):
+        aggregate_compounded_drawdown(Decimal("1000000"), [inconsistent])
 
 
 def test_portfolio_drawdown_marks_adverse_intrabar_low_before_exit(monkeypatch) -> None:
