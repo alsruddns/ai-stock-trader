@@ -26,8 +26,9 @@ from .quant import (MinuteBar, QuantConfig, _atr, _ema, _vwap,
 FEATURE_NAMES = (
     "return_1m", "return_3m", "return_5m", "close_vwap_pct", "ema9_gap_pct",
     "ema20_gap_pct", "atr14_pct", "relative_volume20", "spread_bps", "session_progress",
+    "orb_breakout_distance_bps",
 )
-FEATURE_VERSION = 3
+FEATURE_VERSION = 4
 LABEL_VERSION = 3
 BACKTEST_VERSION = 6
 BACKTEST_SPREAD_MODEL = "known_prior_bar_half_spread_entry_exit_v2"
@@ -173,7 +174,7 @@ def build_training_samples(
     if minimum_label_cost <= 0 or round_trip_cost_bps < minimum_label_cost:
         raise ValueError("label round-trip cost must cover modeled buy/sell fees, tax, and slippage")
     samples: list[TrainingSample] = []
-    required = max(warmup_bars, 21, 15, 10)
+    required = max(warmup_bars, 21, 15, 10, quant_config.opening_range_bars)
     for session, bars in sorted(sessions.items()):
         if not bars:
             continue
@@ -199,6 +200,10 @@ def build_training_samples(
             ema20 = _ema([item.close for item in history], 20)
             atr_pct = _atr(history, 14) / close
             session_progress = _session_progress(current.timestamp, normalized_market)
+            opening_range_high = max(item.high for item in bars[:quant_config.opening_range_bars])
+            orb_breakout_distance_bps = (
+                close / opening_range_high - Decimal(1)
+            ) * Decimal(10_000)
             feature_values = (
                 *returns,
                 close / vwap - Decimal(1) if vwap else Decimal(0),
@@ -208,6 +213,7 @@ def build_training_samples(
                 volume_ratio,
                 current.spread_bps,
                 session_progress,
+                orb_breakout_distance_bps,
             )
             if any(not value.is_finite() for value in feature_values):
                 continue
@@ -227,9 +233,12 @@ def build_training_samples(
     return samples
 
 
-def latest_features(bars: list[MinuteBar], *, market: str, minimum_bars: int = 21) -> tuple[float, ...]:
+def latest_features(
+    bars: list[MinuteBar], *, market: str, minimum_bars: int = 21,
+    quant_config: QuantConfig = QuantConfig(),
+) -> tuple[float, ...]:
     """Build the current-bar feature vector without reading a future observation."""
-    required_bars = max(21, minimum_bars)
+    required_bars = max(21, minimum_bars, quant_config.opening_range_bars)
     if len(bars) < required_bars:
         raise ValueError(f"at least {required_bars} bars are required for inference")
     normalized_market = market.strip().upper()
@@ -243,6 +252,7 @@ def latest_features(bars: list[MinuteBar], *, market: str, minimum_bars: int = 2
     prior = bars[max(0, index - 20):index]
     mean_volume = Decimal(sum(item.volume for item in prior)) / len(prior) if prior else Decimal(0)
     volume_ratio = Decimal(current.volume) / mean_volume if mean_volume else Decimal(0)
+    opening_range_high = max(item.high for item in bars[:quant_config.opening_range_bars])
     close = current.close
     features = (
         *(Decimal(0) if index < period else close / bars[index - period].close - Decimal(1) for period in (1, 3, 5)),
@@ -253,12 +263,22 @@ def latest_features(bars: list[MinuteBar], *, market: str, minimum_bars: int = 2
         volume_ratio,
         current.spread_bps,
         _session_progress(current.timestamp, normalized_market),
+        (close / opening_range_high - Decimal(1)) * Decimal(10_000),
     )
     return tuple(float(value) for value in features)
 
 
+def _feature_quant_config(training_config: dict[str, Any]) -> QuantConfig:
+    opening_range_bars = training_config.get("backtest_opening_range_bars")
+    if (isinstance(opening_range_bars, bool) or not isinstance(opening_range_bars, int)
+            or opening_range_bars <= 0):
+        raise ValueError("model opening-range feature configuration is invalid")
+    return QuantConfig(opening_range_bars=opening_range_bars)
+
+
 def predict_probability_series(model: Any, bars: list[MinuteBar], *, market: str,
-                               minimum_bars: int = 21) -> dict[str, float]:
+                               minimum_bars: int = 21,
+                               quant_config: QuantConfig = QuantConfig()) -> dict[str, float]:
     """Score each bar using only data through that bar close for offline engine parity."""
     if not isinstance(minimum_bars, int) or isinstance(minimum_bars, bool) or minimum_bars < 21:
         raise ValueError("minimum_bars must be an integer of at least 21")
@@ -268,7 +288,8 @@ def predict_probability_series(model: Any, bars: list[MinuteBar], *, market: str
     scores: dict[str, float] = {}
     for index in range(minimum_bars - 1, len(bars)):
         history = bars[:index + 1]
-        features = latest_features(history, market=market, minimum_bars=minimum_bars)
+        features = latest_features(history, market=market, minimum_bars=minimum_bars,
+                                   quant_config=quant_config)
         probability = _positive_probability(model, features)
         scores[bars[index].timestamp.isoformat()] = probability
     return scores
@@ -718,9 +739,10 @@ class LocalModelRegistry:
         model = joblib.load(self.root / verified["artifact"])
         threshold = float(verified["threshold"])
         normalized_market = market.strip().upper()
+        feature_config = _feature_quant_config(verified["training_config"])
 
         def entry_filter(bars: list[MinuteBar]) -> bool:
-            features = latest_features(bars, market=normalized_market)
+            features = latest_features(bars, market=normalized_market, quant_config=feature_config)
             return bool(_positive_probability(model, features) >= threshold)
 
         return metadata["model_id"], entry_filter
@@ -987,6 +1009,10 @@ class LocalModelRegistry:
                 return False
             horizon = config.get("label_horizon_bars")
             if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon <= 0:
+                return False
+            opening_range_bars = config.get("backtest_opening_range_bars")
+            if (isinstance(opening_range_bars, bool) or not isinstance(opening_range_bars, int)
+                    or opening_range_bars <= 0):
                 return False
             if (config.get("backtest_version") != BACKTEST_VERSION
                     or config.get("backtest_spread_model") != BACKTEST_SPREAD_MODEL):
@@ -1290,6 +1316,7 @@ class LocalModelRegistry:
             "label_horizon_bars": label_horizon_bars,
             "label_round_trip_cost_bps": str(label_round_trip_cost_bps),
             "backtest_quantity_per_session": 1,
+            "backtest_opening_range_bars": quant_config.opening_range_bars,
             "backtest_buy_commission_bps": str(quant_config.effective_buy_commission_bps),
             "backtest_sell_commission_bps": str(quant_config.effective_sell_commission_bps),
             "backtest_sell_tax_bps": str(quant_config.sell_tax_bps),
@@ -1307,7 +1334,7 @@ class LocalModelRegistry:
                 test_metrics = _metrics(model, test)
                 quant_baseline_test_metrics = _quant_baseline_metrics(test)
                 def ai_entry_filter(history: list[MinuteBar]) -> bool:
-                    features = latest_features(history, market=market)
+                    features = latest_features(history, market=market, quant_config=quant_config)
                     probability = _positive_probability(model, features)
                     return probability >= 0.5
 
@@ -1431,6 +1458,7 @@ class LocalModelRegistry:
                 raise ValueError("only the validation-selected candidate may consume holdout sessions")
             config_data = metadata["training_config"]
             quant_config = QuantConfig(
+                opening_range_bars=int(config_data["backtest_opening_range_bars"]),
                 commission_bps=Decimal("0"),
                 buy_commission_bps=Decimal(str(config_data["backtest_buy_commission_bps"])),
                 sell_commission_bps=Decimal(str(config_data["backtest_sell_commission_bps"])),
@@ -1454,7 +1482,7 @@ class LocalModelRegistry:
             test_metrics = _metrics(model, samples)
 
             def ai_entry_filter(history: list[MinuteBar]) -> bool:
-                features = latest_features(history, market=market)
+                features = latest_features(history, market=market, quant_config=quant_config)
                 probability = _positive_probability(model, features)
                 return probability >= float(metadata["threshold"])
 
@@ -1540,7 +1568,8 @@ class LocalModelRegistry:
             raise ValueError("model feature schema is outdated and must be retrained")
         artifact = self.root / metadata["artifact"]
         model = joblib.load(artifact)
-        features = latest_features(bars, market=market)
+        features = latest_features(bars, market=market,
+                                   quant_config=_feature_quant_config(metadata.get("training_config", {})))
         probability = _positive_probability(model, features)
         raw_threshold = metadata.get("threshold")
         if (isinstance(raw_threshold, bool) or not isinstance(raw_threshold, (int, float))

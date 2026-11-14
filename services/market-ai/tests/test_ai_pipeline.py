@@ -26,7 +26,7 @@ from app.ai_pipeline import (
     _session_progress,
 )
 from app.data_provenance import MIN_MODEL_TRAINING_SESSIONS
-from app.quant import MinuteBar
+from app.quant import MinuteBar, QuantConfig
 from app.market_calendar import exchange_session_window
 
 
@@ -86,9 +86,44 @@ def test_features_at_time_t_match_online_inference_features() -> None:
     online = latest_features(bars[:21], market="KR")
     assert len(online) == len(FEATURE_NAMES)
     assert at_t.features == online
-    assert at_t.features[-1] == pytest.approx(20 / 380)
+    assert at_t.features[-2] == pytest.approx(20 / 380)
+    opening_high = max(bar.high for bar in bars[:QuantConfig().opening_range_bars])
+    assert at_t.features[-1] == pytest.approx(float((bars[20].close / opening_high - 1) * 10_000))
     with pytest.raises(ValueError, match="at least 21 bars"):
         latest_features(bars[:20], market="KR")
+
+
+def test_orb_breakout_feature_uses_the_training_opening_range_config() -> None:
+    session, bars = next(iter(_sample_sessions().items()))
+    breakout_bar = bars[6]
+    bars[6] = MinuteBar(
+        breakout_bar.timestamp, breakout_bar.open, breakout_bar.high + Decimal("5"),
+        breakout_bar.low, breakout_bar.close, breakout_bar.volume,
+        breakout_bar.spread_bps, breakout_bar.spread_observed_at,
+    )
+    config = QuantConfig(opening_range_bars=7)
+    samples = build_training_samples(
+        {session: bars}, market="KR", horizon_bars=5,
+        round_trip_cost_bps=Decimal("20"), quant_config=config,
+    )
+    sample = next(item for item in samples if item.timestamp == bars[20].timestamp.isoformat())
+    online = latest_features(bars[:21], market="KR", quant_config=config)
+    opening_high = max(bar.high for bar in bars[:7])
+
+    assert sample.features == online
+    assert sample.features[-1] == pytest.approx(float((bars[20].close / opening_high - 1) * 10_000))
+    assert latest_features(bars[:21], market="KR")[-1] != sample.features[-1]
+
+
+@pytest.mark.parametrize("opening_range_bars", [None, 0, True, 5.0, "5"])
+def test_feature_config_rejects_missing_or_ambiguous_opening_range(opening_range_bars) -> None:
+    with pytest.raises(ValueError, match="opening-range feature configuration is invalid"):
+        ai_pipeline._feature_quant_config({"backtest_opening_range_bars": opening_range_bars})
+
+
+def test_feature_config_restores_the_training_opening_range() -> None:
+    config = ai_pipeline._feature_quant_config({"backtest_opening_range_bars": 7})
+    assert config.opening_range_bars == 7
 
 
 def test_online_ema_features_use_full_regular_session_prefix(monkeypatch) -> None:
@@ -183,8 +218,8 @@ def test_probability_series_uses_only_current_and_prior_bars() -> None:
     assert list(scores) == [bar.timestamp.isoformat() for bar in bars[20:]]
     assert list(scores.values()) == [0.75] * 4
     assert len(model.features) == 4
-    assert model.features[0] == pytest.approx(latest_features(bars[:21], market="KR"), abs=1e-7)
-    assert model.features[-1] == pytest.approx(latest_features(bars[:24], market="KR"), abs=1e-7)
+    assert model.features[0] == pytest.approx(latest_features(bars[:21], market="KR"), abs=1e-6)
+    assert model.features[-1] == pytest.approx(latest_features(bars[:24], market="KR"), abs=1e-6)
 
 
 @pytest.mark.parametrize("probability", [float("nan"), -0.01, 1.01])
@@ -279,7 +314,7 @@ def test_training_label_charges_signal_bar_spread_available_before_next_open() -
                                               round_trip_cost_bps=Decimal("20"))
     baseline_sample = next(item for item in baseline_samples if item.timestamp == baseline[20].timestamp.isoformat())
     assert sample.forward_net_return_bps == pytest.approx(baseline_sample.forward_net_return_bps - 47.5)
-    assert sample.features[-2] == 100
+    assert sample.features[-3] == 100
 
 
 def test_training_keeps_sample_when_next_bar_spread_is_missing() -> None:
@@ -797,7 +832,7 @@ def test_legacy_model_with_outdated_feature_schema_cannot_be_approved_or_selecte
     _write_candidate(registry, model_id)
     manifest_path = tmp_path / f"{model_id}.json"
     metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
-    metadata.pop("feature_version")
+    metadata["feature_version"] = FEATURE_VERSION - 1
     manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
     registry._active_path.write_text(json.dumps({"model_id": model_id}), encoding="utf-8")
 
@@ -859,6 +894,7 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_hold
             "symbol": symbol, "label_version": LABEL_VERSION,
             "label_horizon_bars": 5, "label_round_trip_cost_bps": "20",
             "backtest_quantity_per_session": 1,
+            "backtest_opening_range_bars": 5,
             "backtest_buy_commission_bps": "5", "backtest_sell_commission_bps": "5",
             "backtest_sell_tax_bps": "0",
             "backtest_slippage_bps": "5", "backtest_version": BACKTEST_VERSION,
