@@ -42,7 +42,8 @@ def test_minute_bars_are_upserted_with_provenance_and_null_spread(monkeypatch) -
     query, rows = connection.calls[0]
     assert "ON CONFLICT (market, symbol, bar_at) DO UPDATE" in query
     assert "spread_observed_at" in query
-    assert "WHERE market_minute_bar.spread_bps IS NULL OR EXCLUDED.spread_observed_at IS NOT NULL" in query
+    assert "WHERE market_minute_bar.source NOT IN ('KIS_PAPER_WEBSOCKET', 'KIS_REAL_US_WEBSOCKET')" in query
+    assert "OR EXCLUDED.source IN ('KIS_PAPER_WEBSOCKET', 'KIS_REAL_US_WEBSOCKET')" in query
     assert rows == [("KR", "005930", bar.timestamp, bar.open, bar.high, bar.low, bar.close,
                      1000, None, None, "KIS_REST_MINUTE_CHART")]
 

@@ -122,3 +122,42 @@ def test_postgres_outage_recovers_durable_bar_after_runtime_restart(
             (watch.symbol, bar.timestamp),
         ).fetchone()
     assert row == (1, "KIS_PAPER_WEBSOCKET", Decimal("4.50000000"), bar.spread_observed_at)
+
+
+def test_websocket_bar_provenance_is_preserved_against_rest_backfill(
+    isolated_market_bar_schema: str,
+) -> None:
+    del isolated_market_bar_schema  # The fixture scopes all persistence SQL to a disposable schema.
+    observed_at = datetime.fromisoformat("2026-11-13T09:00:30+09:00")
+    websocket_bar = MinuteBar(
+        datetime.fromisoformat("2026-11-13T09:00:00+09:00"), Decimal("100"), Decimal("102"),
+        Decimal("99"), Decimal("101"), 1000, None, None,
+    )
+    rest_backfill = MinuteBar(
+        websocket_bar.timestamp, Decimal("90"), Decimal("92"), Decimal("89"), Decimal("91"), 900,
+    )
+    rest_bar = MinuteBar(
+        datetime.fromisoformat("2026-11-13T09:01:00+09:00"), Decimal("200"), Decimal("202"),
+        Decimal("199"), Decimal("201"), 2000,
+    )
+    websocket_upgrade = MinuteBar(
+        rest_bar.timestamp, Decimal("201"), Decimal("203"), Decimal("200"), Decimal("202"), 2100,
+        Decimal("3.5"), observed_at.replace(minute=1),
+    )
+
+    snapshot_store.store_minute_bars("KR", "998731", [websocket_bar], source="KIS_PAPER_WEBSOCKET")
+    snapshot_store.store_minute_bars("KR", "998731", [rest_backfill], source="KIS_REST_MINUTE_CHART")
+    snapshot_store.store_minute_bars("KR", "998731", [rest_bar], source="KIS_REST_MINUTE_CHART")
+    snapshot_store.store_minute_bars("KR", "998731", [websocket_upgrade], source="KIS_PAPER_WEBSOCKET")
+
+    with psycopg.connect(**_connection_args()) as connection:
+        rows = connection.execute(
+            """SELECT bar_at, close_price, volume, spread_bps, spread_observed_at, source
+                 FROM market_minute_bar WHERE market = 'KR' AND symbol = '998731' ORDER BY bar_at""",
+        ).fetchall()
+
+    assert rows == [
+        (websocket_bar.timestamp, Decimal("101.00000000"), 1000, None, None, "KIS_PAPER_WEBSOCKET"),
+        (websocket_upgrade.timestamp, Decimal("202.00000000"), 2100, Decimal("3.50000000"),
+         websocket_upgrade.spread_observed_at, "KIS_PAPER_WEBSOCKET"),
+    ]

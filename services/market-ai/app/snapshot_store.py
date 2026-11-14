@@ -71,7 +71,8 @@ def store_minute_bars(market: str, symbol: str, bars: list[MinuteBar], *, source
                      THEN EXCLUDED.spread_bps ELSE market_minute_bar.spread_bps END,
                  spread_observed_at = COALESCE(EXCLUDED.spread_observed_at, market_minute_bar.spread_observed_at),
                  source = EXCLUDED.source, stored_at = now()
-               WHERE market_minute_bar.spread_bps IS NULL OR EXCLUDED.spread_observed_at IS NOT NULL""",
+               WHERE market_minute_bar.source NOT IN ('KIS_PAPER_WEBSOCKET', 'KIS_REAL_US_WEBSOCKET')
+                  OR EXCLUDED.source IN ('KIS_PAPER_WEBSOCKET', 'KIS_REAL_US_WEBSOCKET')""",
                 [(market, symbol.upper(), bar.timestamp, bar.open, bar.high, bar.low, bar.close,
                   bar.volume, bar.spread_bps, bar.spread_observed_at, source) for bar in regular_session_bars],
             )
