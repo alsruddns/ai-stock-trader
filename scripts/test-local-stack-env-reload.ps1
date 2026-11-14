@@ -117,12 +117,16 @@ try {
     $queuedMonitor = @{ 'AIStockTrader-KRX-Session-Monitor-20261116' = 'Queued' }
     $inactiveMonitor = @{ 'AIStockTrader-KRX-Session-Monitor-20261116' = 'Ready' }
     $usActiveMonitor = @{ 'AIStockTrader-US-Session-Monitor-20261116' = 'Running' }
+    $unknownMarketSession = @([pscustomobject]@{ market = 'UNKNOWN'; session_date = '2026-11-16' })
+    $unknownDateSession = @([pscustomobject]@{ market = 'KR'; session_date = 'unavailable' })
     if (-not (Test-LocalSessionMonitorRunning $currentSession $activeMonitor) -or
         -not (Test-LocalSessionMonitorRunning $currentSession $queuedMonitor) -or
         (Test-LocalSessionMonitorRunning $currentSession $inactiveMonitor) -or
         (Test-LocalSessionMonitorRunning $currentSession $usActiveMonitor) -or
-        -not (Test-LocalSessionMonitorRunning $usSession $usActiveMonitor)) {
-        throw 'The environment reload gate did not defer only for an active configured-market monitor.'
+        -not (Test-LocalSessionMonitorRunning $usSession $usActiveMonitor) -or
+        -not (Test-LocalSessionMonitorRunning $unknownMarketSession @{}) -or
+        -not (Test-LocalSessionMonitorRunning $unknownDateSession @{})) {
+        throw 'The environment reload gate did not defer for an active monitor or an incomplete market session identity.'
     }
     if ((@(Get-OperationalMarketsFromEnvironment @{ MARKET_OPERATIONAL_SCOPE = 'KR' }) -join ',') -ne 'KR') {
         throw 'The active domestic operational scope was not selected.'
