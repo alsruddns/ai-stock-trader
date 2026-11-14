@@ -73,6 +73,10 @@ Python health의 `strategy_cost_assumptions`는 KR/US별 백테스트·학습 �
 
 `paper_strategy_cost_model`은 국내·미국 전략 평가에 별도로 필요한 PAPER 비용 모델 상태를 `enabled`, `ready`, 누락·오류 환경변수 이름으로 반환합니다. `strategy_cost_assumptions.configured=true`여도 PAPER 비용 모델이 꺼져 있거나 PAPER 원장 매수·매도 비용이 빠져 있으면 전략 평가가 `STRATEGY_COST_ASSUMPTIONS_UNAVAILABLE`로 차단될 수 있습니다. 이 상태 조회는 비용 설정을 바꾸거나 자동매매를 켜지 않습니다.
 
+`GET /api/v1/market/candidates/{market}`(market은 `KR` 또는 `US`)는 거래대금·호가 스프레드 필터를 통과한 KIS 시세 후보를 반환합니다. `POST /api/v1/market/candidates/{market}/subscribe`와 `/refresh-subscriptions`는 후보를 현재 PAPER 시세 감시에 추가·교체합니다. 두 POST 경로는 `PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED=true`, PAPER 모드, REAL 주문 잠금, PAPER 자동매매 비활성, 장중 연속매매 구간 및 해당 feed의 `RUNNING` 상태를 요구합니다. 주문은 전송하지 않습니다.
+
+후보 구독 응답의 `added`는 로컬 감시 목록에 등록하고 KIS WebSocket 구독 요청을 보냈다는 뜻이며 KIS 승인을 뜻하지 않습니다. `stream_state`와 `subscription_acknowledgements`의 `accepted_count`, `required_count`, `complete`로 ACK 진행을 확인합니다. `complete=false` 또는 `stream_state=SUBSCRIBING`이면 구독 승인 완료로 보지 마세요. 명시적 거부·ACK 시간초과는 feed 재연결 상태와 안전한 진단 코드로 확인합니다. 국내 PAPER 통합검증만 진행하며 미국 후보 조회·구독은 현재 운영 범위에서 비활성입니다.
+
 `GET /api/v1/market/sessions/{market}`는 `market`이 `KR` 또는 `US`일 때 거래소 캘린더가 확인한 현지 세션 날짜와 UTC 개장·폐장 시각, 조회 시점의 장중 여부를 반환합니다. 휴장일에는 `is_session=false`와 빈 개장·폐장 시각을 돌려줍니다. 캘린더를 검증할 수 없으면 HTTP 503으로 닫습니다. 이 endpoint는 읽기 전용 세션 정보이며 주문 승인이 아닙니다.
 
 Next.js `GET /api/operations`는 이 endpoint를 KR·US 각각 조회해 `marketSessions.KR` 및 `marketSessions.US`로 대시보드에 전달합니다. 한쪽 캘린더를 확인할 수 없으면 해당 값은 `null`이고 UI에는 "판정 불가"가 표시됩니다.
