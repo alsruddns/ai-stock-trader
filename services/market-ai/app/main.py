@@ -614,6 +614,7 @@ async def market_training_readiness(
             "negative_label_count": None,
             "partition_sample_counts": None,
             "partition_session_counts": None,
+            "partition_class_counts": None,
             "reasons": ["cost_assumptions_missing_or_invalid"],
         }
     else:
@@ -633,6 +634,7 @@ async def market_training_readiness(
                 "negative_label_count": None,
                 "partition_sample_counts": None,
                 "partition_session_counts": None,
+                "partition_class_counts": None,
                 "reasons": ["eligible_session_sample_generation_failed"],
             }
         training_preflight["cost_assumptions_ready"] = True

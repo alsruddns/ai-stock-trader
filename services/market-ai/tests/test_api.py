@@ -567,6 +567,7 @@ def test_training_readiness_counts_only_complete_approved_websocket_sessions(mon
         "negative_label_count": 355,
         "partition_sample_counts": None,
         "partition_session_counts": None,
+        "partition_class_counts": None,
         "reasons": ["insufficient_eligible_sessions"],
         "cost_assumptions_ready": True,
     }

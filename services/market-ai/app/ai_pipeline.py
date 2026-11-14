@@ -309,6 +309,7 @@ def assess_training_samples(samples: list[TrainingSample]) -> dict[str, Any]:
         "negative_label_count": negative,
         "partition_sample_counts": None,
         "partition_session_counts": None,
+        "partition_class_counts": None,
         "reasons": [],
     }
     if len(dates) < MIN_MODEL_TRAINING_SESSIONS:
@@ -323,6 +324,13 @@ def assess_training_samples(samples: list[TrainingSample]) -> dict[str, Any]:
     result["partition_sample_counts"] = {name: len(rows) for name, rows in partitions.items()}
     result["partition_session_counts"] = {
         name: len({sample.session for sample in rows}) for name, rows in partitions.items()
+    }
+    result["partition_class_counts"] = {
+        name: {
+            "positive": sum(sample.label == 1 for sample in rows),
+            "negative": sum(sample.label == 0 for sample in rows),
+        }
+        for name, rows in partitions.items()
     }
     reasons = []
     if (len(train) < MIN_MODEL_TRAIN_SAMPLES

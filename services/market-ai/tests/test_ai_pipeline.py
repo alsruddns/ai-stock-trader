@@ -373,6 +373,11 @@ def test_training_sample_readiness_matches_partition_and_class_gates() -> None:
     assert ready["sample_count"] == 520
     assert ready["partition_sample_counts"] == {"train": 200, "validation": 120, "test": 200}
     assert ready["partition_session_counts"] == {"train": 5, "validation": 3, "test": 5}
+    assert ready["partition_class_counts"] == {
+        "train": {"positive": 100, "negative": 100},
+        "validation": {"positive": 60, "negative": 60},
+        "test": {"positive": 100, "negative": 100},
+    }
 
     one_class_training = [
         TrainingSample(sample.session, sample.timestamp, sample.features,
@@ -382,6 +387,7 @@ def test_training_sample_readiness_matches_partition_and_class_gates() -> None:
     unbalanced = assess_training_samples(one_class_training)
     assert unbalanced["ready"] is False
     assert unbalanced["reasons"] == ["training_partition_requires_both_outcome_classes"]
+    assert unbalanced["partition_class_counts"]["train"] == {"positive": 0, "negative": 200}
 
     sparse_samples = [
         TrainingSample(session, f"{session}:{index}", (float(index),), index % 2)
