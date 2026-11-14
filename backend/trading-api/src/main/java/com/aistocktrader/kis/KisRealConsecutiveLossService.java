@@ -11,14 +11,13 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
-/** Reconstructs consecutive net losing trades across both REAL markets; incomplete evidence is unknown. */
+/** Reconstructs consecutive net losing trades and open positions in the configured REAL market scope. */
 @Service
 public class KisRealConsecutiveLossService {
     private static final Logger log = LoggerFactory.getLogger(KisRealConsecutiveLossService.class);
@@ -72,14 +71,16 @@ public class KisRealConsecutiveLossService {
                 || !properties.credentials(KisEnvironment.REAL).configured() || requestMarket == null) {
             return Optional.empty();
         }
-        // This risk history and position cap span both markets. Do not contact an out-of-scope
-        // exchange to fill missing evidence; return unknown so the caller's buy gate fails closed.
-        if (!operationalScope.allowedMarkets().containsAll(EnumSet.allOf(Market.class))) return Optional.empty();
+        // Count only markets enabled for operations. In the domestic-first phase this keeps the
+        // risk gate usable without contacting the out-of-scope US account; when both markets are
+        // enabled, the same history and position cap span both.
+        if (!operationalScope.allowedMarkets().contains(requestMarket)) return Optional.empty();
         try {
             String fingerprint = dailyRiskBaselines.accountFingerprint();
             List<MarketLedgerInput> ledgers = new ArrayList<>();
             Map<Market, KisAccountSnapshot> snapshots = new HashMap<>();
             for (Market market : Market.values()) {
+                if (!operationalScope.allowedMarkets().contains(market)) continue;
                 // The request market must be open now. The other exchange is often on a
                 // different local date (for example, KRX Monday morning is still Sunday
                 // in New York), so use its latest completed session as the immutable

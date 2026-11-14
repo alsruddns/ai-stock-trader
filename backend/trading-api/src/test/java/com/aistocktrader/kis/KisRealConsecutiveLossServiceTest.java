@@ -35,7 +35,7 @@ class KisRealConsecutiveLossServiceTest {
     }
 
     @Test
-    void domesticOnlyScopeKeepsCrossMarketRiskUnknownWithoutCallingOverseasApis() {
+    void domesticOnlyScopeCalculatesDomesticRiskWithoutCallingOverseasApis() {
         var fixture = new Fixture(true);
         var scopedService = new KisRealConsecutiveLossService(
                 new KisProperties(true, true, true, true,
@@ -46,12 +46,26 @@ class KisRealConsecutiveLossServiceTest {
                 fixture.intents, fixture.realOrders,
                 new KisRealTradingCostProperties("0", "0", "0", "0", "0", "0"),
                 MarketOperationalScope.domesticOnly());
+        var domesticPosition = position("005930", "1");
+        var openingPosition = new KisRealSessionPositionBaselineStore.Position(
+                "005930", BigDecimal.ONE, BigDecimal.ONE);
+        when(fixture.positionBaselines.get(eq(Market.KR), eq(LocalDate.now()), eq(FINGERPRINT))).thenReturn(Optional.of(
+                new KisRealSessionPositionBaselineStore.PositionBaseline(Market.KR, LocalDate.now(), FINGERPRINT,
+                        "KRW", Instant.now().minusSeconds(60), 1, "KIS_READ_ONLY_REST", List.of(openingPosition))));
 
-        var result = scopedService.evaluate(Market.KR, account(Market.KR, List.of()));
+        var result = scopedService.evaluate(Market.KR, account(Market.KR, List.of(domesticPosition)));
+        var outOfScopeResult = scopedService.evaluate(Market.US, account(Market.US, List.of()));
 
-        assertTrue(result.isEmpty());
-        verifyNoInteractions(fixture.accounts, fixture.sessions, fixture.positionBaselines,
-                fixture.dailyRiskBaselines, fixture.intents, fixture.realOrders);
+        assertTrue(result.isPresent());
+        assertEquals(new KisRealConsecutiveLossService.RiskHistory(0, 1), result.get());
+        assertTrue(outOfScopeResult.isEmpty());
+        verify(fixture.sessions, never()).session(Market.US);
+        verify(fixture.sessions, never()).latestClosedSession(Market.US);
+        verify(fixture.positionBaselines, never()).get(eq(Market.US), any(), anyString());
+        verify(fixture.intents, never()).findByEnvironmentAndMarketAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+                eq(KisEnvironment.REAL), eq(Market.US), any());
+        verify(fixture.realOrders, never()).getRealSessionExecutions(eq(Market.US), any());
+        verify(fixture.accounts, never()).getBalance(eq(KisEnvironment.REAL), eq(Market.US), any(), any(), any());
     }
 
     @Test
