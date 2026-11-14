@@ -59,6 +59,38 @@ class KisMarketAiEvidenceClientTest {
     }
 
     @Test
+    void paperOrderQuoteRequiresRecentMatchingKisRestSnapshot() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:18000");
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930"))
+                .andRespond(withSuccess("{\"market\":\"KR\",\"symbol\":\"005930\","
+                        + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":70000,\"retrieved_at\":\""
+                        + Instant.now() + "\"}", MediaType.APPLICATION_JSON));
+
+        assertDoesNotThrow(() -> client.requireFreshPaperOrderQuote(
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                        new BigDecimal("70000"), Currency.KRW), null));
+        server.verify();
+    }
+
+    @Test
+    void paperOrderQuoteRejectsStaleOrMismatchedInstrumentBeforeReturningPrice() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:18000");
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930"))
+                .andRespond(withSuccess("{\"market\":\"KR\",\"symbol\":\"005930\","
+                        + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":70000,\"retrieved_at\":\""
+                        + Instant.now().minusSeconds(10) + "\"}", MediaType.APPLICATION_JSON));
+
+        assertThrows(IllegalStateException.class, () -> client.requireFreshPaperOrderQuote(
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                        new BigDecimal("70000"), Currency.KRW), null));
+        server.verify();
+    }
+
+    @Test
     void exitQuoteFetchRequiresFreshMatchingKrQuoteAndReturnsBid() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

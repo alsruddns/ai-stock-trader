@@ -51,6 +51,31 @@ public class KisMarketAiEvidenceClient {
         }
     }
 
+    /** Requires a recent KIS quote before a manually submitted PAPER order can reach the broker. */
+    public void requireFreshPaperOrderQuote(OrderRequest request, String exchange) {
+        if (request == null || request.market() == null || request.symbol() == null || request.symbol().isBlank()) {
+            throw new IllegalArgumentException("PAPER order quote requires a market and symbol.");
+        }
+        String symbol = request.symbol().trim().toUpperCase(java.util.Locale.ROOT);
+        String venue = request.market() == com.aistocktrader.order.Market.US ? marketAiExchange(exchange) : "";
+        if (request.market() == com.aistocktrader.order.Market.US && venue.isBlank()) {
+            throw new IllegalArgumentException("US PAPER order quote requires a supported exchange.");
+        }
+        JsonNode quote = request.market() == com.aistocktrader.order.Market.US
+                ? http.get().uri(uri -> uri.path("/api/v1/market/quotes/US/{symbol}")
+                        .queryParam("exchange", venue).build(symbol)).retrieve().body(JsonNode.class)
+                : http.get().uri("/api/v1/market/quotes/KR/{symbol}", symbol).retrieve().body(JsonNode.class);
+        OrderRequest normalized = new OrderRequest(request.market(), symbol, request.side(), request.quantity(),
+                request.limitPrice(), request.currency());
+        if (!isFreshMatchingQuote(quote, normalized)) {
+            throw new IllegalStateException("PAPER order requires a fresh matching KIS quote.");
+        }
+        if (request.market() == com.aistocktrader.order.Market.US
+                && !venue.equalsIgnoreCase(quote.path("exchange").asText())) {
+            throw new IllegalStateException("PAPER order quote exchange does not match the request.");
+        }
+    }
+
     /** Fetches a fresh KIS quote snapshot for a server-side protective-exit decision. */
     public ExitQuote quoteForExit(com.aistocktrader.order.Market market, String symbol, String exchange) {
         if (market == null || symbol == null || symbol.isBlank()) {

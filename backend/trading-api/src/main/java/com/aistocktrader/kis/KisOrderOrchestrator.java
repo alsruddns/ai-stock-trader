@@ -6,6 +6,7 @@ import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderRequest;
 import com.aistocktrader.order.OrderSide;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -23,12 +24,13 @@ public class KisOrderOrchestrator {
     private final KisOrderProperties orderProperties;
     private final TradingSafetyProperties safety;
     private final KisOrderIntentStore intents;
+    private final KisMarketAiEvidenceClient marketEvidence;
 
     public KisOrderOrchestrator(KisOrderClient orders, KisAccountClient accounts,
                                 KisOrderProperties orderProperties, TradingSafetyProperties safety,
-                                KisOrderIntentStore intents) {
+                                KisOrderIntentStore intents, KisMarketAiEvidenceClient marketEvidence) {
         this.orders = orders; this.accounts = accounts; this.orderProperties = orderProperties;
-        this.safety = safety; this.intents = intents;
+        this.safety = safety; this.intents = intents; this.marketEvidence = marketEvidence;
     }
 
     public KisOrderIntentResponse submitPaperOrder(UUID idempotencyKey, OrderRequest request, String exchange) {
@@ -60,6 +62,12 @@ public class KisOrderOrchestrator {
             return KisOrderIntentResponse.from(intents.reject(idempotencyKey, "PREFLIGHT_BLOCKED"));
         } catch (IllegalStateException ex) {
             return KisOrderIntentResponse.from(intents.reject(idempotencyKey, "PREFLIGHT_DISABLED"));
+        }
+
+        try {
+            marketEvidence.requireFreshPaperOrderQuote(request, exchange);
+        } catch (RestClientException | IllegalArgumentException | IllegalStateException ex) {
+            return KisOrderIntentResponse.from(intents.reject(idempotencyKey, "PAPER_QUOTE_PREFLIGHT_FAILED"));
         }
 
         try {

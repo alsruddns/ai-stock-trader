@@ -32,6 +32,7 @@ class KisOrderOrchestratorTest {
     private KisOrderClient orders;
     private KisAccountClient accounts;
     private KisOrderIntentStore intents;
+    private KisMarketAiEvidenceClient marketEvidence;
     private KisOrderOrchestrator orchestrator;
 
     @BeforeEach
@@ -39,8 +40,12 @@ class KisOrderOrchestratorTest {
         orders = mock(KisOrderClient.class);
         accounts = mock(KisAccountClient.class);
         intents = mock(KisOrderIntentStore.class);
+        marketEvidence = mock(KisMarketAiEvidenceClient.class);
+        org.mockito.Mockito.doNothing().when(marketEvidence)
+                .requireFreshPaperOrderQuote(any(), nullable(String.class));
         orchestrator = new KisOrderOrchestrator(orders, accounts, new KisOrderProperties(true, false),
-                new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")), intents);
+                new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")),
+                intents, marketEvidence);
     }
 
     @Test
@@ -99,6 +104,32 @@ class KisOrderOrchestratorTest {
         assertEquals(KisOrderStatus.REJECTED, response.status());
         assertEquals("PREFLIGHT_BLOCKED", response.responseCode());
         verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(), any(), any(), anyString());
+    }
+
+    @Test
+    void unavailableFreshQuoteRejectsBeforeBrokerOrderCall() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = buyRequest();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", request, null);
+        when(intents.prepare(any(), anyString(), any(), nullable(String.class)))
+                .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
+        when(accounts.getBalance(any(), any(), any(), any(), nullable(String.class))).thenReturn(
+                new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR, "KRW", new BigDecimal("100000"),
+                        new BigDecimal("100000"), List.of(), Instant.now(), "test"));
+        org.mockito.Mockito.doThrow(new IllegalStateException("stale quote"))
+                .when(marketEvidence).requireFreshPaperOrderQuote(request, null);
+        when(intents.reject(key, "PAPER_QUOTE_PREFLIGHT_FAILED")).thenAnswer(invocation -> {
+            intent.reject(invocation.getArgument(1));
+            return intent;
+        });
+
+        KisOrderIntentResponse response = orchestrator.submitPaperOrder(key, request, null);
+
+        assertEquals(KisOrderStatus.REJECTED, response.status());
+        assertEquals("PAPER_QUOTE_PREFLIGHT_FAILED", response.responseCode());
+        verify(accounts).getBalance(any(), any(), any(), any(), nullable(String.class));
+        verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(),
+                any(), any(), nullable(String.class));
     }
 
     @Test
@@ -245,7 +276,8 @@ class KisOrderOrchestratorTest {
     @Test
     void disabledOrdersFailClosed() {
         KisOrderOrchestrator locked = new KisOrderOrchestrator(orders, accounts, new KisOrderProperties(false, false),
-                new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")), intents);
+                new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")),
+                intents, marketEvidence);
         assertThrows(IllegalStateException.class, () -> locked.submitPaperOrder(UUID.randomUUID(), buyRequest(), null));
         verify(intents, never()).prepare(any(), anyString(), any(), nullable(String.class));
     }

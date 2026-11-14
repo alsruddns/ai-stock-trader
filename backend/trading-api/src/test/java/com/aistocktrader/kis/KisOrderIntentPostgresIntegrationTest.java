@@ -865,7 +865,8 @@ class KisOrderIntentPostgresIntegrationTest {
             KisOrderClient mockedHttpBroker = new KisOrderClient(kisProperties, orderProperties,
                     tradingSafetyProperties, http);
             KisOrderOrchestrator orchestrator = new KisOrderOrchestrator(mockedHttpBroker, kisAccountClient,
-                    orderProperties, tradingSafetyProperties, store);
+                    orderProperties, tradingSafetyProperties, store,
+                    org.mockito.Mockito.mock(KisMarketAiEvidenceClient.class));
             KisPaperOrderReconciliationJob reconciliationJob = new KisPaperOrderReconciliationJob(
                     orderProperties, kisProperties, tradingSafetyProperties, MarketOperationalScope.domesticOnly(),
                     repository, orchestrator);
