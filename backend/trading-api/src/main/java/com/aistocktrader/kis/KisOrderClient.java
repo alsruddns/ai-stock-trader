@@ -32,7 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-/** Internal paper-only KIS order adapter. No public trading controller uses it in this phase. */
+/** KIS PAPER order adapter. Public PAPER routes pass through KisOrderOrchestrator; REAL orders use a separate client. */
 @Component
 public class KisOrderClient {
     private static final Logger log = LoggerFactory.getLogger(KisOrderClient.class);
