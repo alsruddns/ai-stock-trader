@@ -26,7 +26,7 @@ from app.ai_pipeline import (
     _session_progress,
 )
 from app.data_provenance import MIN_MODEL_TRAINING_SESSIONS
-from app.quant import MinuteBar, QuantConfig
+from app.quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from app.market_calendar import exchange_session_window
 
 
@@ -91,6 +91,42 @@ def test_features_at_time_t_match_online_inference_features() -> None:
     assert at_t.features[-1] == pytest.approx(float((bars[20].close / opening_high - 1) * 10_000))
     with pytest.raises(ValueError, match="at least 21 bars"):
         latest_features(bars[:20], market="KR")
+
+
+def test_training_samples_cover_actual_orb_candidates_and_strategy_outcomes() -> None:
+    zone = timezone(timedelta(hours=9))
+    sessions = {}
+    for session, move in ((date(2026, 11, 5), Decimal("0.2")),
+                          (date(2026, 11, 6), Decimal("-0.2"))):
+        start = datetime.combine(session, time(9), zone)
+        bars = []
+        for index in range(380):
+            if index <= 20:
+                close = Decimal("100") + Decimal(max(0, index - 4)) * Decimal("0.04")
+            elif index <= 25:
+                close = Decimal("100.64") + move * Decimal(index - 20)
+            else:
+                close = Decimal("100.64") + move * Decimal(5)
+            bars.append(_bar(start + timedelta(minutes=index), close,
+                             3000 if index == 20 else 1000))
+        sessions[session] = bars
+
+    config = QuantConfig(minimum_turnover=Decimal(0))
+    samples = build_training_samples(
+        sessions, market="KR", horizon_bars=5,
+        round_trip_cost_bps=Decimal("20"), quant_config=config,
+    )
+    candidates_by_session = {
+        sample.session: sample for sample in samples if sample.quant_candidate
+    }
+
+    assert set(candidates_by_session) == set(sessions)
+    assert all(sample.timestamp == sessions[session][20].timestamp.isoformat()
+               for session, sample in candidates_by_session.items())
+    assert candidates_by_session[date(2026, 11, 5)].label == 1
+    assert candidates_by_session[date(2026, 11, 6)].label == 0
+    assert all(backtest_orb_vwap("KR", "005930", bars, config).signals == 1
+               for bars in sessions.values())
 
 
 def test_orb_breakout_feature_uses_the_training_opening_range_config() -> None:
