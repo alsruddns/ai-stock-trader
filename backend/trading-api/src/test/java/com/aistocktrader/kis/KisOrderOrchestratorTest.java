@@ -70,6 +70,17 @@ class KisOrderOrchestratorTest {
     }
 
     @Test
+    void invalidDomesticTickSizeIsRejectedBeforeIntentOrAccountPreflight() {
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70001"), Currency.KRW);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> orchestrator.submitPaperOrder(UUID.randomUUID(), request, null));
+
+        verifyNoInteractions(intents, accounts, orders);
+    }
+
+    @Test
     void insufficientCashRejectsBeforeBrokerOrderCall() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();
