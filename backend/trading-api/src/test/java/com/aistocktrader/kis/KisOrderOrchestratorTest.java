@@ -2,6 +2,7 @@ package com.aistocktrader.kis;
 
 import com.aistocktrader.config.TradingSafetyProperties;
 import com.aistocktrader.order.Currency;
+import com.aistocktrader.order.IdempotencyConflictException;
 import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderRequest;
 import com.aistocktrader.order.OrderSide;
@@ -61,6 +62,19 @@ class KisOrderOrchestratorTest {
         assertEquals(KisOrderStatus.UNKNOWN, response.status());
         verify(accounts, never()).getBalance(any(), any(), any(), any(), anyString());
         verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(), any(), any(), anyString());
+    }
+
+    @Test
+    void realIntentIdempotencyCollisionStopsPaperSubmissionBeforeAccountOrBrokerAccess() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = buyRequest();
+        when(intents.prepare(key, KisOrderOrchestrator.hash(request, null), request, null))
+                .thenThrow(new IdempotencyConflictException("Idempotency-Key belongs to another KIS environment."));
+
+        assertThrows(IdempotencyConflictException.class, () -> orchestrator.submitPaperOrder(key, request, null));
+
+        verify(intents).prepare(key, KisOrderOrchestrator.hash(request, null), request, null);
+        verifyNoInteractions(accounts, orders, marketEvidence);
     }
 
     @Test
