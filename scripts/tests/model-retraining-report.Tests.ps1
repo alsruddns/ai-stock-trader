@@ -171,7 +171,7 @@ Describe 'Model retraining operations summary' {
             -FromDate '2026-11-09' -ToDate '2026-11-27' -DatasetPath 'data/model-candidates/test.csv' `
             -FailureCode 'market_cost_assumptions_missing_or_invalid'
 
-        $summary = Get-AiTraderModelRetrainingSummary -Directory $directory
+        $summary = Get-AiTraderModelRetrainingSummary -Directory $directory -OperationalMarkets @('US')
         $summary.state | Should Be 'AVAILABLE'
         $summary.latestRun.status | Should Be 'configuration_failed'
         $summary.latestRun.failureStage | Should Be 'configuration'
@@ -205,7 +205,7 @@ Describe 'Model retraining operations summary' {
         }
         Set-AiTraderAtomicJsonFile -Path $path -Value $document
 
-        $summary = Get-AiTraderModelRetrainingSummary -Directory $directory
+        $summary = Get-AiTraderModelRetrainingSummary -Directory $directory -OperationalMarkets @('US')
         $serialized = $summary | ConvertTo-Json -Depth 6 -Compress
 
         $summary.state | Should Be 'AVAILABLE'
@@ -253,7 +253,7 @@ Describe 'Model retraining operations summary' {
         }
         Set-AiTraderAtomicJsonFile -Path $path -Value $legacy
 
-        $summary = Get-AiTraderModelRetrainingSummary -Directory $directory
+        $summary = Get-AiTraderModelRetrainingSummary -Directory $directory -OperationalMarkets @('US')
         $serialized = $summary | ConvertTo-Json -Depth 6 -Compress
 
         $summary.latestRun.failureCode | Should Be 'insufficient_training_sessions'
