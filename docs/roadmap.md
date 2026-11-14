@@ -1,6 +1,6 @@
 # AI Stock Trader v1.0 Roadmap
 
-- **P1 종료 공지된 국내 KIS 종목분석 API 런타임 재검사 (작업일 2026-11-15):** 2026-11-11 종료 시행 후 운영 체크아웃에서 `scripts/test-retired-kis-analysis.ps1`를 실행했습니다. 스캐너는 Spring/FastAPI 런타임 소스(Java/Kotlin/Python)에서 종료된 7개 재무 API 함수명·직접 경로를 찾지 못하고 통과했습니다. 넓은 검색에서 발견된 이름은 차단 스캐너와 회귀 fixture 안의 문자열뿐이며 런타임 호출은 아닙니다. KIS 계좌·시세·주문 요청은 하지 않았습니다.
+- **P1 종료 공지된 국내 KIS 종목분석 API 런타임 재검사 (작업일 2026-11-15):** 2026-11-11 종료 시행 후 운영 체크아웃에서 `scripts/test-retired-kis-analysis.ps1`를 실행했습니다. 스캐너는 Spring/FastAPI 런타임 소스(Java/Kotlin/Python)에서 종료된 7개 재무 API 함수명·직접 경로를 찾지 못하고 통과했습니다. 회귀 Pester 5/5가 helper 이름, 직접 REST 경로, 분리 저장된 경로 접미사를 포함해 통과했습니다. 넓은 검색에서 발견된 이름은 차단 스캐너와 회귀 fixture 안의 문자열뿐이며 런타임 호출은 아닙니다. KIS 계좌·시세·주문 요청은 하지 않았습니다.
 
 - **P3 계좌 수수료 확인 경로 공식자료 대조 (작업일 2026-11-15):** KIS 공식 API 목록에서 계좌별 매매 수수료율을 반환하는 전용 조회는 확인하지 못했습니다. 국내 `기간별손익일별합산조회` 예제는 `TTTC8708R`의 `output2`에 매수/매도 수수료·제세금 합계가 있음을 설명하지만, 공식 모의투자 지원표에 모의 지원 표시는 없습니다. 저장소에는 이미 국내 REAL 체결원장·개장 전 보유 기준선과 KIS 실현손익 요약을 대조하는 읽기 전용 경로가 있으나, 실제 체결이 있어야 계좌 적용 비용과 모델을 비교할 수 있습니다. 따라서 공개 표나 PAPER 자료로 ‘위탁·국내수수료우대’ 계좌의 정확한 수수료율을 추정하지 않았고 `.env_local` 설정도 바꾸지 않았습니다. 실제 적용 요율은 계좌별 수수료 안내 또는 이후 검증된 REAL 체결 비용으로 확정해야 합니다. 이번 조사는 문서·코드만 확인했으며 계좌·KIS API·주문 요청은 없었습니다. 출처: [KIS 공식 API 지원목록](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#3-api-%EC%A0%9C%EA%B3%B5-%EB%AA%A9%EB%A1%9D), [KIS 공식 국내주식 API 예제](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_domstk.py).
 
