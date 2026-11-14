@@ -11,11 +11,13 @@ REPOSITORY = Path(__file__).resolve().parents[3]
 CLI = REPOSITORY / "scripts" / "backtest-portfolio.py"
 
 
-def _dataset(path: Path, session_date: str = "2026-11-05", symbol: str | None = None) -> Path:
+def _dataset(
+    path: Path, session_date: str = "2026-11-05", symbol: str | None = None, *, bar_count: int = 380,
+) -> Path:
     symbol = symbol or path.stem
     start = datetime.fromisoformat(f"{session_date}T09:00:00+09:00")
     lines = ["timestamp,open,high,low,close,volume,spread_bps,spread_observed_at,symbol"]
-    for index in range(380):
+    for index in range(bar_count):
         stamp = start + timedelta(minutes=index)
         observed = stamp + timedelta(seconds=30)
         lines.append(f"{stamp.isoformat()},100,101,99,100,1000,5,{observed.isoformat()},{symbol}")
@@ -109,6 +111,18 @@ def test_portfolio_cli_requires_reviewed_multi_symbol_inputs_and_reports_non_exe
     )
     assert payload["summary"]["executable"] is False
     assert payload["executable"] is False
+
+
+def test_portfolio_cli_rejects_incomplete_exchange_session(tmp_path: Path) -> None:
+    incomplete = _dataset(tmp_path / "005930.csv", bar_count=379)
+    complete = _dataset(tmp_path / "000660.csv")
+
+    completed = subprocess.run(
+        _command(incomplete, complete), cwd=REPOSITORY, capture_output=True, text=True, check=False,
+    )
+
+    assert completed.returncode == 2
+    assert "005930 session 2026-11-05 is incomplete (379/380 bars, 1 missing" in completed.stderr
 
 
 def test_portfolio_cli_reports_optional_slippage_scenarios_without_changing_base_result(tmp_path: Path) -> None:

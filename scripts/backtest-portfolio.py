@@ -5,9 +5,10 @@ import hashlib
 import json
 import sys
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 repository = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repository / "services" / "market-ai"))
@@ -22,6 +23,7 @@ from app.portfolio_backtest import (
     backtest_domestic_portfolio,
 )
 from app.quant import QuantConfig
+from app.session_quality import audit_minute_bar_session
 
 
 def _dataset_argument(value: str) -> tuple[str, Path]:
@@ -126,6 +128,22 @@ def main() -> int:
         }
 
     session_sets = {symbol: set(sessions) for symbol, sessions in data.items()}
+    for symbol, sessions in data.items():
+        for session, bars in sessions.items():
+            quality = audit_minute_bar_session(
+                "KR", symbol, session, bars,
+                evaluated_at=datetime.combine(
+                    session + timedelta(days=1), time.min, tzinfo=ZoneInfo("Asia/Seoul"),
+                ),
+            )
+            if quality.get("full_session_complete") is not True:
+                parser.error(
+                    f"{symbol} session {session.isoformat()} is incomplete "
+                    f"({quality.get('observed_bars', 0)}/{quality.get('expected_bars', 0)} bars, "
+                    f"{quality.get('missing_bars', 0)} missing, "
+                    f"{quality.get('off_grid_bars', 0)} off-grid, "
+                    f"{quality.get('duplicate_bars', 0)} duplicate)"
+                )
     reference_sessions = next(iter(session_sets.values()))
     if not reference_sessions or any(sessions != reference_sessions for sessions in session_sets.values()):
         parser.error("all symbol datasets must contain the same non-empty set of KR session dates")
