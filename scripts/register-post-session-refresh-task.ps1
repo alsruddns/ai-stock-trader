@@ -79,8 +79,8 @@ $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $arguments 
 $trigger = New-ScheduledTaskTrigger -Once -At $runLocal
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
-    -MultipleInstances IgnoreNew
+$settings = New-ScheduledTaskSettingsSet -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 5) -MultipleInstances IgnoreNew
 $description = "Restarts the local domestic-only Spring and Python APIs after the verified KRX session; no trading requests."
 if ($PSCmdlet.ShouldProcess($taskName, "Register domestic post-session API refresh at $runAt")) {
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `

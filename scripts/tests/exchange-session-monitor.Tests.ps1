@@ -357,9 +357,16 @@ Describe 'Domestic post-session refresh task verification' {
         $wrongScope = New-TestPostSessionRefreshTask `
             '-File "C:\repo\scripts\restart-local-stack-task.ps1"' `
             '2026-11-16T15:45:00+09:00'
+        $batteryRestricted = New-TestPostSessionRefreshTask `
+            '-File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
+            '2026-11-16T15:45:00+09:00'
+        $batteryRestricted.Settings.DisallowStartIfOnBatteries = $true
+        $batteryRestricted.Settings.StopIfGoingOnBatteries = $true
         (Test-PostSessionRefreshTaskDefinition $delayed 'C:\repo\scripts\restart-local-stack-task.ps1' `
             ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))) | Should Be $false
         (Test-PostSessionRefreshTaskDefinition $wrongScope 'C:\repo\scripts\restart-local-stack-task.ps1' `
+            ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))) | Should Be $false
+        (Test-PostSessionRefreshTaskDefinition $batteryRestricted 'C:\repo\scripts\restart-local-stack-task.ps1' `
             ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))) | Should Be $false
     }
 }
