@@ -1,7 +1,13 @@
 [CmdletBinding()]
-param([string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot))
+param([string]$RepositoryRoot)
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) {
+    $RepositoryRoot = Split-Path -Parent $PSScriptRoot
+}
+if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) {
+    throw 'Repository root could not be derived from the script location.'
+}
 . (Join-Path $PSScriptRoot 'lib/tracked-credential-scan.ps1')
 $findings = @(Get-KisTrackedCredentialFindings -RepositoryRoot $RepositoryRoot)
 if ($findings.Count -gt 0) {
