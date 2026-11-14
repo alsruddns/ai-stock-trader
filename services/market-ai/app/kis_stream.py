@@ -83,7 +83,9 @@ class SubscriptionAckTracker:
         if (not re.fullmatch(r"[A-Z0-9]{1,32}", transaction_id)
                 or not isinstance(subscription_key, str) or not _SUBSCRIPTION_KEY.fullmatch(subscription_key)):
             raise ValueError("subscription acknowledgement requirement is invalid")
-        self._required.add((transaction_id, subscription_key.upper()))
+        identity = (transaction_id, subscription_key.upper())
+        self._required.add(identity)
+        self._accepted.discard(identity)
 
     def observe(self, frame: str | bytes) -> bool:
         acknowledgement = parse_subscription_ack(frame)

@@ -1498,8 +1498,11 @@ class PaperSessionFeedMonitor:
         while True:
             watch, tr_type, sent = await queue.get()
             try:
-                if tr_type == "1" and watch.key not in sent_keys:
-                    messages = self._subscription_jsons(key, watch, tr_type=tr_type)
+                should_subscribe = tr_type == "1" and watch.key not in sent_keys
+                should_unsubscribe = tr_type == "2" and watch.key in sent_keys
+                if should_subscribe or should_unsubscribe:
+                    request_type = "1" if should_subscribe else "0"
+                    messages = self._subscription_jsons(key, watch, tr_type=request_type)
                     if subscription_tracker is not None:
                         for message in messages:
                                 subscription = json.loads(message)["body"]["input"]
@@ -1510,11 +1513,10 @@ class PaperSessionFeedMonitor:
                             acknowledgement_changed.set()
                     for message in messages:
                         await upstream.send(message)
-                    sent_keys.add(watch.key)
-                elif tr_type == "2" and watch.key in sent_keys:
-                    for message in self._subscription_jsons(key, watch, tr_type="0"):
-                        await upstream.send(message)
-                    sent_keys.discard(watch.key)
+                    if should_subscribe:
+                        sent_keys.add(watch.key)
+                    else:
+                        sent_keys.discard(watch.key)
                 if not sent.done():
                     sent.set_result(None)
             except Exception as exc:

@@ -1221,17 +1221,22 @@ def test_domestic_feed_waits_for_trade_and_orderbook_subscription_acks(monkeypat
     assert runtime.status()["last_stream_failure_environment"] == "paper"
 
 
-@pytest.mark.parametrize(("dynamic_rt_cd", "expected_state", "expected_ack"), [
-    ("0", "RUNNING", {"accepted_count": 4, "required_count": 4, "complete": True}),
-    ("1", "RECONNECTING", {"accepted_count": 2, "required_count": 4, "complete": False}),
+@pytest.mark.parametrize(("dynamic_rt_cd", "unsubscribe_rt_cd", "expected_state", "expected_ack"), [
+    ("0", "0", "RUNNING", {"accepted_count": 4, "required_count": 4, "complete": True}),
+    ("1", "0", "RECONNECTING", {"accepted_count": 2, "required_count": 4, "complete": False}),
+    ("0", "1", "RECONNECTING", {"accepted_count": 2, "required_count": 4, "complete": False}),
 ])
-def test_domestic_dynamic_watch_ack_controls_feed_state(monkeypatch, dynamic_rt_cd, expected_state, expected_ack) -> None:
+def test_domestic_dynamic_watch_ack_controls_feed_state(
+    monkeypatch, dynamic_rt_cd, unsubscribe_rt_cd, expected_state, expected_ack,
+) -> None:
     class DynamicAckConnection:
         def __init__(self):
             self.incoming = asyncio.Queue()
             self.release_dynamic_ack = asyncio.Event()
+            self.release_dynamic_unsubscribe_ack = asyncio.Event()
             self.sent = []
             self.acknowledgements_received = 0
+            self.expected_acknowledgements = 6
             self.incoming.put_nowait('{"header":{"tr_id":"H0STCNT0","tr_key":"005930"},"body":{"rt_cd":"0"}}')
             self.incoming.put_nowait('{"header":{"tr_id":"H0STASP0","tr_key":"005930"},"body":{"rt_cd":"0"}}')
 
@@ -1246,9 +1251,13 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(monkeypatch, dynamic_rt_
             self.sent.append(payload)
             subscription = payload["body"]["input"]
             if subscription["tr_key"] == "000660":
-                await self.release_dynamic_ack.wait()
-                body = {"rt_cd": dynamic_rt_cd}
-                if dynamic_rt_cd != "0":
+                if payload["header"]["tr_type"] == "1":
+                    await self.release_dynamic_ack.wait()
+                else:
+                    await self.release_dynamic_unsubscribe_ack.wait()
+                response_code = dynamic_rt_cd if payload["header"]["tr_type"] == "1" else unsubscribe_rt_cd
+                body = {"rt_cd": response_code}
+                if response_code != "0":
                     body.update({"msg_cd": "SAFE_CODE", "msg1": "private details"})
                 self.incoming.put_nowait(
                     json.dumps({
@@ -1258,7 +1267,7 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(monkeypatch, dynamic_rt_
                 )
 
         async def recv(self):
-            if self.acknowledgements_received == 4 and self.incoming.empty():
+            if self.acknowledgements_received == self.expected_acknowledgements and self.incoming.empty():
                 raise asyncio.CancelledError
             frame = await self.incoming.get()
             self.acknowledgements_received += 1
@@ -1266,6 +1275,7 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(monkeypatch, dynamic_rt_
 
     async def scenario():
         original_sleep = asyncio.sleep
+        monkeypatch.setenv("PAPER_AUTOTRADING_ENABLED", "false")
         runtime = PaperSessionFeedMonitor()
         initial = PaperWatch("KR", "005930")
         candidate = PaperWatch("KR", "000660")
@@ -1279,7 +1289,7 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(monkeypatch, dynamic_rt_
         monkeypatch.setattr(runtime, "_prepare_watch", prepare)
         connection = DynamicAckConnection()
         monkeypatch.setattr("app.paper_runtime.approval_key", lambda _settings: "approval")
-        if dynamic_rt_cd != "0":
+        if dynamic_rt_cd != "0" or unsubscribe_rt_cd != "0":
             async def stop_after_rejection(_delay):
                 raise asyncio.CancelledError
             monkeypatch.setattr("app.paper_runtime.asyncio.sleep", stop_after_rejection)
@@ -1306,7 +1316,17 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(monkeypatch, dynamic_rt_
             connection.release_dynamic_ack.set()
             result = await add_task
             assert result == {"added": [candidate.key], "subscriptions": 2}
+            if dynamic_rt_cd == "0":
+                remove_task = asyncio.create_task(runtime.remove_discovered_watches((candidate,)))
+                await wait_for_state("SUBSCRIBING")
+                assert runtime.status()["subscription_acknowledgements_by_feed"]["paper"] == {
+                    "accepted_count": 2, "required_count": 4, "complete": False,
+                }
+                connection.release_dynamic_unsubscribe_ack.set()
+                assert await remove_task == [candidate.key]
             await wait_for_state(expected_state)
+            if dynamic_rt_cd == "0" and unsubscribe_rt_cd == "0":
+                assert runtime.status()["subscriptions"] == 1
             try:
                 await asyncio.wait_for(run_task, timeout=1)
             except asyncio.CancelledError:
@@ -1319,14 +1339,20 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(monkeypatch, dynamic_rt_
             except asyncio.CancelledError:
                 pass
 
-        assert [(message["body"]["input"]["tr_id"], message["header"]["tr_type"])
-                for message in connection.sent] == [
+        sent_subscriptions = [
+            (message["body"]["input"]["tr_id"], message["header"]["tr_type"])
+            for message in connection.sent
+        ]
+        expected_sends = [
             ("H0STCNT0", "1"), ("H0STASP0", "1"), ("H0STCNT0", "1"), ("H0STASP0", "1"),
         ]
+        if dynamic_rt_cd == "0":
+            expected_sends.extend([("H0STCNT0", "0"), ("H0STASP0", "0")])
+        assert sent_subscriptions == expected_sends
         status = runtime.status()
         assert status["stream_connections"]["paper"] == expected_state
         assert status["subscription_acknowledgements_by_feed"]["paper"] == expected_ack
-        if dynamic_rt_cd == "1":
+        if dynamic_rt_cd != "0" or unsubscribe_rt_cd != "0":
             assert status["last_subscription_error_code"] == "SAFE_CODE"
             assert "private details" not in str(status)
         else:
