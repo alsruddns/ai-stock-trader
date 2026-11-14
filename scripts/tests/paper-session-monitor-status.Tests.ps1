@@ -24,6 +24,14 @@ Describe 'Domestic PAPER monitor status recovery window' {
         $invalidGraceThrew | Should Be $true
         $backwardsTimeThrew | Should Be $true
     }
+
+    It 'continues full-session validation through a status outage but still stops bounded samples' {
+        $start = [DateTimeOffset]::Parse('2026-11-12T01:00:00Z')
+        $afterGrace = $start.AddSeconds(61)
+
+        (Test-MonitorStatusUnavailableShouldAbort $start $afterGrace 60 $true) | Should Be $false
+        (Test-MonitorStatusUnavailableShouldAbort $start $afterGrace 60 $false) | Should Be $true
+    }
 }
 
 Describe 'Domestic PAPER monitor reconnect tolerance' {

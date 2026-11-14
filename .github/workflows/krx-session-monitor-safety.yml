@@ -81,7 +81,7 @@ jobs:
           }
 
           $statusRecoveryResult = Invoke-Pester -Path 'scripts/tests/paper-session-monitor-status.Tests.ps1' -TestName 'Domestic PAPER monitor status recovery window' -PassThru
-          if ($statusRecoveryResult.FailedCount -gt 0 -or $statusRecoveryResult.PassedCount -ne 2) {
+          if ($statusRecoveryResult.FailedCount -gt 0 -or $statusRecoveryResult.PassedCount -ne 3) {
             throw "Domestic PAPER monitor status recovery tests failed: passed=$($statusRecoveryResult.PassedCount), failed=$($statusRecoveryResult.FailedCount)."
           }
 

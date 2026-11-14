@@ -15,6 +15,16 @@ function Test-MonitorStatusUnavailableExpired(
     return ($Now - $UnavailableSince).TotalSeconds -gt $GraceSeconds
 }
 
+function Test-MonitorStatusUnavailableShouldAbort(
+    [DateTimeOffset]$UnavailableSince,
+    [DateTimeOffset]$Now,
+    [int]$GraceSeconds,
+    [bool]$RequireSessionClose
+) {
+    $expired = Test-MonitorStatusUnavailableExpired $UnavailableSince $Now $GraceSeconds
+    return ($expired -and -not $RequireSessionClose)
+}
+
 function Get-MonitorBarStorageDiagnostic($Status) {
     $allowedStates = @('RUNNING', 'DISABLED', 'ERROR', 'DRAIN_TIMEOUT', 'STARTING', 'RECOVERING')
     $stateProperty = if ($Status) { $Status.PSObject.Properties['bar_storage_state'] } else { $null }

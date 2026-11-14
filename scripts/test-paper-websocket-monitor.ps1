@@ -237,17 +237,20 @@ while ([DateTimeOffset]::UtcNow -lt $deadline) {
         $maxStatusUnavailableSecondsObserved = [Math]::Max(
             $maxStatusUnavailableSecondsObserved, $unavailableSeconds
         )
-        $noTickSeconds = ($unavailableAtUtc - $lastTickReceivedAt).TotalSeconds
-        if ($sessionPhase -eq 'PRE_OPEN') {
-            $preOpenSilenceSeconds = [Math]::Max($preOpenSilenceSeconds,
-                ($unavailableAtUtc - $startedAtUtc).TotalSeconds)
-        } elseif ($sessionPhase -eq 'CLOSING_AUCTION') {
-            $closingAuctionSilenceSeconds = [Math]::Max($closingAuctionSilenceSeconds, $noTickSeconds)
-        } else {
-            $maxObservedNoTickSeconds = [Math]::Max($maxObservedNoTickSeconds, $noTickSeconds)
+        if (-not $RequireSessionClose) {
+            $noTickSeconds = ($unavailableAtUtc - $lastTickReceivedAt).TotalSeconds
+            if ($sessionPhase -eq 'PRE_OPEN') {
+                $preOpenSilenceSeconds = [Math]::Max($preOpenSilenceSeconds,
+                    ($unavailableAtUtc - $startedAtUtc).TotalSeconds)
+            } elseif ($sessionPhase -eq 'CLOSING_AUCTION') {
+                $closingAuctionSilenceSeconds = [Math]::Max($closingAuctionSilenceSeconds, $noTickSeconds)
+            } else {
+                $maxObservedNoTickSeconds = [Math]::Max($maxObservedNoTickSeconds, $noTickSeconds)
+            }
         }
-        if (Test-MonitorStatusUnavailableExpired $statusUnavailableSince $unavailableAtUtc `
-                $MaxStatusUnavailableSeconds) {
+        if (Test-MonitorStatusUnavailableShouldAbort -UnavailableSince $statusUnavailableSince `
+                -Now $unavailableAtUtc -GraceSeconds $MaxStatusUnavailableSeconds `
+                -RequireSessionClose ([bool]$RequireSessionClose)) {
             throw 'Could not read the local paper-session status endpoint.'
         }
         $latest = $null
