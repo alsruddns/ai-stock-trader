@@ -9,6 +9,8 @@
 3. Spring Boot를 실행합니다: `.\scripts\start-local.ps1`
 4. Python API는 `services/market-ai` 가상환경에서 실행합니다. API는 `127.0.0.1`에만 바인딩합니다.
 
+PAPER 국내 후보 구독이 활성화된 경우, 자동 선별된 당일 종목은 `.local\state\candidate-watches.sqlite3`에 로컬 저장되고 같은 KST 거래일의 서비스 재시작 때만 복구됩니다. 파일에는 국내 종목 코드만 들어가며 다음 거래일에는 이전 후보를 사용하지 않습니다. 이 상태 파일은 Git에 포함하지 않습니다.
+
 ### Windows 로그인 시 Dashboard 자동 시작
 
 설치 스크립트는 작업 등록만으로 성공을 보고하지 않습니다. 최대 90초 동안 작업 감시자와 저장소의 Next.js 프로세스가 실행 중이고, 포트 13000이 loopback에만 열렸으며, 운영 API가 Spring/FastAPI 연결과 PAPER·주문 잠금을 확인할 때까지 기다립니다. 이 조건을 확인하지 못하면 설치 단계가 실패로 끝납니다.

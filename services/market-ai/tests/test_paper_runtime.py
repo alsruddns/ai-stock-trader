@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.paper_runtime import PaperSessionFeedMonitor, PaperWatch, next_market_session_open, parse_watchlist
+from app.candidate_watch_store import CandidateWatchStore
 from app.paper_automation import PaperAutoTrader
 from app.paper_ops import PaperOpsLimits
 from app.market_stream import MinuteBarAggregator, OrderBookQuote, TradeTick
@@ -22,6 +23,7 @@ from app.real_signal_orders import RealSignalOrderOutcomeUnknown, real_signal_id
 @pytest.fixture(autouse=True)
 def isolate_bar_write_outbox(tmp_path, monkeypatch):
     monkeypatch.setenv("AI_STOCK_TRADER_BAR_OUTBOX_PATH", str(tmp_path / "bar-write-outbox.sqlite3"))
+    monkeypatch.setenv("AI_STOCK_TRADER_CANDIDATE_WATCH_PATH", str(tmp_path / "candidate-watches.sqlite3"))
 
 
 def _set_quant_cost_settings(monkeypatch, market: str) -> None:
@@ -306,10 +308,61 @@ def test_candidate_refresh_keeps_held_symbol_and_unsubscribes_only_unused_candid
         assert result["removed"] == [stale.key]
         assert held in runtime._watches_by_feed["paper"]
         assert stale not in runtime._watches_by_feed["paper"]
+        session_date = datetime.now(ZoneInfo("Asia/Seoul")).date()
+        assert CandidateWatchStore().load(session_date) == ("000660",)
         assert upstream.sent[0]["header"]["tr_type"] == "0"
         assert upstream.sent[0]["body"]["input"] == {"tr_id": "H0STCNT0", "tr_key": "000001"}
 
     asyncio.run(scenario())
+
+
+def test_candidate_watch_store_restores_only_the_same_exchange_session(tmp_path) -> None:
+    store = CandidateWatchStore(tmp_path / "candidate-watches.sqlite3")
+    session_date = datetime(2026, 11, 13).date()
+    store.replace(session_date, ("005930", "000660", "005930"))
+
+    assert store.load(session_date) == ("000660", "005930")
+    assert store.load(session_date + timedelta(days=1)) == ()
+
+
+def test_paper_monitor_restores_same_day_candidates_as_discovered_subscriptions(monkeypatch) -> None:
+    from app.kis_stream import StreamSettings
+
+    session_date = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    CandidateWatchStore().replace(session_date, ("000660",))
+    settings = SimpleNamespace(enabled=True, kis=SimpleNamespace(app_key="mock", app_secret="mock"))
+    monkeypatch.setattr(StreamSettings, "from_environment", classmethod(lambda _cls, _environment=None: settings))
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("PAPER_SESSION_MONITOR_ENABLED", "true")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("MARKET_OPERATIONAL_SCOPE", "KR")
+    monkeypatch.setenv("PAPER_WATCHLIST", "KR:005930")
+    monkeypatch.setenv("PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED", "true")
+    monkeypatch.setenv("PAPER_CANDIDATE_AUTO_REFRESH_ENABLED", "false")
+    runtime = PaperSessionFeedMonitor()
+
+    async def run_until_cancelled(_watches, _settings):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(runtime, "_run", run_until_cancelled)
+
+    async def scenario():
+        await runtime.start()
+        assert {watch.symbol for watch in runtime._watches_by_feed["paper"]} == {"005930", "000660"}
+        assert PaperWatch("KR", "000660").key in runtime._discovered_watch_keys
+        for task in runtime._stream_tasks:
+            task.cancel()
+        await asyncio.gather(*runtime._stream_tasks, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("symbols", [("AAPL",), ("12345",), ("1234567",)])
+def test_candidate_watch_store_rejects_non_domestic_symbols(tmp_path, symbols) -> None:
+    store = CandidateWatchStore(tmp_path / "candidate-watches.sqlite3")
+
+    with pytest.raises(ValueError, match="six-digit domestic"):
+        store.replace(datetime(2026, 11, 13).date(), symbols)
 
 
 @pytest.mark.parametrize("value", ["KR:SAMSUNG", "US:AAPL", "US:AAPL:LSE", "KR:005930:KRX"])

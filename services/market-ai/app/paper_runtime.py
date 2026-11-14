@@ -25,6 +25,7 @@ from fastapi import HTTPException
 from . import snapshot_store
 from .ai_pipeline import LocalModelRegistry
 from .bar_write_outbox import BarWriteOutbox, BarWriteOutboxFull
+from .candidate_watch_store import CandidateWatchStore
 from .kis_stream import (
     StreamSettings, SubscriptionAckTracker, SubscriptionAcknowledgementError,
     SubscriptionAcknowledgementTimeoutError, approval_key,
@@ -544,6 +545,31 @@ class PaperSessionFeedMonitor:
         if any(watch.market not in operational_markets for watch in watches):
             self._set_status(state="BLOCKED", enabled=False, last_error="WATCHLIST_OUTSIDE_OPERATIONAL_SCOPE")
             return
+        restored_candidate_watches: tuple[PaperWatch, ...] = ()
+        if (not self._real_monitor_mode and "KR" in operational_markets
+                and os.getenv("PAPER_CANDIDATE_SUBSCRIPTIONS_ENABLED", "false").strip().lower() == "true"):
+            try:
+                session_date = datetime.now(ZoneInfo("Asia/Seoul")).date()
+                restored_symbols = await asyncio.to_thread(CandidateWatchStore().load, session_date)
+                manual_keys = {watch.key for watch in watches}
+                restored_candidate_watches = tuple(
+                    PaperWatch("KR", symbol) for symbol in restored_symbols
+                    if PaperWatch("KR", symbol).key not in manual_keys
+                )
+                if sum(2 if watch.market == "KR" else 1 for watch in (*watches, *restored_candidate_watches)) > 40:
+                    restored_candidate_watches = ()
+                    self._set_candidate_status(
+                        "KR", state="RESTORE_SKIPPED_CAPACITY", reason="SUBSCRIPTION_CAPACITY_EXCEEDED",
+                    )
+                elif restored_candidate_watches:
+                    self._set_candidate_status(
+                        "KR", state="RESTORED", restored=len(restored_candidate_watches),
+                        session_date=session_date.isoformat(),
+                    )
+            except Exception:
+                # Manual subscriptions remain usable if only this optional local journal is unavailable.
+                self._set_candidate_status("KR", state="RESTORE_FAILED", reason="CANDIDATE_STATE_UNAVAILABLE")
+        watches = (*watches, *restored_candidate_watches)
         feed_groups: dict[str, tuple[tuple[PaperWatch, ...], StreamSettings]] = {}
         kr_watches = tuple(watch for watch in watches if watch.market == "KR")
         us_watches = tuple(watch for watch in watches if watch.market == "US")
@@ -571,6 +597,7 @@ class PaperSessionFeedMonitor:
             environment: list(group_watches)
             for environment, (group_watches, _settings) in feed_groups.items()
         }
+        self._discovered_watch_keys.update(watch.key for watch in restored_candidate_watches)
         self._feed_by_watch = {
             watch.key: environment
             for environment, group_watches in self._watches_by_feed.items()
@@ -866,6 +893,13 @@ class PaperSessionFeedMonitor:
             )
             removed = await self.remove_discovered_watches(removable)
             added_result = await self.add_watches(desired, discovered=True)
+            if market == "KR":
+                session_date = datetime.now(ZoneInfo("Asia/Seoul")).date()
+                symbols = tuple(
+                    watch.symbol for feed in self._watches_by_feed.values() for watch in feed
+                    if watch.market == "KR" and watch.key in self._discovered_watch_keys
+                )
+                await asyncio.to_thread(CandidateWatchStore().replace, session_date, symbols)
             return {
                 "added": added_result["added"], "removed": removed,
                 "preserved": preserved, "open_orders": open_orders,
