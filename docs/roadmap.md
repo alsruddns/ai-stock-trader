@@ -1,6 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
 - **P2 JVM 재시작 주문복구 검사의 운영 DB 격리 (작업일 2026-11-15):** `scripts/test-paper-process-restart.ps1`가 `.env_local` 자격정보와 운영 PostgreSQL을 읽지 않도록 바꾸고, 임시 loopback PostgreSQL 16/17·임시 Spring 포트·빈 KIS 환경으로 실행되게 했습니다. 실제 실행에서 PAPER 장부 주문이 별도 Spring JVM 재시작 후 같은 ID/상태로 복구되고 같은 멱등키 재전송이 기존 주문을 반환했으며, 임시 장부 주문은 격리 DB에서 취소됐습니다. `No KIS request was made` 성공을 확인했고 임시 DB 디렉터리와 JVM이 남지 않았습니다. Windows PAPER preflight workflow에서도 Java 21과 격리 재시작 검사를 실행하도록 연결했으며 로컬 PowerShell 통합검사 및 workflow YAML 구문 검사가 통과했습니다. 이는 로컬 주문원장 재시작 복구 검증이며 KIS 모의계좌 주문 수명주기 검증은 아닙니다.
+- **P2 격리 주문복구 Windows CI 통과 (작업일 2026-11-15):** `1e5ffb9`의 Windows PAPER preflight run `43651150165`에서 PowerShell 안전검사와 PostgreSQL 17 임시 클러스터를 사용한 Spring JVM 재시작·멱등 재전송 검사가 모두 통과했습니다. KIS 자격정보 없이 로컬 PAPER 주문 장부만 검증했으며 전체 프로젝트 테스트는 실행하지 않았습니다.
 
 - **P2 격리 PostgreSQL 주문 복구 통합검사 (작업일 2026-11-15):** 별도 임시 PostgreSQL 16 클러스터와 임시 Spring 포트에서 Flyway 30개 마이그레이션, REAL 위험·체결 기준선 PostgreSQL 검사 3건, 로컬 PAPER 주문 생성·정정 멱등성·키 충돌 거부, DB 중단 시 상세정보를 누설하지 않는 HTTP 503, DB 재기동 후 주문 상태 복구를 확인했습니다. API 주문 스위치와 REAL 조회·대사는 비활성이었고 KIS 요청은 없었습니다. 임시 DB와 Spring 프로세스는 종료·삭제됐으며 기존 운영 PostgreSQL에는 연결하지 않았습니다.
 
