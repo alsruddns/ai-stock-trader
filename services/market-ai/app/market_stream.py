@@ -53,6 +53,17 @@ def _require_whole_krw(value: Decimal, name: str) -> Decimal:
     return value
 
 
+def _optional_whole_krw(value: str, name: str) -> Decimal | None:
+    """Return only positive integral domestic quote values; invalid quotes stay absent."""
+    try:
+        parsed = _number(value, name)
+    except ValueError:
+        return None
+    if parsed <= 0 or parsed != parsed.to_integral_value():
+        return None
+    return parsed
+
+
 def _parse_time(date_value: str, time_value: str, zone: str) -> datetime:
     day = datetime.strptime(date_value, "%Y%m%d").date()
     clock = datetime.strptime(time_value, "%H%M%S").time()
@@ -89,7 +100,7 @@ def parse_trade_frame_with_diagnostics(
         get_tick = lambda row: TradeTick(
             market="KR", symbol=row[0], timestamp=_parse_time(row[33], row[1], zone),
             price=_number(row[2], "price"), volume=abs(int(row[12])),  # CNTG_VOL, not ACML_VOL
-            ask=_number(row[10], "ask"), bid=_number(row[11], "bid"),
+            ask=_optional_whole_krw(row[10], "ask"), bid=_optional_whole_krw(row[11], "bid"),
         )
     elif market == "US" and tr_id == "HDFSCNT0":
         if exchange not in {"NAS", "NYS", "AMS"}:
@@ -117,15 +128,6 @@ def parse_trade_frame_with_diagnostics(
             raise ValueError("KIS trade price must be positive")
         if market == "KR":
             _require_whole_krw(tick.price, "trade price")
-            # Keep a valid execution even if optional quote fields are malformed.
-            # The separate orderbook stream is authoritative for spread capture.
-            ask = tick.ask if tick.ask is None or tick.ask == tick.ask.to_integral_value() else None
-            bid = tick.bid if tick.bid is None or tick.bid == tick.bid.to_integral_value() else None
-            if ask != tick.ask or bid != tick.bid:
-                tick = TradeTick(
-                    market=tick.market, symbol=tick.symbol, timestamp=tick.timestamp,
-                    price=tick.price, volume=tick.volume, bid=bid, ask=ask,
-                )
         ticks.append(tick)
     return ticks, non_regular_records
 
