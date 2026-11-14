@@ -578,6 +578,35 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path,
                 _sample_sessions()[date(2026, 10, 8)][:21], market="KR", symbol="000660")
 
 
+@pytest.mark.parametrize("partition", ["validation", "test"])
+def test_model_training_stops_before_candidate_creation_for_single_class_evaluation_partition(
+    tmp_path, monkeypatch, partition: str,
+) -> None:
+    sessions = _sample_sessions()
+    ordered_dates = sorted(sessions)
+    target_dates = set(ordered_dates[4:6] if partition == "validation" else ordered_dates[6:])
+
+    def one_class_evaluation_samples(_sessions, **_kwargs):
+        return [
+            TrainingSample(session, f"{session}:{index}", (float(index),),
+                           0 if session in target_dates else index % 2)
+            for session in ordered_dates for index in range(20)
+        ]
+
+    monkeypatch.setattr(ai_pipeline, "build_training_samples", one_class_evaluation_samples)
+    registry = LocalModelRegistry(tmp_path)
+
+    with pytest.raises(ValueError, match=f"{partition} partition must contain both outcome classes"):
+        registry.train_compare(
+            market="KR", symbol="005930", sessions=sessions,
+            label_horizon_bars=5, label_round_trip_cost_bps=Decimal("20"),
+            dataset_sha256="a" * 64, dataset_provenance=_provenance("a" * 64),
+        )
+
+    assert list(tmp_path.glob("*.joblib")) == []
+    assert registry.list_models() == []
+
+
 def test_model_training_removes_first_candidate_if_comparison_fails(tmp_path, monkeypatch) -> None:
     sessions = _sample_sessions()
     registry = LocalModelRegistry(tmp_path)

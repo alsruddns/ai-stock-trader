@@ -1188,13 +1188,6 @@ class LocalModelRegistry:
             sessions, market=market, horizon_bars=label_horizon_bars,
             round_trip_cost_bps=label_round_trip_cost_bps, quant_config=quant_config,
         )
-        try:
-            from lightgbm import LGBMClassifier
-            from xgboost import XGBClassifier
-            import joblib
-            import numpy as np
-        except ImportError as exc:
-            raise RuntimeError("Install the optional ai dependencies to train LightGBM and XGBoost models") from exc
         train, validation, test = _chronological_partitions(samples)
         if (len(train) < MIN_MODEL_TRAIN_SAMPLES
                 or len(validation) < MIN_MODEL_VALIDATION_SAMPLES
@@ -1206,6 +1199,13 @@ class LocalModelRegistry:
             raise ValueError("validation partition must contain both outcome classes")
         if len({sample.label for sample in test}) < 2:
             raise ValueError("test partition must contain both outcome classes")
+        try:
+            from lightgbm import LGBMClassifier
+            from xgboost import XGBClassifier
+            import joblib
+            import numpy as np
+        except ImportError as exc:
+            raise RuntimeError("Install the optional ai dependencies to train LightGBM and XGBoost models") from exc
         x_train = np.asarray([sample.features for sample in train], dtype=np.float32)
         y_train = np.asarray([sample.label for sample in train], dtype=np.int32)
         candidates = {
