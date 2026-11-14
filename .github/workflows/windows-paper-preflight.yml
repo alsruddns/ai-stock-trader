@@ -100,6 +100,11 @@ jobs:
             throw "Independent model holdout date tests failed: passed=$($holdoutDateResult.PassedCount), failed=$($holdoutDateResult.FailedCount)."
           }
 
+          $modelReportResult = Invoke-Pester -Path 'scripts/tests/model-retraining-report.Tests.ps1' -PassThru
+          if ($modelReportResult.FailedCount -gt 0) {
+            throw "Model retraining report tests failed: passed=$($modelReportResult.PassedCount), failed=$($modelReportResult.FailedCount)."
+          }
+
           $credentialScanResult = Invoke-Pester -Path 'scripts/tests/tracked-credential-scan.Tests.ps1' -PassThru
           if ($credentialScanResult.FailedCount -gt 0 -or $credentialScanResult.PassedCount -ne 6) {
             throw "Tracked credential scan tests failed: passed=$($credentialScanResult.PassedCount), failed=$($credentialScanResult.FailedCount)."

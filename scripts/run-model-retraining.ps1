@@ -237,15 +237,7 @@ try {
         data_rights_verified = $true
         candidate_models_created = $true
         candidates = @($training.models | ForEach-Object {
-            [ordered]@{
-                model_id = $_.model_id
-                model_type = $_.model_type
-                artifact_sha256 = $_.artifact_sha256
-                approved = $false
-                test_sessions = $_.test_sessions
-                ai_quant_backtest_test_metrics = $_.ai_quant_backtest_test_metrics
-                quant_backtest_test_metrics = $_.quant_backtest_test_metrics
-            }
+            New-AiTraderModelCandidateReport -Candidate $_
         })
     }
     $stage = 'complete'

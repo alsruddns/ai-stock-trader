@@ -1,5 +1,62 @@
 . (Join-Path $PSScriptRoot '..\lib\model-retraining-report.ps1')
 
+Describe 'Model candidate metric reports' {
+    It 'keeps validated rare-signal metrics and discards unknown fields' {
+        $metrics = [pscustomobject]@{
+            accuracy = 0.99; brier = 0.01; roc_auc = $null
+            positive_label_rate = 0.01; predicted_positive_rate = 0.0
+            positive_precision = $null; positive_recall = 0.0; specificity = 1.0
+            balanced_accuracy = 0.5; candidate_count = 0.0; candidate_coverage = 0.0
+            candidate_positive_rate = 0.0; candidate_mean_forward_net_bps = 0.0
+            secret = 'do-not-copy'
+        }
+        $candidate = [pscustomobject]@{
+            model_id = 'lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            model_type = 'lightgbm'; artifact_sha256 = ('a' * 64)
+            test_sessions = @('2026-11-09', '2026-11-10')
+            validation_metrics = $metrics; test_metrics = $metrics
+            quant_baseline_test_metrics = [pscustomobject]@{ candidate_count = 4.0 }
+            ai_quant_backtest_test_metrics = [pscustomobject]@{ trade_count = 0.0 }
+            quant_backtest_test_metrics = [pscustomobject]@{ trade_count = 4.0 }
+            secret = 'do-not-copy'
+        }
+
+        $report = New-AiTraderModelCandidateReport -Candidate $candidate
+        $json = $report | ConvertTo-Json -Depth 8 -Compress
+
+        $report.approved | Should Be $false
+        $report.test_metrics.positive_label_rate | Should Be 0.01
+        $report.test_metrics.positive_precision | Should Be $null
+        $report.test_metrics.balanced_accuracy | Should Be 0.5
+        $json | Should Not Match 'do-not-copy|secret'
+    }
+
+    It 'rejects missing, nonnumeric, and nonfinite classifier metrics' {
+        $valid = [ordered]@{}
+        foreach ($name in @(
+            'accuracy', 'brier', 'roc_auc', 'positive_label_rate', 'predicted_positive_rate',
+            'positive_precision', 'positive_recall', 'specificity', 'balanced_accuracy',
+            'candidate_count', 'candidate_coverage', 'candidate_positive_rate',
+            'candidate_mean_forward_net_bps'
+        )) { $valid[$name] = 0.0 }
+
+        $missingRejected = $false
+        try { ConvertTo-AiTraderModelMetricsReport -Metrics ([pscustomobject]@{ accuracy = 0.5 }) | Out-Null }
+        catch { $missingRejected = $true }
+        $missingRejected | Should Be $true
+        $valid.positive_recall = 'unknown'
+        $nonnumericRejected = $false
+        try { ConvertTo-AiTraderModelMetricsReport -Metrics ([pscustomobject]$valid) | Out-Null }
+        catch { $nonnumericRejected = $true }
+        $nonnumericRejected | Should Be $true
+        $valid.positive_recall = [double]::PositiveInfinity
+        $nonfiniteRejected = $false
+        try { ConvertTo-AiTraderModelMetricsReport -Metrics ([pscustomobject]$valid) | Out-Null }
+        catch { $nonfiniteRejected = $true }
+        $nonfiniteRejected | Should Be $true
+    }
+}
+
 Describe 'Model retraining failure reports' {
     It 'records missing cost configuration as a sanitized preflight failure' {
         $directory = Join-Path $TestDrive 'configuration-failure'

@@ -1,5 +1,53 @@
 . (Join-Path $PSScriptRoot 'operations-report.ps1')
 
+function ConvertTo-AiTraderModelMetricsReport {
+    param([Parameter(Mandatory)][object]$Metrics)
+
+    $names = @(
+        'accuracy', 'brier', 'roc_auc', 'positive_label_rate', 'predicted_positive_rate',
+        'positive_precision', 'positive_recall', 'specificity', 'balanced_accuracy',
+        'candidate_count', 'candidate_coverage', 'candidate_positive_rate',
+        'candidate_mean_forward_net_bps'
+    )
+    $result = [ordered]@{}
+    foreach ($name in $names) {
+        $property = $Metrics.PSObject.Properties[$name]
+        if ($null -eq $property) {
+            throw "Candidate metrics are missing the expected '$name' value."
+        }
+        $value = $property.Value
+        if ($null -ne $value -and ($value -is [bool] -or $value -isnot [ValueType] -or
+            $value -is [datetime] -or $value -is [guid])) {
+            throw "Candidate metric '$name' must be a finite number or null."
+        }
+        if ($value -is [double] -and ([double]::IsNaN($value) -or [double]::IsInfinity($value))) {
+            throw "Candidate metric '$name' must be a finite number or null."
+        }
+        if ($value -is [single] -and ([single]::IsNaN($value) -or [single]::IsInfinity($value))) {
+            throw "Candidate metric '$name' must be a finite number or null."
+        }
+        $result[$name] = $value
+    }
+    return $result
+}
+
+function New-AiTraderModelCandidateReport {
+    param([Parameter(Mandatory)][object]$Candidate)
+
+    return [ordered]@{
+        model_id = [string]$Candidate.model_id
+        model_type = [string]$Candidate.model_type
+        artifact_sha256 = [string]$Candidate.artifact_sha256
+        approved = $false
+        test_sessions = @($Candidate.test_sessions)
+        validation_metrics = ConvertTo-AiTraderModelMetricsReport -Metrics $Candidate.validation_metrics
+        test_metrics = ConvertTo-AiTraderModelMetricsReport -Metrics $Candidate.test_metrics
+        quant_baseline_test_metrics = $Candidate.quant_baseline_test_metrics
+        ai_quant_backtest_test_metrics = $Candidate.ai_quant_backtest_test_metrics
+        quant_backtest_test_metrics = $Candidate.quant_backtest_test_metrics
+    }
+}
+
 function Get-AiTraderModelTrainingFailureCode {
     param([string[]]$Output)
 
