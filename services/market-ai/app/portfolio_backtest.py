@@ -110,6 +110,7 @@ class CapitalSensitivityResult:
     maximum_drawdown_amount: Decimal
     maximum_drawdown_percent: Decimal
     drawdown_basis: str
+    trade_outcomes_by_symbol: dict[str, dict[str, int | Decimal]]
     rejected_entries_by_reason: dict[str, int]
     rejected_entries_by_symbol_and_reason: dict[str, dict[str, int]]
     executable: bool = False
@@ -266,11 +267,41 @@ def analyze_capital_sensitivity(
             raise ValueError("capital sensitivity totals do not reconcile")
         rejected: dict[str, int] = {}
         rejected_by_symbol: dict[str, dict[str, int]] = {}
+        trade_outcomes_by_symbol: dict[str, dict[str, int | Decimal]] = {
+            symbol: {
+                "trade_count": 0,
+                "winning_trade_count": 0,
+                "losing_trade_count": 0,
+                "gross_pnl": Decimal(0),
+                "estimated_costs": Decimal(0),
+                "net_pnl": Decimal(0),
+            }
+            for symbol in sorted({symbol for symbols in sessions_by_date.values() for symbol in symbols})
+        }
         for item in session_results:
             for symbol, reason in item.rejected_entries:
                 rejected[reason] = rejected.get(reason, 0) + 1
                 symbol_rejections = rejected_by_symbol.setdefault(symbol, {})
                 symbol_rejections[reason] = symbol_rejections.get(reason, 0) + 1
+            for trade in item.trades:
+                outcome = trade_outcomes_by_symbol.setdefault(trade.symbol, {
+                    "trade_count": 0,
+                    "winning_trade_count": 0,
+                    "losing_trade_count": 0,
+                    "gross_pnl": Decimal(0),
+                    "estimated_costs": Decimal(0),
+                    "net_pnl": Decimal(0),
+                })
+                outcome["trade_count"] = int(outcome["trade_count"]) + 1
+                outcome["winning_trade_count"] = int(outcome["winning_trade_count"]) + int(trade.net_pnl > 0)
+                outcome["losing_trade_count"] = int(outcome["losing_trade_count"]) + int(trade.net_pnl < 0)
+                outcome["gross_pnl"] = Decimal(outcome["gross_pnl"]) + trade.gross_pnl
+                outcome["estimated_costs"] = Decimal(outcome["estimated_costs"]) + trade.costs
+                outcome["net_pnl"] = Decimal(outcome["net_pnl"]) + trade.net_pnl
+        for symbol, outcome in trade_outcomes_by_symbol.items():
+            if abs(Decimal(outcome["gross_pnl"]) - Decimal(outcome["estimated_costs"])
+                   - Decimal(outcome["net_pnl"])) > _PORTFOLIO_TOTAL_TOLERANCE:
+                raise ValueError(f"capital sensitivity trade outcomes do not reconcile for {symbol}")
         if carry_equity_between_sessions:
             drawdown = aggregate_compounded_drawdown(scenario_equity, session_results)
             drawdown_amount = drawdown.maximum_amount
@@ -298,6 +329,7 @@ def analyze_capital_sensitivity(
             maximum_drawdown_amount=drawdown_amount,
             maximum_drawdown_percent=drawdown_percent,
             drawdown_basis=drawdown_basis,
+            trade_outcomes_by_symbol=trade_outcomes_by_symbol,
             rejected_entries_by_reason=dict(sorted(rejected.items())),
             rejected_entries_by_symbol_and_reason={
                 symbol: dict(sorted(reasons.items()))

@@ -289,6 +289,13 @@ def main() -> int:
                 "maximum_drawdown_amount": str(item.maximum_drawdown_amount),
                 "maximum_drawdown_percent": str(item.maximum_drawdown_percent),
                 "drawdown_basis": item.drawdown_basis,
+                "trade_outcomes_by_symbol": {
+                    symbol: {
+                        key: str(value) if isinstance(value, Decimal) else value
+                        for key, value in outcome.items()
+                    }
+                    for symbol, outcome in item.trade_outcomes_by_symbol.items()
+                },
                 "rejected_entries_by_reason": item.rejected_entries_by_reason,
                 "rejected_entries_by_symbol_and_reason": item.rejected_entries_by_symbol_and_reason,
                 "return_percent": str(

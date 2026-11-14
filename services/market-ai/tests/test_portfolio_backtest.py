@@ -207,6 +207,19 @@ def test_capital_sensitivity_scales_percentage_caps_and_reports_rejections() -> 
     assert all(item.drawdown_basis == "maximum_independent_session" for item in results)
     assert all(item.executable is False for item in results)
     for item in results:
+        assert set(item.trade_outcomes_by_symbol) == {"000660", "005930"}
+        assert sum(outcome["trade_count"] for outcome in item.trade_outcomes_by_symbol.values()) == item.accepted_trade_count
+        assert sum((outcome["gross_pnl"] for outcome in item.trade_outcomes_by_symbol.values()), Decimal(0)) == item.gross_pnl
+        assert sum((outcome["estimated_costs"] for outcome in item.trade_outcomes_by_symbol.values()), Decimal(0)) == item.estimated_costs
+        assert sum((outcome["net_pnl"] for outcome in item.trade_outcomes_by_symbol.values()), Decimal(0)) == item.net_pnl
+        assert all(
+            outcome["winning_trade_count"] + outcome["losing_trade_count"] <= outcome["trade_count"]
+            for outcome in item.trade_outcomes_by_symbol.values()
+        )
+        assert all(
+            abs(outcome["gross_pnl"] - outcome["estimated_costs"] - outcome["net_pnl"]) <= Decimal("1e-18")
+            for outcome in item.trade_outcomes_by_symbol.values()
+        )
         grouped_counts: dict[str, int] = {}
         for reasons in item.rejected_entries_by_symbol_and_reason.values():
             for reason, count in reasons.items():

@@ -156,6 +156,27 @@ def test_portfolio_cli_reports_capital_scenarios_without_changing_base_result(tm
     assert all(item["net_pnl"] == "0" and item["return_percent"] is None for item in sensitivity)
     assert all(item["return_basis"] is None for item in sensitivity)
     assert all(item["rejected_entries_by_symbol_and_reason"] == {} for item in sensitivity)
+    assert all(
+        item["trade_outcomes_by_symbol"] == {
+            "000660": {
+                "trade_count": 0,
+                "winning_trade_count": 0,
+                "losing_trade_count": 0,
+                "gross_pnl": "0",
+                "estimated_costs": "0",
+                "net_pnl": "0",
+            },
+            "005930": {
+                "trade_count": 0,
+                "winning_trade_count": 0,
+                "losing_trade_count": 0,
+                "gross_pnl": "0",
+                "estimated_costs": "0",
+                "net_pnl": "0",
+            },
+        }
+        for item in sensitivity
+    )
     assert all(item["executable"] is False for item in sensitivity)
     assert scenario_payload["executable"] is False
 
