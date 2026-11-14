@@ -36,7 +36,7 @@ public class KisOrderOrchestrator {
         if (safety.liveTradingEnabled() || !"paper".equalsIgnoreCase(safety.mode())) {
             throw new IllegalStateException("KIS orders are locked outside paper mode.");
         }
-        KisDomesticOrderPriceValidator.validate(request.market(), request.limitPrice());
+        KisDomesticOrderPriceValidator.validate(request.market(), request.symbol(), request.limitPrice());
         String requestHash = hash(request, exchange);
         KisOrderIntentStore.PreparedIntent prepared;
         try {

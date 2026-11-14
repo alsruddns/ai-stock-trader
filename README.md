@@ -166,6 +166,14 @@ P1-001 계좌 스냅샷은 `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`일 때만 Pos
 
 Paper 주문 미리보기:
 
+국내 KIS 지정가 주문은 공식 KIS 종목마스터를 기준으로 보통주 여부와 KRX 가격대별 호가단위를 먼저 확인합니다. 이 종목마스터는 계정 인증정보 없이 공개 파일에서 내려받고 `.local/reference-data`에만 저장됩니다. 첫 실행 후 또는 파일이 7일보다 오래되면 저장소 루트에서 갱신하세요. 지원하지 않는 상품군과 종목마스터 누락·오래됨은 주문 전 차단됩니다.
+
+```powershell
+python .\scripts\update-kis-domestic-symbol-master.py
+```
+
+현재 주문 어댑터에서는 보통주(`S`)만 허용합니다. ETF/ETN 및 기타 상품군은 각 상품 호가·수량 규칙을 별도 검증하기 전까지 주문할 수 없습니다. 국내 종목마스터 데이터는 로컬 전용이며 Git에 추가하지 않습니다.
+
 ```powershell
 Invoke-RestMethod -Method Post -Uri http://localhost:18080/api/v1/orders/paper `
   -Headers @{ 'Idempotency-Key' = 'd8d449d8-f154-4c5a-b1d0-6ce69f790f51' } `

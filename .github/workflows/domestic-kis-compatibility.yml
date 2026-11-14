@@ -99,9 +99,9 @@ jobs:
       - name: Run KIS order quantity invariant tests only
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentTest,KisBrokerOrderSnapshotValidatorTest,KisRealFillSnapshotStoreTest' test
-      - name: Run domestic KIS order price precision tests only
+      - name: Run domestic KIS order tick-size and price precision tests only
         working-directory: backend/trading-api
-        run: bash ./mvnw --batch-mode '-Dtest=KisOrderClientTest#domesticPaperOrderRejectsFractionalWonPriceBeforeBrokerAccess,KisRealOrderClientTest#domesticRealOrderRejectsFractionalWonPriceBeforeTokenOrOrderRequest' test
+        run: bash ./mvnw --batch-mode '-Dtest=KisDomesticOrderPriceValidatorTest,KisOrderClientTest#domesticPaperOrderRejectsFractionalWonPriceBeforeBrokerAccess,KisRealOrderClientTest#domesticRealOrderRejectsFractionalWonPriceBeforeTokenOrOrderRequest' test
       - name: Run domestic PAPER order ledger price precision test only
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=OrderServiceTest#rejectsFractionalWonPaperLimitPriceBeforeAnyOrderLookupOrPersistence test

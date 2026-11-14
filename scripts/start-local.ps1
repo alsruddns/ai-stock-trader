@@ -24,6 +24,10 @@ foreach ($line in Get-Content -LiteralPath $envPath) {
     [Environment]::SetEnvironmentVariable($name, $value, 'Process')
 }
 
+if ([string]::IsNullOrWhiteSpace($env:KIS_DOMESTIC_SYMBOL_MASTER_PATH)) {
+    $env:KIS_DOMESTIC_SYMBOL_MASTER_PATH = Join-Path $repoRoot '.local\reference-data\kis-domestic-symbols.csv'
+}
+
 . (Join-Path $PSScriptRoot 'lib\local-api-binding.ps1')
 . (Join-Path $PSScriptRoot 'lib\local-postgres-binding.ps1')
 

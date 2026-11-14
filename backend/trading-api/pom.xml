@@ -26,5 +26,13 @@
     </dependencies>
     <build><plugins>
         <plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+                <systemPropertyVariables>
+                    <kis.domestic.symbol-master-path>${project.basedir}/src/test/resources/kis-domestic-symbols.csv</kis.domestic.symbol-master-path>
+                </systemPropertyVariables>
+            </configuration>
+        </plugin>
     </plugins></build>
 </project>
