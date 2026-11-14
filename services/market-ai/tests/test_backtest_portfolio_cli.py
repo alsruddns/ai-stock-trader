@@ -76,7 +76,7 @@ def test_portfolio_cli_loads_and_validates_domestic_costs_from_local_env(tmp_pat
     second = _dataset(tmp_path / "000660.csv")
     profile = tmp_path / ".env_local"
     profile.write_text(
-        "KIS_APP_SECRET=DO_NOT_PRINT_ME\n"
+        "UNRELATED_PRIVATE_SETTING=DO_NOT_PRINT_ME\n"
         "BACKTEST_KR_BUY_COMMISSION_BPS=15.06833\n"
         "BACKTEST_KR_SELL_COMMISSION_BPS='15.06833'\n"
         "BACKTEST_KR_SELL_TAX_BPS=20\n"
@@ -118,7 +118,7 @@ def test_portfolio_cli_rejects_inconsistent_local_round_trip_cost_without_reveal
     second = _dataset(tmp_path / "000660.csv")
     profile = tmp_path / ".env_local"
     profile.write_text(
-        "KIS_APP_SECRET=DO_NOT_PRINT_ME\n"
+        "UNRELATED_PRIVATE_SETTING=DO_NOT_PRINT_ME\n"
         "BACKTEST_KR_BUY_COMMISSION_BPS=15.06833\n"
         "BACKTEST_KR_SELL_COMMISSION_BPS=15.06833\n"
         "BACKTEST_KR_SELL_TAX_BPS=20\n"
