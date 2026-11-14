@@ -61,24 +61,24 @@ if (-not (Test-SessionMonitorTaskDefinition -Task $monitorTask -MonitorPath $mon
 
 $taskName = "AIStockTrader-PostSessionRefresh-$dateKey"
 $restartPath = Join-Path $PSScriptRoot 'restart-local-stack-task.ps1'
+$powerShellPath = Get-PostSessionRefreshPowerShellPath
+$workingDirectory = [IO.Path]::GetFullPath($repoRoot)
 $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 if ($existingTask) {
     if (-not (Test-PostSessionRefreshTaskDefinition -Task $existingTask `
-            -RestartPath $restartPath -ExpectedRunAt $runAt)) {
+            -RestartPath $restartPath -PowerShellPath $powerShellPath -WorkingDirectory $workingDirectory `
+            -ExpectedRunAt $runAt)) {
         throw "Existing task '$taskName' does not match the safe domestic post-session refresh definition; refusing to replace it."
     }
     Write-Output "Verified existing '$taskName' at $runAt; no task changes were made."
     return
 }
 
-$powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-if (-not (Test-Path -LiteralPath $powerShellPath -PathType Leaf)) { $powerShellPath = Join-Path $PSHOME 'pwsh.exe' }
-if (-not (Test-Path -LiteralPath $powerShellPath -PathType Leaf)) { throw 'No PowerShell executable was found.' }
 $arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$restartPath`" -DomesticOnly"
 $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $arguments -WorkingDirectory $repoRoot
 $trigger = New-ScheduledTaskTrigger -Once -At $runLocal
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
+    $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 5) -MultipleInstances IgnoreNew
 $description = "Restarts the local domestic-only Spring and Python APIs after the verified KRX session; no trading requests."

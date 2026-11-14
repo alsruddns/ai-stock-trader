@@ -296,7 +296,11 @@ Describe 'Domestic full-session feed continuity gate' {
 function New-TestScheduledTask($State, $Arguments, $TriggerType, $StartBoundary, $DaysInterval = 1) {
     [pscustomobject]@{
         State = $State
-        Actions = @([pscustomobject]@{ Arguments = $Arguments })
+        Actions = @([pscustomobject]@{
+            Execute = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+            Arguments = $Arguments
+            WorkingDirectory = 'C:\repo'
+        })
         Triggers = @([pscustomobject]@{
             Enabled = $true
             CimClass = [pscustomobject]@{ CimClassName = $TriggerType }
@@ -311,10 +315,22 @@ function New-TestScheduledTask($State, $Arguments, $TriggerType, $StartBoundary,
     }
 }
 
+function Test-ExpectedPostSessionRefreshTask($Task) {
+    Test-PostSessionRefreshTaskDefinition -Task $Task `
+        -RestartPath 'C:\repo\scripts\restart-local-stack-task.ps1' `
+        -PowerShellPath 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' `
+        -WorkingDirectory 'C:\repo' `
+        -ExpectedRunAt ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))
+}
+
 function New-TestPostSessionRefreshTask($Arguments, $StartBoundary, $StartWhenAvailable = $false) {
     [pscustomobject]@{
         State = 'Ready'
-        Actions = @([pscustomobject]@{ Arguments = $Arguments })
+        Actions = @([pscustomobject]@{
+            Execute = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+            Arguments = $Arguments
+            WorkingDirectory = 'C:\repo'
+        })
         Triggers = @([pscustomobject]@{
             Enabled = $true
             CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskTimeTrigger' }
@@ -336,18 +352,16 @@ Describe 'Domestic post-session refresh task verification' {
 
     It 'accepts a matching domestic no-catch-up restart task' {
         $task = New-TestPostSessionRefreshTask `
-            '-File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
+            '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
             '2026-11-16T15:45:00+09:00'
-        (Test-PostSessionRefreshTaskDefinition $task 'C:\repo\scripts\restart-local-stack-task.ps1' `
-            ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))) | Should Be $true
+        (Test-ExpectedPostSessionRefreshTask $task) | Should Be $true
     }
 
     It 'rejects the Confirm string that broke the prior Windows task action' {
         $task = New-TestPostSessionRefreshTask `
             '-File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly -Confirm:$false' `
             '2026-11-16T15:45:00+09:00'
-        (Test-PostSessionRefreshTaskDefinition $task 'C:\repo\scripts\restart-local-stack-task.ps1' `
-            ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))) | Should Be $false
+        (Test-ExpectedPostSessionRefreshTask $task) | Should Be $false
     }
 
     It 'rejects delayed execution and any task that is not domestic-only' {
@@ -362,12 +376,26 @@ Describe 'Domestic post-session refresh task verification' {
             '2026-11-16T15:45:00+09:00'
         $batteryRestricted.Settings.DisallowStartIfOnBatteries = $true
         $batteryRestricted.Settings.StopIfGoingOnBatteries = $true
-        (Test-PostSessionRefreshTaskDefinition $delayed 'C:\repo\scripts\restart-local-stack-task.ps1' `
-            ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))) | Should Be $false
-        (Test-PostSessionRefreshTaskDefinition $wrongScope 'C:\repo\scripts\restart-local-stack-task.ps1' `
-            ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))) | Should Be $false
-        (Test-PostSessionRefreshTaskDefinition $batteryRestricted 'C:\repo\scripts\restart-local-stack-task.ps1' `
-            ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))) | Should Be $false
+        (Test-ExpectedPostSessionRefreshTask $delayed) | Should Be $false
+        (Test-ExpectedPostSessionRefreshTask $wrongScope) | Should Be $false
+        (Test-ExpectedPostSessionRefreshTask $batteryRestricted) | Should Be $false
+
+        $wrongExecutable = New-TestPostSessionRefreshTask `
+            '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
+            '2026-11-16T15:45:00+09:00'
+        $wrongExecutable.Actions[0].Execute = 'C:\Windows\System32\cmd.exe'
+        (Test-ExpectedPostSessionRefreshTask $wrongExecutable) | Should Be $false
+
+        $wrongDirectory = New-TestPostSessionRefreshTask `
+            '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
+            '2026-11-16T15:45:00+09:00'
+        $wrongDirectory.Actions[0].WorkingDirectory = 'C:\Windows\System32'
+        (Test-ExpectedPostSessionRefreshTask $wrongDirectory) | Should Be $false
+
+        $extraArguments = New-TestPostSessionRefreshTask `
+            '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly -Confirm:$false' `
+            '2026-11-16T15:45:00+09:00'
+        (Test-ExpectedPostSessionRefreshTask $extraArguments) | Should Be $false
     }
 }
 

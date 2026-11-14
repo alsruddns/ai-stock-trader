@@ -84,6 +84,8 @@ function Test-PostSessionRefreshTaskDefinition {
     param(
         [Parameter(Mandatory)]$Task,
         [Parameter(Mandatory)][string]$RestartPath,
+        [Parameter(Mandatory)][string]$PowerShellPath,
+        [Parameter(Mandatory)][string]$WorkingDirectory,
         [Parameter(Mandatory)][DateTimeOffset]$ExpectedRunAt
     )
 
@@ -97,11 +99,20 @@ function Test-PostSessionRefreshTaskDefinition {
 
     $action = $Task.Actions[0]
     $trigger = $Task.Triggers[0]
-    $arguments = [string]$action.Arguments
+    try {
+        $actualPowerShellPath = [IO.Path]::GetFullPath([string]$action.Execute)
+        $expectedPowerShellPath = [IO.Path]::GetFullPath($PowerShellPath)
+        $actualWorkingDirectory = [IO.Path]::GetFullPath([string]$action.WorkingDirectory)
+        $expectedWorkingDirectory = [IO.Path]::GetFullPath($WorkingDirectory)
+        $expectedArguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$RestartPath`" -DomesticOnly"
+    } catch {
+        return $false
+    }
+
     if (-not [bool]$trigger.Enabled -or $trigger.CimClass.CimClassName -ne 'MSFT_TaskTimeTrigger' -or
-        $arguments -notmatch [regex]::Escape($RestartPath) -or
-        $arguments -notmatch '(?:^|\s)-DomesticOnly(?:\s|$)' -or
-        $arguments -match '(?:^|\s)-Confirm(?::|\s|$)|(?:^|\s)-WhatIf(?:\s|$)') { return $false }
+        -not [string]::Equals($actualPowerShellPath, $expectedPowerShellPath, [StringComparison]::OrdinalIgnoreCase) -or
+        -not [string]::Equals($actualWorkingDirectory, $expectedWorkingDirectory, [StringComparison]::OrdinalIgnoreCase) -or
+        -not [string]::Equals([string]$action.Arguments, $expectedArguments, [StringComparison]::OrdinalIgnoreCase)) { return $false }
 
     try {
         $scheduledAt = [DateTimeOffset]::Parse([string]$trigger.StartBoundary).ToUniversalTime()
@@ -109,6 +120,13 @@ function Test-PostSessionRefreshTaskDefinition {
     } catch {
         return $false
     }
+}
+
+function Get-PostSessionRefreshPowerShellPath {
+    $powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if (-not (Test-Path -LiteralPath $powerShellPath -PathType Leaf)) { $powerShellPath = Join-Path $PSHOME 'pwsh.exe' }
+    if (-not (Test-Path -LiteralPath $powerShellPath -PathType Leaf)) { throw 'No PowerShell executable was found.' }
+    return [IO.Path]::GetFullPath($powerShellPath)
 }
 
 function Get-KrxPostSessionRefreshTime([string]$SessionDate, [string]$RunTime = '15:45') {

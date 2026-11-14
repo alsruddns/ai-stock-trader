@@ -71,6 +71,8 @@ try {
 
 $registrar = Join-Path $PSScriptRoot 'register-market-data-session-monitor.ps1'
 $postSessionRegistrar = Join-Path $PSScriptRoot 'register-post-session-refresh-task.ps1'
+$postSessionPowerShellPath = Get-PostSessionRefreshPowerShellPath
+$postSessionWorkingDirectory = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $monitorPath = Join-Path $PSScriptRoot 'test-paper-websocket-monitor.ps1'
 $taskRows = @()
 foreach ($market in @('KR', 'US')) {
@@ -103,6 +105,7 @@ $postSessionRows = @($taskRows | Where-Object { $_.Market -eq 'KR' } | ForEach-O
     $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     if ($existingTask -and -not (Test-PostSessionRefreshTaskDefinition `
             -Task $existingTask -RestartPath (Join-Path $PSScriptRoot 'restart-local-stack-task.ps1') `
+            -PowerShellPath $postSessionPowerShellPath -WorkingDirectory $postSessionWorkingDirectory `
             -ExpectedRunAt $expectedRunAt)) {
         throw "Existing task '$taskName' does not match the safe domestic post-session refresh definition; refusing to replace it."
     }
