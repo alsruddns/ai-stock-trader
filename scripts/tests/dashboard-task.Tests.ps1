@@ -63,4 +63,12 @@ Describe 'P7 dashboard startup gate' {
         Test-DashboardNodeProcessIdentity -ExecutablePath (Join-Path $TestDrive 'other.exe') -CommandLine $command `
             -ExpectedNodePath $node -ExpectedCliPath $cli | Should Be $false
     }
+
+    It 'accepts only a valid pair of distinct supervisor and dashboard process IDs' {
+        Test-DashboardSupervisorState @{ runnerProcessId = 100; nodeProcessId = 200 } | Should Be $true
+        Test-DashboardSupervisorState @{ runnerProcessId = 100; nodeProcessId = 100 } | Should Be $false
+        Test-DashboardSupervisorState @{ runnerProcessId = 0; nodeProcessId = 200 } | Should Be $false
+        Test-DashboardSupervisorState @{ runnerProcessId = 'invalid'; nodeProcessId = 200 } | Should Be $false
+        Test-DashboardSupervisorState $null | Should Be $false
+    }
 }

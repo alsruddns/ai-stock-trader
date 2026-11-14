@@ -44,6 +44,17 @@ function Test-DashboardOperationsReady {
         $marketAi.paper_automation_enabled -eq $false
 }
 
+function Test-DashboardSupervisorState {
+    param([AllowNull()]$State)
+
+    if ($null -eq $State) { return $false }
+    $runnerProcessId = 0
+    $nodeProcessId = 0
+    return [int]::TryParse([string]$State.runnerProcessId, [ref]$runnerProcessId) -and
+        [int]::TryParse([string]$State.nodeProcessId, [ref]$nodeProcessId) -and
+        $runnerProcessId -gt 0 -and $nodeProcessId -gt 0 -and $runnerProcessId -ne $nodeProcessId
+}
+
 function Assert-DashboardOperationsReady {
     param([AllowNull()]$Response)
 
