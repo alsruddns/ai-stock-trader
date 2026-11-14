@@ -138,6 +138,7 @@ if ($InstallDailyRefresh) {
         $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
         $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
         $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun `
+            -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
             -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -MultipleInstances IgnoreNew
         $description = if ($IncludeUS) {
             'Maintains a rolling horizon of read-only KIS KR PAPER and US REAL market-session monitors; no orders.'

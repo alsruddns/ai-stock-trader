@@ -60,6 +60,7 @@ function Test-SessionMonitorRefreshTaskDefinition {
     if (-not $Task -or $Task.State -eq 'Disabled' -or
         $Task.Principal.RunLevel -ne 'Limited' -or $Task.Principal.LogonType -ne 'Interactive' -or
         -not [bool]$Task.Settings.WakeToRun -or -not [bool]$Task.Settings.StartWhenAvailable -or
+        [bool]$Task.Settings.DisallowStartIfOnBatteries -or [bool]$Task.Settings.StopIfGoingOnBatteries -or
         $Task.Settings.MultipleInstances -ne 'IgnoreNew' -or
         @($Task.Actions).Count -ne 1 -or @($Task.Triggers).Count -ne 1) { return $false }
 
