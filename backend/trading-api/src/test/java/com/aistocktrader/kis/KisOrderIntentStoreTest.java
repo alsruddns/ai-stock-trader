@@ -43,6 +43,21 @@ class KisOrderIntentStoreTest {
     }
 
     @Test
+    void idempotencyKeyCannotBeReusedForDifferentPaperOrderRequest() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent existing = new KisOrderIntent(key, "original-hash", KisEnvironment.PAPER, request, null);
+        when(repository.findById(key)).thenReturn(Optional.of(existing));
+        KisOrderIntentStore store = new KisOrderIntentStore(repository);
+
+        assertThrows(IdempotencyConflictException.class,
+                () -> store.prepare(key, "changed-request-hash", request, null));
+
+        verify(repository, never()).saveAndFlush(org.mockito.ArgumentMatchers.any(KisOrderIntent.class));
+    }
+
+    @Test
     void identicalRequestInSameEnvironmentReturnsExistingIntent() {
         UUID key = UUID.randomUUID();
         OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
