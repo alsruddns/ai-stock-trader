@@ -66,6 +66,7 @@ class SubscriptionAckTracker:
         if not self._required:
             raise ValueError("subscription acknowledgement requirements are invalid")
         self._accepted: set[tuple[str, str]] = set()
+        self._pending_operations: dict[tuple[str, str], str] = {}
 
     @property
     def complete(self) -> bool:
@@ -79,13 +80,15 @@ class SubscriptionAckTracker:
             "complete": self.complete,
         }
 
-    def require(self, transaction_id: str, subscription_key: str) -> None:
+    def require(self, transaction_id: str, subscription_key: str, *, operation: str = "subscribe") -> None:
         if (not re.fullmatch(r"[A-Z0-9]{1,32}", transaction_id)
-                or not isinstance(subscription_key, str) or not _SUBSCRIPTION_KEY.fullmatch(subscription_key)):
+                or not isinstance(subscription_key, str) or not _SUBSCRIPTION_KEY.fullmatch(subscription_key)
+                or not isinstance(operation, str) or operation not in {"subscribe", "unsubscribe"}):
             raise ValueError("subscription acknowledgement requirement is invalid")
         identity = (transaction_id, subscription_key.upper())
         self._required.add(identity)
         self._accepted.discard(identity)
+        self._pending_operations[identity] = operation
 
     def observe(self, frame: str | bytes) -> bool:
         acknowledgement = parse_subscription_ack(frame)
@@ -97,7 +100,12 @@ class SubscriptionAckTracker:
             return self.complete
         if not acknowledgement["accepted"]:
             raise SubscriptionAcknowledgementError(acknowledgement["broker_code"])
-        self._accepted.add(identity)
+        operation = self._pending_operations.pop(identity, "subscribe")
+        if operation == "unsubscribe":
+            self._required.discard(identity)
+            self._accepted.discard(identity)
+        else:
+            self._accepted.add(identity)
         return self.complete
 
 

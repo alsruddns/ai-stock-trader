@@ -1222,7 +1222,7 @@ def test_domestic_feed_waits_for_trade_and_orderbook_subscription_acks(monkeypat
 
 
 @pytest.mark.parametrize(("dynamic_rt_cd", "unsubscribe_rt_cd", "expected_state", "expected_ack"), [
-    ("0", "0", "RUNNING", {"accepted_count": 4, "required_count": 4, "complete": True}),
+    ("0", "0", "RUNNING", {"accepted_count": 2, "required_count": 2, "complete": True}),
     ("1", "0", "RECONNECTING", {"accepted_count": 2, "required_count": 4, "complete": False}),
     ("0", "1", "RECONNECTING", {"accepted_count": 2, "required_count": 4, "complete": False}),
 ])

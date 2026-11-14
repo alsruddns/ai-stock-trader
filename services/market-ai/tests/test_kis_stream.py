@@ -170,6 +170,19 @@ def test_subscription_ack_tracker_can_require_more_subscriptions_after_initial_c
     assert tracker.observe('{"header":{"tr_id":"H0STASP0","tr_key":"005930"},"body":{"rt_cd":"0"}}') is True
 
 
+def test_subscription_ack_tracker_removes_confirmed_unsubscriptions_from_active_status() -> None:
+    tracker = SubscriptionAckTracker({("H0STCNT0", "005930"), ("H0STCNT0", "000660")})
+    tracker.observe('{"header":{"tr_id":"H0STCNT0","tr_key":"005930"},"body":{"rt_cd":"0"}}')
+    tracker.observe('{"header":{"tr_id":"H0STCNT0","tr_key":"000660"},"body":{"rt_cd":"0"}}')
+    tracker.require("H0STCNT0", "000660", operation="unsubscribe")
+
+    assert tracker.status == {"accepted_count": 1, "required_count": 2, "complete": False}
+    assert tracker.observe('{"header":{"tr_id":"H0STCNT0","tr_key":"000660"},"body":{"rt_cd":"0"}}') is True
+    assert tracker.status == {"accepted_count": 1, "required_count": 1, "complete": True}
+    assert tracker.observe('{"header":{"tr_id":"H0STCNT0","tr_key":"000660"},"body":{"rt_cd":"0"}}') is True
+    assert tracker.status == {"accepted_count": 1, "required_count": 1, "complete": True}
+
+
 def test_subscription_ack_tracker_reports_sanitized_rejection_code_only() -> None:
     tracker = SubscriptionAckTracker({("H0STCNT0", "005930")})
     rejection = ('{"header":{"tr_id":"H0STCNT0","tr_key":"005930"},"body":{"rt_cd":"1",'

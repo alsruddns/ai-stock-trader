@@ -1505,8 +1505,11 @@ class PaperSessionFeedMonitor:
                     messages = self._subscription_jsons(key, watch, tr_type=request_type)
                     if subscription_tracker is not None:
                         for message in messages:
-                                subscription = json.loads(message)["body"]["input"]
-                                subscription_tracker.require(subscription["tr_id"], subscription["tr_key"])
+                            subscription = json.loads(message)["body"]["input"]
+                            subscription_tracker.require(
+                                subscription["tr_id"], subscription["tr_key"],
+                                operation="subscribe" if should_subscribe else "unsubscribe",
+                            )
                         self._set_subscription_ack_status(environment, subscription_tracker.status)
                         self._set_connection_state(environment, "SUBSCRIBING")
                         if acknowledgement_changed is not None:
