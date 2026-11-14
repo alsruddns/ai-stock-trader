@@ -124,6 +124,15 @@ Describe 'KIS PAPER submit-and-observe opt-in guard' {
         }
     }
 
+    It 'blocks overseas submission before reading credentials or calling an API' {
+        $message = $null
+        try {
+            & (Join-Path $PSScriptRoot '../test-kis-paper-order-lifecycle-isolated.ps1') `
+                -Market US -Symbol AAPL -LimitPrice 100 -ConfirmPaperOrderSubmitAndObserve
+        } catch { $message = $_.Exception.Message }
+        $message | Should Match 'scope is domestic KR only'
+    }
+
     It 'never sends a cancellation request from the submit-and-observe branch' {
         $scriptText = Get-Content (Join-Path $PSScriptRoot '../test-kis-paper-order-lifecycle.ps1') -Raw
         $submitStart = $scriptText.IndexOf('if ($ConfirmPaperOrderSubmitAndObserve) {')
