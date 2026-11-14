@@ -507,7 +507,7 @@ Describe 'Daily operations report endpoint health summary' {
         $json | Should Not Match 'secret-bearing exception detail'
     }
 
-    It 'includes the latest model retraining outcome in the local operations report' {
+    It 'selects the latest model retraining outcome within the active market scope' {
         Mock Invoke-RestMethod {
             if ($Uri -like '*api/v1/operations/summary') { return [pscustomobject]@{ tradingMode = 'paper' } }
             if ($Uri -like '*api/v1/health') { return @{ status = 'ok' } }
@@ -520,11 +520,20 @@ Describe 'Daily operations report endpoint health summary' {
         $outputPath = Join-Path $TestDrive 'retraining-operations-report.json'
         $retrainingDirectory = Join-Path $TestDrive 'training-run'
         New-Item -ItemType Directory -Path $retrainingDirectory | Out-Null
+        $usRunPath = Join-Path $retrainingDirectory 'latest-us.json'
+        $krRunPath = Join-Path $retrainingDirectory 'latest-kr.json'
         Write-AiTraderModelRetrainingFailureReport `
-            -Path (Join-Path $retrainingDirectory 'latest.json') `
+            -Path $usRunPath `
             -RunId 'us-aapl-20261107-cccccccccccc' -FailureStage 'candidate_training' `
             -Market 'US' -Symbol 'AAPL' -FromDate '2026-11-02' -ToDate '2026-11-06' `
             -DatasetPath 'data/model-candidates/test.csv' -Exception ([System.ArgumentException]::new('private diagnostic'))
+        Write-AiTraderModelRetrainingFailureReport `
+            -Path $krRunPath `
+            -RunId 'kr-005930-20261106-aaaaaaaaaaaa' -FailureStage 'candidate_training' `
+            -Market 'KR' -Symbol '005930' -FromDate '2026-11-02' -ToDate '2026-11-05' `
+            -DatasetPath 'data/model-candidates/test.csv' -Exception ([System.InvalidOperationException]::new('domestic diagnostic'))
+        (Get-Item -LiteralPath $usRunPath).LastWriteTimeUtc = [DateTime]::UtcNow
+        (Get-Item -LiteralPath $krRunPath).LastWriteTimeUtc = [DateTime]::UtcNow.AddMinutes(-5)
         & (Join-Path $PSScriptRoot '..\export-daily-report.ps1') `
             -ApiBaseUrl 'http://spring.test' -PythonApiBaseUrl 'http://python.test' -OutputPath $outputPath `
             -ModelRetrainingReportDirectory $retrainingDirectory -DomesticSessionEvidencePath (Join-Path $TestDrive 'no-monitor-progress.jsonl') | Out-Null
@@ -532,8 +541,10 @@ Describe 'Daily operations report endpoint health summary' {
 
         $report.modelRetraining.latestRun.status | Should Be 'training_failed'
         $report.modelRetraining.latestRun.failureStage | Should Be 'candidate_training'
-        $report.endpointStatus.'local.model_retraining'.errorType | Should Be 'ArgumentException'
+        $report.modelRetraining.latestRun.market | Should Be 'KR'
+        $report.modelRetraining.latestRun.symbol | Should Be '005930'
+        $report.endpointStatus.'local.model_retraining'.errorType | Should Be 'InvalidOperationException'
         $json = Get-Content -LiteralPath $outputPath -Raw
-        $json | Should Not Match 'private diagnostic'
+        $json | Should Not Match 'private diagnostic|domestic diagnostic'
     }
 }

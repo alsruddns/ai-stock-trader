@@ -124,91 +124,102 @@ function Write-AiTraderModelRetrainingFailureReport {
 }
 
 function Get-AiTraderModelRetrainingSummary {
-    param([Parameter(Mandatory)][string]$Directory)
+    param(
+        [Parameter(Mandatory)][string]$Directory,
+        [string[]]$OperationalMarkets = @('KR')
+    )
 
     if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
         return [pscustomobject]@{ state = 'NO_RUNS'; latestRun = $null }
     }
-    $latestFile = Get-ChildItem -LiteralPath $Directory -Filter '*.json' -File -ErrorAction SilentlyContinue |
-        Sort-Object -Property LastWriteTimeUtc -Descending |
-        Select-Object -First 1
-    if ($null -eq $latestFile) {
+    $markets = @($OperationalMarkets | ForEach-Object { ([string]$_).Trim().ToUpperInvariant() } | Select-Object -Unique)
+    if ($markets.Count -eq 0 -or @($markets | Where-Object { $_ -notin @('KR', 'US') }).Count -gt 0) {
+        $markets = @('KR')
+    }
+    $latestFiles = @(Get-ChildItem -LiteralPath $Directory -Filter '*.json' -File -ErrorAction SilentlyContinue |
+        Sort-Object -Property LastWriteTimeUtc -Descending)
+    if ($latestFiles.Count -eq 0) {
         return [pscustomobject]@{ state = 'NO_RUNS'; latestRun = $null }
     }
-    try {
-        $document = Get-Content -LiteralPath $latestFile.FullName -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-    } catch {
-        return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
-    }
-    $validStatuses = @('candidate_created_review_required', 'configuration_failed', 'export_failed', 'training_failed', 'candidate_verification_failed')
-    if ($null -eq $document -or $document.status -notin $validStatuses -or
-        $document.run_id -notmatch '^(kr|us)-[a-z0-9.-]+-\d{8}-[a-f0-9]{12}$' -or
-        $document.market -notin @('KR', 'US') -or [string]::IsNullOrWhiteSpace([string]$document.symbol)) {
-        return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
-    }
 
-    $candidateCount = 0
-    $allCandidatesUnapproved = $null
-    $orphanArtifactCount = 0
-    if ($document.status -eq 'candidate_created_review_required') {
-        $candidates = @($document.candidates)
-        if ($candidates.Count -eq 0 -or @($candidates | Where-Object {
-            $_.model_id -notmatch '^(lightgbm|xgboost)-[a-f0-9]{32}$' -or $_.approved -ne $false
-        }).Count -gt 0) {
+    foreach ($latestFile in $latestFiles) {
+        try {
+            $document = Get-Content -LiteralPath $latestFile.FullName -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        } catch {
             return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
         }
-        $candidateCount = $candidates.Count
-        $allCandidatesUnapproved = $true
-    } else {
-        $candidateIds = @($document.candidate_model_ids)
-        if (@($candidateIds | Where-Object { $_ -notmatch '^(lightgbm|xgboost)-[a-f0-9]{32}$' }).Count -gt 0) {
+        if ($null -eq $document -or $document.market -notin @('KR', 'US')) {
             return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
         }
-        $candidateCount = $candidateIds.Count
-        $orphanArtifacts = @($document.orphan_candidate_artifacts)
-        if (@($orphanArtifacts | Where-Object { $_ -notmatch '^(lightgbm|xgboost)-[a-f0-9]{32}\.joblib$' }).Count -gt 0) {
-            return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
-        }
-        $orphanArtifactCount = $orphanArtifacts.Count
-    }
-    $knownFailureCodes = @(
-        'local_configuration_missing', 'market_cost_assumptions_missing_or_invalid',
-        'market_cost_assumptions_inconsistent',
-        'insufficient_training_sessions', 'insufficient_partition_samples',
-        'single_class_training_partition', 'training_dependencies_missing',
-        'unclassified_training_failure'
-    )
-    $failureCode = if ($document.failure_code -in $knownFailureCodes) {
-        [string]$document.failure_code
-    } else { $null }
-    if (
-        ($null -eq $failureCode) -and
-        ($document.status -eq 'training_failed') -and
-        ($document.output -is [string])
-    ) {
-        $failureCode = Get-AiTraderModelTrainingFailureCode -Output @([string]$document.output)
-    }
+        if ($document.market -notin $markets) { continue }
 
-    return [pscustomobject]@{
-        state = 'AVAILABLE'
-        latestRun = [pscustomobject]@{
-            runId = [string]$document.run_id
-            status = [string]$document.status
-            failureStage = if ($document.failure_stage -in @('configuration', 'data_export', 'candidate_training', 'candidate_verification')) {
-                [string]$document.failure_stage
-            } else { $null }
-            failureCode = $failureCode
-            market = [string]$document.market
-            symbol = [string]$document.symbol
-            fromDate = [string]$document.from_date
-            toDate = [string]$document.to_date
-            recordedAtUtc = $latestFile.LastWriteTimeUtc.ToString('o')
-            candidateModelCount = $candidateCount
-            allCandidatesUnapproved = $allCandidatesUnapproved
-            orphanArtifactCount = $orphanArtifactCount
-            errorType = if ($document.error_type -match '^[A-Za-z][A-Za-z0-9.]{0,79}$') {
-                [string]$document.error_type
-            } else { $null }
+        $validStatuses = @('candidate_created_review_required', 'configuration_failed', 'export_failed', 'training_failed', 'candidate_verification_failed')
+        if ($document.status -notin $validStatuses -or
+            $document.run_id -notmatch '^(kr|us)-[a-z0-9.-]+-\d{8}-[a-f0-9]{12}$' -or
+            -not $document.run_id.StartsWith($document.market.ToLowerInvariant() + '-') -or
+            [string]::IsNullOrWhiteSpace([string]$document.symbol)) {
+            return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
+        }
+        $candidateCount = 0
+        $allCandidatesUnapproved = $null
+        $orphanArtifactCount = 0
+        if ($document.status -eq 'candidate_created_review_required') {
+            $candidates = @($document.candidates)
+            if ($candidates.Count -eq 0 -or @($candidates | Where-Object {
+                $_.model_id -notmatch '^(lightgbm|xgboost)-[a-f0-9]{32}$' -or $_.approved -ne $false
+            }).Count -gt 0) {
+                return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
+            }
+            $candidateCount = $candidates.Count
+            $allCandidatesUnapproved = $true
+        } else {
+            $candidateIds = @($document.candidate_model_ids)
+            if (@($candidateIds | Where-Object { $_ -notmatch '^(lightgbm|xgboost)-[a-f0-9]{32}$' }).Count -gt 0) {
+                return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
+            }
+            $candidateCount = $candidateIds.Count
+            $orphanArtifacts = @($document.orphan_candidate_artifacts)
+            if (@($orphanArtifacts | Where-Object { $_ -notmatch '^(lightgbm|xgboost)-[a-f0-9]{32}\.joblib$' }).Count -gt 0) {
+                return [pscustomobject]@{ state = 'INVALID_REPORT'; latestRun = $null }
+            }
+            $orphanArtifactCount = $orphanArtifacts.Count
+        }
+        $knownFailureCodes = @(
+            'local_configuration_missing', 'market_cost_assumptions_missing_or_invalid',
+            'market_cost_assumptions_inconsistent',
+            'insufficient_training_sessions', 'insufficient_partition_samples',
+            'single_class_training_partition', 'training_dependencies_missing',
+            'unclassified_training_failure'
+        )
+        $failureCode = if ($document.failure_code -in $knownFailureCodes) {
+            [string]$document.failure_code
+        } else { $null }
+        if (($null -eq $failureCode) -and ($document.status -eq 'training_failed') -and ($document.output -is [string])) {
+            $failureCode = Get-AiTraderModelTrainingFailureCode -Output @([string]$document.output)
+        }
+
+        return [pscustomobject]@{
+            state = 'AVAILABLE'
+            latestRun = [pscustomobject]@{
+                runId = [string]$document.run_id
+                status = [string]$document.status
+                failureStage = if ($document.failure_stage -in @('configuration', 'data_export', 'candidate_training', 'candidate_verification')) {
+                    [string]$document.failure_stage
+                } else { $null }
+                failureCode = $failureCode
+                market = [string]$document.market
+                symbol = [string]$document.symbol
+                fromDate = [string]$document.from_date
+                toDate = [string]$document.to_date
+                recordedAtUtc = $latestFile.LastWriteTimeUtc.ToString('o')
+                candidateModelCount = $candidateCount
+                allCandidatesUnapproved = $allCandidatesUnapproved
+                orphanArtifactCount = $orphanArtifactCount
+                errorType = if ($document.error_type -match '^[A-Za-z][A-Za-z0-9.]{0,79}$') {
+                    [string]$document.error_type
+                } else { $null }
+            }
         }
     }
+    return [pscustomobject]@{ state = 'NO_RUNS'; latestRun = $null }
 }

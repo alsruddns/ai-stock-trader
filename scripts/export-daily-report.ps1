@@ -35,6 +35,12 @@ do {
 if ($null -eq $report) {
     throw 'The local Spring operations API returned no report.'
 }
+$operationalMarkets = @('KR')
+$configuredMarkets = @($report.operationalMarkets | ForEach-Object { [string]$_ })
+if ($configuredMarkets.Count -gt 0 -and
+    @($configuredMarkets | Where-Object { $_ -notin @('KR', 'US') }).Count -eq 0) {
+    $operationalMarkets = @($configuredMarkets | Select-Object -Unique)
+}
 
 $endpointStatus = [ordered]@{}
 $healthResult = Invoke-AiTraderOptionalJsonRequest "$PythonApiBaseUrl/api/v1/health"
@@ -53,7 +59,7 @@ if ([string]::IsNullOrWhiteSpace($ModelRetrainingReportDirectory)) {
 } else {
     $retrainingDirectory = Join-Path $repoRoot $ModelRetrainingReportDirectory
 }
-$modelRetraining = Get-AiTraderModelRetrainingSummary -Directory $retrainingDirectory
+$modelRetraining = Get-AiTraderModelRetrainingSummary -Directory $retrainingDirectory -OperationalMarkets $operationalMarkets
 $paperPreflightPath = if ([string]::IsNullOrWhiteSpace($PaperPreflightEvidencePath)) {
     Join-Path $repoRoot '.local\validation\paper-preflight-latest.json'
 } elseif ([IO.Path]::IsPathRooted($PaperPreflightEvidencePath)) {
@@ -122,12 +128,6 @@ $endpointStatus['local.validation_task_schedule'] = [ordered]@{
 }
 $marketSessions = @{ KR = $null; US = $null }
 $marketDataQuality = @{ KR = $null; US = $null }
-$operationalMarkets = @('KR')
-$configuredMarkets = @($report.operationalMarkets | ForEach-Object { [string]$_ })
-if ($configuredMarkets.Count -gt 0 -and
-    @($configuredMarkets | Where-Object { $_ -notin @('KR', 'US') }).Count -eq 0) {
-    $operationalMarkets = @($configuredMarkets | Select-Object -Unique)
-}
 foreach ($market in @('KR', 'US')) {
     if ($market -notin $operationalMarkets) {
         $endpointStatus["python.market_session_$market"] = [ordered]@{ state = 'OUT_OF_SCOPE'; httpStatus = $null; errorType = $null }
