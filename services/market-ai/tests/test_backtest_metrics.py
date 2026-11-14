@@ -73,6 +73,24 @@ def test_portfolio_net_trade_metrics_reconcile_wins_losses_and_breakeven() -> No
     assert Decimal(metrics["mean_losing_trade_net_pnl_krw"]) == Decimal("-30")
 
 
+def test_portfolio_net_trade_metrics_normalize_returns_to_entry_fill_notional() -> None:
+    metrics = summarize_net_trade_pnls(
+        [Decimal("50"), Decimal("-25")], [Decimal("10000"), Decimal("5000")],
+    )
+
+    assert Decimal(metrics["mean_net_return_bps"]) == 0
+    assert Decimal(metrics["median_net_return_bps"]) == 0
+    assert Decimal(metrics["worst_net_return_bps"]) == Decimal("-50")
+    assert "entry fill notional" in metrics["return_basis"]
+
+
+def test_portfolio_net_trade_metrics_reject_misaligned_or_invalid_notionals() -> None:
+    with pytest.raises(ValueError, match="match the trade count"):
+        summarize_net_trade_pnls([Decimal("1")], [])
+    with pytest.raises(ValueError, match="positive finite decimals"):
+        summarize_net_trade_pnls([Decimal("1")], [Decimal("0")])
+
+
 def test_portfolio_net_trade_metrics_mark_missing_profit_factor_cases() -> None:
     assert summarize_net_trade_pnls([])["profit_factor_status"] == "no_trades"
     winners = summarize_net_trade_pnls([Decimal("10"), Decimal("2")])

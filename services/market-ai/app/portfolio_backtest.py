@@ -21,6 +21,7 @@ class PortfolioTrade:
     entry_time: datetime
     exit_time: datetime
     quantity: int
+    entry_notional: Decimal
     gross_pnl: Decimal
     costs: Decimal
     entry_slippage_cost: Decimal
@@ -383,6 +384,7 @@ def backtest_domestic_portfolio(
             net_pnl = gross - costs
             completed.append(PortfolioTrade(
                 symbol, timestamps[position.entry_index], timestamp, quantity,
+                position.fill_price * quantity,
                 gross, costs, entry_slippage_cost, entry_spread_cost, exit_slippage_cost,
                 exit_spread_cost, buy_commission_cost, sell_commission_cost, sell_tax_cost,
                 net_pnl, reason,

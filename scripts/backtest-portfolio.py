@@ -160,13 +160,17 @@ def main() -> int:
             "accepted_trades": [{
                 "symbol": trade.symbol, "entry_time": trade.entry_time.isoformat(),
                 "exit_time": trade.exit_time.isoformat(), "quantity": trade.quantity,
+                "entry_notional": str(trade.entry_notional),
                 "gross_pnl": str(trade.gross_pnl), "estimated_costs": str(trade.costs),
                 "estimated_costs_by_component": {
                     name: str(amount) for name, amount in trade.costs_by_component.items()
                 },
                 "net_pnl": str(trade.net_pnl), "exit_reason": trade.exit_reason,
             } for trade in portfolio.trades],
-            "trade_metrics": summarize_net_trade_pnls([trade.net_pnl for trade in portfolio.trades]),
+            "trade_metrics": summarize_net_trade_pnls(
+                [trade.net_pnl for trade in portfolio.trades],
+                [trade.entry_notional for trade in portfolio.trades],
+            ),
             "rejected_entries": [
                 {"symbol": symbol, "reason": reason} for symbol, reason in portfolio.rejected_entries
             ],
@@ -205,11 +209,15 @@ def main() -> int:
     )
     trade_metrics = {
         "portfolio": summarize_net_trade_pnls(
-            [trade.net_pnl for result in portfolio_results for trade in result.trades]
+            [trade.net_pnl for result in portfolio_results for trade in result.trades],
+            [trade.entry_notional for result in portfolio_results for trade in result.trades],
         ),
         "by_symbol": {
             symbol: summarize_net_trade_pnls([
                 trade.net_pnl for result in portfolio_results for trade in result.trades
+                if trade.symbol == symbol
+            ], [
+                trade.entry_notional for result in portfolio_results for trade in result.trades
                 if trade.symbol == symbol
             ])
             for symbol in sorted(data)

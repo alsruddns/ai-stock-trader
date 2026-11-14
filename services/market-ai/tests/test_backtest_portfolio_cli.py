@@ -141,6 +141,7 @@ def test_portfolio_cli_can_carry_completed_equity_forward_between_sessions(tmp_p
     assert payload["summary"]["max_bar_marked_drawdown_percent"] == "0"
     assert payload["summary"]["bar_marked_equity_observations"] == 2280
     assert payload["summary"]["trade_metrics"]["portfolio"]["profit_factor_status"] == "no_trades"
+    assert payload["summary"]["trade_metrics"]["portfolio"]["mean_net_return_bps"] is None
     assert payload["summary"]["trade_metrics"]["by_symbol"]["005930"]["trade_count"] == 0
     assert all(session["trade_metrics"]["profit_factor_status"] == "no_trades"
                for session in payload["sessions"])

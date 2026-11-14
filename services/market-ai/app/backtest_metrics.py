@@ -76,11 +76,21 @@ def summarize_trades(trades: Sequence[Trade]) -> dict[str, object]:
     }
 
 
-def summarize_net_trade_pnls(net_pnls: Sequence[Decimal]) -> dict[str, object]:
-    """Summarize portfolio trade outcomes after modeled costs, in KRW amounts."""
+def summarize_net_trade_pnls(
+    net_pnls: Sequence[Decimal], entry_notionals: Sequence[Decimal] | None = None,
+) -> dict[str, object]:
+    """Summarize after-cost portfolio trades in KRW and, when supplied, entry bps."""
     values = list(net_pnls)
     if any(not isinstance(value, Decimal) or not value.is_finite() for value in values):
         raise ValueError("portfolio net trade PnL values must be finite decimals")
+    return_bps: list[Decimal] | None = None
+    if entry_notionals is not None:
+        notionals = list(entry_notionals)
+        if len(notionals) != len(values):
+            raise ValueError("portfolio entry notionals must match the trade count")
+        if any(not isinstance(value, Decimal) or not value.is_finite() or value <= 0 for value in notionals):
+            raise ValueError("portfolio entry notionals must be positive finite decimals")
+        return_bps = [pnl * Decimal(10_000) / notional for pnl, notional in zip(values, notionals)]
 
     winners = [value for value in values if value > 0]
     losers = [value for value in values if value < 0]
@@ -110,6 +120,12 @@ def summarize_net_trade_pnls(net_pnls: Sequence[Decimal]) -> dict[str, object]:
         "mean_winning_trade_net_pnl_krw": str(average_winner) if average_winner is not None else None,
         "mean_losing_trade_net_pnl_krw": str(average_loser) if average_loser is not None else None,
         "pnl_basis": "KRW per completed trade after configured modeled costs; not a return rate",
+        "mean_net_return_bps": (
+            str(sum(return_bps, Decimal(0)) / Decimal(len(return_bps))) if return_bps else None
+        ),
+        "median_net_return_bps": str(median(return_bps)) if return_bps else None,
+        "worst_net_return_bps": str(min(return_bps)) if return_bps else None,
+        "return_basis": "arithmetic per trade: net PnL divided by entry fill notional; not compounded",
     }
 
 
