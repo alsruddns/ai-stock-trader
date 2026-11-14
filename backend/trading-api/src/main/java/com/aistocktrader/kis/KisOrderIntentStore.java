@@ -87,7 +87,8 @@ public class KisOrderIntentStore {
             intent.markUnknown();
             return intent;
         }
-        if (realFillSnapshots != null) realFillSnapshots.record(intent, snapshot);
+        boolean terminalConflict = intent.conflictsWithTerminalStatus(snapshot.cancelled(), snapshot.rejected());
+        if (realFillSnapshots != null && !terminalConflict) realFillSnapshots.record(intent, snapshot);
         intent.reconcile(snapshot.filledQuantity(), snapshot.remainingQuantity(), snapshot.averageFillPrice(),
                 snapshot.cancelled(), snapshot.rejected());
         return intent;

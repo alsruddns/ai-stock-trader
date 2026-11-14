@@ -190,6 +190,9 @@ jobs:
       - name: Verify concurrent KIS order snapshots stay terminal in PostgreSQL
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#concurrentBrokerSnapshotsCannotReopenCancelledIntent' test
+      - name: Verify stale terminal snapshots do not create REAL fill history
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#staleFillAfterCancellationDoesNotCreateRealFillHistory' test
 
   dashboard-domestic-operations:
     runs-on: ubuntu-latest

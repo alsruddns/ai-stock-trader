@@ -130,6 +130,10 @@ public class KisOrderIntent {
     }
 
     public void markUnknown() { status = KisOrderStatus.UNKNOWN; updatedAt = Instant.now(); }
+    boolean conflictsWithTerminalStatus(boolean cancelled, boolean rejected) {
+        return (status == KisOrderStatus.CANCELLED && !cancelled)
+                || (status == KisOrderStatus.REJECTED && !rejected);
+    }
     public void markCancelPending() {
         status = KisOrderStatus.CANCEL_PENDING;
         brokerResponseCode = "0"; // Clear a prior cancel rejection before starting a new attempt.
@@ -157,8 +161,7 @@ public class KisOrderIntent {
                 || (filled == 0 && averagePrice != null && averagePrice.signum() > 0)
                 || (filled > 0 && (averagePrice == null || averagePrice.signum() <= 0))) return;
         if (filledQuantity != null && filled < filledQuantity) return;
-        boolean terminalSnapshotConflict = (status == KisOrderStatus.CANCELLED && !cancelled)
-                || (status == KisOrderStatus.REJECTED && !rejected);
+        boolean terminalSnapshotConflict = conflictsWithTerminalStatus(cancelled, rejected);
         boolean cancellationRequested = status == KisOrderStatus.CANCEL_PENDING;
         boolean cancellationRejected = cancellationRequested && brokerResponseCode != null
                 && !"0".equals(brokerResponseCode);

@@ -140,4 +140,25 @@ class KisOrderIntentStoreTest {
         assertNull(updated.getAverageFillPrice());
         verify(realFillSnapshots, never()).record(intent, contradictory);
     }
+
+    @Test
+    void staleFillAfterCancellationIsNotPersistedAsRealFillEvidence() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 3,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", KisEnvironment.REAL, request, null);
+        intent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "7001", "ORG01",
+                "0", Instant.now()));
+        intent.reconcile(0, 0, null, true, false);
+        KisBrokerOrderSnapshot staleOpenFill = new KisBrokerOrderSnapshot(1, 2,
+                new BigDecimal("69950"), false, false);
+        when(repository.findByIdForUpdate(key)).thenReturn(Optional.of(intent));
+
+        KisOrderIntent updated = new KisOrderIntentStore(repository, realFillSnapshots)
+                .reconcile(key, staleOpenFill);
+
+        assertEquals(KisOrderStatus.UNKNOWN, updated.getStatus());
+        assertEquals(1, updated.getFilledQuantity());
+        verify(realFillSnapshots, never()).record(intent, staleOpenFill);
+    }
 }

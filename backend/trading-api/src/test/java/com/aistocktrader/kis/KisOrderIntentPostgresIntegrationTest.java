@@ -697,6 +697,30 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    void staleFillAfterCancellationDoesNotCreateRealFillHistory() {
+        UUID key = UUID.randomUUID();
+        try {
+            store.prepare(key, hash("terminal-stale-real-fill"), KisEnvironment.REAL, request(), null);
+            store.accept(key, receipt("real", "IR" + UUID.randomUUID().toString().replace("-", "").substring(0, 16)));
+            store.reconcile(key, new KisBrokerOrderSnapshot(0, 0, null, true, false));
+
+            KisOrderIntent reconciled = store.reconcile(key, new KisBrokerOrderSnapshot(1, 0,
+                    new BigDecimal("69950"), false, false));
+            entityManager.clear();
+
+            KisOrderIntent persisted = repository.findById(key).orElseThrow();
+            assertEquals(KisOrderStatus.UNKNOWN, reconciled.getStatus());
+            assertEquals(KisOrderStatus.UNKNOWN, persisted.getStatus());
+            assertEquals(1, persisted.getFilledQuantity());
+            assertTrue(jdbcTemplate.queryForList(
+                    "SELECT idempotency_key FROM kis_real_fill_snapshot WHERE idempotency_key = ?", UUID.class, key)
+                    .isEmpty());
+        } finally {
+            repository.deleteById(key);
+        }
+    }
+
+    @Test
     void persistsAndReloadsPaperAndRealIntentsWithSameBrokerNumberAcrossEnvironments() {
         UUID realKey = UUID.randomUUID();
         UUID paperKey = UUID.randomUUID();
