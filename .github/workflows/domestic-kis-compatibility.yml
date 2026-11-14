@@ -187,6 +187,9 @@ jobs:
       - name: Verify stale KIS submissions recover to UNKNOWN in PostgreSQL
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#scheduledRecoveryMarksOnlyStaleSubmittingIntentsUnknown' test
+      - name: Verify concurrent KIS order snapshots stay terminal in PostgreSQL
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#concurrentBrokerSnapshotsCannotReopenCancelledIntent' test
 
   dashboard-domestic-operations:
     runs-on: ubuntu-latest

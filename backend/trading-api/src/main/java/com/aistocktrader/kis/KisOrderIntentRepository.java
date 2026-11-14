@@ -2,6 +2,7 @@ package com.aistocktrader.kis;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -12,8 +13,12 @@ import java.util.UUID;
 import java.util.List;
 import java.util.Collection;
 import java.time.Instant;
+import jakarta.persistence.LockModeType;
 
 public interface KisOrderIntentRepository extends JpaRepository<KisOrderIntent, UUID> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select intent from KisOrderIntent intent where intent.idempotencyKey = :key")
+    java.util.Optional<KisOrderIntent> findByIdForUpdate(@Param("key") UUID key);
     List<KisOrderIntent> findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment environment);
     List<KisOrderIntent> findTop50ByEnvironmentAndStatusInOrderByUpdatedAtAsc(
             KisEnvironment environment, Collection<KisOrderStatus> statuses);

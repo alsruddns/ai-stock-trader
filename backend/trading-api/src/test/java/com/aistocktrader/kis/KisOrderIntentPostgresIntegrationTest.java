@@ -654,6 +654,49 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    void concurrentBrokerSnapshotsCannotReopenCancelledIntent() throws Exception {
+        UUID key = UUID.randomUUID();
+        String brokerNumber = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        store.prepare(key, hash("concurrent-reconcile"), KisEnvironment.PAPER, request(), null);
+        store.accept(key, receipt("paper", brokerNumber));
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+
+        try {
+            var cancelled = new KisBrokerOrderSnapshot(0, 0, null, true, false);
+            var staleOpen = new KisBrokerOrderSnapshot(0, 1, null, false, false);
+            var first = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                return store.reconcile(key, cancelled);
+            });
+            var second = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Start gate timed out.");
+                return store.reconcile(key, staleOpen);
+            });
+
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            first.get(10, TimeUnit.SECONDS);
+            second.get(10, TimeUnit.SECONDS);
+            entityManager.clear();
+
+            KisOrderIntent persisted = repository.findById(key).orElseThrow();
+            assertTrue(persisted.getStatus() == KisOrderStatus.CANCELLED
+                    || persisted.getStatus() == KisOrderStatus.UNKNOWN);
+            assertEquals(0, persisted.getFilledQuantity());
+            assertTrue(persisted.getRemainingQuantity() == 0 || persisted.getRemainingQuantity() == 1);
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+            pool.awaitTermination(10, TimeUnit.SECONDS);
+            repository.deleteById(key);
+        }
+    }
+
+    @Test
     void persistsAndReloadsPaperAndRealIntentsWithSameBrokerNumberAcrossEnvironments() {
         UUID realKey = UUID.randomUUID();
         UUID paperKey = UUID.randomUUID();

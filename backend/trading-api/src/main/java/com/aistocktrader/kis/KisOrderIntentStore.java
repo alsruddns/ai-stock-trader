@@ -78,7 +78,10 @@ public class KisOrderIntentStore {
 
     @Transactional
     public KisOrderIntent reconcile(UUID key, KisBrokerOrderSnapshot snapshot) {
-        KisOrderIntent intent = repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
+        // Reconciliation may run from overlapping scheduled polls. Serialize snapshot application
+        // so a stale open snapshot cannot overwrite a terminal result saved by another poller.
+        KisOrderIntent intent = repository.findByIdForUpdate(key)
+                .orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
         if (!KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent, snapshot)) {
             // An incomplete or contradictory broker response cannot update fills or clear an order lock.
             intent.markUnknown();
