@@ -276,8 +276,10 @@ Describe 'Exchange session monitor registration times' {
         $settings.RestartInterval | Should Be 'PT1M'
         $settings.ExecutionTimeLimit | Should Be 'PT8H'
         $settings.MultipleInstances | Should Be 'IgnoreNew'
-        $settings.StartWhenAvailable | Should Be $true
+        $settings.StartWhenAvailable | Should Be $false
         $settings.WakeToRun | Should Be $true
+        $settings.DisallowStartIfOnBatteries | Should Be $false
+        $settings.StopIfGoingOnBatteries | Should Be $false
     }
 }
 
@@ -309,7 +311,9 @@ function New-TestScheduledTask($State, $Arguments, $TriggerType, $StartBoundary,
         })
         Principal = [pscustomobject]@{ RunLevel = 'Limited'; LogonType = 'Interactive' }
         Settings = [pscustomobject]@{
-            WakeToRun = $true; StartWhenAvailable = $true; MultipleInstances = 'IgnoreNew'
+            WakeToRun = $true; StartWhenAvailable = ($TriggerType -eq 'MSFT_TaskDailyTrigger')
+            DisallowStartIfOnBatteries = $false; StopIfGoingOnBatteries = $false
+            MultipleInstances = 'IgnoreNew'
             RestartCount = 4; RestartInterval = 'PT1M'; ExecutionTimeLimit = 'PT8H'
         }
     }
@@ -431,6 +435,18 @@ Describe 'Existing market session task verification' {
         (Test-SessionMonitorTaskDefinition $disabled 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
             ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $false
         (Test-SessionMonitorTaskDefinition $wrongFeed 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
+            ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $false
+
+        $catchUp = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -ExpectedSessionDate 2026-11-09 -DurationSeconds 25200 -RequireSessionClose' `
+            'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
+        $catchUp.Settings.StartWhenAvailable = $true
+        (Test-SessionMonitorTaskDefinition $catchUp 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
+            ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $false
+
+        $batteryRestricted = New-TestScheduledTask 'Ready' '-File "C:\repo\scripts\test-paper-websocket-monitor.ps1" -Feed real -ExpectedSessionDate 2026-11-09 -DurationSeconds 25200 -RequireSessionClose' `
+            'MSFT_TaskTimeTrigger' '2026-11-09T23:25:00+09:00'
+        $batteryRestricted.Settings.DisallowStartIfOnBatteries = $true
+        (Test-SessionMonitorTaskDefinition $batteryRestricted 'C:\repo\scripts\test-paper-websocket-monitor.ps1' 'real' `
             ([DateTimeOffset]::Parse('2026-11-09T23:25:00+09:00'))) | Should Be $false
     }
 

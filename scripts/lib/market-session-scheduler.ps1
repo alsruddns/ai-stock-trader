@@ -22,7 +22,8 @@ function Test-SessionMonitorTaskDefinition {
 
     if (-not $Task -or $Task.State -eq 'Disabled' -or
         $Task.Principal.RunLevel -ne 'Limited' -or $Task.Principal.LogonType -ne 'Interactive' -or
-        -not [bool]$Task.Settings.WakeToRun -or -not [bool]$Task.Settings.StartWhenAvailable -or
+        -not [bool]$Task.Settings.WakeToRun -or [bool]$Task.Settings.StartWhenAvailable -or
+        [bool]$Task.Settings.DisallowStartIfOnBatteries -or [bool]$Task.Settings.StopIfGoingOnBatteries -or
         $Task.Settings.MultipleInstances -ne 'IgnoreNew' -or
         [int]$Task.Settings.RestartCount -ne 4 -or
         [string]$Task.Settings.RestartInterval -ne 'PT1M' -or

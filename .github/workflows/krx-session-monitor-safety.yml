@@ -79,6 +79,16 @@ jobs:
             throw "Domestic full-session continuity test failed: passed=$($continuityResult.PassedCount), failed=$($continuityResult.FailedCount)."
           }
 
+          $sessionTaskSettingsResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -TestName 'retries transient session monitor failures without starting overlapping captures' -PassThru
+          if ($sessionTaskSettingsResult.FailedCount -gt 0 -or $sessionTaskSettingsResult.PassedCount -ne 1) {
+            throw "Domestic no-catch-up session task settings test failed: passed=$($sessionTaskSettingsResult.PassedCount), failed=$($sessionTaskSettingsResult.FailedCount)."
+          }
+
+          $sessionTaskDefinitionResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -TestName 'rejects disabled or mismatched monitor tasks' -PassThru
+          if ($sessionTaskDefinitionResult.FailedCount -gt 0 -or $sessionTaskDefinitionResult.PassedCount -ne 1) {
+            throw "Domestic session task definition test failed: passed=$($sessionTaskDefinitionResult.PassedCount), failed=$($sessionTaskDefinitionResult.FailedCount)."
+          }
+
           $postSessionResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -TestName 'Domestic post-session refresh task verification' -PassThru
           if ($postSessionResult.FailedCount -gt 0 -or $postSessionResult.PassedCount -ne 4) {
             throw "Domestic post-session refresh task tests failed: passed=$($postSessionResult.PassedCount), failed=$($postSessionResult.FailedCount)."
