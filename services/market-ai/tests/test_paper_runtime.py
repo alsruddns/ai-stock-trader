@@ -1221,13 +1221,14 @@ def test_domestic_feed_waits_for_trade_and_orderbook_subscription_acks(monkeypat
     assert runtime.status()["last_stream_failure_environment"] == "paper"
 
 
-@pytest.mark.parametrize(("dynamic_rt_cd", "unsubscribe_rt_cd", "expected_state", "expected_ack"), [
-    ("0", "0", "RUNNING", {"accepted_count": 2, "required_count": 2, "complete": True}),
-    ("1", "0", "RECONNECTING", {"accepted_count": 2, "required_count": 4, "complete": False}),
-    ("0", "1", "RECONNECTING", {"accepted_count": 2, "required_count": 4, "complete": False}),
+@pytest.mark.parametrize(("dynamic_rt_cd", "unsubscribe_rt_cd", "unsubscribe_timeout", "expected_state", "expected_ack", "expected_error"), [
+    ("0", "0", False, "RUNNING", {"accepted_count": 2, "required_count": 2, "complete": True}, None),
+    ("1", "0", False, "RECONNECTING", {"accepted_count": 2, "required_count": 4, "complete": False}, "SAFE_CODE"),
+    ("0", "1", False, "RECONNECTING", {"accepted_count": 2, "required_count": 4, "complete": False}, "SAFE_CODE"),
+    ("0", "0", True, "RECONNECTING", {"accepted_count": 2, "required_count": 4, "complete": False}, None),
 ])
 def test_domestic_dynamic_watch_ack_controls_feed_state(
-    monkeypatch, dynamic_rt_cd, unsubscribe_rt_cd, expected_state, expected_ack,
+    monkeypatch, dynamic_rt_cd, unsubscribe_rt_cd, unsubscribe_timeout, expected_state, expected_ack, expected_error,
 ) -> None:
     class DynamicAckConnection:
         def __init__(self):
@@ -1255,6 +1256,8 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(
                     await self.release_dynamic_ack.wait()
                 else:
                     await self.release_dynamic_unsubscribe_ack.wait()
+                if payload["header"]["tr_type"] == "0" and unsubscribe_timeout:
+                    return
                 response_code = dynamic_rt_cd if payload["header"]["tr_type"] == "1" else unsubscribe_rt_cd
                 body = {"rt_cd": response_code}
                 if response_code != "0":
@@ -1289,10 +1292,6 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(
         monkeypatch.setattr(runtime, "_prepare_watch", prepare)
         connection = DynamicAckConnection()
         monkeypatch.setattr("app.paper_runtime.approval_key", lambda _settings: "approval")
-        if dynamic_rt_cd != "0" or unsubscribe_rt_cd != "0":
-            async def stop_after_rejection(_delay):
-                raise asyncio.CancelledError
-            monkeypatch.setattr("app.paper_runtime.asyncio.sleep", stop_after_rejection)
         monkeypatch.setitem(
             sys.modules, "websockets", SimpleNamespace(connect=lambda *_args, **_kwargs: connection),
         )
@@ -1317,6 +1316,8 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(
             result = await add_task
             assert result == {"added": [candidate.key], "subscriptions": 2}
             if dynamic_rt_cd == "0":
+                if unsubscribe_timeout:
+                    monkeypatch.setattr("app.paper_runtime.SUBSCRIPTION_ACK_TIMEOUT_SECONDS", 0.25)
                 remove_task = asyncio.create_task(runtime.remove_discovered_watches((candidate,)))
                 await wait_for_state("SUBSCRIBING")
                 assert runtime.status()["subscription_acknowledgements_by_feed"]["paper"] == {
@@ -1327,10 +1328,17 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(
             await wait_for_state(expected_state)
             if dynamic_rt_cd == "0" and unsubscribe_rt_cd == "0":
                 assert runtime.status()["subscriptions"] == 1
-            try:
-                await asyncio.wait_for(run_task, timeout=1)
-            except asyncio.CancelledError:
-                pass
+            if expected_state == "RECONNECTING":
+                run_task.cancel()
+                try:
+                    await run_task
+                except asyncio.CancelledError:
+                    pass
+            else:
+                try:
+                    await asyncio.wait_for(run_task, timeout=1)
+                except asyncio.CancelledError:
+                    pass
         finally:
             if not run_task.done():
                 run_task.cancel()
@@ -1352,8 +1360,8 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(
         status = runtime.status()
         assert status["stream_connections"]["paper"] == expected_state
         assert status["subscription_acknowledgements_by_feed"]["paper"] == expected_ack
-        if dynamic_rt_cd != "0" or unsubscribe_rt_cd != "0":
-            assert status["last_subscription_error_code"] == "SAFE_CODE"
+        if expected_error is not None:
+            assert status["last_subscription_error_code"] == expected_error
             assert "private details" not in str(status)
         else:
             assert status["last_subscription_error_code"] is None
