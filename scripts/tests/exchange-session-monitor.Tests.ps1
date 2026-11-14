@@ -293,6 +293,15 @@ Describe 'Domestic full-session feed continuity gate' {
         (Test-ExchangeSessionCompletion 380 380 $true $true 301 300 $true) | Should Be $false
         (Test-ExchangeSessionCompletion 380 380 $true $false 0 300 $true) | Should Be $false
     }
+
+    It 'rejects a full-session monitor that starts at or after market open' {
+        $open = [DateTimeOffset]::Parse('2026-11-16T00:00:00Z')
+        $session = [pscustomobject]@{ open_utc = $open }
+        (Test-ExchangeSessionFullSessionStartEligible $open.AddMinutes(-1) $session) | Should Be $true
+        (Test-ExchangeSessionFullSessionStartEligible $open $session) | Should Be $false
+        (Test-ExchangeSessionFullSessionStartEligible $open.AddMinutes(1) $session) | Should Be $false
+        (Test-ExchangeSessionFullSessionStartEligible $open $null) | Should Be $false
+    }
 }
 
 function New-TestScheduledTask($State, $Arguments, $TriggerType, $StartBoundary, $DaysInterval = 1) {

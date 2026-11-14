@@ -241,6 +241,13 @@ function Test-ExchangeSessionCompletion {
     return $ObservedCounterBars -ge $MinimumCounterBars
 }
 
+function Test-ExchangeSessionFullSessionStartEligible($StartedAt, $Session) {
+    if ($null -eq $StartedAt -or $null -eq $Session -or $null -eq $Session.open_utc) {
+        return $false
+    }
+    return $StartedAt.ToUniversalTime() -lt ([DateTimeOffset]$Session.open_utc).ToUniversalTime()
+}
+
 function Get-ExchangeSessionValidationScope([bool]$RequiresCompleteSession) {
     if ($RequiresCompleteSession) { return 'full_session' }
     return 'bounded_sample'

@@ -166,6 +166,9 @@ $initialTicks = if ($Feed) { [int]$initial.ticks_received_by_feed.$Feed } else {
 $initialBars = if ($Feed) { [int]$initial.bars_closed_by_feed.$Feed } else { [int]$initial.bars_closed }
 $previousTicks = $initialTicks
 $startedAtUtc = [DateTimeOffset]::UtcNow
+if ($RequireSessionClose -and -not (Test-ExchangeSessionFullSessionStartEligible $startedAtUtc $exchangeSession)) {
+    throw 'Full-session monitoring must start before the exchange open; late runs cannot produce full-session evidence.'
+}
 $sessionOpenBarsBaseline = $null
 $awaitingSessionOpenBaseline = [bool]($exchangeSession -and $startedAtUtc -lt $exchangeSession.open_utc)
 $lastPreOpenBars = if ($awaitingSessionOpenBaseline) { $initialBars } else { $null }

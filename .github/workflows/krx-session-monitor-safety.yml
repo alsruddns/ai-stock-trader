@@ -75,7 +75,7 @@ jobs:
           }
 
           $continuityResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -TestName 'Domestic full-session feed continuity gate' -PassThru
-          if ($continuityResult.FailedCount -gt 0 -or $continuityResult.PassedCount -ne 1) {
+          if ($continuityResult.FailedCount -gt 0 -or $continuityResult.PassedCount -ne 2) {
             throw "Domestic full-session continuity test failed: passed=$($continuityResult.PassedCount), failed=$($continuityResult.FailedCount)."
           }
 
