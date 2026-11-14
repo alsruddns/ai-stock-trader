@@ -155,6 +155,7 @@ def test_portfolio_cli_reports_capital_scenarios_without_changing_base_result(tm
     assert all(item["session_count"] == 1 and item["accepted_trade_count"] == 0 for item in sensitivity)
     assert all(item["net_pnl"] == "0" and item["return_percent"] is None for item in sensitivity)
     assert all(item["return_basis"] is None for item in sensitivity)
+    assert all(item["rejected_entries_by_symbol_and_reason"] == {} for item in sensitivity)
     assert all(item["executable"] is False for item in sensitivity)
     assert scenario_payload["executable"] is False
 

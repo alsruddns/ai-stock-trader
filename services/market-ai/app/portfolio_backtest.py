@@ -111,6 +111,7 @@ class CapitalSensitivityResult:
     maximum_drawdown_percent: Decimal
     drawdown_basis: str
     rejected_entries_by_reason: dict[str, int]
+    rejected_entries_by_symbol_and_reason: dict[str, dict[str, int]]
     executable: bool = False
 
 
@@ -264,9 +265,12 @@ def analyze_capital_sensitivity(
         if abs(gross_pnl - estimated_costs - net_pnl) > _PORTFOLIO_TOTAL_TOLERANCE:
             raise ValueError("capital sensitivity totals do not reconcile")
         rejected: dict[str, int] = {}
+        rejected_by_symbol: dict[str, dict[str, int]] = {}
         for item in session_results:
-            for _symbol, reason in item.rejected_entries:
+            for symbol, reason in item.rejected_entries:
                 rejected[reason] = rejected.get(reason, 0) + 1
+                symbol_rejections = rejected_by_symbol.setdefault(symbol, {})
+                symbol_rejections[reason] = symbol_rejections.get(reason, 0) + 1
         if carry_equity_between_sessions:
             drawdown = aggregate_compounded_drawdown(scenario_equity, session_results)
             drawdown_amount = drawdown.maximum_amount
@@ -295,6 +299,10 @@ def analyze_capital_sensitivity(
             maximum_drawdown_percent=drawdown_percent,
             drawdown_basis=drawdown_basis,
             rejected_entries_by_reason=dict(sorted(rejected.items())),
+            rejected_entries_by_symbol_and_reason={
+                symbol: dict(sorted(reasons.items()))
+                for symbol, reasons in sorted(rejected_by_symbol.items())
+            },
         ))
     return tuple(results)
 

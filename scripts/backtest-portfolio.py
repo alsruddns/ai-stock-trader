@@ -290,6 +290,7 @@ def main() -> int:
                 "maximum_drawdown_percent": str(item.maximum_drawdown_percent),
                 "drawdown_basis": item.drawdown_basis,
                 "rejected_entries_by_reason": item.rejected_entries_by_reason,
+                "rejected_entries_by_symbol_and_reason": item.rejected_entries_by_symbol_and_reason,
                 "return_percent": str(
                     (item.ending_equity - item.starting_equity) * Decimal(100) / item.starting_equity
                 ) if item.ending_equity is not None else None,
