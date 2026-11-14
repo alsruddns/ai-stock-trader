@@ -9,7 +9,6 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
@@ -30,7 +29,9 @@ final class KisRestRateLimiter {
             SET next_request_at = GREATEST(kis_rest_rate_limit_slot.next_request_at, clock_timestamp())
                                      + interval '1 second' * ?,
                 updated_at = clock_timestamp()
-            RETURNING next_request_at - interval '1 second' * ? AS reserved_at
+            RETURNING GREATEST(0, CEIL(EXTRACT(EPOCH FROM
+                ((next_request_at - interval '1 second' * ?) - clock_timestamp())) * 1000)::bigint)
+                AS delay_millis
             """;
     private static final String RESERVE_TOKEN_SLOT_SQL = """
             INSERT INTO kis_token_issue_rate_limit_slot (environment, app_key_sha256, next_request_at)
@@ -39,7 +40,9 @@ final class KisRestRateLimiter {
             SET next_request_at = GREATEST(kis_token_issue_rate_limit_slot.next_request_at, clock_timestamp())
                                      + interval '1 minute',
                 updated_at = clock_timestamp()
-            RETURNING next_request_at - interval '1 minute' AS reserved_at
+            RETURNING GREATEST(0, CEIL(EXTRACT(EPOCH FROM
+                ((next_request_at - interval '1 minute') - clock_timestamp())) * 1000)::bigint)
+                AS delay_millis
             """;
     private static final Map<String, Object> LOCKS = new ConcurrentHashMap<>();
     private static final Map<String, Instant> NEXT_SLOT = new ConcurrentHashMap<>();
@@ -63,16 +66,15 @@ final class KisRestRateLimiter {
             return;
         }
         String fingerprint = sha256(appKey);
-        final Timestamp reserved;
+        final Long delayMillis;
         try {
-            reserved = jdbc.queryForObject(RESERVE_SLOT_SQL, Timestamp.class,
+            delayMillis = jdbc.queryForObject(RESERVE_SLOT_SQL, Long.class,
                     environment.name(), fingerprint, intervalMillis / 1_000.0,
                     intervalMillis / 1_000.0, intervalMillis / 1_000.0);
         } catch (DataAccessException exception) {
             throw unavailable();
         }
-        if (reserved == null) throw unavailable();
-        long delayMillis = Duration.between(Instant.now(), reserved.toInstant()).toMillis();
+        if (delayMillis == null) throw unavailable();
         if (delayMillis > 0) Thread.sleep(delayMillis);
     }
 
@@ -85,15 +87,14 @@ final class KisRestRateLimiter {
             acquireLocally(environment, "token:" + appKey, LOCAL_TOKEN_ISSUE_FLOOR_MILLIS);
             return;
         }
-        final Timestamp reserved;
+        final Long delayMillis;
         try {
-            reserved = jdbc.queryForObject(RESERVE_TOKEN_SLOT_SQL, Timestamp.class,
+            delayMillis = jdbc.queryForObject(RESERVE_TOKEN_SLOT_SQL, Long.class,
                     environment.name(), fingerprint);
         } catch (DataAccessException exception) {
             throw unavailable();
         }
-        if (reserved == null) throw unavailable();
-        long delayMillis = Duration.between(Instant.now(), reserved.toInstant()).toMillis();
+        if (delayMillis == null) throw unavailable();
         if (delayMillis > 0) Thread.sleep(delayMillis);
     }
 

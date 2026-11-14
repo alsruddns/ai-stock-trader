@@ -7,8 +7,6 @@ import org.springframework.http.HttpStatus;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.HexFormat;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -19,33 +17,32 @@ class KisRestRateLimiterTest {
     @Test
     void reservesIndependentConservativeTokenIssueSlotUsingOnlyAppKeyFingerprint() throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        when(jdbc.queryForObject(anyString(), eq(Timestamp.class), any(Object[].class)))
-                .thenReturn(Timestamp.from(Instant.now().minusSeconds(1)));
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(0L);
         KisRestRateLimiter limiter = new KisRestRateLimiter(jdbc);
 
         limiter.acquireToken(KisEnvironment.PAPER, "local-test-app-key");
 
         var captor = org.mockito.ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).queryForObject(contains("kis_token_issue_rate_limit_slot"),
-                eq(Timestamp.class), captor.capture());
+                eq(Long.class), captor.capture());
         Object[] parameters = captor.getValue();
         assertArrayEquals(new Object[]{"PAPER", sha256("local-test-app-key")}, parameters);
         verify(jdbc, never()).queryForObject(contains("kis_rest_rate_limit_slot"),
-                eq(Timestamp.class), any(Object[].class));
+                eq(Long.class), any(Object[].class));
+        verify(jdbc).queryForObject(contains("clock_timestamp()"), eq(Long.class), any(Object[].class));
     }
 
     @Test
     void reservesSharedPostgresSlotUsingOnlyAppKeyFingerprint() throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        when(jdbc.queryForObject(anyString(), eq(Timestamp.class), any(Object[].class)))
-                .thenReturn(Timestamp.from(Instant.now().minusSeconds(1)));
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(0L);
         KisRestRateLimiter limiter = new KisRestRateLimiter(jdbc);
 
         limiter.acquire(KisEnvironment.PAPER, "local-test-app-key", java.time.Duration.ofMillis(100));
 
         var captor = org.mockito.ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).queryForObject(contains("ON CONFLICT (environment, app_key_sha256) DO UPDATE"),
-                eq(Timestamp.class), captor.capture());
+                eq(Long.class), captor.capture());
         Object[] parameters = captor.getValue();
         assertEquals("PAPER", parameters[0]);
         assertEquals(sha256("local-test-app-key"), parameters[1]);
@@ -58,14 +55,13 @@ class KisRestRateLimiterTest {
     @Test
     void realRestRequestsUseConservativeOneSecondMinimum() throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        when(jdbc.queryForObject(anyString(), eq(Timestamp.class), any(Object[].class)))
-                .thenReturn(Timestamp.from(Instant.now().minusSeconds(1)));
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(0L);
         KisRestRateLimiter limiter = new KisRestRateLimiter(jdbc);
 
         limiter.acquire(KisEnvironment.REAL, "local-test-app-key", java.time.Duration.ofMillis(100));
 
         var captor = org.mockito.ArgumentCaptor.forClass(Object[].class);
-        verify(jdbc).queryForObject(anyString(), eq(Timestamp.class), captor.capture());
+        verify(jdbc).queryForObject(anyString(), eq(Long.class), captor.capture());
         Object[] parameters = captor.getValue();
         assertEquals(1.0, (Double) parameters[2]);
         assertEquals(1.0, (Double) parameters[3]);
@@ -75,7 +71,7 @@ class KisRestRateLimiterTest {
     @Test
     void databaseFailureStopsBeforeRequestAndReturnsSafeServiceUnavailable() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        when(jdbc.queryForObject(anyString(), eq(Timestamp.class), any(Object[].class)))
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class)))
                 .thenThrow(new DataAccessResourceFailureException("secret database detail"));
         KisRestRateLimiter limiter = new KisRestRateLimiter(jdbc);
 
