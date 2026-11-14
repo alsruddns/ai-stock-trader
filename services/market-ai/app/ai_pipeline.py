@@ -69,6 +69,16 @@ def _meets_holdout_approval_criteria(ai_metrics: dict[str, Any], quant_metrics: 
         return False
 
 
+def _metrics_cover_both_outcome_classes(metrics: Any) -> bool:
+    """Require evaluation labels to contain positive and negative examples."""
+    if not isinstance(metrics, dict):
+        return False
+    value = metrics.get("positive_label_rate")
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        return False
+    return 0 < float(value) < 1
+
+
 def _session_progress(timestamp: datetime, market: str) -> Decimal:
     """Fraction of the local regular session elapsed, clamped to [0, 1]."""
     normalized_market = market.strip().upper()
@@ -348,6 +358,10 @@ def assess_training_samples(samples: list[TrainingSample]) -> dict[str, Any]:
         reasons.append("insufficient_samples_per_partition")
     if len({sample.label for sample in train}) < 2:
         reasons.append("training_partition_requires_both_outcome_classes")
+    if len({sample.label for sample in validation}) < 2:
+        reasons.append("validation_partition_requires_both_outcome_classes")
+    if len({sample.label for sample in test}) < 2:
+        reasons.append("test_partition_requires_both_outcome_classes")
     result["reasons"] = reasons
     result["ready"] = not reasons
     return result
@@ -901,6 +915,9 @@ class LocalModelRegistry:
             if (not isinstance(heldout_metrics, dict) or not isinstance(heldout_baseline_metrics, dict)
                     or not isinstance(ai, dict) or not isinstance(quant, dict)):
                 return False
+            if any(not _metrics_cover_both_outcome_classes(metrics) for metrics in (
+                    metadata.get("validation_metrics"), metadata.get("test_metrics"), heldout_metrics)):
+                return False
             for metrics in (metadata.get("ai_quant_backtest_test_metrics"),
                             metadata.get("quant_backtest_test_metrics")):
                 if not isinstance(metrics, dict):
@@ -1185,6 +1202,10 @@ class LocalModelRegistry:
             raise ValueError("insufficient samples per chronological partition")
         if len({sample.label for sample in train}) < 2:
             raise ValueError("training partition must contain both outcome classes")
+        if len({sample.label for sample in validation}) < 2:
+            raise ValueError("validation partition must contain both outcome classes")
+        if len({sample.label for sample in test}) < 2:
+            raise ValueError("test partition must contain both outcome classes")
         x_train = np.asarray([sample.features for sample in train], dtype=np.float32)
         y_train = np.asarray([sample.label for sample in train], dtype=np.int32)
         candidates = {

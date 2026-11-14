@@ -398,6 +398,24 @@ def test_training_sample_readiness_matches_partition_and_class_gates() -> None:
     assert unbalanced["reasons"] == ["training_partition_requires_both_outcome_classes"]
     assert unbalanced["partition_class_counts"]["train"] == {"positive": 0, "negative": 200}
 
+    one_class_validation = [
+        TrainingSample(sample.session, sample.timestamp, sample.features,
+                       0 if sample.session in set(sessions[5:8]) else sample.label)
+        for sample in samples
+    ]
+    validation_unbalanced = assess_training_samples(one_class_validation)
+    assert validation_unbalanced["ready"] is False
+    assert validation_unbalanced["reasons"] == ["validation_partition_requires_both_outcome_classes"]
+
+    one_class_test = [
+        TrainingSample(sample.session, sample.timestamp, sample.features,
+                       0 if sample.session in set(sessions[8:]) else sample.label)
+        for sample in samples
+    ]
+    test_unbalanced = assess_training_samples(one_class_test)
+    assert test_unbalanced["ready"] is False
+    assert test_unbalanced["reasons"] == ["test_partition_requires_both_outcome_classes"]
+
     sparse_samples = [
         TrainingSample(session, f"{session}:{index}", (float(index),), index % 2)
         for session in sessions for index in range(4)
@@ -693,7 +711,8 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_hold
         "model_id": model_id, "market": market, "model_type": model_id.split("-")[0], "artifact": artifact_name,
         "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(), "approved": False,
         "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION, "threshold": 0.5,
-        "validation_metrics": {"accuracy": 0.6, "brier": 0.25}, "test_metrics": {"accuracy": 0.55, "brier": 0.3},
+        "validation_metrics": {"accuracy": 0.6, "brier": 0.25, "positive_label_rate": 0.5},
+        "test_metrics": {"accuracy": 0.55, "brier": 0.3, "positive_label_rate": 0.5},
         "quant_baseline_test_metrics": {"accuracy": 0.5, "brier": 0.25},
         "quant_backtest_test_metrics": {"session_count": 5.0, "trade_count": 5.0, "net_pnl": 5.0},
         "ai_quant_backtest_test_metrics": {"session_count": 5.0, "trade_count": 6.0, "net_pnl": 12.0},
@@ -724,7 +743,7 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_hold
             "dataset_sha256": dataset_sha256,
             "data_provenance": _provenance(dataset_sha256),
             "sessions": ["2026-10-16", "2026-10-17", "2026-10-18", "2026-10-19", "2026-10-20"],
-            "metrics": {"accuracy": 0.58, "brier": 0.22},
+            "metrics": {"accuracy": 0.58, "brier": 0.22, "positive_label_rate": 0.5},
             "quant_baseline_metrics": {"accuracy": 0.5, "brier": 0.25},
             "quant_backtest_metrics": {"session_count": 5.0, "trade_count": 5.0, "net_pnl": 5.0},
             "ai_quant_backtest_metrics": {"session_count": 5.0, "trade_count": 6.0, "net_pnl": 12.0},
@@ -736,6 +755,20 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_hold
     (registry.root / f"{model_id}.json").write_text(json.dumps(metadata), encoding="utf-8")
     if record_holdout_event:
         _record_holdout_audit_event(registry, metadata)
+
+
+@pytest.mark.parametrize("partition", ["validation_metrics", "test_metrics", "heldout_metrics"])
+def test_model_approval_evidence_requires_both_label_classes_in_each_evaluation_partition(
+    tmp_path, partition: str,
+) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "d" * 32
+    _write_candidate(registry, model_id)
+    metadata = registry.manifest(model_id)
+    target = metadata["heldout_evaluation"]["metrics"] if partition == "heldout_metrics" else metadata[partition]
+    target["positive_label_rate"] = 0.0
+
+    assert registry._has_valid_approval_evidence(metadata) is False
 
 
 def test_model_without_data_rights_provenance_cannot_be_approved_or_selected(tmp_path) -> None:
