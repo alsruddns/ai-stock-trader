@@ -6,7 +6,8 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.backtest_metrics import (
-    session_net_return_bps, summarize_sessions, summarize_spread_coverage, summarize_trades,
+    session_net_return_bps, summarize_net_trade_pnls, summarize_sessions,
+    summarize_spread_coverage, summarize_trades,
 )
 from app.quant import BacktestResult, MinuteBar, Trade
 
@@ -53,6 +54,33 @@ def test_no_trades_and_no_losing_trades_do_not_report_fake_profit_factor() -> No
     assert no_losses["profit_factor_net"] is None
     assert no_losses["profit_factor_status"] == "no_losing_trades"
     assert break_even["profit_factor_status"] == "break_even_only"
+
+
+def test_portfolio_net_trade_metrics_reconcile_wins_losses_and_breakeven() -> None:
+    metrics = summarize_net_trade_pnls([
+        Decimal("40"), Decimal("-30"), Decimal("0"), Decimal("10"),
+    ])
+
+    assert metrics["trade_count"] == 4
+    assert metrics["winning_trades"] == 2
+    assert metrics["losing_trades"] == 1
+    assert metrics["breakeven_trades"] == 1
+    assert metrics["win_rate_percent"] == "50"
+    assert Decimal(metrics["profit_factor_net"]) == Decimal(50) / Decimal(30)
+    assert Decimal(metrics["mean_net_pnl_krw"]) == Decimal("5")
+    assert Decimal(metrics["median_net_pnl_krw"]) == Decimal("5")
+    assert Decimal(metrics["mean_winning_trade_net_pnl_krw"]) == Decimal("25")
+    assert Decimal(metrics["mean_losing_trade_net_pnl_krw"]) == Decimal("-30")
+
+
+def test_portfolio_net_trade_metrics_mark_missing_profit_factor_cases() -> None:
+    assert summarize_net_trade_pnls([])["profit_factor_status"] == "no_trades"
+    winners = summarize_net_trade_pnls([Decimal("10"), Decimal("2")])
+    assert winners["profit_factor_net"] is None
+    assert winners["profit_factor_status"] == "no_losing_trades"
+    assert summarize_net_trade_pnls([Decimal("0")])["profit_factor_status"] == "break_even_only"
+    with pytest.raises(ValueError, match="finite decimals"):
+        summarize_net_trade_pnls([Decimal("NaN")])
 
 
 def test_invalid_entry_notional_is_rejected() -> None:

@@ -76,6 +76,43 @@ def summarize_trades(trades: Sequence[Trade]) -> dict[str, object]:
     }
 
 
+def summarize_net_trade_pnls(net_pnls: Sequence[Decimal]) -> dict[str, object]:
+    """Summarize portfolio trade outcomes after modeled costs, in KRW amounts."""
+    values = list(net_pnls)
+    if any(not isinstance(value, Decimal) or not value.is_finite() for value in values):
+        raise ValueError("portfolio net trade PnL values must be finite decimals")
+
+    winners = [value for value in values if value > 0]
+    losers = [value for value in values if value < 0]
+    breakeven_count = len(values) - len(winners) - len(losers)
+    loss_total = abs(sum(losers, Decimal(0)))
+    profit_factor = sum(winners, Decimal(0)) / loss_total if loss_total else None
+    average = sum(values, Decimal(0)) / Decimal(len(values)) if values else None
+    average_winner = sum(winners, Decimal(0)) / Decimal(len(winners)) if winners else None
+    average_loser = sum(losers, Decimal(0)) / Decimal(len(losers)) if losers else None
+    status = (
+        "defined" if loss_total else
+        "no_losing_trades" if winners else
+        "break_even_only" if values else
+        "no_trades"
+    )
+    return {
+        "trade_count": len(values),
+        "winning_trades": len(winners),
+        "losing_trades": len(losers),
+        "breakeven_trades": breakeven_count,
+        "win_rate_percent": str(Decimal(len(winners)) * Decimal(100) / Decimal(len(values)))
+        if values else None,
+        "profit_factor_net": str(profit_factor) if profit_factor is not None else None,
+        "profit_factor_status": status,
+        "mean_net_pnl_krw": str(average) if average is not None else None,
+        "median_net_pnl_krw": str(median(values)) if values else None,
+        "mean_winning_trade_net_pnl_krw": str(average_winner) if average_winner is not None else None,
+        "mean_losing_trade_net_pnl_krw": str(average_loser) if average_loser is not None else None,
+        "pnl_basis": "KRW per completed trade after configured modeled costs; not a return rate",
+    }
+
+
 def session_net_return_bps(session: BacktestResult) -> Decimal | None:
     """Return a session's net PnL over its traded entry notional, or None if flat."""
     if not session.trades:

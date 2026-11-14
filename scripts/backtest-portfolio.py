@@ -15,6 +15,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
 from app.ai_pipeline import LocalModelRegistry
+from app.backtest_metrics import summarize_net_trade_pnls
 from app.market_scope import require_cli_operational_market
 from app.portfolio_backtest import aggregate_compounded_drawdown, backtest_domestic_portfolio
 from app.quant import QuantConfig
@@ -165,6 +166,7 @@ def main() -> int:
                 },
                 "net_pnl": str(trade.net_pnl), "exit_reason": trade.exit_reason,
             } for trade in portfolio.trades],
+            "trade_metrics": summarize_net_trade_pnls([trade.net_pnl for trade in portfolio.trades]),
             "rejected_entries": [
                 {"symbol": symbol, "reason": reason} for symbol, reason in portfolio.rejected_entries
             ],
@@ -201,6 +203,18 @@ def main() -> int:
         aggregate_compounded_drawdown(args.starting_equity, portfolio_results)
         if args.carry_equity_between_sessions else None
     )
+    trade_metrics = {
+        "portfolio": summarize_net_trade_pnls(
+            [trade.net_pnl for result in portfolio_results for trade in result.trades]
+        ),
+        "by_symbol": {
+            symbol: summarize_net_trade_pnls([
+                trade.net_pnl for result in portfolio_results for trade in result.trades
+                if trade.symbol == symbol
+            ])
+            for symbol in sorted(data)
+        },
+    }
 
     print(json.dumps({
         "market": "KR",
@@ -245,6 +259,7 @@ def main() -> int:
                 "net_pnl_across_independent_sessions": str(net_pnl),
             } if not args.carry_equity_between_sessions else {}),
             "accepted_trade_count": sum(len(row["accepted_trades"]) for row in results),
+            "trade_metrics": trade_metrics,
             "executable": False,
         },
         "cost_assumptions_bps_per_fill": {
