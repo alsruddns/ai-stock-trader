@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P7 국내 일일 운영 리포트 schema 18 현행화 (작업일 2026-11-15 08:49 KST):** `scripts/export-daily-report.ps1`로 `.local/reports/operations-2026-11-15.json`을 원자 갱신했습니다. Spring/FastAPI·모의세션·모델·국내 세션 품질·학습준비 endpoint 응답과 Windows 예약작업 상태를 로컬 리포트에 반영했습니다. 운용 범위 KR, 모드 PAPER, PAPER 자동매매·PAPER 주문·REAL 주문·REAL 계좌조회 비활성을 확인했습니다. 005930·000660은 각각 적격 세션 2/13, 추가 11세션 필요, 학습준비 미충족입니다. `optionalDataStatus=COMPLETE`는 선택 endpoint 응답 상태만 뜻합니다. 리포트 생성은 로컬 API GET만 사용했고 KIS 계좌·시세·주문 API는 호출하지 않았습니다.
+
 - **P1 국내 PAPER 계좌 재검증 (작업일 2026-11-15 08:43 KST):** 명시적 opt-in `KisPaperAccountIntegrationTest`가 KIS 모의계좌 국내 잔고 GET과 70,000원 기준 주문가능금액 GET을 2/2 통과했습니다. 잔액·계좌 식별정보는 기록하지 않았고 매수·매도·취소 요청은 없습니다. 이어 실행한 Python 국내 읽기 전용 스모크는 현재가 GET에서 로컬 API `LOCAL_TIMEOUT`으로 종료되어 잔고 GET까지 도달하지 못했습니다. 원인은 확인되지 않아 재시도하지 않았습니다. 이후 로컬 FastAPI health `ok`, PAPER WebSocket `RUNNING`·구독 승인 4/4, 분봉 저장 `RUNNING`·대기 0, PAPER/REAL 주문 비활성을 확인했습니다. 이 결과는 Spring 계좌 읽기 성공과 Python 시세 조회 미완료를 분리해 기록하며 P1 전체 완료를 뜻하지 않습니다.
 
 - **P5 구독 거부 진단의 세션 보고서 연결 (작업일 2026-11-15):** PAPER WebSocket 구독 거부의 안전한 코드·거래 ID·종목 코드를 세션 감시 증거, 일일 운영 보고서, 대시보드까지 전달하도록 연결했습니다. 진단은 선택된 PAPER 피드와 일치할 때만 포함하고 형식 검증하며 원문 메시지·토큰·비밀정보는 제외합니다. 보고서 스키마를 18로 올렸습니다. Python/Pester 및 대시보드 집중검사를 통과했습니다. 이 변경은 운영 진단 보강이며 구독 오류 원인이나 정규장 연속 세션 검증을 입증하지 않습니다. 주문·계좌 요청은 수행하지 않았습니다.
