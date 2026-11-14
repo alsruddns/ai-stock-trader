@@ -32,12 +32,15 @@ class KisRealizedPnlCalculatorTest {
     @Test
     void commissionsAndSellTaxCanTurnGrossProfitIntoNetLoss() {
         var result = calculator.calculate(List.of(), List.of(
-                buy("a", "AAA", 1, "100", 1), sell("b", "AAA", 1, "100.1", 2)),
+                buy("a", "AAA", 1, "10000", 1), sell("b", "AAA", 1, "10000", 2)),
                 costs("5", "5", "2"));
 
         assertTrue(result.valid());
         assertEquals(1, result.consecutiveLosses());
         assertTrue(result.trades().getFirst().netPnl().signum() < 0);
+        assertMoney("5", result.estimatedBuyCommission());
+        assertMoney("5", result.estimatedSellCommission());
+        assertMoney("2", result.estimatedSellTax());
     }
 
     @Test

@@ -42,18 +42,26 @@ final class KisRealizedPnlCalculator {
         ordered.sort(Comparator.comparing(TradeFill::executedAt).thenComparing(fill -> fill.id().toString()));
 
         List<RealizedTrade> realized = new ArrayList<>();
+        BigDecimal estimatedBuyCommission = BigDecimal.ZERO;
+        BigDecimal estimatedSellCommission = BigDecimal.ZERO;
+        BigDecimal estimatedSellTax = BigDecimal.ZERO;
         for (TradeFill fill : ordered) {
             String symbol = normalize(fill.symbol());
             Inventory position = inventory.computeIfAbsent(symbol, ignored -> new Inventory());
             BigDecimal quantity = BigDecimal.valueOf(fill.quantity());
             BigDecimal notional = fill.averagePrice().multiply(quantity);
             if (fill.side() == OrderSide.BUY) {
+                estimatedBuyCommission = estimatedBuyCommission.add(currencyCost(notional,
+                        costs.buyCommissionBps()));
                 BigDecimal unitCost = fill.averagePrice().multiply(BigDecimal.ONE.add(
                         costs.buyCommissionBps().divide(TEN_THOUSAND, 12, RoundingMode.HALF_UP)));
                 position.buy(quantity, unitCost);
             } else {
                 if (position.quantity.compareTo(quantity) < 0) return Result.invalid();
                 BigDecimal gross = fill.averagePrice().subtract(position.averageCost).multiply(quantity);
+                estimatedSellCommission = estimatedSellCommission.add(currencyCost(notional,
+                        costs.sellCommissionBps()));
+                estimatedSellTax = estimatedSellTax.add(currencyCost(notional, costs.sellTaxBps()));
                 BigDecimal sellCost = notional.multiply(costs.sellCommissionBps()
                         .add(costs.sellTaxBps()).divide(TEN_THOUSAND, 12, RoundingMode.HALF_UP));
                 BigDecimal net = gross.subtract(sellCost);
@@ -71,7 +79,12 @@ final class KisRealizedPnlCalculator {
         inventory.forEach((symbol, position) -> {
             if (position.quantity.signum() > 0) openPositions.put(symbol, position.quantity);
         });
-        return new Result(true, consecutiveLosses, List.copyOf(realized), Map.copyOf(openPositions));
+        return new Result(true, consecutiveLosses, List.copyOf(realized), Map.copyOf(openPositions),
+                estimatedBuyCommission, estimatedSellCommission, estimatedSellTax);
+    }
+
+    private static BigDecimal currencyCost(BigDecimal notional, BigDecimal rateBps) {
+        return notional.multiply(rateBps).divide(TEN_THOUSAND, 0, RoundingMode.HALF_UP);
     }
 
     private static String normalize(String symbol) { return symbol.trim().toUpperCase(Locale.ROOT); }
@@ -89,8 +102,11 @@ final class KisRealizedPnlCalculator {
     }
     record RealizedTrade(String id, String symbol, Instant executedAt, BigDecimal netPnl) { }
     record Result(boolean valid, int consecutiveLosses, List<RealizedTrade> trades,
-                  Map<String, BigDecimal> openPositions) {
-        static Result invalid() { return new Result(false, -1, List.of(), Map.of()); }
+                  Map<String, BigDecimal> openPositions, BigDecimal estimatedBuyCommission,
+                  BigDecimal estimatedSellCommission, BigDecimal estimatedSellTax) {
+        static Result invalid() {
+            return new Result(false, -1, List.of(), Map.of(), null, null, null);
+        }
     }
 
     private static final class Inventory {
