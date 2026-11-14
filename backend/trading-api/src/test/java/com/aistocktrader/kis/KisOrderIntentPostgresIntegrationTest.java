@@ -455,6 +455,9 @@ class KisOrderIntentPostgresIntegrationTest {
             assertTrue(page.getContent().stream().anyMatch(candidate -> candidate.getIdempotencyKey().equals(key)));
             assertEquals(0, page.getNumber());
             assertEquals(50, page.getSize());
+            assertTrue(Boolean.TRUE.equals(jdbcTemplate.queryForObject(
+                    "select exists (select 1 from pg_indexes where indexname = ?)", Boolean.class,
+                    "idx_kis_order_intent_real_exit_page")));
         } finally {
             kisOrderRepository.deleteById(key);
         }
