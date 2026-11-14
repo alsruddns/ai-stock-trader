@@ -192,7 +192,7 @@ jobs:
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#concurrentBrokerSnapshotsCannotReopenCancelledIntent' test
       - name: Verify stale terminal snapshots do not create REAL fill history
         working-directory: backend/trading-api
-        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#staleFillAfterCancellationDoesNotCreateRealFillHistory' test
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#staleFillAfterCancellationWaitsForConfirmationBeforeRealFillHistory' test
 
   dashboard-domestic-operations:
     runs-on: ubuntu-latest

@@ -23,11 +23,12 @@ public class KisRealFillSnapshotStore {
                 || snapshot.filledQuantity() > intent.getQuantity()
                 || (long) snapshot.filledQuantity() + snapshot.remainingQuantity() > intent.getQuantity()
                 || snapshot.averageFillPrice() == null || snapshot.averageFillPrice().signum() <= 0) return;
-        Integer previousFill = intent.getFilledQuantity();
+        Integer previousFill = jdbc.queryForObject("""
+                SELECT MAX(cumulative_filled_quantity)
+                  FROM kis_real_fill_snapshot
+                 WHERE idempotency_key = ?
+                """, Integer.class, intent.getIdempotencyKey());
         if (previousFill != null && snapshot.filledQuantity() < previousFill) return;
-        if (previousFill != null && snapshot.filledQuantity() == previousFill
-                && snapshot.averageFillPrice().compareTo(intent.getAverageFillPrice() == null
-                        ? BigDecimal.ZERO : intent.getAverageFillPrice()) == 0) return;
 
         jdbc.update("""
                 INSERT INTO kis_real_fill_snapshot
@@ -38,6 +39,10 @@ public class KisRealFillSnapshotStore {
                    SET cumulative_average_fill_price = EXCLUDED.cumulative_average_fill_price,
                        remaining_quantity = EXCLUDED.remaining_quantity,
                        observed_at = EXCLUDED.observed_at
+                 WHERE kis_real_fill_snapshot.cumulative_average_fill_price
+                           IS DISTINCT FROM EXCLUDED.cumulative_average_fill_price
+                    OR kis_real_fill_snapshot.remaining_quantity
+                           IS DISTINCT FROM EXCLUDED.remaining_quantity
                 """, intent.getIdempotencyKey(), snapshot.filledQuantity(), snapshot.averageFillPrice(),
                 snapshot.remainingQuantity(), java.sql.Timestamp.from(Instant.now()));
     }

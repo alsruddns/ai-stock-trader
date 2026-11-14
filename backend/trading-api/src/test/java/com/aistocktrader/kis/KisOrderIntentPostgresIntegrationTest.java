@@ -697,7 +697,7 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
-    void staleFillAfterCancellationDoesNotCreateRealFillHistory() {
+    void staleFillAfterCancellationWaitsForConfirmationBeforeRealFillHistory() {
         UUID key = UUID.randomUUID();
         try {
             store.prepare(key, hash("terminal-stale-real-fill"), KisEnvironment.REAL, request(), null);
@@ -715,6 +715,15 @@ class KisOrderIntentPostgresIntegrationTest {
             assertTrue(jdbcTemplate.queryForList(
                     "SELECT idempotency_key FROM kis_real_fill_snapshot WHERE idempotency_key = ?", UUID.class, key)
                     .isEmpty());
+
+            KisOrderIntent confirmed = store.reconcile(key, new KisBrokerOrderSnapshot(1, 0,
+                    new BigDecimal("69950"), false, false));
+            entityManager.clear();
+            KisOrderIntent confirmedPersisted = repository.findById(key).orElseThrow();
+            assertEquals(KisOrderStatus.FILLED, confirmed.getStatus());
+            assertEquals(KisOrderStatus.FILLED, confirmedPersisted.getStatus());
+            assertEquals(1, jdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM kis_real_fill_snapshot WHERE idempotency_key = ?", Integer.class, key));
         } finally {
             repository.deleteById(key);
         }

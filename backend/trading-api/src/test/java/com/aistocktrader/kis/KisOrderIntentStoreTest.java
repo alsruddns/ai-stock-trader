@@ -160,5 +160,11 @@ class KisOrderIntentStoreTest {
         assertEquals(KisOrderStatus.UNKNOWN, updated.getStatus());
         assertEquals(1, updated.getFilledQuantity());
         verify(realFillSnapshots, never()).record(intent, staleOpenFill);
+
+        updated = new KisOrderIntentStore(repository, realFillSnapshots).reconcile(key,
+                new KisBrokerOrderSnapshot(1, 2, new BigDecimal("69950"), false, false));
+        assertEquals(KisOrderStatus.PARTIALLY_FILLED, updated.getStatus());
+        verify(realFillSnapshots).record(intent,
+                new KisBrokerOrderSnapshot(1, 2, new BigDecimal("69950"), false, false));
     }
 }
