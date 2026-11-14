@@ -48,15 +48,34 @@ def test_parse_domestic_multi_record_frame_uses_trade_volume_not_cumulative_volu
     assert [tick.volume for tick in ticks] == [3, 5]
 
 
-@pytest.mark.parametrize(("field", "value"), [(2, "73500.5"), (10, "73510.5"), (11, "73500.5")])
-def test_domestic_trade_parser_rejects_fractional_won_prices(field: int, value: str) -> None:
+def test_domestic_trade_parser_rejects_fractional_won_trade_price() -> None:
     frame = _frame("H0STCNT0", 47, {
         0: "005930", 1: "100101", 2: "73500", 10: "73510", 11: "73500",
-        12: "3", 33: "20261105", 45: "73500", 46: "2", field: value,
+        12: "3", 33: "20261105", 45: "73500", 46: "2", 2: "73500.5",
     })
 
     with pytest.raises(ValueError, match="whole KRW amount"):
         parse_trade_frame(frame, "KR")
+
+
+@pytest.mark.parametrize(("field", "expected_bid", "expected_ask"), [
+    (10, Decimal("73500"), None),
+    (11, None, Decimal("73510")),
+])
+def test_domestic_trade_parser_keeps_execution_when_optional_quote_is_fractional(
+    field: int, expected_bid: Decimal | None, expected_ask: Decimal | None,
+) -> None:
+    frame = _frame("H0STCNT0", 47, {
+        0: "005930", 1: "100101", 2: "73500", 10: "73510", 11: "73500",
+        12: "3", 33: "20261105", 45: "73500", 46: "2", field: "73510.5" if field == 10 else "73500.5",
+    })
+
+    tick = parse_trade_frame(frame, "KR")[0]
+
+    assert tick.price == Decimal("73500")
+    assert tick.volume == 3
+    assert tick.bid == expected_bid
+    assert tick.ask == expected_ask
 
 
 @pytest.mark.parametrize("market_class", ["1", "3", "5", ""])

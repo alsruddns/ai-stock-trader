@@ -117,10 +117,15 @@ def parse_trade_frame_with_diagnostics(
             raise ValueError("KIS trade price must be positive")
         if market == "KR":
             _require_whole_krw(tick.price, "trade price")
-            if tick.ask is not None:
-                _require_whole_krw(tick.ask, "ask price")
-            if tick.bid is not None:
-                _require_whole_krw(tick.bid, "bid price")
+            # Keep a valid execution even if optional quote fields are malformed.
+            # The separate orderbook stream is authoritative for spread capture.
+            ask = tick.ask if tick.ask is None or tick.ask == tick.ask.to_integral_value() else None
+            bid = tick.bid if tick.bid is None or tick.bid == tick.bid.to_integral_value() else None
+            if ask != tick.ask or bid != tick.bid:
+                tick = TradeTick(
+                    market=tick.market, symbol=tick.symbol, timestamp=tick.timestamp,
+                    price=tick.price, volume=tick.volume, bid=bid, ask=ask,
+                )
         ticks.append(tick)
     return ticks, non_regular_records
 
