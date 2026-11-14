@@ -1,44 +1,30 @@
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$envFile = Join-Path $repoRoot '.env_local'
-if (-not (Test-Path -LiteralPath $envFile)) { $envFile = Join-Path $repoRoot '.env' }
-if (-not (Test-Path -LiteralPath $envFile)) {
-    throw 'Repository .env_local or .env file is missing. Copy .env.example and configure local PostgreSQL first.'
-}
-
 $originalEnvironment = @{}
-foreach ($line in Get-Content -LiteralPath $envFile) {
-    $trimmed = $line.Trim()
-    if (-not $trimmed -or $trimmed.StartsWith('#') -or -not $trimmed.Contains('=')) { continue }
-    $parts = $trimmed.Split('=', 2)
-    $name = $parts[0].Trim()
-    $value = $parts[1].Trim()
-    if (($value.StartsWith('"') -and $value.EndsWith('"')) -or
-        ($value.StartsWith("'") -and $value.EndsWith("'"))) {
-        $value = $value.Substring(1, $value.Length - 2)
-    }
-    if (-not $originalEnvironment.ContainsKey($name)) {
-        $originalEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-    }
-    [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerator()) {
+    $originalEnvironment[[string]$entry.Key] = [string]$entry.Value
 }
-
-if (-not $env:POSTGRES_PASSWORD -or $env:POSTGRES_PASSWORD -eq 'replace_with_your_local_postgres_password') {
-    throw 'Set POSTGRES_PASSWORD in .env to the password for your local PostgreSQL user.'
-}
-
-foreach ($name in @('TRADING_MODE', 'LIVE_TRADING_ENABLED', 'KIS_REAL_ORDERS_ENABLED',
-        'KIS_PAPER_ORDERS_ENABLED', 'SERVER_ADDRESS')) {
-    if (-not $originalEnvironment.ContainsKey($name)) {
-        $originalEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+$pgBin = 'C:\Program Files\PostgreSQL\16\bin'
+foreach ($binary in @('initdb.exe', 'pg_ctl.exe', 'createdb.exe')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $pgBin $binary))) {
+        throw "Isolated PostgreSQL test binary is missing: $binary"
     }
 }
-$env:TRADING_MODE = 'paper'
-$env:LIVE_TRADING_ENABLED = 'false'
-$env:KIS_REAL_ORDERS_ENABLED = 'false'
-$env:KIS_PAPER_ORDERS_ENABLED = 'false'
-$env:SERVER_ADDRESS = '127.0.0.1'
+$repoSafeTempRoot = [IO.Path]::GetFullPath($env:TEMP)
+$clusterId = [guid]::NewGuid().ToString('N')
+$clusterPath = [IO.Path]::GetFullPath((Join-Path $repoSafeTempRoot "ai-stock-trader-paper-restart-$clusterId"))
+if (-not $clusterPath.StartsWith($repoSafeTempRoot + [IO.Path]::DirectorySeparatorChar,
+        [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Refusing to create an isolated PostgreSQL test cluster outside the temporary directory.'
+}
+$clusterLog = Join-Path $clusterPath 'postgres.log'
+$pgListener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+$pgListener.Start()
+$pgPort = $pgListener.LocalEndpoint.Port
+$pgListener.Stop()
+$databaseUrl = "jdbc:postgresql://127.0.0.1:$pgPort/ai_stock_trader_paper_restart"
+$pgStarted = $false
 $port = Get-Random -Minimum 20000 -Maximum 50000
 $baseUrl = "http://127.0.0.1:$port"
 $idempotencyKey = [guid]::NewGuid().ToString()
@@ -84,7 +70,47 @@ function Stop-PaperApiProcess {
     }
 }
 
+function Start-TestDatabase {
+    $arguments = @('-D', $clusterPath, '-o',
+        "-h 127.0.0.1 -p $pgPort -c listen_addresses=127.0.0.1", '-l',
+        $clusterLog, '-w', '-t', '30', 'start')
+    & (Join-Path $pgBin 'pg_ctl.exe') @arguments
+    if ($LASTEXITCODE -ne 0) { throw 'Isolated PostgreSQL test database failed to start.' }
+    $script:pgStarted = $true
+}
+
+function Stop-TestDatabase {
+    if ($script:pgStarted) {
+        & (Join-Path $pgBin 'pg_ctl.exe') -D $clusterPath -m fast -w -t 30 stop
+        if ($LASTEXITCODE -ne 0) { throw 'Isolated PostgreSQL test database failed to stop cleanly.' }
+        $script:pgStarted = $false
+    }
+}
+
 try {
+    foreach ($item in @(Get-ChildItem Env:KIS_* -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath "Env:$($item.Name)" -ErrorAction SilentlyContinue
+    }
+    $env:TRADING_MODE = 'paper'
+    $env:LIVE_TRADING_ENABLED = 'false'
+    $env:KIS_REAL_ORDERS_ENABLED = 'false'
+    $env:KIS_PAPER_ORDERS_ENABLED = 'false'
+    $env:KIS_ACCOUNT_READ_ENABLED = 'false'
+    $env:KIS_PAPER_ACCOUNT_READ_ENABLED = 'false'
+    $env:KIS_REAL_ACCOUNT_READ_ENABLED = 'false'
+    $env:KIS_REAL_RECONCILIATION_ENABLED = 'false'
+    $env:KIS_MARKET_DATA_ENABLED = 'false'
+    $env:PAPER_AUTOMATION_ENABLED = 'false'
+    $env:POSTGRES_USER = 'postgres'
+    $env:POSTGRES_PASSWORD = 'isolated-test-not-used-with-trust-auth'
+    $env:DATABASE_URL = $databaseUrl
+    $env:SERVER_ADDRESS = '127.0.0.1'
+    New-Item -ItemType Directory -Path $clusterPath -Force | Out-Null
+    & (Join-Path $pgBin 'initdb.exe') -D $clusterPath -U postgres -A trust -E UTF8 --no-locale | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not initialize the isolated PostgreSQL test cluster.' }
+    Start-TestDatabase
+    & (Join-Path $pgBin 'createdb.exe') -h 127.0.0.1 -p $pgPort -U postgres ai_stock_trader_paper_restart
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the isolated PAPER restart database.' }
     Push-Location $apiDirectory
     try {
         & .\mvnw.cmd -DskipTests package
@@ -115,11 +141,30 @@ try {
     $orderId = $null
     Write-Output "PASS: PAPER order $($recovered.id) survived a separate JVM process restart and idempotent replay. No KIS request was made."
 } finally {
-    if ($orderId) {
-        try { Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/orders/paper/$orderId/cancel" -TimeoutSec 3 | Out-Null } catch { }
-    }
-    Stop-PaperApiProcess -RunningProcess $process
-    foreach ($name in $originalEnvironment.Keys) {
-        [Environment]::SetEnvironmentVariable($name, $originalEnvironment[$name], 'Process')
+    try {
+        if ($orderId) {
+            try { Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/orders/paper/$orderId/cancel" -TimeoutSec 3 | Out-Null } catch { }
+        }
+        Stop-PaperApiProcess -RunningProcess $process
+        Stop-TestDatabase
+        if ($clusterPath -and (Test-Path -LiteralPath $clusterPath)) {
+            $resolvedTemp = [IO.Path]::GetFullPath($repoSafeTempRoot)
+            $resolvedCluster = [IO.Path]::GetFullPath($clusterPath)
+            if ($resolvedCluster.StartsWith($resolvedTemp + [IO.Path]::DirectorySeparatorChar,
+                    [StringComparison]::OrdinalIgnoreCase) -and
+                (Split-Path -Leaf $resolvedCluster) -eq "ai-stock-trader-paper-restart-$clusterId") {
+                Remove-Item -LiteralPath $resolvedCluster -Recurse -Force
+            }
+        }
+    } finally {
+        $currentEnvironment = [Environment]::GetEnvironmentVariables('Process')
+        foreach ($name in $currentEnvironment.Keys) {
+            if (-not $originalEnvironment.ContainsKey([string]$name)) {
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            }
+        }
+        foreach ($name in $originalEnvironment.Keys) {
+            [Environment]::SetEnvironmentVariable($name, $originalEnvironment[$name], 'Process')
+        }
     }
 }

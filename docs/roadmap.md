@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P2 JVM 재시작 주문복구 검사의 운영 DB 격리 (작업일 2026-11-15):** `scripts/test-paper-process-restart.ps1`가 `.env_local` 자격정보와 운영 PostgreSQL을 읽지 않도록 바꾸고, 임시 loopback PostgreSQL 16·임시 Spring 포트·빈 KIS 환경으로 실행되게 했습니다. 실제 실행에서 PAPER 장부 주문이 별도 Spring JVM 재시작 후 같은 ID/상태로 복구되고 같은 멱등키 재전송이 기존 주문을 반환했으며, 임시 장부 주문은 격리 DB에서 취소됐습니다. `No KIS request was made` 성공을 확인했고 임시 DB 디렉터리와 JVM이 남지 않았습니다. 이는 로컬 주문원장 재시작 복구 검증이며 KIS 모의계좌 주문 수명주기 검증은 아닙니다.
+
 - **P2 격리 PostgreSQL 주문 복구 통합검사 (작업일 2026-11-15):** 별도 임시 PostgreSQL 16 클러스터와 임시 Spring 포트에서 Flyway 30개 마이그레이션, REAL 위험·체결 기준선 PostgreSQL 검사 3건, 로컬 PAPER 주문 생성·정정 멱등성·키 충돌 거부, DB 중단 시 상세정보를 누설하지 않는 HTTP 503, DB 재기동 후 주문 상태 복구를 확인했습니다. API 주문 스위치와 REAL 조회·대사는 비활성이었고 KIS 요청은 없었습니다. 임시 DB와 Spring 프로세스는 종료·삭제됐으며 기존 운영 PostgreSQL에는 연결하지 않았습니다.
 
 - **P5 세션 응답 식별 누락 시 환경 재시작 보류 (작업일 2026-11-15):** 환경 갱신 가드의 회귀검사에 시장 코드 미확인 및 세션 날짜 파싱 불가 사례를 추가했습니다. 불완전한 세션 응답은 감시 작업을 찾을 수 없더라도 환경 재시작을 허용하지 않는 동작을 확인했으며, `scripts/test-local-stack-env-reload.ps1` 집중검사와 `git diff --check`가 통과했습니다. 국내 세션 감시는 11월 16일 08:45 KST 예약 상태이며 아직 실행 전입니다. 로컬 읽기 전용 상태 확인에서 FastAPI health와 분봉 저장은 정상, 대기 분봉 0건, PAPER/REAL 주문 및 자동매매 잠금은 비활성으로 확인했습니다. 최근 WebSocket 끊김 이력은 남아 있으나 health가 연결로 표시되어 과거 오류를 현재 장애로 단정하지 않았습니다. KIS API나 주문은 호출하지 않았습니다.
