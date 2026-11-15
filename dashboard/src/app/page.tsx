@@ -448,7 +448,11 @@ function domesticMonitorRunLabel(monitor: LocalOperationsReport["domesticSession
   if (monitor.state === "FAILED") return `실패${monitor.failureCode ? ` · ${monitorFailureLabel(monitor.failureCode)}` : " · 실패 코드 미기록"}`;
   const fullSessionPassed = monitor.state === "PASSED" && monitor.validationScope === "full_session" &&
     monitor.sessionCloseReached === true && monitor.sessionQualityStatus === "verified";
-  return fullSessionPassed ? "전체 세션 통과" : "일부 구간 통과";
+  if (!fullSessionPassed) return "일부 구간 통과";
+  if (!monitor.barStorageDiagnosticAvailable || monitor.barStorageReady !== true) {
+    return "세션 데이터 통과 · 저장 검증 미완료";
+  }
+  return "전체 세션 통과";
 }
 function domesticMonitorAcknowledgementDetail(monitor: LocalOperationsReport["domesticSessionMonitor"]) {
   const acknowledgementLabel = monitor?.subscriptionAcknowledgementsAvailable && monitor.subscriptionAcknowledgements
