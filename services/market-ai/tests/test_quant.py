@@ -66,6 +66,31 @@ def test_entry_candidate_ema_uses_full_session_prefix(monkeypatch) -> None:
     assert observed_lengths == [21]
 
 
+def test_expected_reward_to_cost_filter_checks_the_configured_ratio(monkeypatch) -> None:
+    bars = _session_bars()[:21]
+    monkeypatch.setattr("app.quant._ema", lambda _values, _period: Decimal("100"))
+    monkeypatch.setattr("app.quant._vwap", lambda _bars: Decimal("100"))
+    monkeypatch.setattr("app.quant._atr", lambda _bars, _period: Decimal("1"))
+
+    def candidate(minimum_multiple: str) -> bool:
+        return orb_vwap_entry_candidate(
+            bars,
+            QuantConfig(
+                minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"),
+                minimum_reward_to_cost_multiple=Decimal(minimum_multiple),
+                atr_stop_multiple=Decimal("1"), reward_risk_multiple=Decimal("2"),
+                buy_commission_bps=Decimal("1"), sell_commission_bps=Decimal("1"),
+                slippage_bps=Decimal("0"), maximum_spread_bps=Decimal("15"),
+            ),
+            market="KR",
+        )
+
+    # Expected reward is 2 / 101 * 10,000 bps; estimated round-trip cost is
+    # 2 commission bps + 2.5 entry spread bps + 7.5 exit spread bps.
+    assert candidate("16.5") is True
+    assert candidate("16.6") is False
+
+
 def test_orb_vwap_enters_on_next_bar_and_applies_costs() -> None:
     config = QuantConfig(
         commission_bps=Decimal("5"), slippage_bps=Decimal("5"),
