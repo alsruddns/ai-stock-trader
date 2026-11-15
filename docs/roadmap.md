@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P1 REAL 국내 최근 체결 GET 확인 (2026-11-15 18:20 KST):** 명시적 단일 테스트 선택으로 `readsDomesticSessionExecutionsWithoutPrintingTradeDetails`를 실행했고, 최근 국내 체결내역 읽기 전용 GET이 1/1 통과했습니다. 최신 Surefire 보고서에서 해당 테스트가 정확히 한 번 실행되어 skipped/failure/error가 없음을 확인했습니다. 체결 상세 및 계좌 식별정보는 출력하지 않았고 KIS 주문·취소 요청은 전송하지 않았습니다. 실주문 잠금과 `.env_local` 값은 변경하지 않았습니다.
+
 - **P1 REAL 국내 잔고 GET과 새 주문 게이트 확인 (2026-11-15 18:12 KST):** `.env_local`을 읽고 `-EnableReadOnlyGetForThisRun` 및 단일 메서드 선택으로 `readsDomesticRealBalanceWithoutPlacingOrders`만 실행했습니다. 12개 주문·자동화 스위치 fail-closed 검사를 통과한 뒤 REAL 계좌 잔고 GET 매핑이 1/1 성공했고, 필수 최신 Surefire 보고서에서도 해당 테스트가 정확히 한 번 실행되어 skipped/failure/error 없이 통과했음을 확인했습니다. PostgreSQL Flyway 30개 migration validation도 통과했고 DB는 최신 상태였습니다. 금액·보유 수량·계좌 식별값은 출력하지 않았으며 주문·정정·취소와 다른 KIS 테스트는 전송하지 않았습니다. `.env_local` 및 실주문 잠금은 변경하지 않았습니다.
 
 - **P1 실행 게이트 목록 설정 템플릿 대조 테스트 (2026-11-15 18:08 KST):** 읽기 전용 REAL 계좌 검사에서 사용하는 12개 주문·자동화 게이트가 `.env.example`에 선언된 모든 주문/실행 스위치를 포함하는지 자동 검사하도록 추가했습니다. 전용 Pester 검사 4/4, PowerShell AST 구문검사 3개 파일, tracked credential scan이 통과했고 Windows PAPER preflight `43697827486`도 성공했습니다. 주문 가능 스위치가 새로 추가되면 읽기 전용 스크립트의 보호 목록에서 빠진 항목을 CI가 차단합니다. KIS API 요청은 하지 않았고 `.env_local`과 실행 설정은 바꾸지 않았습니다.
