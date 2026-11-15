@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P1 11월 16일 국내 장중 검증 실행 전 점검 (2026-11-15 18:32 KST):** 로컬 FastAPI `/api/v1/health`는 `ok`, Spring 운영 요약은 `PAPER`·REAL 비활성으로 응답했습니다. PAPER 주문·자동매매와 REAL 주문은 꺼져 있고, `.env_local`의 REAL 조회 자격 구성 및 DB 비밀값 존재 여부만 값 노출 없이 확인했습니다. KRX 감시(08:45), REAL WebSocket tick 확인(09:05), 신선 호가 기반 무주문 사전점검(09:10) 작업은 모두 `Ready`, 현재 로그인 계정 `home`의 `Interactive` 방식이며 `WakeToRun`·장중 작업 `StartWhenAvailable`이 켜져 있습니다. 모두 실행 전 상태이며, 이번 확인은 localhost GET·환경 키 존재/형식·스케줄러 읽기만 했고 KIS 요청은 없었습니다.
+
 - **P2 국내 PAPER 취소 사전조회 지원 최신 대조 (2026-11-15):** KIS 공식 API 지원표를 다시 확인했으며, 국내 `주식정정취소가능주문조회`에는 모의투자 지원 표시가 없습니다. 공식 취소 예제는 취소 POST 전에 해당 조회의 `psbl_qty`를 확인하도록 요구합니다. 주문 이력·잔고의 다른 수량으로 대체하지 않으며, PAPER 취소 경로는 KIS의 지원 확인 또는 검증된 모의 조회 응답을 얻을 때까지 잠금 상태로 둡니다. 이번 확인은 공개 문서만 읽었고 KIS 계좌/API 요청이나 주문은 없었습니다. [KIS 공식 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#3-api-%EC%A0%9C%EA%B3%B5-%EB%AA%A9%EB%A1%9D) · [공식 취소 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_rvsecncl/order_rvsecncl.py)
 
 - **P1 REAL 국내 최근 체결 GET 확인 (2026-11-15 18:20 KST):** 명시적 단일 테스트 선택으로 `readsDomesticSessionExecutionsWithoutPrintingTradeDetails`를 실행했고, 최근 국내 체결내역 읽기 전용 GET이 1/1 통과했습니다. 최신 Surefire 보고서에서 해당 테스트가 정확히 한 번 실행되어 skipped/failure/error가 없음을 확인했습니다. 체결 상세 및 계좌 식별정보는 출력하지 않았고 KIS 주문·취소 요청은 전송하지 않았습니다. 실주문 잠금과 `.env_local` 값은 변경하지 않았습니다.
