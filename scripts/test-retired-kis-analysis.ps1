@@ -1,7 +1,10 @@
 [CmdletBinding()]
-param([string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot))
+param([string]$RepositoryRoot)
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) {
+    $RepositoryRoot = Split-Path -Parent $PSScriptRoot
+}
 . (Join-Path $PSScriptRoot 'lib/retired-kis-analysis-scan.ps1')
 $findings = @(Get-RetiredKisDomesticAnalysisFindings -RepositoryRoot $RepositoryRoot)
 if ($findings.Count -gt 0) {
