@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P2 국내 PAPER 취소 사전검사 차단의 PostgreSQL 상태 복구 (작업일 2026-11-15):** 국내 PAPER 주문의 지원되지 않는 취소 수량 사전검사 오류를 모의 KIS 경계에서 주입해, Spring이 주문을 `CANCEL_PENDING`에 고착시키지 않고 관측된 `ACCEPTED`·잔량과 `PAPER_CANCEL_UNSUPPORTED` 코드를 PostgreSQL에 보존하는지 확인했습니다. schema 30 로컬 PostgreSQL 통합검사 1/1 통과. KIS 네트워크 요청·계좌·주문은 없었고 실제 취소 지원이나 주문 lifecycle 검증을 의미하지 않습니다.
+
 - **P1 Python 국내 PAPER 시세·잔고 읽기 재검증 (작업일 2026-11-15 09:10 KST):** `scripts/test-paper-kis-python.ps1`을 다시 실행해 FastAPI 경유 KIS 국내 현재가와 PAPER 잔고 GET을 모두 통과했습니다. 앞서 08:43에 보고된 현재가 `LOCAL_TIMEOUT`은 재현되지 않았으며 당시 원인은 여전히 미확인입니다. 스크립트는 PAPER/국내 범위와 주문·자동매매 잠금을 확인했고, 응답 금액·계좌정보는 기록하지 않았습니다. 매수·매도·취소 요청은 전송하지 않았습니다.
 
 - **P2 UNKNOWN 재시작 후 대사 잠금의 PostgreSQL 통합검사 (작업일 2026-11-15):** 재시작 뒤 `UNKNOWN` 상태로 복구되고 브로커 주문번호가 없는 PAPER 의도를 실제 PostgreSQL 통합검사에서 다시 대사해도 `UNKNOWN`과 빈 주문번호가 유지되는지 확인하도록 검사를 확장했습니다. 로컬 PostgreSQL schema 30에서 해당 단일 Maven 검사 1/1 통과했습니다. PAPER/REAL API 자격정보를 검사 프로세스에서 비우고 KIS API·계좌·주문 요청 없이 검증했습니다.

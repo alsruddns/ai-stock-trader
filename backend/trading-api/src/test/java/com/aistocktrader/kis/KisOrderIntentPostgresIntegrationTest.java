@@ -766,6 +766,42 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    @Transactional
+    void unsupportedDomesticPaperCancelPreflightRestoresOpenOrderStateInPostgres() {
+        UUID key = UUID.randomUUID();
+        OrderRequest order = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        String brokerNumber = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        var openSnapshot = new KisBrokerOrderSnapshot(0, 1, null, false, false);
+        store.prepare(key, hash("cancel-preflight"), KisEnvironment.PAPER, order, null);
+        store.accept(key, receipt("paper", brokerNumber));
+        when(kisOrderClient.reconcilePaperOrder(any(KisOrderIntent.class))).thenReturn(Optional.of(openSnapshot));
+        doThrow(new KisApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                "KIS paper cancel is blocked before submission (code PAPER_CANCEL_UNSUPPORTED)."))
+                .when(kisOrderClient).cancelPaperOrder(Market.KR, order.symbol(), brokerNumber,
+                        "ITORG01", 1, "");
+
+        try {
+            var response = kisOrders.cancelPaperOrder(key, null);
+            entityManager.flush();
+            entityManager.clear();
+            var persisted = kisOrderRepository.findById(key).orElseThrow();
+
+            assertEquals(KisOrderStatus.ACCEPTED, response.status());
+            assertEquals(1, response.remainingQuantity());
+            assertEquals("PAPER_CANCEL_UNSUPPORTED", response.responseCode());
+            assertEquals(KisOrderStatus.ACCEPTED, persisted.getStatus());
+            assertEquals(1, persisted.getRemainingQuantity());
+            assertEquals("PAPER_CANCEL_UNSUPPORTED", persisted.getBrokerResponseCode());
+            verify(kisOrderClient).cancelPaperOrder(Market.KR, order.symbol(), brokerNumber,
+                    "ITORG01", 1, "");
+            verify(kisOrderClient, times(1)).reconcilePaperOrder(any(KisOrderIntent.class));
+        } finally {
+            kisOrderRepository.deleteById(key);
+        }
+    }
+
+    @Test
     void concurrentBrokerSnapshotsCannotReopenCancelledIntent() throws Exception {
         UUID key = UUID.randomUUID();
         String brokerNumber = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
