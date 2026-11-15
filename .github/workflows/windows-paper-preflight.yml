@@ -98,7 +98,7 @@ jobs:
           }
 
           $readonlyKisGatesResult = Invoke-Pester -Path 'scripts/tests/readonly-kis-execution-gates.Tests.ps1' -PassThru
-          if ($readonlyKisGatesResult.FailedCount -gt 0 -or $readonlyKisGatesResult.PassedCount -ne 4) {
+          if ($readonlyKisGatesResult.FailedCount -gt 0 -or $readonlyKisGatesResult.PassedCount -ne 7) {
             throw "Read-only KIS execution gate checks failed: passed=$($readonlyKisGatesResult.PassedCount), failed=$($readonlyKisGatesResult.FailedCount)."
           }
 

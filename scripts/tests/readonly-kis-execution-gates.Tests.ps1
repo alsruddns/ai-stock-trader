@@ -34,4 +34,26 @@ Describe 'Read-only KIS execution gate validation' {
 
         $missing.Count | Should Be 0
     }
+
+    It 'keeps the optional orderable-cash GET disabled for other selected methods' {
+        $overrides = Get-KisReadOnlyAccountTestOverrides -TestMethod 'readsDomesticRealBalanceWithoutPlacingOrders'
+
+        $overrides.KIS_TEST_REAL_ORDERABLE_READS | Should Be 'false'
+        $overrides.ContainsKey('KIS_REAL_ACCOUNT_ORDERABLE_TEST_SYMBOL') | Should Be $false
+    }
+
+    It 'enables orderable-cash GET only for its selected domestic method' {
+        $overrides = Get-KisReadOnlyAccountTestOverrides `
+            -TestMethod 'readsDomesticRealOrderableCashForSymbolWithoutPlacingOrders'
+
+        $overrides.KIS_TEST_REAL_ORDERABLE_READS | Should Be 'true'
+        $overrides.KIS_REAL_ACCOUNT_ORDERABLE_TEST_SYMBOL | Should Be '005930'
+        $overrides.KIS_REAL_ACCOUNT_ORDERABLE_TEST_UNIT_PRICE | Should Be '70000'
+    }
+
+    It 'rejects invalid orderable-cash query prices before Maven starts' {
+        { Get-KisReadOnlyAccountTestOverrides `
+            -TestMethod 'readsDomesticRealOrderableCashForSymbolWithoutPlacingOrders' `
+            -ConfiguredOrderableUnitPrice 'not-a-price' } | Should Throw
+    }
 }

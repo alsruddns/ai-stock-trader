@@ -77,6 +77,11 @@ foreach ($name in $script:ReadOnlyKisExecutionGateNames) {
 
 $env:RUN_KIS_REAL_ACCOUNT_INTEGRATION_TESTS = 'true'
 $env:KIS_TEST_US_ACCOUNT_READS = 'false'
+$testOverrides = Get-KisReadOnlyAccountTestOverrides -TestMethod $TestMethod `
+    -ConfiguredOrderableUnitPrice $env:KIS_REAL_ACCOUNT_ORDERABLE_TEST_UNIT_PRICE
+foreach ($name in $testOverrides.Keys) {
+    [Environment]::SetEnvironmentVariable($name, [string]$testOverrides[$name], 'Process')
+}
 Push-Location (Join-Path $repoRoot 'backend/trading-api')
 try {
     $testSelector = if ([string]::IsNullOrWhiteSpace($TestMethod)) {
