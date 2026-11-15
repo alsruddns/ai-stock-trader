@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P6 REAL 보호청산 Mock·PostgreSQL 집중검증 (2026-11-15 16:17 KST):** `KisRealOrderClientTest`, `KisRealOrderOrchestratorTest`, `KisRealProtectiveExitMonitorTest` 61/61과 로컬 PostgreSQL 통합검사 `realProtectiveExitCandidateQueryPagesDomesticPlansInPostgres` 1/1을 통과했습니다. 테스트는 주문 식별·위험 차단·보호청산 계획 조회 경로를 검사했으며 DB 스키마 V30이 최신임을 확인했습니다. PostgreSQL 검사 프로세스에서 KIS 자격정보를 비우고 REAL/PAPER 읽기·주문·보호청산·자동매매 스위치를 모두 껐습니다. KIS 계좌·주문 API는 호출하지 않았으며 실제 REAL 주문·체결 검증은 아닙니다.
+
 - **P2 일별 주문이력 probe의 거래일 검증 (2026-11-15):** 날짜 범위만 확인하던 PAPER 주문이력 진단 도구가 주말·휴장일도 조회할 수 있어, 공식 XKRX 캘린더가 해당 날짜를 세션으로 확인한 뒤에만 KIS 클라이언트를 생성하도록 수정했습니다. 휴장일과 달력 오류는 각각 안전 코드로 종료하며 KIS 요청은 보내지 않습니다. probe 집중검사 4/4, Python 구문검사 및 diff 검사가 통과했습니다.
 
 - **P2 국내 PAPER 일별 주문이력 조회 확인 (2026-11-15 15:45 KST):** 신규 마스킹 probe로 공식 PAPER TR `VTTC0081R`의 11월 13일 주문·체결이력 GET을 실행했습니다. HTTP 200, `rt_cd=0`, 성공 코드 `70070000`, 주문 행 0개, 페이지 완전 조회를 확인했고 로컬 `.local/validation/kis-paper-order-history.jsonl`에 민감 필드 없이 저장했습니다. 조회 API 연결만 확인한 것으로 주문행 필드 매핑이나 실제 주문 대사, 취소 사전조회는 검증하지 않았습니다. `rmn_qty`가 있더라도 공식 취소 예제가 요구하는 `psbl_qty`를 대체하지 않으며 취소 잠금은 유지합니다. Mock 집중검사 3/3 통과; 주문·취소는 전송하지 않았습니다. [KIS 공식 PAPER 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#3-api-%EC%A0%9C%EA%B3%B5-%EB%AA%A9%EB%A1%9D) · [공식 일별 주문·체결 조회 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_daily_ccld/inquire_daily_ccld.py)
