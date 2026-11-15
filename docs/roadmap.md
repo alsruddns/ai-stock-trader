@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P1 REAL 국내 호가 환경 분리 (2026-11-15 17:03 KST):** 국내 호가 기본 경로는 PAPER를 유지하고, 명시한 `environment=real` 조회만 `KIS_REAL_MARKET_DATA_ENABLED`로 보호해 REAL 자격정보를 선택하도록 했습니다. Spring의 REAL 신호평가와 REAL 호가 기반 사전점검·보호청산은 이제 이 REAL 조회 경로를 사용합니다. quote-route 집중검사 6/6과 Spring `KisMarketAiEvidenceClientTest` 10/10 통과했습니다. 미국 게이트 검사는 국내 전용 스코프 환경에서 실행하면 차단되므로 해당 검사 묶음에서 시장 범위를 프로세스 한정 `KR,US`로 지정했습니다. 실제 KIS 요청은 하지 않았습니다. 월요일 장중 검증 전 로컬 FastAPI 재기동 시 REAL 읽기 시세 토글이 활성화돼야 하며, 현재 `.env_local`에서는 이 토글이 `false`이고 주문·계좌 읽기 잠금은 계속 `false`입니다.
+
 - **P6 REAL 보호청산 Mock·PostgreSQL 집중검증 (2026-11-15 16:17 KST):** `KisRealOrderClientTest`, `KisRealOrderOrchestratorTest`, `KisRealProtectiveExitMonitorTest` 61/61과 로컬 PostgreSQL 통합검사 `realProtectiveExitCandidateQueryPagesDomesticPlansInPostgres` 1/1을 통과했습니다. 테스트는 주문 식별·위험 차단·보호청산 계획 조회 경로를 검사했으며 DB 스키마 V30이 최신임을 확인했습니다. PostgreSQL 검사 프로세스에서 KIS 자격정보를 비우고 REAL/PAPER 읽기·주문·보호청산·자동매매 스위치를 모두 껐습니다. KIS 계좌·주문 API는 호출하지 않았으며 실제 REAL 주문·체결 검증은 아닙니다.
 
 - **P2 일별 주문이력 probe의 거래일 검증 (2026-11-15):** 날짜 범위만 확인하던 PAPER 주문이력 진단 도구가 주말·휴장일도 조회할 수 있어, 공식 XKRX 캘린더가 해당 날짜를 세션으로 확인한 뒤에만 KIS 클라이언트를 생성하도록 수정했습니다. 휴장일과 달력 오류는 각각 안전 코드로 종료하며 KIS 요청은 보내지 않습니다. probe 집중검사 4/4, Python 구문검사 및 diff 검사가 통과했습니다.

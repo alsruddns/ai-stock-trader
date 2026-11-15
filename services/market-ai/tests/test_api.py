@@ -840,6 +840,40 @@ def test_kis_quote_route_is_disabled_by_default(monkeypatch) -> None:
     assert response.json()["detail"] == "KIS market data is disabled"
 
 
+def test_domestic_real_quote_requires_real_market_data_gate(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setenv("KIS_REAL_MARKET_DATA_ENABLED", "false")
+    monkeypatch.setenv("KIS_REAL_APP_KEY", "real-key")
+    monkeypatch.setenv("KIS_REAL_APP_SECRET", "real-secret")
+    response = client.get("/api/v1/market/quotes/KR/005930?environment=real")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "KIS market data is disabled"
+
+
+def test_domestic_real_quote_uses_gated_real_credentials(monkeypatch) -> None:
+    class FakeKisClient:
+        def get_quote(self, market, symbol, exchange=None):
+            assert market == "KR"
+            assert symbol == "005930"
+            assert exchange is None
+            return Quote(
+                market=market, symbol=symbol, exchange=exchange, currency="KRW",
+                price=Decimal("70000"), change=Decimal("0"), change_percent=Decimal("0"),
+                volume=1000, retrieved_at=datetime.now(timezone.utc),
+            )
+
+    monkeypatch.setenv("KIS_REAL_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setattr(
+        main, "get_kis_market_data_client",
+        lambda environment=None: FakeKisClient() if environment == "real" else pytest.fail(
+            "explicit REAL quote must select the REAL KIS client"),
+    )
+    response = client.get("/api/v1/market/quotes/KR/005930?environment=real")
+    assert response.status_code == 200
+    assert response.json()["price"] == "70000"
+    assert response.json()["source"] == "KIS_REST_SNAPSHOT"
+
+
 def test_quote_route_returns_normalized_snapshot() -> None:
     class FakeKisClient:
         def get_quote(self, market, symbol, exchange=None):

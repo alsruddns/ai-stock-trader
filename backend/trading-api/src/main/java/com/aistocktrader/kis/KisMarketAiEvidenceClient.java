@@ -36,7 +36,8 @@ public class KisMarketAiEvidenceClient {
                     ? http.get().uri(uri -> uri.path("/api/v1/market/quotes/US/{symbol}")
                             .queryParam("exchange", marketAiExchange(exchange)).build(request.symbol()))
                             .retrieve().body(JsonNode.class)
-                    : http.get().uri("/api/v1/market/quotes/KR/{symbol}", request.symbol())
+                    : http.get().uri(uri -> uri.path("/api/v1/market/quotes/KR/{symbol}")
+                            .queryParam("environment", "real").build(request.symbol()))
                             .retrieve().body(JsonNode.class);
             JsonNode paper = http.get().uri("/api/v1/paper/session").retrieve().body(JsonNode.class);
             BigDecimal stopDistance = signalStopDistance(paper, modelId, request, exchange);
@@ -93,7 +94,8 @@ public class KisMarketAiEvidenceClient {
                 ? http.get().uri(uri -> uri.path("/api/v1/market/quotes/US/{symbol}")
                         .queryParam("exchange", normalizedExchange).build(normalizedSymbol))
                         .retrieve().body(JsonNode.class)
-                : http.get().uri("/api/v1/market/quotes/KR/{symbol}", normalizedSymbol)
+                : http.get().uri(uri -> uri.path("/api/v1/market/quotes/KR/{symbol}")
+                        .queryParam("environment", "real").build(normalizedSymbol))
                         .retrieve().body(JsonNode.class);
         OrderRequest sellProbe = new OrderRequest(market, normalizedSymbol, OrderSide.SELL, 1,
                 BigDecimal.ONE, market == com.aistocktrader.order.Market.KR ? Currency.KRW : Currency.USD);

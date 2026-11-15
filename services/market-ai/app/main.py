@@ -84,9 +84,15 @@ def get_kis_real_market_data_client() -> KisReadOnlyClient:
     return get_kis_market_data_client("real")
 
 
-def get_market_data_client(market: Market = Path()) -> KisReadOnlyClient:
+def get_market_data_client(
+    market: Market = Path(),
+    environment: Literal["paper", "real"] | None = Query(default=None),
+) -> KisReadOnlyClient:
     """Route domestic REST data to PAPER and US REST data to the gated REAL environment."""
     require_operational_market(market, "KIS market-data access")
+    if environment is not None:
+        # An explicit REAL domestic quote remains blocked unless its independent data gate is on.
+        return get_kis_market_data_client(environment)
     return get_kis_real_market_data_client() if market == "US" else get_kis_client()
 
 

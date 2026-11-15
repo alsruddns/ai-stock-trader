@@ -35,7 +35,7 @@ class KisMarketAiEvidenceClientTest {
                         "feature_compatible":true,"data_rights_verified":true,
                         "approval_evidence_verified":true,"training_config":{"symbol":"005930"}}]}
                         """, MediaType.APPLICATION_JSON));
-        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930"))
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930?environment=real"))
                 .andRespond(withSuccess("{\"market\":\"KR\",\"symbol\":\"005930\","
                         + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":70000,\"retrieved_at\":\""
                         + Instant.now() + "\"}", MediaType.APPLICATION_JSON));
@@ -95,7 +95,7 @@ class KisMarketAiEvidenceClientTest {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:18000");
-        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930"))
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930?environment=real"))
                 .andRespond(withSuccess("{\"market\":\"KR\",\"symbol\":\"005930\","
                         + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":102,\"best_bid\":101.5,"
                         + "\"best_ask\":102,\"retrieved_at\":\"" + Instant.now() + "\"}",
@@ -129,7 +129,7 @@ class KisMarketAiEvidenceClientTest {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:18000");
-        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930"))
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930?environment=real"))
                 .andRespond(withSuccess("{\"market\":\"KR\",\"symbol\":\"005930\","
                         + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":102,\"retrieved_at\":\""
                         + Instant.now().minusSeconds(10) + "\"}", MediaType.APPLICATION_JSON));
