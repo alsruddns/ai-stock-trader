@@ -242,7 +242,7 @@ Spring Boot는 Maven으로 빌드합니다. 프로젝트에 포함된 `mvnw.cmd`
 - 모의투자 자격증명도 민감정보로 취급하세요. 로그나 이슈에 붙여 넣지 마세요.
 - `.env.example`을 바꾸어 실제 키를 넣지 마세요.
 
-REAL 계좌 GET 검증을 한 항목만 실행하려면 `scripts/test-real-kis-account-readonly.ps1`에 `-TestMethod <허용된검사명>`을 지정합니다. 예: `-EnableReadOnlyGetForThisRun -TestMethod preflightsDomesticRealBuyWithFreshQuoteWithoutSubmittingAnOrder`. 지정하지 않으면 REAL 읽기 전용 통합검사 전체를 실행합니다. 실주문·실전 전환 스위치는 켜지지 않습니다.
+REAL 계좌 GET 검증을 한 항목만 실행하려면 `scripts/test-real-kis-account-readonly.ps1`에 `-TestMethod <허용된검사명>`을 지정합니다. 예: `-EnableReadOnlyGetForThisRun -TestMethod preflightsDomesticRealBuyWithFreshQuoteWithoutSubmittingAnOrder -RequireSelectedTestPass`. 이 옵션은 Maven이 성공으로 끝나더라도 해당 테스트가 건너뛰었거나 오래된 보고서만 있으면 실패 처리합니다. 지정하지 않으면 REAL 읽기 전용 통합검사 전체를 실행합니다. 실주문·실전 전환 스위치는 켜지지 않습니다.
 
 Docker를 선호하면 기존 PostgreSQL 대신 컨테이너 DB도 선택할 수 있습니다. 이 경우 Docker Desktop을 켠 상태에서 `docker compose up -d postgres`를 실행하고, `.env_local`의 DB 접속 암호를 동일하게 사용하세요.
 

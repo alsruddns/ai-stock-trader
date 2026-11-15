@@ -7,7 +7,8 @@ param(
         'readsDomesticRealizedPnlFieldNamesWithoutPrintingFinancialValues',
         'readsDomesticSessionExecutionsWithoutPrintingTradeDetails'
     )]
-    [string]$TestMethod
+    [string]$TestMethod,
+    [switch]$RequireSelectedTestPass
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,6 +20,7 @@ foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerat
 
 try {
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'lib\real-kis-surefire-report.ps1')
 $envPath = Join-Path $repoRoot '.env_local'
 if (-not (Test-Path -LiteralPath $envPath)) { $envPath = Join-Path $repoRoot '.env' }
 if (-not (Test-Path -LiteralPath $envPath)) {
@@ -56,6 +58,9 @@ if ($realAccountNumber -notmatch '^\d{10}$') {
 if (-not $env:POSTGRES_PASSWORD) {
     throw 'Set POSTGRES_PASSWORD in .env_local before running the Spring-backed KIS integration test.'
 }
+if ($RequireSelectedTestPass -and [string]::IsNullOrWhiteSpace($TestMethod)) {
+    throw '-RequireSelectedTestPass requires one explicit -TestMethod.'
+}
 if ($env:TRADING_MODE -ne 'paper' -or $env:LIVE_TRADING_ENABLED -ne 'false' -or
     $env:KIS_REAL_ORDERS_ENABLED -ne 'false' -or $env:KIS_REAL_RECONCILIATION_ENABLED -ne 'false') {
     throw 'REAL account smoke test requires paper mode with REAL orders, live trading, and REAL reconciliation disabled.'
@@ -70,9 +75,14 @@ try {
     } else {
         "-Dtest=KisRealAccountIntegrationTest#$TestMethod"
     }
+    $testStartedAtUtc = [DateTime]::UtcNow
     & .\mvnw.cmd $testSelector test
     if ($LASTEXITCODE -ne 0) {
         throw "Read-only KIS REAL account integration test failed with code $LASTEXITCODE."
+    }
+    if ($RequireSelectedTestPass) {
+        $reportPath = Join-Path (Get-Location) 'target\surefire-reports\TEST-com.aistocktrader.kis.KisRealAccountIntegrationTest.xml'
+        Assert-SelectedSurefireTestPassed -ReportPath $reportPath -TestMethod $TestMethod -RunStartedAtUtc $testStartedAtUtc
     }
 }
 finally {
