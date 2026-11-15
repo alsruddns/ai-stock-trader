@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -99,6 +100,39 @@ def test_paper_preflight_probe_uses_official_transaction_id_and_reports_only_san
     assert "private-order-number" not in output
     assert "test-app-secret" not in output
     assert client.closed
+
+
+def test_probe_appends_sanitized_evidence_only_under_ignored_validation_directory(
+    monkeypatch: pytest.MonkeyPatch, capsys, tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(probe, "repository", tmp_path)
+    client = _configure_safe_probe(monkeypatch, {
+        "rt_cd": "0", "msg_cd": "OK", "output": [{"psbl_qty": "2", "odno": "private-order-number"}],
+    })
+
+    assert probe.main(evidence_path=".local/validation/cancel-preflight.jsonl") == 0
+
+    output = capsys.readouterr().out
+    evidence_file = tmp_path / ".local" / "validation" / "cancel-preflight.jsonl"
+    record = json.loads(evidence_file.read_text(encoding="utf-8"))
+    assert '"evidence_persisted": true' in output
+    assert record["status"] == "valid_preflight_response"
+    assert record["order_or_cancel_sent"] is False
+    assert "private-order-number" not in evidence_file.read_text(encoding="utf-8")
+    assert "test-app-secret" not in evidence_file.read_text(encoding="utf-8")
+    assert client.closed
+
+
+def test_probe_rejects_evidence_paths_outside_local_validation_before_credentials(
+    monkeypatch: pytest.MonkeyPatch, capsys, tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(probe, "load_local_environment", lambda _repository: pytest.fail("credentials must not be loaded"))
+    monkeypatch.setattr(probe, "KisReadOnlyClient", lambda _settings: pytest.fail("KIS client must not be created"))
+
+    assert probe.main(evidence_path=str(tmp_path / "outside.jsonl")) == 2
+
+    output = capsys.readouterr().out
+    assert '"reason": "INVALID_EVIDENCE_PATH"' in output
 
 
 def test_legacy_official_transaction_maps_to_paper_id_without_unlocking_cancel(

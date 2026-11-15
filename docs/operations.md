@@ -105,6 +105,8 @@ KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는
 .\services\market-ai\.venv\Scripts\python.exe .\scripts\probe-kis-paper-cancel-preflight.py --transaction-id TTTC0084R
 ```
 
+결과를 다시 확인할 수 있도록 로컬 기록에도 남기려면 `--evidence-path .local/validation/kis-paper-cancel-preflight.jsonl`을 추가합니다. 출력은 응답 코드·상태·행 수 등 마스킹된 probe 결과만 포함하며, 지정 경로는 Git 무시 폴더인 `.local/validation` 아래의 `.jsonl` 파일로 제한됩니다. 기본 호출은 파일에 기록하지 않습니다.
+
 현재 샘플에서 주문순서 조회를 별도로 확인하려면 `--query-kind order_sequence`를 지정합니다. 종목순서는 `--query-kind item_sequence`이며, 기본 호출과 같습니다.
 
 공식 레거시 샘플의 PAPER 변환 경로를 점검하려면 `--transaction-id TTTC8036R`을 지정합니다. 실제 요청에는 `VTTC8036R`이 사용됩니다.

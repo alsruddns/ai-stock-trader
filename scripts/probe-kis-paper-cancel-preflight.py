@@ -18,6 +18,35 @@ from kis_local_env import load_local_environment
 OFFICIAL_TRANSACTION_IDS = {"TTTC0084R", "TTTC8036R"}
 
 
+def _resolve_evidence_path(evidence_path: str | None) -> Path | None:
+    if evidence_path is None:
+        return None
+    repository_root = repository.resolve()
+    candidate = Path(evidence_path)
+    if not candidate.is_absolute():
+        candidate = repository_root / candidate
+    candidate = candidate.resolve()
+    allowed_root = (repository_root / ".local" / "validation").resolve()
+    if (not allowed_root.is_relative_to(repository_root) or not candidate.is_relative_to(allowed_root)
+            or candidate.suffix.lower() != ".jsonl"):
+        raise ValueError("evidence path must be a JSONL file under .local/validation")
+    return candidate
+
+
+def _emit_result(result: dict[str, object], evidence_file: Path | None) -> None:
+    if evidence_file is not None:
+        result["evidence_path"] = evidence_file.relative_to(repository.resolve()).as_posix()
+        result["evidence_persisted"] = True
+        try:
+            evidence_file.parent.mkdir(parents=True, exist_ok=True)
+            with evidence_file.open("a", encoding="utf-8", newline="\n") as stream:
+                stream.write(json.dumps(result, ensure_ascii=False) + "\n")
+        except OSError as exception:
+            result["evidence_persisted"] = False
+            result["evidence_write_error"] = type(exception).__name__
+    print(json.dumps(result, ensure_ascii=False))
+
+
 def _has_valid_cancel_quantity(rows: object) -> bool:
     candidates = rows if isinstance(rows, list) else [rows] if isinstance(rows, dict) else []
     for row in candidates:
@@ -49,24 +78,35 @@ def _has_positive_cancel_quantity(rows: object) -> bool:
     return False
 
 
-def main(transaction_id: str = "TTTC0084R", query_kind: str | None = None) -> int:
+def main(
+    transaction_id: str = "TTTC0084R", query_kind: str | None = None,
+    evidence_path: str | None = None,
+) -> int:
+    try:
+        evidence_file = _resolve_evidence_path(evidence_path)
+    except (OSError, ValueError):
+        _emit_result({"status": "blocked", "reason": "INVALID_EVIDENCE_PATH"}, None)
+        return 2
+
     # The current official sample uses TTTC0084R. The official legacy sample
     # uses TTTC8036R and its auth helper maps T-prefixed IDs to V-prefixed IDs
     # for PAPER. The legacy example does not document psbl_qty, so success alone
     # must never unlock cancellation.
     if transaction_id not in OFFICIAL_TRANSACTION_IDS:
-        print(json.dumps({"status": "blocked", "reason": "UNSUPPORTED_TRANSACTION_ID"}))
+        _emit_result({"status": "blocked", "reason": "UNSUPPORTED_TRANSACTION_ID"}, evidence_file)
         return 2
     if query_kind not in (None, "order_sequence", "item_sequence"):
-        print(json.dumps({"status": "blocked", "reason": "UNSUPPORTED_QUERY_KIND"}))
+        _emit_result({"status": "blocked", "reason": "UNSUPPORTED_QUERY_KIND"}, evidence_file)
         return 2
     if transaction_id == "TTTC8036R" and query_kind == "item_sequence":
-        print(json.dumps({"status": "blocked", "reason": "QUERY_KIND_NOT_SUPPORTED_FOR_TRANSACTION_ID"}))
+        _emit_result(
+            {"status": "blocked", "reason": "QUERY_KIND_NOT_SUPPORTED_FOR_TRANSACTION_ID"}, evidence_file,
+        )
         return 2
     try:
         source = load_local_environment(repository)
     except (OSError, ValueError):
-        print(json.dumps({"status": "blocked", "reason": "LOCAL_ENV_UNAVAILABLE"}))
+        _emit_result({"status": "blocked", "reason": "LOCAL_ENV_UNAVAILABLE"}, evidence_file)
         return 2
 
     expected = {
@@ -81,13 +121,13 @@ def main(transaction_id: str = "TTTC0084R", query_kind: str | None = None) -> in
         "KIS_REAL_RECONCILIATION_ENABLED": "false",
     }
     if any(os.getenv(key, "").strip().lower() != value for key, value in expected.items()):
-        print(json.dumps({"status": "blocked", "reason": "SAFETY_SWITCHES_NOT_READ_ONLY"}))
+        _emit_result({"status": "blocked", "reason": "SAFETY_SWITCHES_NOT_READ_ONLY"}, evidence_file)
         return 2
 
     settings = KisSettings.from_environment("paper")
     if (not settings.app_key or not settings.app_secret or len(settings.account_number) != 10
             or not settings.shared_rate_limit_enabled):
-        print(json.dumps({"status": "blocked", "reason": "PAPER_CREDENTIALS_UNAVAILABLE"}))
+        _emit_result({"status": "blocked", "reason": "PAPER_CREDENTIALS_UNAVAILABLE"}, evidence_file)
         return 2
 
     client = KisReadOnlyClient(settings)
@@ -153,7 +193,7 @@ def main(transaction_id: str = "TTTC0084R", query_kind: str | None = None) -> in
             result["reason"] = "BROKER_SERVICE_CODE_NOT_FOUND"
         elif result["status"] == "broker_error_unclassified":
             result["reason"] = "BROKER_ERROR_NOT_CLASSIFIED"
-        print(json.dumps(result, ensure_ascii=False))
+        _emit_result(result, evidence_file)
         return 0 if result["status"] == "valid_preflight_response" else 3
     except Exception as exception:
         # The exception class is useful for distinguishing transport, HTTP, and
@@ -186,7 +226,7 @@ def main(transaction_id: str = "TTTC0084R", query_kind: str | None = None) -> in
         else:
             result["status"] = "request_failed"
             result["reason"] = "AUTH_OR_READ_ONLY_REQUEST_FAILED"
-        print(json.dumps(result, ensure_ascii=False))
+        _emit_result(result, evidence_file)
         return 3
     finally:
         client.close()
@@ -196,5 +236,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Read-only PAPER cancel-preflight service probe.")
     parser.add_argument("--transaction-id", choices=tuple(sorted(OFFICIAL_TRANSACTION_IDS)), default="TTTC0084R")
     parser.add_argument("--query-kind", choices=("order_sequence", "item_sequence"))
+    parser.add_argument("--evidence-path", help="append sanitized probe JSON to a .jsonl file under .local/validation")
     arguments = parser.parse_args()
-    raise SystemExit(main(arguments.transaction_id, arguments.query_kind))
+    raise SystemExit(main(arguments.transaction_id, arguments.query_kind, arguments.evidence_path))
