@@ -87,7 +87,6 @@ public class KisOrderController {
     public record ManualPaperOrderReconciliationRequest(
             @jakarta.validation.constraints.NotBlank
             @jakarta.validation.constraints.Pattern(regexp = "[0-9]{1,32}") String brokerOrderNumber,
-            @jakarta.validation.constraints.NotBlank
             @jakarta.validation.constraints.Pattern(regexp = "[A-Za-z0-9_-]{1,32}") String brokerOrganizationNumber,
             boolean confirmed) { }
 }

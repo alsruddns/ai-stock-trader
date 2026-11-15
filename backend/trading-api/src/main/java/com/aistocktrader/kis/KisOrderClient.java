@@ -134,24 +134,28 @@ public class KisOrderClient {
     }
 
     public Optional<KisBrokerOrderSnapshot> reconcilePaperOrder(KisOrderIntent intent) {
-        return reconcilePaperOrder(intent, intent.getBrokerOrderNumber(), intent.getBrokerOrganizationNumber(), false);
+        return reconcilePaperOrder(intent, intent.getBrokerOrderNumber(), intent.getBrokerOrganizationNumber(), false)
+                .map(KisManualPaperOrderMatch::snapshot);
     }
 
-    public Optional<KisBrokerOrderSnapshot> reconcilePaperOrderByVerifiedCandidate(
+    public Optional<KisManualPaperOrderMatch> reconcilePaperOrderByVerifiedCandidate(
             KisOrderIntent intent, String brokerOrderNumber, String brokerOrganizationNumber) {
         if (intent == null || intent.getEnvironment() != KisEnvironment.PAPER
                 || intent.getMarket() != Market.KR || intent.getStatus() != KisOrderStatus.UNKNOWN
                 || intent.getBrokerOrderNumber() != null && !intent.getBrokerOrderNumber().isBlank()) {
             throw new IllegalStateException("Manual PAPER order matching requires an unlinked domestic UNKNOWN intent.");
         }
-        if (brokerOrderNumber == null || !brokerOrderNumber.matches("[0-9]{1,32}")
-                || brokerOrganizationNumber == null || !brokerOrganizationNumber.matches("[A-Za-z0-9_-]{1,32}")) {
-            throw new IllegalArgumentException("A broker order number and organization number are required.");
+        if (brokerOrderNumber == null || !brokerOrderNumber.matches("[0-9]{1,32}")) {
+            throw new IllegalArgumentException("A numeric KIS broker order number is required.");
+        }
+        if (brokerOrganizationNumber != null && !brokerOrganizationNumber.isBlank()
+                && !brokerOrganizationNumber.matches("[A-Za-z0-9_-]{1,32}")) {
+            throw new IllegalArgumentException("Broker organization number has an invalid format.");
         }
         return reconcilePaperOrder(intent, brokerOrderNumber, brokerOrganizationNumber, true);
     }
 
-    private Optional<KisBrokerOrderSnapshot> reconcilePaperOrder(
+    private Optional<KisManualPaperOrderMatch> reconcilePaperOrder(
             KisOrderIntent intent, String brokerOrderNumber, String brokerOrganizationNumber, boolean manualCandidate) {
         if (intent == null) throw new IllegalArgumentException("A KIS order intent is required.");
         requirePaperReconciliationReadEnabled();
@@ -210,7 +214,11 @@ public class KisOrderClient {
                                         row, intent, brokerOrderNumber, brokerOrganizationNumber, date)
                                 : KisBrokerOrderSnapshotValidator.matchesBrokerIdentity(row, intent);
                         if (!identityMatches) return Optional.empty();
-                        return parseSnapshot(row, intent);
+                        String organization = KisBrokerOrderSnapshotValidator.brokerOrganizationNumber(row);
+                        if (!manualCandidate) organization = intent.getBrokerOrganizationNumber();
+                        String verifiedOrganization = organization;
+                        return parseSnapshot(row, intent)
+                                .map(snapshot -> new KisManualPaperOrderMatch(verifiedOrganization, snapshot));
                     }
                 }
             }

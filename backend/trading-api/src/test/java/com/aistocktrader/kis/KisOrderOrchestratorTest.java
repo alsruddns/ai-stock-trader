@@ -71,8 +71,8 @@ class KisOrderOrchestratorTest {
         intent.markUnknown();
         var snapshot = new KisBrokerOrderSnapshot(0, 1, null, false, false);
         when(intents.get(key)).thenReturn(intent);
-        when(orders.reconcilePaperOrderByVerifiedCandidate(intent, "1234", "ORG01"))
-                .thenReturn(Optional.of(snapshot));
+        when(orders.reconcilePaperOrderByVerifiedCandidate(intent, "1234", null))
+                .thenReturn(Optional.of(new KisManualPaperOrderMatch("ORG01", snapshot)));
         when(intents.attachVerifiedPaperOrderAndReconcile(key, "1234", "ORG01", snapshot))
                 .thenAnswer(call -> {
                     intent.linkManuallyVerifiedPaperOrder("1234", "ORG01");
@@ -80,11 +80,11 @@ class KisOrderOrchestratorTest {
                     return intent;
                 });
 
-        KisOrderIntentResponse response = orchestrator.manuallyReconcilePaperOrder(key, "1234", "ORG01");
+        KisOrderIntentResponse response = orchestrator.manuallyReconcilePaperOrder(key, "1234", null);
 
         assertEquals(KisOrderStatus.ACCEPTED, response.status());
         assertEquals("1234", response.brokerOrderNumber());
-        verify(orders).reconcilePaperOrderByVerifiedCandidate(intent, "1234", "ORG01");
+        verify(orders).reconcilePaperOrderByVerifiedCandidate(intent, "1234", null);
         verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(),
                 org.mockito.ArgumentMatchers.anyInt(), any(), any(), anyString());
         verify(orders, never()).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
@@ -100,7 +100,7 @@ class KisOrderOrchestratorTest {
         intent.reconcile(0, 1, null, false, false);
         when(intents.get(key)).thenReturn(intent);
 
-        KisOrderIntentResponse response = orchestrator.manuallyReconcilePaperOrder(key, "1234", "ORG01");
+        KisOrderIntentResponse response = orchestrator.manuallyReconcilePaperOrder(key, "1234", null);
 
         assertEquals(KisOrderStatus.ACCEPTED, response.status());
         verify(orders, never()).reconcilePaperOrderByVerifiedCandidate(any(), anyString(), anyString());

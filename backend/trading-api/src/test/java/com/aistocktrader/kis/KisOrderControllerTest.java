@@ -120,7 +120,7 @@ class KisOrderControllerTest {
         when(intents.get(key)).thenReturn(new KisOrderIntent(key, "hash", request, null));
 
         assertThrows(IllegalArgumentException.class, () -> controller.manualReconcile(key,
-                new KisOrderController.ManualPaperOrderReconciliationRequest("1234", "ORG01", false)));
+                new KisOrderController.ManualPaperOrderReconciliationRequest("1234", null, false)));
 
         verifyNoInteractions(orders);
     }

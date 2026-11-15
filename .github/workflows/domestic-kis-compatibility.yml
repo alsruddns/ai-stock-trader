@@ -111,6 +111,9 @@ jobs:
       - name: Run KIS order success result-code acceptance tests only
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderClientTest#domesticPaperLimitOrderUsesPaperCredentialsAndLimitOnlyContract,KisRealOrderClientTest#domesticRealBuyUsesOfficialRealTransactionAndAccountCredentials' test
+      - name: Verify manual domestic PAPER reconciliation identity matching
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderClientTest#manualPaperReconciliationQueriesAndVerifiesExactDomesticOrderIdentity+manualPaperReconciliationRejectsCandidateWithMismatchedQuantityOrPrice+manualPaperReconciliationRejectsCandidateWhenKisOmitsBrokerOrganizationNumber+manualPaperReconciliationRejectsUserSuppliedOrganizationMismatch' test
       - name: Run domestic PAPER order ledger price precision test only
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode -Dtest=OrderServiceTest#rejectsFractionalWonPaperLimitPriceBeforeAnyOrderLookupOrPersistence test

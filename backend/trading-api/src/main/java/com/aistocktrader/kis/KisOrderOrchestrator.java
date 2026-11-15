@@ -180,8 +180,8 @@ public class KisOrderOrchestrator {
         KisOrderIntent intent = intents.get(idempotencyKey);
         requirePaperIntent(intent);
         if (brokerOrderNumber != null && brokerOrderNumber.equals(intent.getBrokerOrderNumber())
-                && brokerOrganizationNumber != null
-                && brokerOrganizationNumber.equalsIgnoreCase(intent.getBrokerOrganizationNumber())) {
+                && (brokerOrganizationNumber == null || brokerOrganizationNumber.isBlank()
+                        || brokerOrganizationNumber.equalsIgnoreCase(intent.getBrokerOrganizationNumber()))) {
             if (intent.getStatus() != KisOrderStatus.UNKNOWN) return KisOrderIntentResponse.from(intent);
             var knownOrderSnapshot = orders.reconcilePaperOrder(intent).orElseThrow(() ->
                     new KisApiException(HttpStatus.CONFLICT,
@@ -192,14 +192,15 @@ public class KisOrderOrchestrator {
                 || intent.getBrokerOrderNumber() != null && !intent.getBrokerOrderNumber().isBlank()) {
             throw new IllegalStateException("Manual broker matching is only available for an unlinked UNKNOWN PAPER intent.");
         }
-        var snapshot = orders.reconcilePaperOrderByVerifiedCandidate(
+        var match = orders.reconcilePaperOrderByVerifiedCandidate(
                 intent, brokerOrderNumber, brokerOrganizationNumber);
-        if (snapshot.isEmpty()) {
+        if (match.isEmpty()) {
             throw new KisApiException(HttpStatus.CONFLICT,
                     "KIS did not confirm an exact matching PAPER order; the intent remains UNKNOWN.");
         }
+        KisManualPaperOrderMatch verified = match.get();
         return KisOrderIntentResponse.from(intents.attachVerifiedPaperOrderAndReconcile(
-                idempotencyKey, brokerOrderNumber, brokerOrganizationNumber, snapshot.get()));
+                idempotencyKey, brokerOrderNumber, verified.brokerOrganizationNumber(), verified.snapshot()));
     }
 
     private void reconcileAccount(OrderRequest request, String exchange) {

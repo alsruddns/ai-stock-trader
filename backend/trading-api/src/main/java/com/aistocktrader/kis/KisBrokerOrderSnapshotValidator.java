@@ -66,13 +66,20 @@ final class KisBrokerOrderSnapshotValidator {
             return orderNumber.equals(brokerOrderNumber)
                     && intent.getSymbol().equalsIgnoreCase(symbol.trim())
                     && expectedSideCode.equals(side.trim())
-                    && organizationNumber.equalsIgnoreCase(organization.trim())
+                    && !organization.isBlank()
+                    && (organizationNumber == null || organizationNumber.isBlank()
+                            || organizationNumber.equalsIgnoreCase(organization.trim()))
                     && expectedDate.equals(orderDate.trim())
                     && Integer.parseInt(orderQuantity.trim()) == intent.getQuantity()
                     && new java.math.BigDecimal(orderPrice.trim()).compareTo(intent.getLimitPrice()) == 0;
         } catch (NumberFormatException | NullPointerException ignored) {
             return false;
         }
+    }
+
+    static String brokerOrganizationNumber(JsonNode row) {
+        if (row == null) return "";
+        return firstText(row, "ord_gno_brno", "ORD_GNO_BRNO", "krx_fwdg_ord_orgno", "KRX_FWDG_ORD_ORGNO");
     }
 
     private static String firstText(JsonNode row, String... fields) {
