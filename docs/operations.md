@@ -225,6 +225,8 @@ Backtest and training commands require explicit cost assumptions; there are no c
 
 위험기반 백테스트는 거래당 손절 위험 예산(최대 0.25%), 종목 배정(최대 10%), 주문 명목 한도 중 가장 낮은 수량을 계산합니다. 포트폴리오 진입 수량은 ATR 손절폭과 진입 비용을 반영하고, 청산 비용은 설정된 최대 스프레드·수수료·세금·슬리피지를 기준으로 보수적으로 예약합니다. 실제 손절 시 갭과 체결 차이로 위험예산을 초과할 수 있으므로 손실 상한 보장은 아닙니다. 단일 종목 CLI의 `--sizing-equity`는 읽기 전용 로컬 시나리오 자본이며 계좌 잔고를 조회하지 않습니다. 종목별 실행은 자본을 공유하지 않으므로 결합 포트폴리오의 세 종목 동시 한도·일손실 1% 차단을 검증하지 않습니다.
 
+KIS 과거 REST 분봉에는 관측 스프레드가 없습니다. 국내 포트폴리오 CLI의 `--assume-missing-spread-bps 15`는 누락되거나 관측시각이 없는 스프레드를 명시한 고정값으로 대체하는 오프라인 민감도 시나리오입니다. 값은 양수이며 `--maximum-spread-bps` 이하여야 합니다. 입력 CSV와 권리 provenance는 수정되지 않고, 결과에 종목별 모델링 봉과 관측시각 없는 기존 스프레드 값의 대체 개수가 표시됩니다. 이 옵션은 실행 불가 시뮬레이션 전용이며 AI 모델 필터·승인 평가와 함께 사용할 수 없고 P4 학습 자료의 적격성을 만들지 않습니다. PAPER 자동매매와 REAL 주문 경로에는 적용되지 않습니다.
+
 ```powershell
 .\services\market-ai\.venv\Scripts\python.exe .\scripts\backtest-quant.py .\data\licensed-bars.csv --market KR --symbol 005930 --buy-commission-bps $buyCommissionBps --sell-commission-bps $sellCommissionBps --sell-tax-bps $sellTaxBps --slippage-bps $slippageBps --sizing-equity 10000000 --max-position-notional 1000000
 ```

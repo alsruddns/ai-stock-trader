@@ -12,7 +12,8 @@ CLI = REPOSITORY / "scripts" / "backtest-portfolio.py"
 
 
 def _dataset(
-    path: Path, session_date: str = "2026-11-05", symbol: str | None = None, *, bar_count: int = 380,
+    path: Path, session_date: str = "2026-11-05", symbol: str | None = None, *,
+    bar_count: int = 380, include_spread: bool = True, include_spread_timestamp: bool = True,
 ) -> Path:
     symbol = symbol or path.stem
     start = datetime.fromisoformat(f"{session_date}T09:00:00+09:00")
@@ -20,7 +21,9 @@ def _dataset(
     for index in range(bar_count):
         stamp = start + timedelta(minutes=index)
         observed = stamp + timedelta(seconds=30)
-        lines.append(f"{stamp.isoformat()},100,101,99,100,1000,5,{observed.isoformat()},{symbol}")
+        spread = "5" if include_spread else ""
+        observed_at = observed.isoformat() if include_spread and include_spread_timestamp else ""
+        lines.append(f"{stamp.isoformat()},100,101,99,100,1000,{spread},{observed_at},{symbol}")
     content = ("\n".join(lines) + "\n").encode()
     path.write_bytes(content)
     digest = hashlib.sha256(content).hexdigest()
@@ -192,6 +195,67 @@ def test_portfolio_cli_rejects_incomplete_exchange_session(tmp_path: Path) -> No
 
     assert completed.returncode == 2
     assert "005930 session 2026-11-05 is incomplete (379/380 bars, 1 missing" in completed.stderr
+
+
+def test_portfolio_cli_models_missing_spreads_only_for_explicit_offline_scenario(tmp_path: Path) -> None:
+    first = _dataset(tmp_path / "005930.csv", include_spread=False)
+    second = _dataset(tmp_path / "000660.csv", include_spread=False)
+    original_first = first.read_bytes()
+    original_second = second.read_bytes()
+
+    completed = subprocess.run(
+        _command(first, second) + ["--assume-missing-spread-bps", "15"],
+        cwd=REPOSITORY, capture_output=True, text=True, check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["spread_assumption"] == {
+        "method": "fixed_bps_for_missing_or_untimed_spread_observations",
+        "assumed_spread_bps": "15",
+        "modeled_bar_count_by_symbol": {"000660": 380, "005930": 380},
+        "untimed_spread_value_replaced_by_symbol": {"000660": 0, "005930": 0},
+        "source_files_modified": False,
+        "p4_model_training_or_approval_eligible": False,
+        "executable": False,
+    }
+    assert payload["executable"] is False
+    assert first.read_bytes() == original_first
+    assert second.read_bytes() == original_second
+
+
+def test_portfolio_cli_replaces_untimed_spreads_in_memory_and_reports_them(tmp_path: Path) -> None:
+    first = _dataset(tmp_path / "005930.csv", include_spread_timestamp=False)
+    second = _dataset(tmp_path / "000660.csv", include_spread_timestamp=False)
+
+    completed = subprocess.run(
+        _command(first, second) + ["--assume-missing-spread-bps", "15"],
+        cwd=REPOSITORY, capture_output=True, text=True, check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assumption = json.loads(completed.stdout)["spread_assumption"]
+    assert assumption["modeled_bar_count_by_symbol"] == {"000660": 380, "005930": 380}
+    assert assumption["untimed_spread_value_replaced_by_symbol"] == {"000660": 380, "005930": 380}
+
+
+def test_portfolio_cli_rejects_assumed_spread_above_filter_and_ai_combination(tmp_path: Path) -> None:
+    first = _dataset(tmp_path / "005930.csv", include_spread=False)
+    second = _dataset(tmp_path / "000660.csv", include_spread=False)
+
+    too_wide = subprocess.run(
+        _command(first, second) + ["--assume-missing-spread-bps", "16"],
+        cwd=REPOSITORY, capture_output=True, text=True, check=False,
+    )
+    assert too_wide.returncode == 2
+    assert "no greater than the maximum spread filter" in too_wide.stderr
+
+    with_ai = subprocess.run(
+        _command(first, second) + ["--assume-missing-spread-bps", "15", "--with-active-ai-models"],
+        cwd=REPOSITORY, capture_output=True, text=True, check=False,
+    )
+    assert with_ai.returncode == 2
+    assert "cannot be combined with active AI models" in with_ai.stderr
 
 
 def test_portfolio_cli_rejects_bars_outside_continuous_session(tmp_path: Path) -> None:

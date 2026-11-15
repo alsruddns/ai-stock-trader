@@ -115,6 +115,9 @@ def main() -> int:
                         help="optional hypothetical starting capital in KRW; repeat to compare whole-share sizing")
     parser.add_argument("--minimum-turnover", type=Decimal, default=Decimal("1000000"))
     parser.add_argument("--maximum-spread-bps", type=Decimal, default=Decimal("15"))
+    parser.add_argument("--assume-missing-spread-bps", type=Decimal,
+                        help=("offline-only spread scenario for bars without observed spreads; "
+                              "cannot be used with AI models"))
     parser.add_argument("--carry-equity-between-sessions", action="store_true",
                         help="carry each completed session's ending equity into the next session")
     parser.add_argument("--with-active-ai-models", action="store_true",
@@ -167,6 +170,13 @@ def main() -> int:
             or not args.minimum_turnover.is_finite() or args.minimum_turnover < 0
             or not args.maximum_spread_bps.is_finite() or args.maximum_spread_bps < 0):
         parser.error("capital, order notional, and strategy thresholds are invalid")
+    if args.assume_missing_spread_bps is not None and (
+            not args.assume_missing_spread_bps.is_finite()
+            or args.assume_missing_spread_bps <= 0
+            or args.assume_missing_spread_bps > args.maximum_spread_bps):
+        parser.error("assumed missing spread must be positive and no greater than the maximum spread filter")
+    if args.assume_missing_spread_bps is not None and args.with_active_ai_models:
+        parser.error("assumed spreads cannot be combined with active AI models or approval evaluation")
 
     data: dict[str, dict[date, list]] = {}
     dataset_sources: dict[str, list[dict[str, object]]] = {}
@@ -243,6 +253,41 @@ def main() -> int:
     reference_sessions = next(iter(session_sets.values()))
     if not reference_sessions or any(sessions != reference_sessions for sessions in session_sets.values()):
         parser.error("all symbol datasets must contain the same non-empty set of KR session dates")
+
+    spread_assumption = None
+    if args.assume_missing_spread_bps is not None:
+        modeled_spreads_by_symbol = {}
+        replaced_unverified_spreads_by_symbol = {}
+        for symbol, sessions in data.items():
+            modeled_count = 0
+            replaced_unverified_count = 0
+            for session, bars in sessions.items():
+                modeled_bars = []
+                for bar in bars:
+                    if bar.spread_bps is None or bar.spread_observed_at is None:
+                        if bar.spread_bps is not None or bar.spread_observed_at is not None:
+                            replaced_unverified_count += 1
+                        modeled_bars.append(replace(
+                            bar, spread_bps=args.assume_missing_spread_bps,
+                            spread_observed_at=bar.timestamp,
+                        ))
+                        modeled_count += 1
+                    else:
+                        modeled_bars.append(bar)
+                sessions[session] = modeled_bars
+            modeled_spreads_by_symbol[symbol] = modeled_count
+            replaced_unverified_spreads_by_symbol[symbol] = replaced_unverified_count
+        spread_assumption = {
+            "method": "fixed_bps_for_missing_or_untimed_spread_observations",
+            "assumed_spread_bps": str(args.assume_missing_spread_bps),
+            "modeled_bar_count_by_symbol": dict(sorted(modeled_spreads_by_symbol.items())),
+            "untimed_spread_value_replaced_by_symbol": dict(
+                sorted(replaced_unverified_spreads_by_symbol.items())
+            ),
+            "source_files_modified": False,
+            "p4_model_training_or_approval_eligible": False,
+            "executable": False,
+        }
 
     config = replace(QuantConfig(), commission_bps=Decimal(0),
                      buy_commission_bps=args.buy_commission_bps,
@@ -439,6 +484,7 @@ def main() -> int:
     print(json.dumps({
         "market": "KR",
         "datasets": dataset_records,
+        "spread_assumption": spread_assumption,
         "ai": {
             "enabled": args.with_active_ai_models,
             "active_model_ids": active_model_ids,
