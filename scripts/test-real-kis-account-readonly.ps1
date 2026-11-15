@@ -1,5 +1,13 @@
 param(
-    [switch]$EnableReadOnlyGetForThisRun
+    [switch]$EnableReadOnlyGetForThisRun,
+    [ValidateSet(
+        'readsDomesticRealBalanceWithoutPlacingOrders',
+        'readsDomesticRealOrderableCashForSymbolWithoutPlacingOrders',
+        'preflightsDomesticRealBuyWithFreshQuoteWithoutSubmittingAnOrder',
+        'readsDomesticRealizedPnlFieldNamesWithoutPrintingFinancialValues',
+        'readsDomesticSessionExecutionsWithoutPrintingTradeDetails'
+    )]
+    [string]$TestMethod
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,7 +65,12 @@ $env:RUN_KIS_REAL_ACCOUNT_INTEGRATION_TESTS = 'true'
 $env:KIS_TEST_US_ACCOUNT_READS = 'false'
 Push-Location (Join-Path $repoRoot 'backend/trading-api')
 try {
-    & .\mvnw.cmd '-Dtest=KisRealAccountIntegrationTest' test
+    $testSelector = if ([string]::IsNullOrWhiteSpace($TestMethod)) {
+        '-Dtest=KisRealAccountIntegrationTest'
+    } else {
+        "-Dtest=KisRealAccountIntegrationTest#$TestMethod"
+    }
+    & .\mvnw.cmd $testSelector test
     if ($LASTEXITCODE -ne 0) {
         throw "Read-only KIS REAL account integration test failed with code $LASTEXITCODE."
     }
