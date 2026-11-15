@@ -113,6 +113,14 @@ KIS가 PAPER 계좌에 취소가능수량 사전조회 서비스를 제공하는
 
 `valid_preflight_response`는 응답 행에 양수 `psbl_qty`가 있다는 뜻일 뿐, 특정 주문 취소를 허용하거나 주문번호와 일치한다는 뜻이 아닙니다. `service_unavailable`(KIS `OPSQ0002`), `no_cancelable_quantity`, `response_incomplete`, `broker_error_unclassified`, `temporary_server_error`는 취소 사전조건을 확인하지 못한 상태입니다. 실제 취소 전에는 해당 주문번호·종목·계좌와 일치하는 수량을 확인하고 로컬 취소 제한 검증을 통과해야 합니다. 이 점검 명령은 주문·취소를 보내지 않습니다.
 
+### 국내 PAPER 일별 주문이력 읽기 전용 점검
+
+KIS PAPER 일별 주문·체결 조회 API가 응답하는지만 확인할 때 실행합니다. 조회 날짜는 최근 90일 안의 국내 거래일이어야 합니다. 이 도구는 공식 PAPER TR ID `VTTC0081R`로 해당 날짜의 주문 이력 GET을 최대 5페이지까지 수행하고 주문번호·종목·수량 원문을 출력하거나 저장하지 않습니다. `remaining_quantity_fields_observed`는 반환 행의 `rmn_qty` 필드 형식만 나타내며 취소 사전조회로 인정되지 않습니다. 취소 API의 공식 선행조건인 `psbl_qty`를 대체하지 않으므로 PAPER 취소는 계속 잠겨 있습니다.
+
+```powershell
+.\services\market-ai\.venv\Scripts\python.exe .\scripts\probe-kis-paper-order-history.py --session-date 2026-11-13 --evidence-path .local/validation/kis-paper-order-history.jsonl
+```
+
 ### P5 거래 세션 시세 감시
 
 현재 사용 중인 국내 KRX 세션 감시 작업은 `WakeToRun` 및 `StartWhenAvailable`을 설정합니다. Windows 절전 해제를 허용하고 지정 시각을 놓치면 이후 실행을 시도하지만, 현재 사용자가 로그인되어 있어야 하고 배터리 시작·중지 제한과 Windows 전원 정책을 따릅니다. 감시는 지연 실행 때도 국내 장중 여부와 저장된 세션 품질을 확인하며 주문을 보내지 않습니다. 미국 세션·PAPER lifecycle·해외 P4 예약은 실행하거나 등록하지 않습니다.
