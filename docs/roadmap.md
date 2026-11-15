@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P2 국내 PAPER 최근 주문이력 읽기 조회 (2026-11-15 18:38 KST):** KIS 모의 계좌의 11월 13일 국내 일별 주문·체결 조회를 읽기 전용으로 실행했습니다. HTTP 200으로 전체 페이지 조회가 완료됐고 이 세션의 반환 주문은 0건, 취소가능 수량(`psbl_qty`) 관측도 없었습니다. 따라서 현재 모의 계좌 이력으로 취소 사전조회 수량을 검증할 주문 사례는 확보되지 않았습니다. 안전을 위해 PAPER 주문을 새로 만들어 미지원 취소 경로를 시험하지 않았습니다. 결과는 Git 제외 `.local/validation/kis-paper-order-history-20261113.jsonl`에 허용된 필드만 저장했고 `order_or_cancel_sent=false`입니다.
+
 - **P1 11월 16일 국내 장중 검증 실행 전 점검 (2026-11-15 18:32 KST):** 로컬 FastAPI `/api/v1/health`는 `ok`, Spring 운영 요약은 `PAPER`·REAL 비활성으로 응답했습니다. PAPER 주문·자동매매와 REAL 주문은 꺼져 있고, `.env_local`의 REAL 조회 자격 구성 및 DB 비밀값 존재 여부만 값 노출 없이 확인했습니다. KRX 감시(08:45), REAL WebSocket tick 확인(09:05), 신선 호가 기반 무주문 사전점검(09:10) 작업은 모두 `Ready`, 현재 로그인 계정 `home`의 `Interactive` 방식이며 `WakeToRun`·장중 작업 `StartWhenAvailable`이 켜져 있습니다. 모두 실행 전 상태이며, 이번 확인은 localhost GET·환경 키 존재/형식·스케줄러 읽기만 했고 KIS 요청은 없었습니다.
 
 - **P2 국내 PAPER 취소 사전조회 지원 최신 대조 (2026-11-15):** KIS 공식 API 지원표를 다시 확인했으며, 국내 `주식정정취소가능주문조회`에는 모의투자 지원 표시가 없습니다. 공식 취소 예제는 취소 POST 전에 해당 조회의 `psbl_qty`를 확인하도록 요구합니다. 주문 이력·잔고의 다른 수량으로 대체하지 않으며, PAPER 취소 경로는 KIS의 지원 확인 또는 검증된 모의 조회 응답을 얻을 때까지 잠금 상태로 둡니다. 이번 확인은 공개 문서만 읽었고 KIS 계좌/API 요청이나 주문은 없었습니다. [KIS 공식 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#3-api-%EC%A0%9C%EA%B3%B5-%EB%AA%A9%EB%A1%9D) · [공식 취소 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_rvsecncl/order_rvsecncl.py)
