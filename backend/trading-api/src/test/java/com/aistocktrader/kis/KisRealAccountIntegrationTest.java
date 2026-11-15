@@ -77,14 +77,25 @@ class KisRealAccountIntegrationTest {
 
     @Test
     void preflightsDomesticRealBuyWithFreshQuoteWithoutSubmittingAnOrder() {
-        KisMarketAiEvidenceClient.ExitQuote quote;
-        try {
-            quote = marketAiEvidence.quoteForExit(Market.KR, "005930", null);
-        } catch (IllegalStateException staleQuote) {
-            if (!"Protective exit requires a fresh matching KIS quote.".equals(staleQuote.getMessage())) {
-                throw staleQuote;
+        KisMarketAiEvidenceClient.ExitQuote quote = null;
+        java.time.Instant quoteDeadline = java.time.Instant.now().plusSeconds(15);
+        while (quote == null && java.time.Instant.now().isBefore(quoteDeadline)) {
+            try {
+                quote = marketAiEvidence.quoteForExit(Market.KR, "005930", null);
+            } catch (IllegalStateException staleQuote) {
+                if (!"Protective exit requires a fresh matching KIS quote.".equals(staleQuote.getMessage())) {
+                    throw staleQuote;
+                }
+                try {
+                    Thread.sleep(250);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while waiting for a fresh domestic quote.", interrupted);
+                }
             }
-            Assumptions.abort("Domestic order-free preflight requires a quote no older than three seconds.");
+        }
+        if (quote == null) {
+            Assumptions.abort("Domestic order-free preflight requires a quote no older than three seconds within 15 seconds.");
             return;
         }
         var request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
