@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P1 종료된 국내 종목분석 API 런타임 사후 검사 (작업일 2026-11-15):** KIS 종료 시행일 이후 기존 정적 검사기 `scripts/test-retired-kis-analysis.ps1`를 실행했습니다. Spring Java와 FastAPI Python 런타임에서 종료 대상 7개 API의 공식 함수명·경로 fragment가 발견되지 않았습니다. 검사는 알려진 식별자와 코드 문자열만 대상으로 하며 동적 조합 경로 전체를 증명하지 않습니다. KIS API 호출이나 주문은 없었습니다.
+
 - **P2 국내 PAPER legacy 취소 사전조회 재점검 (작업일 2026-11-15 15:23 KST):** 공식 legacy ID `TTTC8036R`를 모의 ID `VTTC8036R`로 조회했습니다. HTTP 200, `rt_cd=1`, 코드 `90000000`, 조회 행 0개, `psbl_qty` 없음입니다. 새 probe 기록 기능을 사용해 마스킹된 JSONL을 무시 경로 `.local/validation/kis-paper-cancel-preflight.jsonl`에 보존했습니다. 이 응답은 사전조회 지원이나 취소 가능 수량을 증명하지 않으므로 취소 잠금은 유지합니다. 주문·취소는 보내지 않았습니다.
 
 - **P2 취소 사전조회 근거의 로컬 보존 (작업일 2026-11-15):** `probe-kis-paper-cancel-preflight.py`에 선택형 JSONL 근거 기록을 추가했습니다. 저장 경로는 무시되는 `.local/validation` 아래 `.jsonl` 파일만 허용하며, probe의 마스킹된 응답 결과만 기록합니다. 기본 명령은 파일을 생성하지 않습니다. 취소 사전조회 집중 테스트 25/25 통과. KIS·계좌·주문 API는 호출하지 않았고 PAPER/REAL 주문 잠금은 변경하지 않았습니다.
