@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P3 Python/LEAN 국내 엔진 재현성 검사 (작업일 2026-11-15 13:20 KST):** 권리 확인된 국내 PAPER WebSocket 11/11 세션에서 005930·000660 각각 380개 분봉을 Python과 공식 LEAN 엔진으로 같은 `.env_local` 비용 가정(매수/매도 15.06833bp, 매도세 20bp, 체결 슬리피지 10bp)으로 재생했습니다. 005930은 3건·순손익 약 -₩1,728.00, 000660은 15건·순손익 약 -₩147,136.90였고 양 종목 모두 주문 시뮬레이션 전량 체결·실패 0, 엔진 간 순손익 차이 0.01원 미만으로 `parity=passed`였습니다. 이는 동일 입력의 계산 재현성 확인이지 수익성·실체결 일치·P3 최종 통과를 의미하지 않습니다. 비용값은 계좌 체결명세 대조 전 연구 가정입니다. 실행은 로컬 KIS 데이터와 `.local/lean-toolchain`만 사용했고 KIS·계좌·주문 API를 호출하지 않았습니다.
+
 - **P2 PAPER 취소 사전조회 공식 지원 재확인 (작업일 2026-11-15 13:14 KST):** KIS 공식 API 지원표에서 현금주문·정정취소·일별주문체결·잔고조회는 모의 지원이 표시되어 있지만 `주식정정취소가능주문조회`는 표시되지 않습니다. 공식 예제는 취소 전에 해당 조회의 `psbl_qty`를 확인하도록 합니다. PAPER 취소 수량을 다른 API의 잔량으로 추정하거나 취소 POST를 우회하지 않으며, 따라서 국내 PAPER 전체 취소 수명주기 검증은 계속 미완료입니다. [KIS 공식 API 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#3-api-%EC%A0%9C%EA%B3%B5-%EB%AA%A9%EB%A1%9D) · [KIS 공식 취소 가능 수량 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_psbl_rvsecncl/inquire_psbl_rvsecncl.py). 이번 확인은 공개 문서만 읽었으며 KIS 계좌·주문 API는 호출하지 않았습니다.
 
 - **P5 국내 세션 직전 로컬 안전상태 재확인 (작업일 2026-11-15 13:14 KST):** localhost GET에서 FastAPI health `ok`, PAPER monitor/stream/storage `RUNNING`, 저장 대기 0건을 확인했습니다. Spring 운영 요약은 운영시장 KR, PAPER 자동화·주문 비활성, REAL 주문·계좌조회·승인 비활성이었습니다. Windows에서 11/16 KRX 감시는 `Ready`·08:45 KST, 세션 롤링 등록은 `Ready`·00:05 KST·마지막 결과 0입니다. 이 확인은 로컬 상태 GET 및 작업 스케줄러 조회뿐이며 KIS·계좌·주문 API는 호출하지 않았습니다. 예약된 세션 감시는 아직 실행 전입니다.
