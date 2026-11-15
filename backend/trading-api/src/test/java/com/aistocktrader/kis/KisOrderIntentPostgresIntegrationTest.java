@@ -618,6 +618,41 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    @Transactional
+    void manuallyVerifiedPaperOrderIdentityAndReconciliationPersistInPostgres() {
+        UUID key = UUID.randomUUID();
+        OrderRequest order = request();
+        String brokerNumber = Long.toUnsignedString(UUID.randomUUID().getMostSignificantBits());
+        String organizationNumber = "ITORG01";
+
+        try {
+            store.prepare(key, hash("manual-paper-reconcile"), KisEnvironment.PAPER, order, null);
+            store.markUnknown(key);
+            entityManager.flush();
+            entityManager.clear();
+
+            KisOrderIntent unresolved = kisOrderRepository.findById(key).orElseThrow();
+            assertEquals(KisOrderStatus.UNKNOWN, unresolved.getStatus());
+            assertNull(unresolved.getBrokerOrderNumber());
+
+            KisOrderIntent linked = store.attachVerifiedPaperOrderAndReconcile(key, brokerNumber,
+                    organizationNumber, new KisBrokerOrderSnapshot(0, order.quantity(), null, false, false));
+            entityManager.flush();
+            entityManager.clear();
+
+            KisOrderIntent persisted = kisOrderRepository.findById(key).orElseThrow();
+            assertEquals(KisOrderStatus.ACCEPTED, linked.getStatus());
+            assertEquals(KisOrderStatus.ACCEPTED, persisted.getStatus());
+            assertEquals(brokerNumber, persisted.getBrokerOrderNumber());
+            assertEquals(organizationNumber, persisted.getBrokerOrganizationNumber());
+            assertEquals("MANUAL_ORDER_LINKED", persisted.getBrokerResponseCode());
+            assertEquals(order.quantity(), persisted.getRemainingQuantity());
+        } finally {
+            kisOrderRepository.deleteById(key);
+        }
+    }
+
+    @Test
     void concurrentDistinctRealOrdersCannotBothReserveTheSameMarket() throws Exception {
         UUID firstKey = UUID.randomUUID();
         UUID secondKey = UUID.randomUUID();
