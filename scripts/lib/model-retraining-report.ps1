@@ -53,6 +53,9 @@ function Get-AiTraderModelTrainingFailureCode {
 
     # Map only known, non-sensitive contract failures. Never persist arbitrary stderr/tracebacks.
     $text = ($Output -join "`n")
+    if ($text -match 'approval-ready model training is not ready:') {
+        return 'training_not_approval_ready'
+    }
     if ($text -match 'at least three distinct sessions are required') {
         return 'insufficient_training_sessions'
     }
@@ -96,7 +99,7 @@ function Write-AiTraderModelRetrainingFailureReport {
     $safeFailureCodes = @(
         'local_configuration_missing', 'market_cost_assumptions_missing_or_invalid',
         'market_cost_assumptions_inconsistent',
-        'insufficient_training_sessions', 'insufficient_partition_samples',
+        'training_not_approval_ready', 'insufficient_training_sessions', 'insufficient_partition_samples',
         'single_class_training_partition', 'training_dependencies_missing',
         'unclassified_training_failure'
     )
@@ -187,7 +190,7 @@ function Get-AiTraderModelRetrainingSummary {
         $knownFailureCodes = @(
             'local_configuration_missing', 'market_cost_assumptions_missing_or_invalid',
             'market_cost_assumptions_inconsistent',
-            'insufficient_training_sessions', 'insufficient_partition_samples',
+            'training_not_approval_ready', 'insufficient_training_sessions', 'insufficient_partition_samples',
             'single_class_training_partition', 'training_dependencies_missing',
             'unclassified_training_failure'
         )

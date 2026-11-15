@@ -140,6 +140,12 @@ Describe 'Model retraining failure reports' {
         $json | Should Not Match 'Traceback|private-path-or-secret-marker|at least three distinct sessions'
     }
 
+    It 'classifies approval-readiness rejection with a safe reason code' {
+        Get-AiTraderModelTrainingFailureCode -Output @(
+            'approval-ready model training is not ready: insufficient_eligible_sessions'
+        ) | Should Be 'training_not_approval_ready'
+    }
+
     It 'maps unknown training errors to a generic safe code' {
         Get-AiTraderModelTrainingFailureCode -Output @('secret-bearing database host detail') |
             Should Be 'unclassified_training_failure'

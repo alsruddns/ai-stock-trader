@@ -160,6 +160,7 @@ try {
         $csvPath,
         '--market', $Market,
         '--symbol', $symbolValue,
+        '--require-approval-ready',
         '--buy-commission-bps', $BuyCommissionBps.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--sell-commission-bps', $SellCommissionBps.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--sell-tax-bps', $SellTaxBps.ToString([Globalization.CultureInfo]::InvariantCulture),

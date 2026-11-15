@@ -17,6 +17,7 @@ from app.ai_pipeline import (
     LocalModelRegistry,
     TrainingSample,
     assess_training_samples,
+    require_approval_ready_training,
     _chronological_partitions,
     _metrics,
     _quant_baseline_metrics,
@@ -601,6 +602,16 @@ def test_readiness_reports_non_approvable_diagnostic_partitions_before_minimum_s
         "validation": {"positive": 0, "negative": 1},
         "test": {"positive": 0, "negative": 1},
     }
+
+
+def test_production_training_gate_rejects_diagnostic_sessions() -> None:
+    samples = [
+        TrainingSample(date(2026, 11, 2) + timedelta(days=index), str(index), (float(index),), index % 2)
+        for index in range(5)
+    ]
+
+    with pytest.raises(ValueError, match="approval-ready model training is not ready: insufficient_eligible_sessions"):
+        require_approval_ready_training(samples)
 
 
 def test_quant_baseline_reports_candidate_coverage_and_cost_adjusted_label_rate() -> None:

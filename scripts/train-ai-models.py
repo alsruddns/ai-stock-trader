@@ -10,7 +10,7 @@ from pathlib import Path
 repository = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repository / "services" / "market-ai"))
 
-from app.ai_pipeline import LocalModelRegistry
+from app.ai_pipeline import LocalModelRegistry, build_training_samples, require_approval_ready_training
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import (load_data_provenance, validate_model_session_integrity,
                                  validate_model_training_coverage)
@@ -26,6 +26,8 @@ def main() -> int:
     parser.add_argument("--symbol", required=True,
                         help="single instrument used for held-out quant and AI+quant strategy backtests")
     parser.add_argument("--registry", type=Path, default=Path(".local/models"))
+    parser.add_argument("--require-approval-ready", action="store_true",
+                        help="refuse to create even unapproved candidates unless all model-readiness gates pass")
     parser.add_argument("--horizon-bars", type=int, default=5)
     parser.add_argument("--round-trip-cost-bps", type=Decimal, required=True,
                         help="verified/conservative total round-trip cost deducted from forward labels")
@@ -68,6 +70,15 @@ def main() -> int:
         sell_commission_bps=args.sell_commission_bps, sell_tax_bps=args.sell_tax_bps,
         slippage_bps=args.slippage_bps,
     )
+    if args.require_approval_ready:
+        samples = build_training_samples(
+            sessions, market=args.market, horizon_bars=args.horizon_bars,
+            round_trip_cost_bps=args.round_trip_cost_bps, quant_config=quant_config,
+        )
+        try:
+            require_approval_ready_training(samples)
+        except ValueError as exc:
+            parser.error(str(exc))
     results = LocalModelRegistry(args.registry).train_compare(
         market=args.market, symbol=args.symbol, sessions=sessions, quant_config=quant_config,
         label_horizon_bars=args.horizon_bars, label_round_trip_cost_bps=args.round_trip_cost_bps,

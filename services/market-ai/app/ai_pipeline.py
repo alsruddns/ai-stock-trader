@@ -459,6 +459,15 @@ def assess_training_samples(samples: list[TrainingSample]) -> dict[str, Any]:
     return result
 
 
+def require_approval_ready_training(samples: list[TrainingSample]) -> dict[str, Any]:
+    """Fail closed when a production training invocation cannot meet approval gates."""
+    readiness = assess_training_samples(samples)
+    if not readiness["ready"]:
+        reasons = ", ".join(readiness["reasons"])
+        raise ValueError("approval-ready model training is not ready: " + reasons)
+    return readiness
+
+
 def _metrics(model: Any, samples: list[TrainingSample]) -> dict[str, float | None]:
     from sklearn.metrics import accuracy_score, brier_score_loss, roc_auc_score
 
