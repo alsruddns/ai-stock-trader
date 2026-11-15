@@ -361,13 +361,27 @@ def main() -> int:
             "ai_rejections": portfolio.ai_rejections_by_symbol,
             "accepted_trades": [{
                 "symbol": trade.symbol, "entry_time": trade.entry_time.isoformat(),
+                "signal_time": (trade.entry_time - timedelta(minutes=1)).isoformat(),
                 "exit_time": trade.exit_time.isoformat(), "quantity": trade.quantity,
+                "entry_fill_price": str(trade.entry_fill_price),
+                "exit_fill_price": str(trade.exit_fill_price),
                 "entry_notional": str(trade.entry_notional),
+                "initial_stop_distance": str(trade.initial_stop_distance),
+                "initial_stop_distance_bps": str(
+                    trade.initial_stop_distance * Decimal(10_000) / trade.entry_fill_price
+                ),
                 "gross_pnl": str(trade.gross_pnl), "estimated_costs": str(trade.costs),
+                "gross_return_bps": str(
+                    trade.gross_pnl * Decimal(10_000) / trade.entry_notional
+                ),
                 "estimated_costs_by_component": {
                     name: str(amount) for name, amount in trade.costs_by_component.items()
                 },
-                "net_pnl": str(trade.net_pnl), "exit_reason": trade.exit_reason,
+                "net_pnl": str(trade.net_pnl),
+                "net_return_bps": str(
+                    trade.net_pnl * Decimal(10_000) / trade.entry_notional
+                ),
+                "exit_reason": trade.exit_reason,
             } for trade in portfolio.trades],
             "trade_metrics": summarize_net_trade_pnls(
                 [trade.net_pnl for trade in portfolio.trades],

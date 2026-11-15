@@ -45,6 +45,26 @@ def _dataset(
     return path
 
 
+def _breakout_dataset(path: Path, symbol: str) -> Path:
+    source = _dataset(path, symbol=symbol)
+    lines = source.read_text(encoding="utf-8").splitlines()
+    rewritten = [lines[0]]
+    for index, line in enumerate(lines[1:]):
+        columns = line.split(",")
+        if index >= 20:
+            opening = index == 20
+            columns[1:6] = (["101", "103", "100", "102", "20000"] if opening
+                            else ["102", "103", "101", "102", "20000"])
+        rewritten.append(",".join(columns))
+    content = ("\n".join(rewritten) + "\n").encode()
+    source.write_bytes(content)
+    sidecar = source.with_name(source.name + ".provenance.json")
+    metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+    metadata["dataset_sha256"] = hashlib.sha256(content).hexdigest()
+    sidecar.write_text(json.dumps(metadata), encoding="utf-8")
+    return source
+
+
 def _multi_session_dataset(path: Path) -> Path:
     symbol = path.stem
     first = _dataset(path, "2026-11-05")
@@ -222,6 +242,32 @@ def test_portfolio_cli_records_explicit_strategy_parameters(tmp_path: Path) -> N
         "reward_risk_multiple": "2.5",
     }
     assert payload["executable"] is False
+
+
+def test_portfolio_cli_reports_auditable_trade_prices_and_stop_metrics(tmp_path: Path) -> None:
+    first = _breakout_dataset(tmp_path / "005930.csv", "005930")
+    second = _breakout_dataset(tmp_path / "000660.csv", "000660")
+
+    completed = subprocess.run(
+        _command(first, second), cwd=REPOSITORY, capture_output=True, text=True, check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    trades = [trade for session in payload["sessions"] for trade in session["accepted_trades"]]
+    assert len(trades) == 2
+    for trade in trades:
+        assert trade["signal_time"] < trade["entry_time"] < trade["exit_time"]
+        assert Decimal(trade["entry_fill_price"]) > 0
+        assert Decimal(trade["exit_fill_price"]) > 0
+        assert Decimal(trade["initial_stop_distance"]) > 0
+        entry_notional = Decimal(trade["entry_notional"])
+        assert Decimal(trade["gross_return_bps"]) == (
+            Decimal(trade["gross_pnl"]) * Decimal(10_000) / entry_notional
+        )
+        assert Decimal(trade["net_return_bps"]) == (
+            Decimal(trade["net_pnl"]) * Decimal(10_000) / entry_notional
+        )
 
 
 def test_portfolio_cli_rejects_non_positive_strategy_parameters(tmp_path: Path) -> None:
