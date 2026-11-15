@@ -116,6 +116,37 @@ def test_orb_vwap_uses_stop_first_when_entry_bar_touches_stop_and_target(monkeyp
     assert trade.net_pnl == Decimal("-1")
 
 
+def test_orb_vwap_gap_through_stop_fills_at_worse_open(monkeypatch) -> None:
+    bars = _session_bars()
+    for index in (20, 21):
+        bar = bars[index]
+        bars[index] = MinuteBar(
+            bar.timestamp, bar.open, bar.high, bar.low, bar.close, bar.volume,
+            Decimal("0"), bar.timestamp + timedelta(seconds=30),
+        )
+    gap = bars[22]
+    bars[22] = MinuteBar(
+        gap.timestamp, Decimal("99"), Decimal("106"), Decimal("95"),
+        Decimal("100"), gap.volume, Decimal("0"), gap.timestamp + timedelta(seconds=30),
+    )
+    monkeypatch.setattr("app.quant.orb_vwap_entry_candidate", lambda history, *_args, **_kwargs: len(history) == 21)
+    monkeypatch.setattr("app.quant._atr", lambda *_args: Decimal("1"))
+    monkeypatch.setattr("app.quant._vwap", lambda _history: Decimal("0"))
+    config = QuantConfig(
+        minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"),
+        atr_stop_multiple=Decimal("1"), reward_risk_multiple=Decimal("2"),
+        commission_bps=Decimal("0"), slippage_bps=Decimal("0"),
+    )
+
+    result = backtest_orb_vwap("KR", "005930", bars, config)
+
+    assert len(result.trades) == 1
+    trade = result.trades[0]
+    assert trade.exit_reason == "ATR_STOP"
+    assert trade.exit_price == Decimal("99")
+    assert trade.net_pnl == Decimal("-3")
+
+
 def test_optional_quantity_sizer_applies_risk_bounded_trade_quantity() -> None:
     config = QuantConfig(
         commission_bps=Decimal("5"), slippage_bps=Decimal("5"),
