@@ -13,6 +13,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 sys.path.insert(0, str(repository / "scripts" / "lib"))
 
 from app.kis import KisReadOnlyClient, KisSettings
+from app.market_calendar import exchange_session_dates
 from kis_local_env import load_local_environment
 
 API_PATH = "/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
@@ -86,6 +87,14 @@ def main(session_date: str, evidence_path: str | None = None) -> int:
     local_today = datetime.now(timezone(timedelta(hours=9))).date()
     if requested_date > local_today or requested_date < local_today - timedelta(days=90):
         _emit({"status": "blocked", "reason": "SESSION_DATE_OUT_OF_RANGE"}, evidence_file)
+        return 2
+    try:
+        verified_sessions = exchange_session_dates("KR", requested_date, requested_date)
+    except (RuntimeError, ValueError):
+        _emit({"status": "blocked", "reason": "KRX_CALENDAR_UNAVAILABLE"}, evidence_file)
+        return 2
+    if requested_date not in verified_sessions:
+        _emit({"status": "blocked", "reason": "NOT_A_KRX_SESSION"}, evidence_file)
         return 2
 
     settings = KisSettings.from_environment("paper")

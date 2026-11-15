@@ -33,6 +33,7 @@ def test_paper_order_history_probe_sends_only_read_only_query_and_redacts_rows(m
     probe = _load_probe()
     _set_read_only_environment(monkeypatch)
     monkeypatch.setattr(probe, "load_local_environment", lambda _repository: Path(".env_local"))
+    monkeypatch.setattr(probe, "exchange_session_dates", lambda _market, start, _end: (start,))
     monkeypatch.setattr(probe.KisSettings, "from_environment", lambda _environment: SimpleNamespace(
         app_key="app-key", app_secret="app-secret", account_number="1234567801",
         shared_rate_limit_enabled=True, base_url="https://paper.invalid",
@@ -97,6 +98,23 @@ def test_paper_order_history_probe_fails_closed_when_paper_orders_are_enabled(mo
     assert probe.main(requested_date) == 2
     result = json.loads(capsys.readouterr().out)
     assert result == {"status": "blocked", "reason": "SAFETY_SWITCHES_NOT_READ_ONLY"}
+
+
+def test_paper_order_history_probe_rejects_non_session_before_broker_request(monkeypatch, capsys) -> None:
+    probe = _load_probe()
+    _set_read_only_environment(monkeypatch)
+    monkeypatch.setattr(probe, "load_local_environment", lambda _repository: Path(".env_local"))
+    monkeypatch.setattr(probe, "exchange_session_dates", lambda _market, _start, _end: ())
+    monkeypatch.setattr(
+        probe, "KisReadOnlyClient",
+        lambda _settings: (_ for _ in ()).throw(AssertionError("KIS client must not be created on a holiday")),
+    )
+
+    requested_date = datetime.now(timezone(timedelta(hours=9))).date().isoformat()
+
+    assert probe.main(requested_date) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result == {"status": "blocked", "reason": "NOT_A_KRX_SESSION"}
 
 
 def test_remaining_order_quantity_parser_rejects_boolean_and_malformed_values() -> None:

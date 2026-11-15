@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P2 일별 주문이력 probe의 거래일 검증 (2026-11-15):** 날짜 범위만 확인하던 PAPER 주문이력 진단 도구가 주말·휴장일도 조회할 수 있어, 공식 XKRX 캘린더가 해당 날짜를 세션으로 확인한 뒤에만 KIS 클라이언트를 생성하도록 수정했습니다. 휴장일과 달력 오류는 각각 안전 코드로 종료하며 KIS 요청은 보내지 않습니다. probe 집중검사 4/4, Python 구문검사 및 diff 검사가 통과했습니다.
+
 - **P2 국내 PAPER 일별 주문이력 조회 확인 (2026-11-15 15:45 KST):** 신규 마스킹 probe로 공식 PAPER TR `VTTC0081R`의 11월 13일 주문·체결이력 GET을 실행했습니다. HTTP 200, `rt_cd=0`, 성공 코드 `70070000`, 주문 행 0개, 페이지 완전 조회를 확인했고 로컬 `.local/validation/kis-paper-order-history.jsonl`에 민감 필드 없이 저장했습니다. 조회 API 연결만 확인한 것으로 주문행 필드 매핑이나 실제 주문 대사, 취소 사전조회는 검증하지 않았습니다. `rmn_qty`가 있더라도 공식 취소 예제가 요구하는 `psbl_qty`를 대체하지 않으며 취소 잠금은 유지합니다. Mock 집중검사 3/3 통과; 주문·취소는 전송하지 않았습니다. [KIS 공식 PAPER 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#3-api-%EC%A0%9C%EA%B3%B5-%EB%AA%A9%EB%A1%9D) · [공식 일별 주문·체결 조회 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_daily_ccld/inquire_daily_ccld.py)
 
 - **P4 Windows 예약 학습 승인준비 게이트 (작업일 2026-11-15):** 예약 재학습 호출에 `--require-approval-ready`를 추가했습니다. 날짜·표본·분할·후보 수·세션 수·양/음 클래스 등 P4 승인준비 조건 중 하나라도 미달이면 모델 후보 학습 전 중단하며, sanitized report에는 `training_not_approval_ready`만 기록합니다. 수동 CLI는 진단용 미승인 후보를 계속 만들 수 있도록 선택형 게이트로 유지했습니다. 진단 분할 readiness 게이트 2/2, 예약 보고서 안전 코드 Pester 15/15, 국내 AI 테스트 선택기 102개 및 Python 구문검사 통과. 전체 테스트는 실행하지 않았고, 기존 Windows 작업 등록·실전 잠금·KIS 설정은 변경하지 않았습니다.
