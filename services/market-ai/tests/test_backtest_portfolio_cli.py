@@ -180,6 +180,7 @@ def test_portfolio_cli_requires_reviewed_multi_symbol_inputs_and_reports_non_exe
         "atr_period": 14,
         "relative_volume_period": 20,
         "minimum_relative_volume": "1.5",
+        "minimum_reward_to_cost_multiple": "0",
         "maximum_spread_bps": "15",
         "minimum_turnover": "0",
         "atr_stop_multiple": "1.5",
@@ -225,6 +226,7 @@ def test_portfolio_cli_records_explicit_strategy_parameters(tmp_path: Path) -> N
         _command(first, second) + [
             "--opening-range-bars", "8", "--ema-period", "12", "--atr-period", "10",
             "--relative-volume-period", "16", "--minimum-relative-volume", "2.25",
+            "--minimum-reward-to-cost-multiple", "1.5",
             "--atr-stop-multiple", "1.25", "--reward-risk-multiple", "2.5",
         ], cwd=REPOSITORY, capture_output=True, text=True, check=False,
     )
@@ -237,11 +239,43 @@ def test_portfolio_cli_records_explicit_strategy_parameters(tmp_path: Path) -> N
         "atr_period": 10,
         "relative_volume_period": 16,
         "minimum_relative_volume": "2.25",
+        "minimum_reward_to_cost_multiple": "1.5",
         "maximum_spread_bps": "15",
         "minimum_turnover": "0",
         "atr_stop_multiple": "1.25",
         "reward_risk_multiple": "2.5",
     }
+    assert payload["executable"] is False
+
+
+def test_portfolio_cli_can_apply_optional_expected_reward_to_cost_filter(tmp_path: Path) -> None:
+    first = _breakout_dataset(tmp_path / "005930.csv", "005930")
+    second = _breakout_dataset(tmp_path / "000660.csv", "000660")
+
+    completed = subprocess.run(
+        _command(first, second) + ["--minimum-reward-to-cost-multiple", "1000"],
+        cwd=REPOSITORY, capture_output=True, text=True, check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["strategy_parameters"]["minimum_reward_to_cost_multiple"] == "1000"
+    assert payload["summary"]["accepted_trade_count"] == 0
+    assert payload["executable"] is False
+
+
+def test_portfolio_cli_cost_filter_fails_closed_when_spread_is_unavailable(tmp_path: Path) -> None:
+    first = _dataset(tmp_path / "005930.csv", symbol="005930", include_spread=False)
+    second = _dataset(tmp_path / "000660.csv", symbol="000660", include_spread=False)
+
+    completed = subprocess.run(
+        _command(first, second) + ["--minimum-reward-to-cost-multiple", "1"],
+        cwd=REPOSITORY, capture_output=True, text=True, check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["summary"]["accepted_trade_count"] == 0
     assert payload["executable"] is False
 
 

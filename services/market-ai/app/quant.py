@@ -58,6 +58,7 @@ class QuantConfig:
     atr_period: int = 14
     relative_volume_period: int = 20
     minimum_relative_volume: Decimal = Decimal("1.5")
+    minimum_reward_to_cost_multiple: Decimal = Decimal(0)
     maximum_spread_bps: Decimal = Decimal("15")
     minimum_turnover: Decimal = Decimal("1000000")
     atr_stop_multiple: Decimal = Decimal("1.5")
@@ -74,7 +75,8 @@ class QuantConfig:
         if min(self.opening_range_bars, self.ema_period, self.atr_period, self.relative_volume_period) <= 0:
             raise ValueError("indicator periods must be positive")
         numeric_settings = (
-            self.minimum_relative_volume, self.maximum_spread_bps, self.minimum_turnover,
+            self.minimum_relative_volume, self.minimum_reward_to_cost_multiple,
+            self.maximum_spread_bps, self.minimum_turnover,
             self.atr_stop_multiple, self.reward_risk_multiple, self.commission_bps,
             self.sell_tax_bps, self.slippage_bps,
         )
@@ -84,7 +86,8 @@ class QuantConfig:
         if any(value is not None and (not isinstance(value, Decimal) or not value.is_finite())
                for value in direction_costs):
             raise ValueError("direction-specific commission settings must be finite decimals")
-        if self.minimum_relative_volume <= 0 or self.maximum_spread_bps < 0 or self.minimum_turnover < 0:
+        if (self.minimum_relative_volume <= 0 or self.minimum_reward_to_cost_multiple < 0
+                or self.maximum_spread_bps < 0 or self.minimum_turnover < 0):
             raise ValueError("liquidity thresholds are invalid")
         if self.atr_stop_multiple <= 0 or self.reward_risk_multiple <= 0:
             raise ValueError("risk multiples must be positive")
@@ -289,10 +292,29 @@ def orb_vwap_entry_candidate(
         and current.spread_bps <= config.maximum_spread_bps
     )
     turnover_ok = current.close * current.volume >= config.minimum_turnover
+    reward_covers_costs = True
+    if config.minimum_reward_to_cost_multiple > 0:
+        if not spread_ok:
+            reward_covers_costs = False
+        else:
+            risk_distance = _atr(bars, config.atr_period) * config.atr_stop_multiple
+            expected_reward_bps = (
+                risk_distance * config.reward_risk_multiple * Decimal(10_000) / current.close
+            )
+            estimated_round_trip_cost_bps = (
+                config.minimum_round_trip_cost_bps
+                + current.spread_bps / Decimal(2)
+                + config.maximum_spread_bps / Decimal(2)
+            )
+            reward_covers_costs = (
+                expected_reward_bps
+                >= estimated_round_trip_cost_bps * config.minimum_reward_to_cost_multiple
+            )
     return (
         current.close > opening_high and current.close > _vwap(bars)
         and current.close > _ema([bar.close for bar in bars], config.ema_period)
         and relative_volume >= config.minimum_relative_volume and spread_ok and turnover_ok
+        and reward_covers_costs
     )
 
 

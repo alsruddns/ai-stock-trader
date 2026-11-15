@@ -125,6 +125,9 @@ def main() -> int:
                         help="relative-volume baseline lookback in one-minute bars")
     parser.add_argument("--minimum-relative-volume", type=Decimal, default=Decimal("1.5"),
                         help="minimum current volume divided by the relative-volume baseline")
+    parser.add_argument("--minimum-reward-to-cost-multiple", type=Decimal, default=Decimal(0),
+                        help=("optional expected take-profit reward divided by estimated round-trip costs; "
+                              "zero disables the research filter"))
     parser.add_argument("--atr-stop-multiple", type=Decimal, default=Decimal("1.5"),
                         help="ATR multiple used for the protective stop")
     parser.add_argument("--reward-risk-multiple", type=Decimal, default=Decimal("2"),
@@ -186,6 +189,8 @@ def main() -> int:
             or min(args.opening_range_bars, args.ema_period, args.atr_period,
                    args.relative_volume_period) <= 0
             or not args.minimum_relative_volume.is_finite() or args.minimum_relative_volume <= 0
+            or not args.minimum_reward_to_cost_multiple.is_finite()
+            or args.minimum_reward_to_cost_multiple < 0
             or not args.atr_stop_multiple.is_finite() or args.atr_stop_multiple <= 0
             or not args.reward_risk_multiple.is_finite() or args.reward_risk_multiple <= 0):
         parser.error("capital, order notional, and strategy thresholds are invalid")
@@ -314,6 +319,7 @@ def main() -> int:
                      atr_period=args.atr_period,
                      relative_volume_period=args.relative_volume_period,
                      minimum_relative_volume=args.minimum_relative_volume,
+                     minimum_reward_to_cost_multiple=args.minimum_reward_to_cost_multiple,
                      atr_stop_multiple=args.atr_stop_multiple,
                      reward_risk_multiple=args.reward_risk_multiple,
                      commission_bps=Decimal(0),
@@ -555,6 +561,7 @@ def main() -> int:
             "atr_period": config.atr_period,
             "relative_volume_period": config.relative_volume_period,
             "minimum_relative_volume": str(config.minimum_relative_volume),
+            "minimum_reward_to_cost_multiple": str(config.minimum_reward_to_cost_multiple),
             "maximum_spread_bps": str(config.maximum_spread_bps),
             "minimum_turnover": str(config.minimum_turnover),
             "atr_stop_multiple": str(config.atr_stop_multiple),
