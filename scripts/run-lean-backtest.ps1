@@ -100,6 +100,9 @@ if (-not (Test-Path -LiteralPath (Join-Path $leanRepo 'QuantConnect.Lean.sln')))
 $algorithmSource = Join-Path $PSScriptRoot '..\backtesting\lean\KisCsvReader\KisCsvLeanAlgorithm.cs'
 $algorithmDestination = Join-Path $leanRepo 'Algorithm.CSharp\KisCsvLeanAlgorithm.cs'
 Copy-Item -LiteralPath $algorithmSource -Destination $algorithmDestination -Force
+$exitResolverSource = Join-Path $PSScriptRoot '..\backtesting\lean\KisCsvReader\KisCsvExitResolver.cs'
+$exitResolverDestination = Join-Path $leanRepo 'Algorithm.CSharp\KisCsvExitResolver.cs'
+Copy-Item -LiteralPath $exitResolverSource -Destination $exitResolverDestination -Force
 $legacyAlgorithm = Join-Path $leanRepo 'Algorithm.CSharp\KisCsvLeanSmokeAlgorithm.cs'
 if (Test-Path -LiteralPath $legacyAlgorithm) {
     Remove-Item -LiteralPath $legacyAlgorithm -Force

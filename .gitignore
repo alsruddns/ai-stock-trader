@@ -11,6 +11,8 @@ secrets/
 
 # Java / Maven
 **/target/
+**/bin/
+**/obj/
 **/node_modules/
 **/.next/
 **/out/

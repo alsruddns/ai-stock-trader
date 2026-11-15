@@ -20,6 +20,10 @@ on:
       - 'services/market-ai/tests/test_portfolio_backtest.py'
       - 'services/market-ai/tests/test_backtest_portfolio_cli.py'
       - 'services/market-ai/scripts/validate_domestic_quant_selection.py'
+      - 'backtesting/lean/KisCsvReader/KisCsvLeanAlgorithm.cs'
+      - 'backtesting/lean/KisCsvReader/KisCsvExitResolver.cs'
+      - 'backtesting/lean/KisCsvReader.Tests/**'
+      - 'scripts/run-lean-backtest.ps1'
       - '.github/workflows/domestic-quant-safety.yml'
   workflow_dispatch:
 
@@ -66,6 +70,12 @@ jobs:
           python -m pytest -q
           tests/test_portfolio_backtest.py
           tests/test_backtest_portfolio_cli.py
+      - name: Set up .NET 10 for LEAN exit regression checks
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Run LEAN production exit resolver regressions
+        run: dotnet run --project backtesting/lean/KisCsvReader.Tests/KisCsvReader.Tests.csproj --configuration Release
       - name: Compile domestic analytics command-line tools
         run: >-
           python -m compileall -q
