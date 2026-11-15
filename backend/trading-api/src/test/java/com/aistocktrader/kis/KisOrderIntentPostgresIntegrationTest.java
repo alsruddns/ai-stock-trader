@@ -769,12 +769,13 @@ class KisOrderIntentPostgresIntegrationTest {
     @Transactional
     void unsupportedDomesticPaperCancelPreflightRestoresOpenOrderStateInPostgres() {
         UUID key = UUID.randomUUID();
-        OrderRequest order = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+        OrderRequest order = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 2,
                 new BigDecimal("70000"), Currency.KRW);
         String brokerNumber = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
-        var openSnapshot = new KisBrokerOrderSnapshot(0, 1, null, false, false);
+        var openSnapshot = new KisBrokerOrderSnapshot(1, 1, new BigDecimal("70000"), false, false);
         store.prepare(key, hash("cancel-preflight"), KisEnvironment.PAPER, order, null);
         store.accept(key, receipt("paper", brokerNumber));
+        store.reconcile(key, openSnapshot);
         when(kisOrderClient.reconcilePaperOrder(any(KisOrderIntent.class))).thenReturn(Optional.of(openSnapshot));
         doThrow(new KisApiException(HttpStatus.SERVICE_UNAVAILABLE,
                 "KIS paper cancel is blocked before submission (code PAPER_CANCEL_UNSUPPORTED)."))
@@ -787,11 +788,15 @@ class KisOrderIntentPostgresIntegrationTest {
             entityManager.clear();
             var persisted = kisOrderRepository.findById(key).orElseThrow();
 
-            assertEquals(KisOrderStatus.ACCEPTED, response.status());
+            assertEquals(KisOrderStatus.PARTIALLY_FILLED, response.status());
+            assertEquals(1, response.filledQuantity());
             assertEquals(1, response.remainingQuantity());
+            assertEquals(0, new BigDecimal(response.averageFillPrice()).compareTo(new BigDecimal("70000")));
             assertEquals("PAPER_CANCEL_UNSUPPORTED", response.responseCode());
-            assertEquals(KisOrderStatus.ACCEPTED, persisted.getStatus());
+            assertEquals(KisOrderStatus.PARTIALLY_FILLED, persisted.getStatus());
+            assertEquals(1, persisted.getFilledQuantity());
             assertEquals(1, persisted.getRemainingQuantity());
+            assertEquals(0, persisted.getAverageFillPrice().compareTo(new BigDecimal("70000")));
             assertEquals("PAPER_CANCEL_UNSUPPORTED", persisted.getBrokerResponseCode());
             verify(kisOrderClient).cancelPaperOrder(Market.KR, order.symbol(), brokerNumber,
                     "ITORG01", 1, "");
