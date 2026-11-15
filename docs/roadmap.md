@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P1 REAL 읽기검사의 전체 주문·자동화 게이트 fail-closed 보강 (2026-11-15 18:00 KST):** 계좌 읽기·실시간 호가 사전검사 스크립트가 기본 REAL/PAPER 주문 게이트 몇 개만 확인하던 것을 보완했습니다. 스크립트는 12개 실주문·모의주문·신호 제출·보호청산·자동화·대조 게이트 중 하나라도 true 또는 비기본값이면 Maven을 실행하기 전에 중단하고, 비어 있거나 false인 값은 자식 테스트 프로세스에서만 false로 고정합니다. `.env_local` 값은 변경하지 않습니다. 전용 Pester 검사 3/3, PowerShell AST 구문검사 3개 파일, tracked credential scan이 통과했고 Windows PAPER preflight `43697419884`도 성공했습니다. 이번 변경 검증은 KIS API·계좌·주문을 호출하지 않았으며 실주문 잠금은 유지됩니다.
+
 - **P1 REAL 주문 없는 사전평가 경로 회귀검증 (2026-11-15 17:59 KST):** 예약된 fresh-quote 사전점검 테스트의 실행 경로를 다시 확인했습니다. 테스트는 실시간 국내 호가와 계좌 잔고 GET 후 메모리상의 위험 사전평가를 수행하며 주문 요청을 제출하지 않습니다. `KisRealOrderOrchestratorTest` 20/20이 통과했고, 해당 클래스는 사전평가가 주문 의도를 저장하거나 KIS 주문 클라이언트를 호출하지 않는 조건도 검증합니다. KIS API·계좌·주문 요청은 이번 회귀검사에서 사용하지 않았고 실주문 잠금은 유지됩니다.
 
 - **P1 REAL 국내 WebSocket 장중 증거 로컬 저장 (2026-11-15):** 예약된 장중 probe의 JSON stdout은 작업 스케줄러가 보존하지 않아 나중에 실제 tick과 ACK를 확인하기 어려웠습니다. probe에 선택적 `--evidence-path`를 추가해 결과를 저장할 때 `.local/validation` 하위 경로만 허용하고, 명시 승인 필드만 원자적으로 기록합니다. 원시 시세·키·계좌번호는 저장 대상에서 제외했습니다. 국내 REAL WebSocket probe 집중검사 18/18 통과, domestic-only selection 검사 102개 통과(미국 전용 5개 제외), GitHub Actions Domestic AI pipeline safety `43696423169` 성공을 확인했습니다. 예약된 11월 16일 WebSocket 작업을 `.local/validation/real-kis-kr-websocket-20261116.json` 증거 파일을 남기도록 갱신했습니다. 첫 Windows CI에서는 테스트 fixture의 자격정보 필드명이 credential scanner에 오탐으로 걸렸으나, 동적 테스트 키 조립으로 수정하고 tracked credential scan을 통과시켰습니다. 수정 후 Windows PAPER preflight `43695965681`도 성공했습니다. KIS 네트워크 요청은 하지 않았습니다.
