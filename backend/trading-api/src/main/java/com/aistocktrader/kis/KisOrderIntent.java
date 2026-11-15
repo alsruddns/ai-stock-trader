@@ -130,6 +130,18 @@ public class KisOrderIntent {
     }
 
     public void markUnknown() { status = KisOrderStatus.UNKNOWN; updatedAt = Instant.now(); }
+    public void linkManuallyVerifiedPaperOrder(String orderNumber, String organizationNumber) {
+        if (environment != KisEnvironment.PAPER || status != KisOrderStatus.UNKNOWN
+                || brokerOrderNumber != null && !brokerOrderNumber.isBlank()
+                || orderNumber == null || !orderNumber.matches("[0-9]{1,32}")
+                || organizationNumber == null || !organizationNumber.matches("[A-Za-z0-9_-]{1,32}")) {
+            throw new IllegalStateException("Only an unlinked UNKNOWN PAPER intent can attach a verified broker order.");
+        }
+        brokerOrderNumber = orderNumber;
+        brokerOrganizationNumber = organizationNumber;
+        brokerResponseCode = "MANUAL_ORDER_LINKED";
+        updatedAt = Instant.now();
+    }
     boolean conflictsWithTerminalStatus(boolean cancelled, boolean rejected) {
         return (status == KisOrderStatus.CANCELLED && !cancelled)
                 || (status == KisOrderStatus.REJECTED && !rejected);

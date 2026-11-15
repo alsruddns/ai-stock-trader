@@ -134,9 +134,32 @@ public class KisOrderClient {
     }
 
     public Optional<KisBrokerOrderSnapshot> reconcilePaperOrder(KisOrderIntent intent) {
+        return reconcilePaperOrder(intent, intent.getBrokerOrderNumber(), intent.getBrokerOrganizationNumber(), false);
+    }
+
+    public Optional<KisBrokerOrderSnapshot> reconcilePaperOrderByVerifiedCandidate(
+            KisOrderIntent intent, String brokerOrderNumber, String brokerOrganizationNumber) {
+        if (intent == null || intent.getEnvironment() != KisEnvironment.PAPER
+                || intent.getMarket() != Market.KR || intent.getStatus() != KisOrderStatus.UNKNOWN
+                || intent.getBrokerOrderNumber() != null && !intent.getBrokerOrderNumber().isBlank()) {
+            throw new IllegalStateException("Manual PAPER order matching requires an unlinked domestic UNKNOWN intent.");
+        }
+        if (brokerOrderNumber == null || !brokerOrderNumber.matches("[0-9]{1,32}")
+                || brokerOrganizationNumber == null || !brokerOrganizationNumber.matches("[A-Za-z0-9_-]{1,32}")) {
+            throw new IllegalArgumentException("A broker order number and organization number are required.");
+        }
+        return reconcilePaperOrder(intent, brokerOrderNumber, brokerOrganizationNumber, true);
+    }
+
+    private Optional<KisBrokerOrderSnapshot> reconcilePaperOrder(
+            KisOrderIntent intent, String brokerOrderNumber, String brokerOrganizationNumber, boolean manualCandidate) {
+        if (intent == null) throw new IllegalArgumentException("A KIS order intent is required.");
         requirePaperReconciliationReadEnabled();
         if (intent.getEnvironment() != KisEnvironment.PAPER) {
             throw new IllegalStateException("Paper reconciliation cannot access a real-environment order intent.");
+        }
+        if (brokerOrderNumber == null || brokerOrderNumber.isBlank()) {
+            throw new IllegalArgumentException("A KIS order intent with a broker order number is required.");
         }
         KisProperties.Account credentials = properties.credentials(KisEnvironment.PAPER);
         String account = credentials.accountNumber();
@@ -160,7 +183,7 @@ public class KisOrderClient {
                 params.set("SLL_BUY_DVSN_CD", "00"); params.set("PDNO", intent.getSymbol());
                 params.set("CCLD_DVSN", "00"); params.set("INQR_DVSN", "00");
                 params.set("INQR_DVSN_3", "00"); params.set("ORD_GNO_BRNO", "");
-                params.set("ODNO", intent.getBrokerOrderNumber()); params.set("INQR_DVSN_1", "");
+                params.set("ODNO", brokerOrderNumber); params.set("INQR_DVSN_1", "");
                 params.set("EXCG_ID_DVSN_CD", "KRX");
                 params.set("CTX_AREA_FK100", nextSearch); params.set("CTX_AREA_NK100", nextKey);
             } else {
@@ -181,8 +204,12 @@ public class KisOrderClient {
             JsonNode rows = response.path(intent.getMarket() == Market.KR ? "output1" : "output");
             if (rows.isArray()) {
                 for (JsonNode row : rows) {
-                    if (intent.getBrokerOrderNumber().equals(firstText(row, "odno", "ODNO"))) {
-                        if (!KisBrokerOrderSnapshotValidator.matchesBrokerIdentity(row, intent)) return Optional.empty();
+                    if (brokerOrderNumber.equals(firstText(row, "odno", "ODNO"))) {
+                        boolean identityMatches = manualCandidate
+                                ? KisBrokerOrderSnapshotValidator.matchesManualBrokerIdentity(
+                                        row, intent, brokerOrderNumber, brokerOrganizationNumber, date)
+                                : KisBrokerOrderSnapshotValidator.matchesBrokerIdentity(row, intent);
+                        if (!identityMatches) return Optional.empty();
                         return parseSnapshot(row, intent);
                     }
                 }

@@ -50,6 +50,31 @@ final class KisBrokerOrderSnapshotValidator {
         return expectedOrganization.trim().equalsIgnoreCase(brokerOrganization.trim());
     }
 
+    static boolean matchesManualBrokerIdentity(JsonNode row, KisOrderIntent intent,
+                                               String orderNumber, String organizationNumber, String expectedDate) {
+        if (row == null || intent == null) return false;
+        String brokerOrderNumber = firstText(row, "odno", "ODNO");
+        String symbol = firstText(row, "pdno", "PDNO");
+        String side = firstText(row, "sll_buy_dvsn_cd", "SLL_BUY_DVSN_CD");
+        String organization = firstText(row, "ord_gno_brno", "ORD_GNO_BRNO",
+                "krx_fwdg_ord_orgno", "KRX_FWDG_ORD_ORGNO");
+        String orderDate = firstText(row, "ord_dt", "ORD_DT");
+        String orderQuantity = firstText(row, "ord_qty", "ORD_QTY");
+        String orderPrice = firstText(row, "ord_unpr", "ORD_UNPR");
+        String expectedSideCode = intent.getSide() == OrderSide.BUY ? "02" : "01";
+        try {
+            return orderNumber.equals(brokerOrderNumber)
+                    && intent.getSymbol().equalsIgnoreCase(symbol.trim())
+                    && expectedSideCode.equals(side.trim())
+                    && organizationNumber.equalsIgnoreCase(organization.trim())
+                    && expectedDate.equals(orderDate.trim())
+                    && Integer.parseInt(orderQuantity.trim()) == intent.getQuantity()
+                    && new java.math.BigDecimal(orderPrice.trim()).compareTo(intent.getLimitPrice()) == 0;
+        } catch (NumberFormatException | NullPointerException ignored) {
+            return false;
+        }
+    }
+
     private static String firstText(JsonNode row, String... fields) {
         for (String field : fields) {
             String value = row.path(field).asText("");

@@ -43,6 +43,41 @@ class KisOrderIntentStoreTest {
     }
 
     @Test
+    void manuallyVerifiedPaperOrderCanResolveOnlyAnUnknownUnlinkedIntent() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", request, null);
+        intent.markUnknown();
+        when(repository.findByIdForUpdate(key)).thenReturn(Optional.of(intent));
+        KisBrokerOrderSnapshot snapshot = new KisBrokerOrderSnapshot(0, 1, null, false, false);
+
+        KisOrderIntent updated = new KisOrderIntentStore(repository)
+                .attachVerifiedPaperOrderAndReconcile(key, "1234", "ORG01", snapshot);
+
+        assertEquals("1234", updated.getBrokerOrderNumber());
+        assertEquals("ORG01", updated.getBrokerOrganizationNumber());
+        assertEquals("MANUAL_ORDER_LINKED", updated.getBrokerResponseCode());
+        assertEquals(KisOrderStatus.ACCEPTED, updated.getStatus());
+        verify(repository).findByIdForUpdate(key);
+    }
+
+    @Test
+    void manualPaperOrderLinkCannotChangeAnAlreadyIdentifiedOrResolvedIntent() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", request, null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0", Instant.now()));
+        when(repository.findByIdForUpdate(key)).thenReturn(Optional.of(intent));
+
+        assertThrows(IllegalStateException.class, () -> new KisOrderIntentStore(repository)
+                .attachVerifiedPaperOrderAndReconcile(key, "5678", "ORG02",
+                        new KisBrokerOrderSnapshot(0, 1, null, false, false)));
+        assertEquals("1234", intent.getBrokerOrderNumber());
+    }
+
+    @Test
     void idempotencyKeyCannotBeReusedForDifferentPaperOrderRequest() {
         UUID key = UUID.randomUUID();
         OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,

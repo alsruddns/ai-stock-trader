@@ -111,4 +111,17 @@ class KisOrderControllerTest {
         verify(intents).get(key);
         verifyNoInteractions(orders);
     }
+
+    @Test
+    void manualReconciliationRequiresExplicitBrokerIdentityConfirmation() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY,
+                1, new BigDecimal("70000"), Currency.KRW);
+        when(intents.get(key)).thenReturn(new KisOrderIntent(key, "hash", request, null));
+
+        assertThrows(IllegalArgumentException.class, () -> controller.manualReconcile(key,
+                new KisOrderController.ManualPaperOrderReconciliationRequest("1234", "ORG01", false)));
+
+        verifyNoInteractions(orders);
+    }
 }

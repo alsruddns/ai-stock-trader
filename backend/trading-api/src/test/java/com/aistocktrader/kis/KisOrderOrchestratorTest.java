@@ -65,6 +65,49 @@ class KisOrderOrchestratorTest {
     }
 
     @Test
+    void manualPaperReconciliationRequiresKisVerifiedCandidateAndNeverSubmitsOrCancels() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
+        intent.markUnknown();
+        var snapshot = new KisBrokerOrderSnapshot(0, 1, null, false, false);
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.reconcilePaperOrderByVerifiedCandidate(intent, "1234", "ORG01"))
+                .thenReturn(Optional.of(snapshot));
+        when(intents.attachVerifiedPaperOrderAndReconcile(key, "1234", "ORG01", snapshot))
+                .thenAnswer(call -> {
+                    intent.linkManuallyVerifiedPaperOrder("1234", "ORG01");
+                    intent.reconcile(0, 1, null, false, false);
+                    return intent;
+                });
+
+        KisOrderIntentResponse response = orchestrator.manuallyReconcilePaperOrder(key, "1234", "ORG01");
+
+        assertEquals(KisOrderStatus.ACCEPTED, response.status());
+        assertEquals("1234", response.brokerOrderNumber());
+        verify(orders).reconcilePaperOrderByVerifiedCandidate(intent, "1234", "ORG01");
+        verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(),
+                org.mockito.ArgumentMatchers.anyInt(), any(), any(), anyString());
+        verify(orders, never()).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), anyString());
+    }
+
+    @Test
+    void repeatedManualPaperReconciliationWithSameBrokerIdentityIsIdempotent() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
+        intent.markUnknown();
+        intent.linkManuallyVerifiedPaperOrder("1234", "ORG01");
+        intent.reconcile(0, 1, null, false, false);
+        when(intents.get(key)).thenReturn(intent);
+
+        KisOrderIntentResponse response = orchestrator.manuallyReconcilePaperOrder(key, "1234", "ORG01");
+
+        assertEquals(KisOrderStatus.ACCEPTED, response.status());
+        verify(orders, never()).reconcilePaperOrderByVerifiedCandidate(any(), anyString(), anyString());
+        verify(intents, never()).attachVerifiedPaperOrderAndReconcile(any(), anyString(), anyString(), any());
+    }
+
+    @Test
     void realIntentIdempotencyCollisionStopsPaperSubmissionBeforeAccountOrBrokerAccess() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();

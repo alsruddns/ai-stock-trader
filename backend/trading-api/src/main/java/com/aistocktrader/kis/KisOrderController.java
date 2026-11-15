@@ -56,6 +56,18 @@ public class KisOrderController {
         return ResponseEntity.ok(orders.reconcilePaperOrder(idempotencyKey));
     }
 
+    @PostMapping("/{idempotencyKey}/manual-reconcile")
+    public ResponseEntity<KisOrderIntentResponse> manualReconcile(
+            @PathVariable UUID idempotencyKey,
+            @Valid @RequestBody ManualPaperOrderReconciliationRequest request) {
+        paperIntent(idempotencyKey);
+        if (!request.confirmed()) {
+            throw new IllegalArgumentException("Confirm the exact broker order identity in KIS before manual reconciliation.");
+        }
+        return ResponseEntity.ok(orders.manuallyReconcilePaperOrder(idempotencyKey,
+                request.brokerOrderNumber(), request.brokerOrganizationNumber()));
+    }
+
     @PostMapping("/{idempotencyKey}/cancel")
     public ResponseEntity<KisOrderIntentResponse> cancel(@PathVariable UUID idempotencyKey,
                                                          @RequestParam(required = false) String exchange) {
@@ -71,4 +83,11 @@ public class KisOrderController {
         marketScope.require(intent.getMarket(), "KIS PAPER order intent access");
         return intent;
     }
+
+    public record ManualPaperOrderReconciliationRequest(
+            @jakarta.validation.constraints.NotBlank
+            @jakarta.validation.constraints.Pattern(regexp = "[0-9]{1,32}") String brokerOrderNumber,
+            @jakarta.validation.constraints.NotBlank
+            @jakarta.validation.constraints.Pattern(regexp = "[A-Za-z0-9_-]{1,32}") String brokerOrganizationNumber,
+            boolean confirmed) { }
 }

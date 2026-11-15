@@ -174,6 +174,34 @@ public class KisOrderOrchestrator {
                 .orElseGet(() -> KisOrderIntentResponse.from(intents.get(idempotencyKey)));
     }
 
+    public KisOrderIntentResponse manuallyReconcilePaperOrder(UUID idempotencyKey,
+                                                              String brokerOrderNumber,
+                                                              String brokerOrganizationNumber) {
+        KisOrderIntent intent = intents.get(idempotencyKey);
+        requirePaperIntent(intent);
+        if (brokerOrderNumber != null && brokerOrderNumber.equals(intent.getBrokerOrderNumber())
+                && brokerOrganizationNumber != null
+                && brokerOrganizationNumber.equalsIgnoreCase(intent.getBrokerOrganizationNumber())) {
+            if (intent.getStatus() != KisOrderStatus.UNKNOWN) return KisOrderIntentResponse.from(intent);
+            var knownOrderSnapshot = orders.reconcilePaperOrder(intent).orElseThrow(() ->
+                    new KisApiException(HttpStatus.CONFLICT,
+                            "KIS could not confirm the linked PAPER order; the intent remains UNKNOWN."));
+            return KisOrderIntentResponse.from(intents.reconcile(idempotencyKey, knownOrderSnapshot));
+        }
+        if (intent.getStatus() != KisOrderStatus.UNKNOWN
+                || intent.getBrokerOrderNumber() != null && !intent.getBrokerOrderNumber().isBlank()) {
+            throw new IllegalStateException("Manual broker matching is only available for an unlinked UNKNOWN PAPER intent.");
+        }
+        var snapshot = orders.reconcilePaperOrderByVerifiedCandidate(
+                intent, brokerOrderNumber, brokerOrganizationNumber);
+        if (snapshot.isEmpty()) {
+            throw new KisApiException(HttpStatus.CONFLICT,
+                    "KIS did not confirm an exact matching PAPER order; the intent remains UNKNOWN.");
+        }
+        return KisOrderIntentResponse.from(intents.attachVerifiedPaperOrderAndReconcile(
+                idempotencyKey, brokerOrderNumber, brokerOrganizationNumber, snapshot.get()));
+    }
+
     private void reconcileAccount(OrderRequest request, String exchange) {
         BigDecimal notional = request.limitPrice().multiply(BigDecimal.valueOf(request.quantity()));
         BigDecimal maximum = request.currency() == Currency.KRW ? safety.maxOrderNotionalKrw() : safety.maxOrderNotionalUsd();

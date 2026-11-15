@@ -14,6 +14,9 @@
 | POST | `/api/v1/orders/paper/{id}/cancel` | Paper 취소 처리 |
 | GET | `/api/v1/orders/paper/positions` | Paper 포지션 조회 |
 | GET | `/api/v1/kis/accounts/{paper\|real}/{KR\|US}/balance` | KIS 계좌 읽기 전용 잔고조회 |
+| POST | `/api/v1/kis/orders/paper/{idempotencyKey}/manual-reconcile` | 주문번호 없는 국내 PAPER `UNKNOWN` 의도를 사용자가 KIS에서 확인한 주문번호·조직번호로 읽기 전용 대조 후 연결 (확인값 true와 PAPER 계좌읽기 필요) |
+| POST | `/api/v1/kis/orders/paper/{idempotencyKey}/reconcile` | 저장된 PAPER 주문번호로 KIS 상태를 읽기 전용 재조회 |
+| POST | `/api/v1/kis/orders/paper/{idempotencyKey}/cancel` | 잔량 재조회·사전조건 후 취소 시도; 모의 취소가능수량 지원 미확인 시 차단 |
 | GET | `/api/v1/kis/accounts/realized-pnl/real/{KR\|US}?from=YYYY-MM-DD&to=YYYY-MM-DD` | KIS REAL 기간손익 원문 조회(최대 31일, REAL 계좌읽기 스위치 필요) |
 | POST | `/api/v1/kis/orders/real` | REAL 주문 의도 제출 (`Idempotency-Key` 필수, 모든 REAL 주문·계좌 읽기 스위치 필요) |
 | POST | `/api/v1/kis/orders/real/preflight` | REAL 계좌·시세·공통 위험조건 사전점검, 주문 의도 저장 및 주문 미전송 (전체/REAL 계좌읽기 스위치만 필요) |

@@ -23,6 +23,69 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class KisOrderClientTest {
     @Test
+    void manualPaperReconciliationQueriesAndVerifiesExactDomesticOrderIdentity() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        String orderDate;
+        var request = new com.aistocktrader.order.OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", request, null);
+        intent.markUnknown();
+        orderDate = intent.getCreatedAt().atZone(ZoneId.of("Asia/Seoul"))
+                .toLocalDate().format(DateTimeFormatter.BASIC_ISO_DATE);
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("tr_id", "VTTC0081R"))
+                .andExpect(queryParam("INQR_STRT_DT", orderDate))
+                .andExpect(queryParam("INQR_END_DT", orderDate))
+                .andExpect(queryParam("PDNO", "005930"))
+                .andExpect(queryParam("ODNO", "1234"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[{"odno":"1234","ord_gno_brno":"ORG01",
+                         "pdno":"005930","sll_buy_dvsn_cd":"02","ord_dt":"%s",
+                         "ord_qty":"1","ord_unpr":"70000","tot_ccld_qty":"0",
+                         "rmn_qty":"1","avg_prvs":"0","cncl_yn":"N"}]}
+                        """.formatted(orderDate), org.springframework.http.MediaType.APPLICATION_JSON));
+
+        KisBrokerOrderSnapshot snapshot = client(true, builder)
+                .reconcilePaperOrderByVerifiedCandidate(intent, "1234", "ORG01").orElseThrow();
+
+        assertEquals(0, snapshot.filledQuantity());
+        assertEquals(1, snapshot.remainingQuantity());
+        assertFalse(snapshot.cancelled());
+        server.verify();
+    }
+
+    @Test
+    void manualPaperReconciliationRejectsCandidateWithMismatchedQuantityOrPrice() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        var request = new com.aistocktrader.order.OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW);
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", request, null);
+        intent.markUnknown();
+        String orderDate = intent.getCreatedAt().atZone(ZoneId.of("Asia/Seoul"))
+                .toLocalDate().format(DateTimeFormatter.BASIC_ISO_DATE);
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(queryParam("ODNO", "1234"))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[{"odno":"1234","ord_gno_brno":"ORG01",
+                         "pdno":"005930","sll_buy_dvsn_cd":"02","ord_dt":"%s",
+                         "ord_qty":"2","ord_unpr":"70001","tot_ccld_qty":"0",
+                         "rmn_qty":"2","avg_prvs":"0","cncl_yn":"N"}]}
+                        """.formatted(orderDate), org.springframework.http.MediaType.APPLICATION_JSON));
+
+        assertTrue(client(true, builder).reconcilePaperOrderByVerifiedCandidate(intent, "1234", "ORG01").isEmpty());
+        server.verify();
+    }
+
+    @Test
     void orderIntentAndResponseKeepExplicitEnvironment() {
         var request = new com.aistocktrader.order.OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
                 new BigDecimal("70000"), Currency.KRW);

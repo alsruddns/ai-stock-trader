@@ -95,6 +95,25 @@ public class KisOrderIntentStore {
     }
 
     @Transactional
+    public KisOrderIntent attachVerifiedPaperOrderAndReconcile(UUID key, String brokerOrderNumber,
+                                                               String brokerOrganizationNumber,
+                                                               KisBrokerOrderSnapshot snapshot) {
+        KisOrderIntent intent = repository.findByIdForUpdate(key)
+                .orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
+        if (intent.getEnvironment() != KisEnvironment.PAPER || intent.getStatus() != KisOrderStatus.UNKNOWN
+                || intent.getBrokerOrderNumber() != null && !intent.getBrokerOrderNumber().isBlank()) {
+            throw new IllegalStateException("Only an unlinked UNKNOWN PAPER intent can be manually reconciled.");
+        }
+        if (!KisBrokerOrderSnapshotValidator.matchesOrderQuantity(intent, snapshot)) {
+            throw new IllegalArgumentException("Verified broker order quantities are incomplete or inconsistent.");
+        }
+        intent.linkManuallyVerifiedPaperOrder(brokerOrderNumber, brokerOrganizationNumber);
+        intent.reconcile(snapshot.filledQuantity(), snapshot.remainingQuantity(), snapshot.averageFillPrice(),
+                snapshot.cancelled(), snapshot.rejected());
+        return intent;
+    }
+
+    @Transactional
     public KisOrderIntent recordCancelRejection(UUID key, String code) {
         KisOrderIntent intent = repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
         intent.recordCancelRejection(code);
