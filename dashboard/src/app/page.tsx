@@ -158,6 +158,9 @@ export default function Dashboard() {
         chronological_partitioning_failed: "시간 순서 데이터 분할 실패",
         insufficient_samples_per_partition: "학습·검증·시험 표본 부족",
         training_partition_requires_both_outcome_classes: "학습 구간 양·음 결과 표본 부족",
+        insufficient_validation_quant_candidate_samples: "검증 ORB/VWAP 후보 표본 10개 미만",
+        insufficient_validation_quant_candidate_sessions: "검증 ORB/VWAP 후보 발생 세션 3개 미만",
+        validation_quant_candidates_require_both_outcome_classes: "검증 ORB/VWAP 후보에 양성·음성 결과 모두 필요",
         cost_assumptions_missing_or_invalid: "백테스트 비용 가정 설정 확인 필요",
         eligible_session_sample_generation_failed: "학습 표본 생성 실패",
       };
@@ -190,8 +193,8 @@ export default function Dashboard() {
         ? "학습 표본 수 미확인"
         : `표본 ${preflight.sample_count}개 · 양성 ${preflight.positive_label_count ?? 0}/음성 ${preflight.negative_label_count ?? 0}`;
       const candidateText = typeof preflight?.candidate_sample_count === "number"
-        ? ` · ORB 후보 ${preflight.candidate_sample_count}개 (${percent(preflight.candidate_coverage)}) · 양성 ${preflight.candidate_positive_label_count ?? 0}/음성 ${preflight.candidate_negative_label_count ?? 0} · 후보 발생 ${preflight.candidate_session_count ?? 0}세션`
-        : " · ORB 후보 표본 미확인";
+        ? ` · ORB/VWAP 후보 ${preflight.candidate_sample_count}개 (${percent(preflight.candidate_coverage)}) · 양성 ${preflight.candidate_positive_label_count ?? 0}/음성 ${preflight.candidate_negative_label_count ?? 0} · 후보 발생 ${preflight.candidate_session_count ?? 0}세션`
+        : " · ORB/VWAP 후보 표본 미확인";
       const sessionClassCounts = preflight?.session_class_counts;
       const labelDistributionText = sessionClassCounts?.length
         ? ` · 양성 포함 ${sessionClassCounts.filter((session) => session.positive > 0).length}/${sessionClassCounts.length} 적격 세션 · 최근 라벨 ${sessionClassCounts.slice(-3).map((session) => `${session.session_date.slice(5)} ${session.positive}/${session.sample_count} · 후보 ${session.candidate_sample_count}`).join(", ")}`
@@ -205,7 +208,7 @@ export default function Dashboard() {
         : "";
       const candidatePartitionCounts = preflight?.partition_candidate_class_counts;
       const candidatePartitionText = candidatePartitionCounts
-        ? ` · ORB 후보 양/음 ${diagnosticPartitions ? "진단용 " : ""}학습 ${candidatePartitionCounts.train?.positive ?? "—"}/${candidatePartitionCounts.train?.negative ?? "—"} · 검증 ${candidatePartitionCounts.validation?.positive ?? "—"}/${candidatePartitionCounts.validation?.negative ?? "—"} · 내부시험 ${candidatePartitionCounts.test?.positive ?? "—"}/${candidatePartitionCounts.test?.negative ?? "—"}`
+        ? ` · ORB/VWAP 후보 양/음 ${diagnosticPartitions ? "진단용 " : ""}학습 ${candidatePartitionCounts.train?.positive ?? "—"}/${candidatePartitionCounts.train?.negative ?? "—"} · 검증 ${candidatePartitionCounts.validation?.positive ?? "—"}/${candidatePartitionCounts.validation?.negative ?? "—"} · 내부시험 ${candidatePartitionCounts.test?.positive ?? "—"}/${candidatePartitionCounts.test?.negative ?? "—"}`
         : preflight?.partition_diagnostic_reason === "at_least_three_distinct_sessions_required"
           ? " · 시간분할 진단은 적격 세션 3개부터 가능"
           : preflight?.partition_diagnostic_reason
@@ -380,8 +383,9 @@ export default function Dashboard() {
                 <div className="model-meta"><span>홀드아웃 평가 상태</span><b>{holdoutLabel}</b></div>
                 {model.data_rights_verified !== true && <p className="audit-note">데이터 권리 확인 자료가 없어 승인과 활성화를 막고 있습니다.</p>}
                 {model.approval_evidence_verified === false && <p className="audit-note">승인 요건 미충족: 미사용 세션·AI+퀀트 체결 수·퀀트 대비 순손익을 확인해야 합니다.</p>}
-                <div className="model-meta"><span>검증 Brier / 내부 시험 Brier</span><b>{metricScore(model.validation_metrics?.brier)} · {metricScore(testMetrics?.brier)}</b></div>
-                <div className="model-meta"><span>내부 시험 정확도 / ROC-AUC</span><b>{percent(testMetrics?.accuracy)} · {metricPercent(testMetrics?.roc_auc)}</b></div>
+                <div className="model-meta"><span>검증 전체 / ORB·VWAP 후보 Brier</span><b>{metricScore(model.validation_metrics?.brier)} · {metricScore(model.validation_metrics?.quant_candidate_brier)}</b></div>
+                <div className="model-meta"><span>내부 시험 Brier / 정확도</span><b>{metricScore(testMetrics?.brier)} · {percent(testMetrics?.accuracy)}</b></div>
+                <div className="model-meta"><span>내부 시험 ROC-AUC</span><b>{metricPercent(testMetrics?.roc_auc)}</b></div>
                 <div className="model-meta"><span>내부 시험 실제 양성률 / 모델 예측 양성률</span><b>{metricPercent(testMetrics?.positive_label_rate)} · {metricPercent(testMetrics?.predicted_positive_rate)}</b></div>
                 <div className="model-meta"><span>내부 시험 양성 정밀도 / 재현율</span><b>{metricPercent(testMetrics?.positive_precision)} · {metricPercent(testMetrics?.positive_recall)}</b></div>
                 <div className="model-meta"><span>내부 시험 특이도 / 균형 정확도</span><b>{metricPercent(testMetrics?.specificity)} · {metricPercent(testMetrics?.balanced_accuracy)}</b></div>
