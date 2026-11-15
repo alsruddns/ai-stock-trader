@@ -86,6 +86,9 @@ jobs:
       - name: Run domestic PAPER order-history probe tests (mocked)
         working-directory: services/market-ai
         run: python -m pytest -q tests/test_probe_kis_paper_order_history.py
+      - name: Run domestic read-only REAL WebSocket evidence tests (mocked)
+        working-directory: services/market-ai
+        run: python -m pytest -q tests/test_probe_kis_real_kr_websocket.py
       - name: Run shared KIS request pacing unit tests (mocked)
         working-directory: services/market-ai
         run: python -m pytest -q tests/test_kis_rate_limit.py

@@ -225,3 +225,33 @@ def test_main_enables_only_real_market_data_gate_for_explicit_run_opt_in(monkeyp
     output = capsys.readouterr().out
     assert '"status": "acknowledged_no_tick"' in output
     assert "private-real-app-key" not in output
+
+
+def test_probe_evidence_is_saved_under_local_validation_and_redacted(tmp_path, capsys, monkeypatch) -> None:
+    monkeypatch.setattr(probe, "repository", tmp_path)
+    evidence = tmp_path / ".local" / "validation" / "real-probe.json"
+
+    probe.emit_probe_result({
+        "status": "tick_received",
+        "symbol": "005930",
+        "tick_received": True,
+        "order_sent": False,
+        "account_read_sent": False,
+        "KIS_REAL_APP_SECRET": "do-not-persist",
+    }, evidence)
+
+    printed = json.loads(capsys.readouterr().out)
+    saved = json.loads(evidence.read_text(encoding="utf-8"))
+    assert saved == printed
+    assert saved["status"] == "tick_received"
+    assert saved["order_sent"] is False
+    assert saved["account_read_sent"] is False
+    assert "KIS_REAL_APP_SECRET" not in saved
+    assert "do-not-persist" not in evidence.read_text(encoding="utf-8")
+
+
+def test_probe_evidence_rejects_paths_outside_local_validation(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(probe, "repository", tmp_path)
+
+    with pytest.raises(ValueError, match="under .local/validation"):
+        probe.emit_probe_result({"status": "tick_received"}, tmp_path / "outside.json")

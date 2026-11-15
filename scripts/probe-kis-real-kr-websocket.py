@@ -48,6 +48,43 @@ _FORBIDDEN_SWITCHES = (
     "REAL_PROTECTIVE_EXIT_MANAGER_ENABLED",
     "KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED",
 )
+_SAFE_EVIDENCE_FIELDS = {
+    "checked_at",
+    "environment",
+    "market",
+    "symbol",
+    "acknowledged",
+    "tick_received",
+    "unsubscribe_sent",
+    "order_sent",
+    "account_read_sent",
+    "status",
+    "broker_code",
+    "failure_type",
+    "reason",
+}
+
+
+def emit_probe_result(result: dict[str, Any], evidence_path: str | Path | None = None) -> None:
+    """Print and optionally persist only explicitly approved, non-secret evidence fields."""
+    safe_result = {key: value for key, value in result.items() if key in _SAFE_EVIDENCE_FIELDS}
+    safe_result.setdefault("checked_at", datetime.now(timezone.utc).isoformat())
+    serialized = json.dumps(safe_result, ensure_ascii=False)
+    if evidence_path is not None:
+        target = Path(evidence_path)
+        if not target.is_absolute():
+            target = repository / target
+        evidence_root = (repository / ".local" / "validation").resolve()
+        resolved_target = target.resolve()
+        try:
+            resolved_target.relative_to(evidence_root)
+        except ValueError as exc:
+            raise ValueError("probe evidence must be stored under .local/validation") from exc
+        resolved_target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = resolved_target.with_name(resolved_target.name + ".tmp")
+        temporary.write_text(serialized + "\n", encoding="utf-8")
+        os.replace(temporary, resolved_target)
+    print(serialized)
 
 
 def local_real_feed_is_active() -> bool | None:
@@ -189,11 +226,12 @@ def main(
     symbol: str = "005930",
     wait_for_tick_seconds: int = 0,
     enable_read_only_real_stream_for_this_run: bool = False,
+    evidence_path: str | None = None,
 ) -> int:
     try:
-        source = load_local_environment(repository)
+        load_local_environment(repository)
     except (OSError, ValueError):
-        print(json.dumps({"status": "blocked", "reason": "LOCAL_ENV_UNAVAILABLE"}))
+        emit_probe_result({"status": "blocked", "reason": "LOCAL_ENV_UNAVAILABLE"}, evidence_path)
         return 2
     if enable_read_only_real_stream_for_this_run:
         # Explicit CLI opt-in is process-only; do not change the ignored local env file.
@@ -201,25 +239,25 @@ def main(
         os.environ["KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED"] = "true"
     if (any(os.getenv(name, "").strip().lower() != expected for name, expected in _REQUIRED_SWITCHES.items())
             or any(os.getenv(name, "false").strip().lower() == "true" for name in _FORBIDDEN_SWITCHES)):
-        print(json.dumps({"status": "blocked", "reason": "READ_ONLY_REAL_KR_STREAM_SWITCHES_NOT_SAFE"}))
+        emit_probe_result({"status": "blocked", "reason": "READ_ONLY_REAL_KR_STREAM_SWITCHES_NOT_SAFE"}, evidence_path)
         return 2
     if not 0 <= wait_for_tick_seconds <= 3600:
-        print(json.dumps({"status": "blocked", "reason": "INVALID_PROBE_ARGUMENT"}))
+        emit_probe_result({"status": "blocked", "reason": "INVALID_PROBE_ARGUMENT"}, evidence_path)
         return 2
 
     try:
         symbol = symbol.strip().upper()
         subscription_message("probe", "KR", symbol)
     except ValueError:
-        print(json.dumps({"status": "blocked", "reason": "INVALID_SUBSCRIPTION"}))
+        emit_probe_result({"status": "blocked", "reason": "INVALID_SUBSCRIPTION"}, evidence_path)
         return 2
 
     local_feed_active = local_real_feed_is_active()
     if local_feed_active is None:
-        print(json.dumps({"status": "blocked", "reason": "LOCAL_REAL_STREAM_STATUS_UNAVAILABLE"}))
+        emit_probe_result({"status": "blocked", "reason": "LOCAL_REAL_STREAM_STATUS_UNAVAILABLE"}, evidence_path)
         return 2
     if local_feed_active:
-        print(json.dumps({"status": "blocked", "reason": "LOCAL_REAL_STREAM_ALREADY_ACTIVE"}))
+        emit_probe_result({"status": "blocked", "reason": "LOCAL_REAL_STREAM_ALREADY_ACTIVE"}, evidence_path)
         return 2
 
     isolate_read_only_real_market_data_process()
@@ -230,12 +268,14 @@ def main(
     stream = StreamSettings.from_environment("real")
     if (not stream.enabled or not settings.enabled or not settings.app_key or not settings.app_secret
             or not settings.shared_rate_limit_enabled):
-        print(json.dumps({"status": "blocked", "reason": "REAL_KR_WEBSOCKET_CREDENTIALS_UNAVAILABLE"}))
+        emit_probe_result({"status": "blocked", "reason": "REAL_KR_WEBSOCKET_CREDENTIALS_UNAVAILABLE"}, evidence_path)
         return 2
 
     result = asyncio.run(run_probe(settings, stream, symbol, wait_for_tick_seconds))
-    result["local_env_file"] = source.name
-    print(json.dumps(result, ensure_ascii=False))
+    result.setdefault("environment", "real_market_data_read_only")
+    result.setdefault("market", "KR")
+    result.setdefault("symbol", symbol)
+    emit_probe_result(result, evidence_path)
     if result["status"] == "tick_received":
         return 0
     if result["status"] == "acknowledged_no_tick" and wait_for_tick_seconds == 0:
@@ -250,6 +290,7 @@ if __name__ == "__main__":
                         help="Wait for an actual quote tick; 0 checks subscription acknowledgement only.")
     parser.add_argument("--enable-read-only-real-stream-for-this-run", action="store_true",
                         help="Temporarily enable only REAL quote and WebSocket gates in this process; never enables orders/accounts.")
+    parser.add_argument("--evidence-path", help="Optional JSON evidence path under the repository .local/validation directory.")
     args = parser.parse_args()
     raise SystemExit(main(args.symbol, args.wait_for_tick_seconds,
-                          args.enable_read_only_real_stream_for_this_run))
+                          args.enable_read_only_real_stream_for_this_run, args.evidence_path))
