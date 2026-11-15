@@ -409,7 +409,7 @@ export default function Dashboard() {
           })}
         </div>
       ) : <Empty text={pythonConnected ? "등록된 AI 모델이 없습니다." : "Python AI 서비스 연결 후 모델 현황을 표시합니다."} />}
-      <p className="audit-note">후보 양성률과 평균 전방수익은 거래비용 가정을 반영한 표본별 레이블 통계이며, 겹치는 보유 구간이 있을 수 있습니다. 백테스트는 미사용 세션별 1주 독립 실행으로 포트폴리오 자본 복리, 계좌별 수수료·세금, 시장 충격은 반영하지 않습니다. 두 결과 모두 실계좌 체결 수익이나 수익 보장이 아니며, 승인·활성화 판단은 별도 검토가 필요합니다.</p>
+      <p className="audit-note">검증 Brier는 전체 분봉과 실제 ORB/VWAP 진입 후보 표본을 구분하며, 홀드아웃 후보는 후보 표본 Brier로만 선정합니다. 후보 양성률과 평균 전방수익은 거래비용 가정을 반영한 표본별 레이블 통계이며, 겹치는 보유 구간이 있을 수 있습니다. 백테스트는 미사용 세션별 1주 독립 실행으로 포트폴리오 자본 복리, 계좌별 수수료·세금, 시장 충격은 반영하지 않습니다. 두 결과 모두 실계좌 체결 수익이나 수익 보장이 아니며, 승인·활성화 판단은 별도 검토가 필요합니다.</p>
     </section>
     <footer><span>AI STOCK TRADER · LOCAL ONLY</span><span>데이터 시각 {data ? time(data.generatedAt) : "—"} · 30초마다 자동 새로고침</span></footer>
   </main>;
