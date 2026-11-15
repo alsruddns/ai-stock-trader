@@ -45,7 +45,7 @@ function Get-ExchangeSessionMonitorStart([string]$Market, [DateTimeOffset]$OpenU
 }
 
 function New-ExchangeSessionMonitorTaskSettings {
-    New-ScheduledTaskSettingsSet -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
         -ExecutionTimeLimit (New-TimeSpan -Hours 8) -MultipleInstances IgnoreNew `
         -RestartCount 4 -RestartInterval (New-TimeSpan -Minutes 1)
 }

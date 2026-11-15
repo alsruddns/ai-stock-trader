@@ -1,8 +1,12 @@
 [CmdletBinding(SupportsShouldProcess)]
-param()
+param([switch]$DomesticOnly)
 
 $ErrorActionPreference = 'Stop'
-$taskPattern = '^AIStockTrader-(?:KRX|US)-Session-Monitor-\d{8}$|^AIStockTrader-P4-Model-(?:Train|Holdout)-|^AIStockTrader-(?:KRX|US)-Paper-Lifecycle-Smoke-\d{8}$'
+$taskPattern = if ($DomesticOnly) {
+    '^AIStockTrader-KRX-Session-Monitor-\d{8}$|^AIStockTrader-P4-Model-(?:Train|Holdout)-KR-'
+} else {
+    '^AIStockTrader-(?:KRX|US)-Session-Monitor-\d{8}$|^AIStockTrader-P4-Model-(?:Train|Holdout)-|^AIStockTrader-(?:KRX|US)-Paper-Lifecycle-Smoke-\d{8}$'
+}
 $tasks = @(Get-ScheduledTask | Where-Object { $_.TaskName -match $taskPattern })
 if ($tasks.Count -eq 0) { throw 'No registered market-monitor, PAPER lifecycle, or P4 evaluation tasks were found.' }
 
@@ -27,4 +31,4 @@ foreach ($task in $tasks) {
     }
 }
 
-Write-Output "Examined $($tasks.Count) market-monitor and P4 scheduled tasks; updated $($updated.Count)."
+Write-Output "Examined $($tasks.Count) $(if ($DomesticOnly) { 'domestic' } else { 'market' }) monitor and P4 scheduled tasks; updated $($updated.Count)."

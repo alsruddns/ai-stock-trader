@@ -60,6 +60,7 @@ jobs:
             'scripts/run-local-stack-task.ps1',
             'scripts/test-local-stack-env-reload.ps1',
             'scripts/lib/local-stack-activation.ps1',
+            'scripts/enable-local-automation-task-wake.ps1',
             'scripts/register-market-data-session-horizon.ps1',
             'scripts/register-post-session-refresh-task.ps1'
           )) {
@@ -81,7 +82,7 @@ jobs:
 
           $sessionTaskSettingsResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -TestName 'Exchange session monitor registration times' -PassThru
           if ($sessionTaskSettingsResult.FailedCount -gt 0 -or $sessionTaskSettingsResult.PassedCount -ne 4) {
-            throw "Domestic no-catch-up session task settings test failed: passed=$($sessionTaskSettingsResult.PassedCount), failed=$($sessionTaskSettingsResult.FailedCount)."
+            throw "Domestic session task startup settings test failed: passed=$($sessionTaskSettingsResult.PassedCount), failed=$($sessionTaskSettingsResult.FailedCount)."
           }
 
           $sessionTaskDefinitionResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -TestName 'Existing market session task verification' -PassThru
