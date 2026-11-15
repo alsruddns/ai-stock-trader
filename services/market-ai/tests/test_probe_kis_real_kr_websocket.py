@@ -256,3 +256,21 @@ def test_probe_evidence_rejects_paths_outside_local_validation(tmp_path, monkeyp
 
     with pytest.raises(ValueError, match="under .local/validation"):
         probe.emit_probe_result({"status": "tick_received"}, tmp_path / "outside.json")
+
+
+def test_main_persists_safe_evidence_when_order_gate_blocks_probe(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(probe, "repository", tmp_path)
+    monkeypatch.setattr(probe, "load_local_environment", lambda _repository: Path(".env_local"))
+    for key, value in SAFE_SWITCHES.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("KIS_REAL_ORDERS_ENABLED", "true")
+    evidence = tmp_path / ".local" / "validation" / "blocked-probe.json"
+
+    assert probe.main(evidence_path=str(evidence)) == 2
+
+    printed = json.loads(capsys.readouterr().out)
+    saved = json.loads(evidence.read_text(encoding="utf-8"))
+    assert saved == printed
+    assert saved["status"] == "blocked"
+    assert saved["reason"] == "READ_ONLY_REAL_KR_STREAM_SWITCHES_NOT_SAFE"
+    assert "KIS_REAL_ORDERS_ENABLED" not in evidence.read_text(encoding="utf-8")
