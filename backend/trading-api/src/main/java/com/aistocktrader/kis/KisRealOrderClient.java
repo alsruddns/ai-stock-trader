@@ -348,9 +348,9 @@ public class KisRealOrderClient {
                 throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution response is incomplete.");
             }
             if (rows.isArray()) {
-                for (JsonNode row : rows) addSessionExecution(executions, row);
+                for (JsonNode row : rows) addSessionExecution(executions, market, row);
             } else if (!rows.isEmpty()) {
-                addSessionExecution(executions, rows);
+                addSessionExecution(executions, market, rows);
             }
             String responseContinuation = query.continuation();
             if (!"M".equalsIgnoreCase(responseContinuation) && !"F".equalsIgnoreCase(responseContinuation)) {
@@ -374,7 +374,8 @@ public class KisRealOrderClient {
         throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution pagination did not complete.");
     }
 
-    private static void addSessionExecution(Map<String, KisBrokerSessionExecution> executions, JsonNode row) {
+    private static void addSessionExecution(Map<String, KisBrokerSessionExecution> executions, Market market,
+                                            JsonNode row) {
         String orderNumber = consistentSessionText(row, "odno", "ODNO");
         String symbol = consistentSessionText(row, "pdno", "PDNO", "ovrs_pdno", "OVRS_PDNO");
         String sideCode = consistentSessionText(row, "sll_buy_dvsn_cd", "SLL_BUY_DVSN_CD",
@@ -389,15 +390,19 @@ public class KisRealOrderClient {
         if (orderNumber.isBlank() || symbol.isBlank() || side == null) {
             throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution row is incomplete.");
         }
-        int filledQuantity = positiveSessionInteger(row, "tot_ccld_qty", "TOT_CCLD_QTY", "ft_ccld_qty",
-                "FT_CCLD_QTY", "ccld_qty", "CCLD_QTY", "filled_qty", "FILLED_QTY");
-        BigDecimal averageFillPrice = positiveSessionDecimal(row, "avg_prvs", "AVG_PRVS", "ft_ccld_unpr3",
-                "FT_CCLD_UNPR3", "avg_ccld_unpr", "AVG_CCLD_UNPR");
+        int filledQuantity = market == Market.KR
+                ? positiveSessionInteger(row, "tot_ccld_qty", "TOT_CCLD_QTY")
+                : positiveSessionInteger(row, "ft_ccld_qty", "FT_CCLD_QTY");
+        BigDecimal averageFillPrice = market == Market.KR
+                ? positiveSessionDecimal(row, "avg_prvs", "AVG_PRVS")
+                : positiveSessionDecimal(row, "ft_ccld_unpr3", "FT_CCLD_UNPR3");
         KisBrokerSessionExecution value = new KisBrokerSessionExecution(orderNumber, symbol, side, organization,
                 filledQuantity, averageFillPrice);
         KisBrokerSessionExecution previous = executions.putIfAbsent(orderNumber, value);
         if (previous != null && (!previous.symbol().equalsIgnoreCase(value.symbol())
                 || previous.side() != value.side()
+                || previous.filledQuantity() != value.filledQuantity()
+                || previous.averageFillPrice().compareTo(value.averageFillPrice()) != 0
                 || (!previous.organizationNumber().isBlank() && !value.organizationNumber().isBlank()
                     && !previous.organizationNumber().equalsIgnoreCase(value.organizationNumber())))) {
             throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution rows conflict.");
