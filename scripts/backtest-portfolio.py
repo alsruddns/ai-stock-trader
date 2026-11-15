@@ -113,6 +113,10 @@ def main() -> int:
                         help="optional per-fill slippage stress case; repeat to compare scenarios")
     parser.add_argument("--capital-scenario", type=Decimal, action="append", default=None,
                         help="optional hypothetical starting capital in KRW; repeat to compare whole-share sizing")
+    parser.add_argument("--session-from-date", type=date.fromisoformat,
+                        help="include KR sessions on or after this ISO date (YYYY-MM-DD)")
+    parser.add_argument("--session-through-date", type=date.fromisoformat,
+                        help="include KR sessions on or before this ISO date (YYYY-MM-DD)")
     parser.add_argument("--minimum-turnover", type=Decimal, default=Decimal("1000000"))
     parser.add_argument("--maximum-spread-bps", type=Decimal, default=Decimal("15"))
     parser.add_argument("--opening-range-bars", type=int, default=5,
@@ -225,6 +229,20 @@ def main() -> int:
             "session_count": len(sessions),
             "bar_count": sum(map(len, sessions.values())),
         })
+
+    if (args.session_from_date is not None and args.session_through_date is not None
+            and args.session_from_date > args.session_through_date):
+        parser.error("session-from-date must be on or before session-through-date")
+    if args.session_from_date is not None or args.session_through_date is not None:
+        for symbol, sessions in data.items():
+            selected = {
+                session: bars for session, bars in sessions.items()
+                if (args.session_from_date is None or session >= args.session_from_date)
+                and (args.session_through_date is None or session <= args.session_through_date)
+            }
+            if not selected:
+                parser.error(f"{symbol} has no sessions in the requested date range")
+            data[symbol] = selected
 
     dataset_records: dict[str, dict[str, object]] = {}
     for symbol in sorted(data):
@@ -549,6 +567,11 @@ def main() -> int:
 
     print(json.dumps({
         "market": "KR",
+        "session_date_filter": {
+            "from": args.session_from_date.isoformat() if args.session_from_date is not None else None,
+            "through": args.session_through_date.isoformat() if args.session_through_date is not None else None,
+            "selected_session_dates": [session.isoformat() for session in sorted(reference_sessions)],
+        },
         "datasets": dataset_records,
         "spread_assumption": spread_assumption,
         "ai": {

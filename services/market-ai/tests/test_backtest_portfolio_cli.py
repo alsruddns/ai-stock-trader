@@ -569,6 +569,47 @@ def test_portfolio_cli_can_carry_completed_equity_forward_between_sessions(tmp_p
     assert payload["executable"] is False
 
 
+def test_portfolio_cli_filters_sessions_by_date_and_records_the_selected_window(tmp_path: Path) -> None:
+    first = _multi_session_dataset(tmp_path / "005930.csv")
+    second = _multi_session_dataset(tmp_path / "000660.csv")
+    command = _command(first, second) + [
+        "--session-from-date", "2026-11-06", "--session-through-date", "2026-11-06",
+    ]
+
+    completed = subprocess.run(command, cwd=REPOSITORY, capture_output=True, text=True, check=False)
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["session_date_filter"] == {
+        "from": "2026-11-06", "through": "2026-11-06", "selected_session_dates": ["2026-11-06"],
+    }
+    assert payload["summary"]["session_count"] == 1
+    assert payload["datasets"]["005930"]["session_count"] == 1
+    assert payload["datasets"]["005930"]["bar_count"] == 380
+    assert payload["datasets"]["005930"]["source_files"][0]["session_count"] == 2
+    assert payload["executable"] is False
+
+
+def test_portfolio_cli_rejects_invalid_or_empty_session_date_ranges(tmp_path: Path) -> None:
+    first = _multi_session_dataset(tmp_path / "005930.csv")
+    second = _multi_session_dataset(tmp_path / "000660.csv")
+    base = _command(first, second)
+
+    reversed_range = subprocess.run(
+        base + ["--session-from-date", "2026-11-06", "--session-through-date", "2026-11-05"],
+        cwd=REPOSITORY, capture_output=True, text=True, check=False,
+    )
+    assert reversed_range.returncode == 2
+    assert "session-from-date must be on or before session-through-date" in reversed_range.stderr
+
+    empty_range = subprocess.run(
+        base + ["--session-from-date", "2026-11-07"],
+        cwd=REPOSITORY, capture_output=True, text=True, check=False,
+    )
+    assert empty_range.returncode == 2
+    assert "has no sessions in the requested date range" in empty_range.stderr
+
+
 def test_portfolio_cli_preserves_provenance_for_multiple_source_files_per_symbol(tmp_path: Path) -> None:
     first_005930 = _dataset(tmp_path / "005930-20261105.csv", "2026-11-05", "005930")
     next_005930 = _dataset(tmp_path / "005930-20261106.csv", "2026-11-06", "005930")
