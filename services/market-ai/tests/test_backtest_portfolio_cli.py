@@ -153,6 +153,17 @@ def test_portfolio_cli_requires_reviewed_multi_symbol_inputs_and_reports_non_exe
     payload = json.loads(completed.stdout)
     assert payload["market"] == "KR"
     assert payload["ai"]["enabled"] is False
+    assert payload["strategy_parameters"] == {
+        "opening_range_bars": 5,
+        "ema_period": 20,
+        "atr_period": 14,
+        "relative_volume_period": 20,
+        "minimum_relative_volume": "1.5",
+        "maximum_spread_bps": "15",
+        "minimum_turnover": "0",
+        "atr_stop_multiple": "1.5",
+        "reward_risk_multiple": "2",
+    }
     assert set(payload["datasets"]) == {"005930", "000660"}
     assert payload["sessions"][0]["input_bars_by_symbol"] == {"000660": 380, "005930": 380}
     session = payload["sessions"][0]
@@ -183,6 +194,47 @@ def test_portfolio_cli_requires_reviewed_multi_symbol_inputs_and_reports_non_exe
     )
     assert payload["summary"]["executable"] is False
     assert payload["executable"] is False
+
+
+def test_portfolio_cli_records_explicit_strategy_parameters(tmp_path: Path) -> None:
+    first = _dataset(tmp_path / "005930.csv")
+    second = _dataset(tmp_path / "000660.csv")
+
+    completed = subprocess.run(
+        _command(first, second) + [
+            "--opening-range-bars", "8", "--ema-period", "12", "--atr-period", "10",
+            "--relative-volume-period", "16", "--minimum-relative-volume", "2.25",
+            "--atr-stop-multiple", "1.25", "--reward-risk-multiple", "2.5",
+        ], cwd=REPOSITORY, capture_output=True, text=True, check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["strategy_parameters"] == {
+        "opening_range_bars": 8,
+        "ema_period": 12,
+        "atr_period": 10,
+        "relative_volume_period": 16,
+        "minimum_relative_volume": "2.25",
+        "maximum_spread_bps": "15",
+        "minimum_turnover": "0",
+        "atr_stop_multiple": "1.25",
+        "reward_risk_multiple": "2.5",
+    }
+    assert payload["executable"] is False
+
+
+def test_portfolio_cli_rejects_non_positive_strategy_parameters(tmp_path: Path) -> None:
+    first = _dataset(tmp_path / "005930.csv")
+    second = _dataset(tmp_path / "000660.csv")
+
+    completed = subprocess.run(
+        _command(first, second) + ["--atr-stop-multiple", "0"],
+        cwd=REPOSITORY, capture_output=True, text=True, check=False,
+    )
+
+    assert completed.returncode == 2
+    assert "strategy thresholds are invalid" in completed.stderr
 
 
 def test_portfolio_cli_rejects_incomplete_exchange_session(tmp_path: Path) -> None:

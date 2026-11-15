@@ -115,6 +115,20 @@ def main() -> int:
                         help="optional hypothetical starting capital in KRW; repeat to compare whole-share sizing")
     parser.add_argument("--minimum-turnover", type=Decimal, default=Decimal("1000000"))
     parser.add_argument("--maximum-spread-bps", type=Decimal, default=Decimal("15"))
+    parser.add_argument("--opening-range-bars", type=int, default=5,
+                        help="opening-range length in one-minute bars")
+    parser.add_argument("--ema-period", type=int, default=20,
+                        help="EMA lookback in one-minute bars")
+    parser.add_argument("--atr-period", type=int, default=14,
+                        help="ATR lookback in one-minute bars")
+    parser.add_argument("--relative-volume-period", type=int, default=20,
+                        help="relative-volume baseline lookback in one-minute bars")
+    parser.add_argument("--minimum-relative-volume", type=Decimal, default=Decimal("1.5"),
+                        help="minimum current volume divided by the relative-volume baseline")
+    parser.add_argument("--atr-stop-multiple", type=Decimal, default=Decimal("1.5"),
+                        help="ATR multiple used for the protective stop")
+    parser.add_argument("--reward-risk-multiple", type=Decimal, default=Decimal("2"),
+                        help="take-profit distance divided by the ATR stop distance")
     parser.add_argument("--assume-missing-spread-bps", type=Decimal,
                         help=("offline-only spread scenario for bars without observed spreads; "
                               "cannot be used with AI models"))
@@ -168,7 +182,12 @@ def main() -> int:
     if (not args.starting_equity.is_finite() or args.starting_equity <= 0
             or not args.max_order_notional.is_finite() or args.max_order_notional <= 0
             or not args.minimum_turnover.is_finite() or args.minimum_turnover < 0
-            or not args.maximum_spread_bps.is_finite() or args.maximum_spread_bps < 0):
+            or not args.maximum_spread_bps.is_finite() or args.maximum_spread_bps < 0
+            or min(args.opening_range_bars, args.ema_period, args.atr_period,
+                   args.relative_volume_period) <= 0
+            or not args.minimum_relative_volume.is_finite() or args.minimum_relative_volume <= 0
+            or not args.atr_stop_multiple.is_finite() or args.atr_stop_multiple <= 0
+            or not args.reward_risk_multiple.is_finite() or args.reward_risk_multiple <= 0):
         parser.error("capital, order notional, and strategy thresholds are invalid")
     if args.assume_missing_spread_bps is not None and (
             not args.assume_missing_spread_bps.is_finite()
@@ -289,7 +308,15 @@ def main() -> int:
             "executable": False,
         }
 
-    config = replace(QuantConfig(), commission_bps=Decimal(0),
+    config = replace(QuantConfig(),
+                     opening_range_bars=args.opening_range_bars,
+                     ema_period=args.ema_period,
+                     atr_period=args.atr_period,
+                     relative_volume_period=args.relative_volume_period,
+                     minimum_relative_volume=args.minimum_relative_volume,
+                     atr_stop_multiple=args.atr_stop_multiple,
+                     reward_risk_multiple=args.reward_risk_multiple,
+                     commission_bps=Decimal(0),
                      buy_commission_bps=args.buy_commission_bps,
                      sell_commission_bps=args.sell_commission_bps,
                      sell_tax_bps=args.sell_tax_bps, slippage_bps=args.slippage_bps,
@@ -488,6 +515,17 @@ def main() -> int:
         "ai": {
             "enabled": args.with_active_ai_models,
             "active_model_ids": active_model_ids,
+        },
+        "strategy_parameters": {
+            "opening_range_bars": config.opening_range_bars,
+            "ema_period": config.ema_period,
+            "atr_period": config.atr_period,
+            "relative_volume_period": config.relative_volume_period,
+            "minimum_relative_volume": str(config.minimum_relative_volume),
+            "maximum_spread_bps": str(config.maximum_spread_bps),
+            "minimum_turnover": str(config.minimum_turnover),
+            "atr_stop_multiple": str(config.atr_stop_multiple),
+            "reward_risk_multiple": str(config.reward_risk_multiple),
         },
         "sessions": results,
         "summary": {
