@@ -1,6 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
 - **P2 국내 PAPER 부분체결 취소 사전검사 차단의 PostgreSQL 상태 복구 (작업일 2026-11-15):** 주문 2주 중 1주가 체결되고 1주가 열린 상태에서 지원되지 않는 취소 수량 사전검사 오류를 모의 KIS 경계에 주입했습니다. Spring이 `CANCEL_PENDING`에 고착되지 않고 `PARTIALLY_FILLED`, 체결 1주·평균체결가·잔량 1주 및 `PAPER_CANCEL_UNSUPPORTED` 코드를 PostgreSQL에 보존하는지 확인했습니다. schema 30 로컬 PostgreSQL 통합검사 1/1 통과. KIS 네트워크 요청·계좌·주문은 없었고 실제 취소 지원이나 주문 lifecycle 검증을 의미하지 않습니다.
+- **P2 부분체결 취소 사전검사 복구 CI 통과 (작업일 2026-11-15):** `e2e0678`의 Domestic KIS API compatibility 실행 `43657863132`에서 수정한 부분체결 상태 복구 검사를 포함한 네 job이 모두 성공했습니다. 새 사례는 원격 PostgreSQL에 저장된 체결수량·평균가·잔량을 확인했으며 KIS PAPER/REAL API는 호출하지 않았습니다.
 - **P2 취소 사전검사 PostgreSQL 회귀 CI 통과 (작업일 2026-11-15):** `0ce817f`의 GitHub Actions `43657303921`에서 새 PostgreSQL 복구 사례를 실행했고, PostgreSQL 복구·국내 범위·KIS 호환성·대시보드 검사 네 job이 모두 성공했습니다. 실제 KIS PAPER/REAL 요청은 전송하지 않았습니다.
 
 - **P1 Python 국내 PAPER 시세·잔고 읽기 재검증 (작업일 2026-11-15 09:10 KST):** `scripts/test-paper-kis-python.ps1`을 다시 실행해 FastAPI 경유 KIS 국내 현재가와 PAPER 잔고 GET을 모두 통과했습니다. 앞서 08:43에 보고된 현재가 `LOCAL_TIMEOUT`은 재현되지 않았으며 당시 원인은 여전히 미확인입니다. 스크립트는 PAPER/국내 범위와 주문·자동매매 잠금을 확인했고, 응답 금액·계좌정보는 기록하지 않았습니다. 매수·매도·취소 요청은 전송하지 않았습니다.
