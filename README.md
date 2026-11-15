@@ -79,7 +79,7 @@ python -m pip install -e ".[dev,ai,ops]"
 uvicorn app.main:app --reload --host 127.0.0.1 --port 18000 --env-file ../../.env_local
 ```
 
-KIS 조회를 쓸 때는 `.env_local`의 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET`, `KIS_PAPER_ACCOUNT_NUMBER`에 모의계좌 값을 넣습니다. 실전 값은 별도 `KIS_REAL_*` 항목에만 저장합니다. PAPER REST 시세는 `KIS_MARKET_DATA_ENABLED=true`가 필요합니다. REAL 미국 REST 시세·분봉용 코드와 설정은 유지하지만 현재 국내 전용 검증 범위에서는 활성화하지 않습니다. WebSocket 시세는 `KIS_WEBSOCKET_ENABLED=true`가 필요합니다. Spring PAPER 계좌조회는 전체 잠금 `KIS_ACCOUNT_READ_ENABLED=true`와 `KIS_PAPER_ACCOUNT_READ_ENABLED=true`를 모두 요구합니다. REAL 조회는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`도 별도로 요구합니다. 계좌번호는 8자리 계좌번호와 2자리 상품코드를 붙인 총 10자리입니다. 일반 이름 `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ACCOUNT_NUMBER`는 호환 설정이 아니므로 쓰지 않습니다. 인증정보는 Git에 추가하지 마세요. 계좌 조회는 읽기 전용이며 실주문 스위치는 계속 꺼둡니다.
+KIS 조회를 쓸 때는 `.env_local`의 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET`, `KIS_PAPER_ACCOUNT_NUMBER`에 모의계좌 값을 넣습니다. 실전 값은 별도 `KIS_REAL_*` 항목에만 저장합니다. PAPER REST 시세는 `KIS_MARKET_DATA_ENABLED=true`가 필요합니다. 국내 REAL REST 호가는 별도 `KIS_REAL_MARKET_DATA_ENABLED=true`와 `?environment=real` 선택이 모두 있어야 조회되며, 일반 국내 호가 경로는 기존 PAPER 설정을 따릅니다. 미국 REST 시세·분봉 코드는 유지하지만 현재 국내 전용 검증 범위에서는 운영하지 않습니다. WebSocket 시세는 `KIS_WEBSOCKET_ENABLED=true`가 필요하고, REAL WebSocket은 `KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED=true`도 별도로 요구합니다. Spring PAPER 계좌조회는 전체 잠금 `KIS_ACCOUNT_READ_ENABLED=true`와 `KIS_PAPER_ACCOUNT_READ_ENABLED=true`를 모두 요구합니다. REAL 조회는 `KIS_REAL_ACCOUNT_READ_ENABLED=true`도 별도로 요구합니다. 계좌번호는 8자리 계좌번호와 2자리 상품코드를 붙인 총 10자리입니다. 일반 이름 `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ACCOUNT_NUMBER`는 호환 설정이 아니므로 쓰지 않습니다. 인증정보는 Git에 추가하지 마세요. 계좌 조회는 읽기 전용이며 실주문 스위치는 계속 꺼둡니다.
 
 국내 KIS 분봉 이력은 `GET /api/v1/market/bars/KR/{종목코드}?session_date=YYYY-MM-DD&end_time=HHMMSS`로 한 번에 최대 120개, 전체 KRX 세션은 `GET /api/v1/market/sessions/KR/{종목코드}/bars?session_date=YYYY-MM-DD`로 제한된 페이지 범위에서 조회할 수 있습니다. 미국 분봉 endpoint와 페이지네이션 구현도 코드에 있지만 현재 조회·세션·데이터 검증 범위는 국내만입니다. 미국 endpoint는 현 단계에서 호출하지 마세요. 해외 분봉은 KIS 모의투자를 지원하지 않으며 구현은 향후 개발용으로 보존합니다. [KIS 공식 해외 분봉 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/overseas_stock/inquire_time_itemchartprice/inquire_time_itemchartprice.py)
 
@@ -153,6 +153,12 @@ KIS 모의 현재가 조회 예시 (선택 기능):
 
 ```powershell
 Invoke-RestMethod http://localhost:18000/api/v1/market/quotes/KR/005930
+```
+
+실전 국내 현재가 조회는 `KIS_REAL_MARKET_DATA_ENABLED=true`일 때만 별도로 선택할 수 있습니다. 이 GET은 시세 데이터만 읽고 계좌·주문 API를 호출하지 않습니다.
+
+```powershell
+Invoke-RestMethod 'http://localhost:18000/api/v1/market/quotes/KR/005930?environment=real'
 ```
 
 미국 경로도 코드에 있지만 현재 KIS 조회·테스트는 국내 종목만 대상으로 합니다. 미국 URL은 지금 호출하지 마세요.
