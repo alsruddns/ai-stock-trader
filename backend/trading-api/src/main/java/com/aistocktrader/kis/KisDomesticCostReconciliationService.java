@@ -113,6 +113,10 @@ public class KisDomesticCostReconciliationService {
             KisOrderIntent local = localByBrokerOrder.get(identity);
             if (local == null || local.getSide() != execution.side()
                     || !local.getSymbol().equalsIgnoreCase(execution.symbol())
+                    || local.getFilledQuantity() != execution.filledQuantity()
+                    || local.getAverageFillPrice() == null
+                    || execution.averageFillPrice() == null
+                    || local.getAverageFillPrice().compareTo(execution.averageFillPrice()) != 0
                     || !brokerIdentities.add(identity)) {
                 return Reconciliation.unavailable(sessionDate, List.of("broker_execution_ledger_mismatch"), 0);
             }

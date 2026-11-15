@@ -114,8 +114,7 @@ class KisRealConsecutiveLossServiceTest {
         when(fixture.intents.findByEnvironmentAndMarketAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
                 eq(KisEnvironment.REAL), eq(Market.KR), any(Instant.class))).thenReturn(List.of(buy, sell));
         when(fixture.realOrders.getRealSessionExecutions(eq(Market.KR), any(LocalDate.class))).thenReturn(List.of(
-                new KisRealOrderClient.KisBrokerSessionExecution("BUY01", "005930", OrderSide.BUY, "ORG01"),
-                new KisRealOrderClient.KisBrokerSessionExecution("SELL01", "005930", OrderSide.SELL, "ORG01")));
+                execution("BUY01", OrderSide.BUY, "10"), execution("SELL01", OrderSide.SELL, "9")));
         when(fixture.accounts.getBalance(eq(KisEnvironment.REAL), eq(Market.US), any(), any(), any()))
                 .thenReturn(account(Market.US, List.of()));
 
@@ -127,10 +126,38 @@ class KisRealConsecutiveLossServiceTest {
     }
 
     @Test
+    void brokerFillQuantityOrAveragePriceMismatchMakesLossHistoryUnknown() {
+        var fixture = new Fixture(true);
+        Instant executionBase = Instant.now().minus(Duration.ofMinutes(1));
+        KisOrderIntent buy = terminalIntent(OrderSide.BUY, "10", "BUY01", executionBase);
+        when(fixture.intents.findByEnvironmentAndMarketAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+                eq(KisEnvironment.REAL), eq(Market.KR), any(Instant.class))).thenReturn(List.of(buy));
+        when(fixture.realOrders.getRealSessionExecutions(eq(Market.KR), any(LocalDate.class))).thenReturn(List.of(
+                new KisRealOrderClient.KisBrokerSessionExecution("BUY01", "005930", OrderSide.BUY,
+                        "ORG01", 2, new BigDecimal("10"))));
+
+        assertTrue(fixture.service.evaluate(Market.KR, account(Market.KR, List.of())).isEmpty());
+    }
+
+    @Test
+    void brokerAverageFillPriceMismatchMakesLossHistoryUnknown() {
+        var fixture = new Fixture(true);
+        Instant executionBase = Instant.now().minus(Duration.ofMinutes(1));
+        KisOrderIntent buy = terminalIntent(OrderSide.BUY, "10", "BUY01", executionBase);
+        when(fixture.intents.findByEnvironmentAndMarketAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+                eq(KisEnvironment.REAL), eq(Market.KR), any(Instant.class))).thenReturn(List.of(buy));
+        when(fixture.realOrders.getRealSessionExecutions(eq(Market.KR), any(LocalDate.class))).thenReturn(List.of(
+                new KisRealOrderClient.KisBrokerSessionExecution("BUY01", "005930", OrderSide.BUY,
+                        "ORG01", 1, new BigDecimal("10.01"))));
+
+        assertTrue(fixture.service.evaluate(Market.KR, account(Market.KR, List.of())).isEmpty());
+    }
+
+    @Test
     void brokerExecutionWithoutApplicationIntentMakesLossHistoryUnknown() {
         var fixture = new Fixture(true);
         when(fixture.realOrders.getRealSessionExecutions(eq(Market.KR), any(LocalDate.class))).thenReturn(List.of(
-                new KisRealOrderClient.KisBrokerSessionExecution("MANUAL01", "005930", OrderSide.BUY, "ORG01")));
+                execution("MANUAL01", OrderSide.BUY, "10")));
 
         assertTrue(fixture.service.evaluate(Market.KR, account(Market.KR, List.of())).isEmpty());
         verify(fixture.accounts, never()).getBalance(eq(KisEnvironment.REAL), eq(Market.US), any(), any(), any());
@@ -199,6 +226,12 @@ class KisRealConsecutiveLossServiceTest {
         intent.reconcile(1, 0, new BigDecimal(price), false, false);
         intent.recordFillTime(fillAt);
         return intent;
+    }
+
+    private static KisRealOrderClient.KisBrokerSessionExecution execution(String orderNumber, OrderSide side,
+                                                                           String averageFillPrice) {
+        return new KisRealOrderClient.KisBrokerSessionExecution(orderNumber, "005930", side, "ORG01", 1,
+                new BigDecimal(averageFillPrice));
     }
 
     private static class Fixture {

@@ -389,7 +389,12 @@ public class KisRealOrderClient {
         if (orderNumber.isBlank() || symbol.isBlank() || side == null) {
             throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution row is incomplete.");
         }
-        KisBrokerSessionExecution value = new KisBrokerSessionExecution(orderNumber, symbol, side, organization);
+        int filledQuantity = positiveSessionInteger(row, "tot_ccld_qty", "TOT_CCLD_QTY", "ft_ccld_qty",
+                "FT_CCLD_QTY", "ccld_qty", "CCLD_QTY", "filled_qty", "FILLED_QTY");
+        BigDecimal averageFillPrice = positiveSessionDecimal(row, "avg_prvs", "AVG_PRVS", "ft_ccld_unpr3",
+                "FT_CCLD_UNPR3", "avg_ccld_unpr", "AVG_CCLD_UNPR");
+        KisBrokerSessionExecution value = new KisBrokerSessionExecution(orderNumber, symbol, side, organization,
+                filledQuantity, averageFillPrice);
         KisBrokerSessionExecution previous = executions.putIfAbsent(orderNumber, value);
         if (previous != null && (!previous.symbol().equalsIgnoreCase(value.symbol())
                 || previous.side() != value.side()
@@ -417,8 +422,31 @@ public class KisRealOrderClient {
         return selected;
     }
 
+    private static int positiveSessionInteger(JsonNode row, String... fields) {
+        String value = consistentSessionText(row, fields);
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed <= 0) throw new NumberFormatException();
+            return parsed;
+        } catch (NumberFormatException exception) {
+            throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution quantity is incomplete.");
+        }
+    }
+
+    private static BigDecimal positiveSessionDecimal(JsonNode row, String... fields) {
+        String value = consistentSessionText(row, fields);
+        try {
+            BigDecimal parsed = new BigDecimal(value);
+            if (parsed.signum() <= 0) throw new NumberFormatException();
+            return parsed;
+        } catch (NumberFormatException exception) {
+            throw new KisApiException(HttpStatus.BAD_GATEWAY, "KIS session execution price is incomplete.");
+        }
+    }
+
     public record KisBrokerSessionExecution(String orderNumber, String symbol, OrderSide side,
-                                           String organizationNumber) { }
+                                            String organizationNumber, int filledQuantity,
+                                            BigDecimal averageFillPrice) { }
 
     private BrokerQueryResponse get(String path, String trId, MultiValueMap<String, String> params,
                                    String continuation, KisProperties.Account credentials) {

@@ -129,6 +129,10 @@ public class KisRealConsecutiveLossService {
                     KisOrderIntent intent = filledOrdersByBrokerNumber.get(execution.orderNumber());
                     if (intent == null || !intent.getSymbol().equalsIgnoreCase(execution.symbol())
                             || intent.getSide() != execution.side()
+                            || intent.getFilledQuantity() != execution.filledQuantity()
+                            || intent.getAverageFillPrice() == null
+                            || execution.averageFillPrice() == null
+                            || intent.getAverageFillPrice().compareTo(execution.averageFillPrice()) != 0
                             || (market == Market.KR && !intent.getBrokerOrganizationNumber().equalsIgnoreCase(
                                     execution.organizationNumber()))) return Optional.empty();
                     if (executionsByNumber.putIfAbsent(execution.orderNumber(), execution) != null) {

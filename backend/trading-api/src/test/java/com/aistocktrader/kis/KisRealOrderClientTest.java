@@ -480,14 +480,14 @@ class KisRealOrderClientTest {
                 .andExpect(queryParam("CCLD_DVSN", "01"))
                 .andExpect(queryParam("EXCG_ID_DVSN_CD", "ALL"))
                 .andRespond(withSuccess("""
-                        {"rt_cd":"0","output1":[{"odno":"7201","pdno":"005930","sll_buy_dvsn_cd":"02","ord_gno_brno":"ORG02"}]}
+                        {"rt_cd":"0","output1":[{"odno":"7201","pdno":"005930","sll_buy_dvsn_cd":"02","ord_gno_brno":"ORG02","tot_ccld_qty":"1","avg_prvs":"70100"}]}
                         """, MediaType.APPLICATION_JSON));
 
         var executions = new KisRealOrderClient(properties(true, true), realSafety(), builder)
                 .getRealSessionExecutions(Market.KR, java.time.LocalDate.of(2026, 11, 6));
 
         assertEquals(List.of(new KisRealOrderClient.KisBrokerSessionExecution(
-                "7201", "005930", OrderSide.BUY, "ORG02")), executions);
+                "7201", "005930", OrderSide.BUY, "ORG02", 1, new BigDecimal("70100"))), executions);
         server.verify();
     }
 
@@ -504,14 +504,14 @@ class KisRealOrderClientTest {
                 .andExpect(queryParam("CCLD_NCCS_DVSN", "01"))
                 .andExpect(queryParam("OVRS_EXCG_CD", "%25"))
                 .andRespond(withSuccess("""
-                        {"rt_cd":"0","output":[{"odno":"7202","ovrs_pdno":"AAPL","sll_buy_dvsn":"01"}]}
+                        {"rt_cd":"0","output":[{"odno":"7202","ovrs_pdno":"AAPL","sll_buy_dvsn":"01","ft_ccld_qty":"2","ft_ccld_unpr3":"10.25"}]}
                         """, MediaType.APPLICATION_JSON));
 
         var executions = new KisRealOrderClient(properties(true, true), realSafety(), builder)
                 .getRealSessionExecutions(Market.US, java.time.LocalDate.of(2026, 11, 6));
 
         assertEquals(List.of(new KisRealOrderClient.KisBrokerSessionExecution(
-                "7202", "AAPL", OrderSide.SELL, "")), executions);
+                "7202", "AAPL", OrderSide.SELL, "", 2, new BigDecimal("10.25"))), executions);
         server.verify();
     }
 
@@ -566,6 +566,27 @@ class KisRealOrderClientTest {
         assertThrows(KisApiException.class, () -> new KisRealOrderClient(properties(true, true), realSafety(), builder)
                 .getRealSessionExecutions(Market.KR, java.time.LocalDate.of(2026, 11, 6)));
         server.verify();
+    }
+
+    @Test
+    void sessionExecutionWithoutQuantityOrAveragePriceFailsClosed() {
+        for (String fields : List.of("\"tot_ccld_qty\":\"1\"", "\"avg_prvs\":\"70100\"")) {
+            RestClient.Builder builder = RestClient.builder();
+            MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+            server.expect(requestTo(REAL_URL + "/oauth2/tokenP"))
+                    .andRespond(withSuccess(token(), MediaType.APPLICATION_JSON));
+            server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                            "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                    .andRespond(withSuccess("""
+                            {"rt_cd":"0","output1":[{"odno":"7205","pdno":"005930",
+                            "sll_buy_dvsn_cd":"02","ord_gno_brno":"ORG02",%s}]}
+                            """.formatted(fields), MediaType.APPLICATION_JSON));
+
+            assertThrows(KisApiException.class, () -> new KisRealOrderClient(
+                    properties(true, true), realSafety(), builder)
+                    .getRealSessionExecutions(Market.KR, java.time.LocalDate.of(2026, 11, 6)));
+            server.verify();
+        }
     }
 
     @Test

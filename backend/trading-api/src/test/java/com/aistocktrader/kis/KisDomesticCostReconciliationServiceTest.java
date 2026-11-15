@@ -96,6 +96,38 @@ class KisDomesticCostReconciliationServiceTest {
     }
 
     @Test
+    void rejectsBrokerFillQuantityOrPriceMismatchBeforeReadingCostStatement() {
+        var localOrder = order(OrderSide.BUY, "100", "buy-id");
+        when(intents.findByEnvironmentAndMarketAndLastFillAtGreaterThanEqualAndLastFillAtLessThanOrderByLastFillAtAsc(
+                any(), any(), any(), any())).thenReturn(List.of(localOrder));
+        when(brokerOrders.getRealSessionExecutions(Market.KR, DATE)).thenReturn(List.of(
+                new KisRealOrderClient.KisBrokerSessionExecution("100", "005930", OrderSide.BUY, "00001",
+                        2, new BigDecimal("10000"))));
+
+        var result = service.reconcile(DATE);
+
+        assertEquals(KisDomesticCostReconciler.Status.UNAVAILABLE, result.status());
+        assertEquals(List.of("broker_execution_ledger_mismatch"), result.unavailableReasons());
+        verify(accounts, never()).getRealizedPnlStatement(any(), any(), any(), any());
+    }
+
+    @Test
+    void rejectsBrokerAveragePriceMismatchBeforeReadingCostStatement() {
+        var localOrder = order(OrderSide.BUY, "100", "buy-id");
+        when(intents.findByEnvironmentAndMarketAndLastFillAtGreaterThanEqualAndLastFillAtLessThanOrderByLastFillAtAsc(
+                any(), any(), any(), any())).thenReturn(List.of(localOrder));
+        when(brokerOrders.getRealSessionExecutions(Market.KR, DATE)).thenReturn(List.of(
+                new KisRealOrderClient.KisBrokerSessionExecution("100", "005930", OrderSide.BUY, "00001",
+                        1, new BigDecimal("10000.01"))));
+
+        var result = service.reconcile(DATE);
+
+        assertEquals(KisDomesticCostReconciler.Status.UNAVAILABLE, result.status());
+        assertEquals(List.of("broker_execution_ledger_mismatch"), result.unavailableReasons());
+        verify(accounts, never()).getRealizedPnlStatement(any(), any(), any(), any());
+    }
+
+    @Test
     void blocksCurrentDateWhenTheBrokerStatementMayStillBeChanging() {
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
 
@@ -127,7 +159,8 @@ class KisDomesticCostReconciliationServiceTest {
     }
 
     private KisRealOrderClient.KisBrokerSessionExecution execution(String orderNumber, OrderSide side) {
-        return new KisRealOrderClient.KisBrokerSessionExecution(orderNumber, "005930", side, "00001");
+        return new KisRealOrderClient.KisBrokerSessionExecution(orderNumber, "005930", side, "00001", 1,
+                new BigDecimal("10000"));
     }
 
     private KisRealizedPnlStatement statement(String summary) throws Exception {
