@@ -33,6 +33,7 @@ _REQUIRED_SWITCHES = {
     "KIS_ENVIRONMENT": "paper",
     "KIS_MARKET_DATA_ENABLED": "true",
     "KIS_WEBSOCKET_ENABLED": "true",
+    "KIS_REAL_MARKET_DATA_ENABLED": "true",
     "KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED": "true",
     "KIS_PAPER_ORDERS_ENABLED": "false",
     "KIS_REAL_ORDERS_ENABLED": "false",
@@ -184,12 +185,20 @@ async def run_probe(
     return result
 
 
-def main(symbol: str = "005930", wait_for_tick_seconds: int = 0) -> int:
+def main(
+    symbol: str = "005930",
+    wait_for_tick_seconds: int = 0,
+    enable_read_only_real_stream_for_this_run: bool = False,
+) -> int:
     try:
         source = load_local_environment(repository)
     except (OSError, ValueError):
         print(json.dumps({"status": "blocked", "reason": "LOCAL_ENV_UNAVAILABLE"}))
         return 2
+    if enable_read_only_real_stream_for_this_run:
+        # Explicit CLI opt-in is process-only; do not change the ignored local env file.
+        os.environ["KIS_REAL_MARKET_DATA_ENABLED"] = "true"
+        os.environ["KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED"] = "true"
     if (any(os.getenv(name, "").strip().lower() != expected for name, expected in _REQUIRED_SWITCHES.items())
             or any(os.getenv(name, "false").strip().lower() == "true" for name in _FORBIDDEN_SWITCHES)):
         print(json.dumps({"status": "blocked", "reason": "READ_ONLY_REAL_KR_STREAM_SWITCHES_NOT_SAFE"}))
@@ -214,6 +223,9 @@ def main(symbol: str = "005930", wait_for_tick_seconds: int = 0) -> int:
         return 2
 
     isolate_read_only_real_market_data_process()
+    # Re-enable only the two quote gates after account/order settings are stripped.
+    os.environ["KIS_REAL_MARKET_DATA_ENABLED"] = "true"
+    os.environ["KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED"] = "true"
     settings = KisSettings.from_environment("real")
     stream = StreamSettings.from_environment("real")
     if (not stream.enabled or not settings.enabled or not settings.app_key or not settings.app_secret
@@ -236,5 +248,8 @@ if __name__ == "__main__":
     parser.add_argument("--symbol", default="005930", help="Six-digit domestic stock code")
     parser.add_argument("--wait-for-tick-seconds", type=int, default=0, metavar="SECONDS",
                         help="Wait for an actual quote tick; 0 checks subscription acknowledgement only.")
+    parser.add_argument("--enable-read-only-real-stream-for-this-run", action="store_true",
+                        help="Temporarily enable only REAL quote and WebSocket gates in this process; never enables orders/accounts.")
     args = parser.parse_args()
-    raise SystemExit(main(args.symbol, args.wait_for_tick_seconds))
+    raise SystemExit(main(args.symbol, args.wait_for_tick_seconds,
+                          args.enable_read_only_real_stream_for_this_run))

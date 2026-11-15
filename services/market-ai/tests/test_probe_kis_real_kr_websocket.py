@@ -23,6 +23,7 @@ SAFE_SWITCHES = {
     "KIS_ENVIRONMENT": "paper",
     "KIS_MARKET_DATA_ENABLED": "true",
     "KIS_WEBSOCKET_ENABLED": "true",
+    "KIS_REAL_MARKET_DATA_ENABLED": "true",
     "KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED": "true",
     "KIS_PAPER_ORDERS_ENABLED": "false",
     "KIS_REAL_ORDERS_ENABLED": "false",
@@ -190,3 +191,37 @@ def test_main_isolates_accounts_and_order_switches_before_real_stream(monkeypatc
     assert "private-real-app-key" not in output
     assert "private-real-app-secret" not in output
     assert "private-account-number" not in output
+
+
+def test_main_enables_only_real_market_data_gate_for_explicit_run_opt_in(monkeypatch, capsys) -> None:
+    for key, value in SAFE_SWITCHES.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED", "false")
+    monkeypatch.setenv("KIS_REAL_APP_KEY", "private-real-app-key")
+    monkeypatch.setenv("KIS_REAL_APP_SECRET", "private-real-app-secret")
+    monkeypatch.setenv("KIS_REAL_ACCOUNT_NUMBER", "private-account-number")
+    monkeypatch.setattr(probe, "load_local_environment", lambda _repository: Path(".env_local"))
+    monkeypatch.setattr(probe, "local_real_feed_is_active", lambda: False)
+
+    settings = SimpleNamespace(enabled=True, app_key="private-real-app-key", app_secret="private-real-app-secret",
+                                shared_rate_limit_enabled=True)
+    stream = SimpleNamespace(enabled=True, websocket_url="ws://real.invalid:21000")
+    monkeypatch.setattr(probe.KisSettings, "from_environment", classmethod(
+        lambda _cls, env: settings if env == "real" else None,
+    ))
+    monkeypatch.setattr(probe.StreamSettings, "from_environment", classmethod(lambda _cls, _env: stream))
+
+    async def fake_probe(*_args: object) -> dict[str, Any]:
+        assert probe.os.environ["KIS_REAL_MARKET_DATA_ENABLED"] == "true"
+        assert probe.os.environ["KIS_REAL_WEBSOCKET_MARKET_DATA_ENABLED"] == "true"
+        assert probe.os.environ["KIS_REAL_ACCOUNT_READ_ENABLED"] == "false"
+        assert probe.os.environ["KIS_REAL_ORDERS_ENABLED"] == "false"
+        assert probe.os.environ["KIS_PAPER_ORDERS_ENABLED"] == "false"
+        assert "KIS_REAL_ACCOUNT_NUMBER" not in probe.os.environ
+        return {"status": "acknowledged_no_tick", "order_sent": False, "account_read_sent": False}
+
+    monkeypatch.setattr(probe, "run_probe", fake_probe)
+    assert probe.main(enable_read_only_real_stream_for_this_run=True) == 0
+    output = capsys.readouterr().out
+    assert '"status": "acknowledged_no_tick"' in output
+    assert "private-real-app-key" not in output
