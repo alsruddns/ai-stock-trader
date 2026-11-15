@@ -107,6 +107,21 @@ def test_kis_export_applies_confirmed_personal_rights_to_hash_bound_sidecar(tmp_
     assert load_data_provenance(csv_path, purpose="model_training")["dataset_sha256"] == sidecar["dataset_sha256"]
 
 
+def test_kis_export_records_explicit_endpoint_reference(tmp_path) -> None:
+    csv_path = tmp_path / "bars.csv"
+    rows = [_row(datetime(2026, 11, 5, 9, 0, tzinfo=timezone.utc))]
+    reference = "KIS PAPER historical minute chart endpoint; no spread fields"
+
+    sidecar = write_minute_bar_export(
+        csv_path, rows, market="KR", symbol="005930", from_date=date(2026, 11, 5),
+        to_date=date(2026, 11, 5), sources=["KIS_REST_MINUTE_CHART"],
+        source_reference=reference,
+    )
+
+    assert sidecar["source_reference"] == reference
+    assert load_data_provenance(csv_path, purpose="backtesting")["source_reference"] == reference
+
+
 def test_export_manifest_reports_observed_sessions_separately_from_requested_date_range(tmp_path) -> None:
     csv_path = tmp_path / "bars.csv"
     opened = datetime(2026, 11, 6, 14, 30, tzinfo=timezone.utc)

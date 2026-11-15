@@ -26,6 +26,7 @@ on:
       - 'services/market-ai/tests/test_portfolio_backtest.py'
       - 'services/market-ai/tests/test_api.py'
       - 'services/market-ai/tests/test_data_export.py'
+      - 'services/market-ai/tests/test_export_kis_paper_kr_history.py'
       - 'services/market-ai/tests/test_data_import.py'
       - 'services/market-ai/tests/test_data_provenance.py'
       - 'services/market-ai/tests/test_market_stream.py'
@@ -43,6 +44,7 @@ on:
       - 'scripts/backtest-portfolio.py'
       - 'scripts/audit-market-session.py'
       - 'scripts/export-market-data.py'
+      - 'scripts/export-kis-paper-kr-history.py'
       - 'backend/trading-api/src/main/resources/db/migration/V26__market_minute_bar_spread_observation_time.sql'
       - '.github/workflows/domestic-ai-safety.yml'
   workflow_dispatch:
@@ -133,6 +135,8 @@ jobs:
           tests/test_session_quality.py::test_domestic_session_quality_counts_only_spreads_with_in_minute_observation_time
           tests/test_data_export.py::test_kr_session_coverage_reports_domestic_websocket_and_rest_source_counts
           tests/test_data_export.py::test_training_export_source_gate_requires_a_complete_spread_populated_kis_session
+          tests/test_data_export.py::test_kis_export_records_explicit_endpoint_reference
+          tests/test_export_kis_paper_kr_history.py
           tests/test_data_import.py::test_minute_bar_loader_groups_valid_timezone_aware_sessions
       - name: Run domestic KIS whole-won price parsing tests only
         working-directory: services/market-ai

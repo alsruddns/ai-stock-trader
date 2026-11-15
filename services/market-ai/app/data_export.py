@@ -125,6 +125,7 @@ def build_minute_bar_export(
     from_date: date,
     to_date: date,
     sources: Sequence[str],
+    source_reference: str | None = None,
     retrieved_at: datetime | None = None,
 ) -> tuple[bytes, dict[str, object]]:
     """Build a CSV and bind its source rights record to the exact exported bytes."""
@@ -140,6 +141,8 @@ def build_minute_bar_export(
         raise ValueError("stored bar source information is required")
     if unique_sources != row_sources:
         raise ValueError("export source list must match the sources present in the exported rows")
+    if source_reference is not None and not source_reference.strip():
+        raise ValueError("source reference must not be empty")
 
     buffer = io.StringIO(newline="")
     writer = csv.writer(buffer, lineterminator="\n")
@@ -200,7 +203,8 @@ def build_minute_bar_export(
         "schema_version": 1,
         "provider": provider,
         "dataset_name": f"{normalized_market} {normalized_symbol} minute bars {from_date.isoformat()} through {to_date.isoformat()}",
-        "source_reference": "market_minute_bar sources: " + ", ".join(unique_sources),
+        "source_reference": source_reference.strip() if source_reference is not None else
+        "market_minute_bar sources: " + ", ".join(unique_sources),
         "license_or_terms": license_or_terms,
         "terms_reference": terms_reference,
         "retrieved_at": retrieved.isoformat(),
@@ -223,12 +227,14 @@ def write_minute_bar_export(
     from_date: date,
     to_date: date,
     sources: Sequence[str],
+    source_reference: str | None = None,
 ) -> dict[str, object]:
     """Write CSV and its source-scoped, hash-bound rights sidecar."""
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     csv_bytes, sidecar = build_minute_bar_export(
-        rows, market=market, symbol=symbol, from_date=from_date, to_date=to_date, sources=sources,
+        rows, market=market, symbol=symbol, from_date=from_date, to_date=to_date,
+        sources=sources, source_reference=source_reference,
     )
     sidecar_path = path.with_name(path.name + ".provenance.json")
     payloads = ((path, csv_bytes),
