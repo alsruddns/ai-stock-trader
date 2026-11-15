@@ -36,6 +36,7 @@ BACKTEST_SPREAD_MODEL = "known_prior_bar_half_spread_entry_exit_v2"
 MIN_MODEL_APPROVAL_TEST_SESSIONS = 5
 MIN_MODEL_APPROVAL_TEST_TRADES = 5
 MIN_MODEL_HOLDOUT_SELECTION_VALIDATION_SESSIONS = 3
+MIN_MODEL_VALIDATION_QUANT_CANDIDATE_SAMPLES = 10
 MIN_MODEL_TRAIN_SAMPLES = 30
 MIN_MODEL_VALIDATION_SAMPLES = 10
 MIN_MODEL_TEST_SAMPLES = 10
@@ -81,6 +82,24 @@ def _metrics_cover_both_outcome_classes(metrics: Any) -> bool:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
         return False
     return 0 < float(value) < 1
+
+
+def _is_finite_integer(value: Any) -> bool:
+    return (not isinstance(value, bool) and isinstance(value, (int, float))
+            and math.isfinite(float(value)) and float(value).is_integer())
+
+
+def _validation_quant_candidate_reasons(samples: list[TrainingSample]) -> list[str]:
+    """Require enough ORB/VWAP entry candidates to assess the runtime AI filter."""
+    candidates = [sample for sample in samples if sample.quant_candidate]
+    reasons = []
+    if len(candidates) < MIN_MODEL_VALIDATION_QUANT_CANDIDATE_SAMPLES:
+        reasons.append("insufficient_validation_quant_candidate_samples")
+    if len({sample.session for sample in candidates}) < MIN_MODEL_HOLDOUT_SELECTION_VALIDATION_SESSIONS:
+        reasons.append("insufficient_validation_quant_candidate_sessions")
+    if len({sample.label for sample in candidates}) < 2:
+        reasons.append("validation_quant_candidates_require_both_outcome_classes")
+    return reasons
 
 
 def _session_progress(timestamp: datetime, market: str) -> Decimal:
@@ -434,6 +453,7 @@ def assess_training_samples(samples: list[TrainingSample]) -> dict[str, Any]:
         reasons.append("validation_partition_requires_both_outcome_classes")
     if len({sample.label for sample in test}) < 2:
         reasons.append("test_partition_requires_both_outcome_classes")
+    reasons.extend(_validation_quant_candidate_reasons(validation))
     result["reasons"] = reasons
     result["ready"] = not reasons
     return result
@@ -466,6 +486,19 @@ def _metrics(model: Any, samples: list[TrainingSample]) -> dict[str, float | Non
     # ROC-AUC is undefined for a single-class evaluation set. Keep it unavailable
     # instead of emitting 0.5, which looks like a measured neutral result.
     metrics["roc_auc"] = float(roc_auc_score(y, probabilities)) if len(set(y)) == 2 else None
+    quant_candidates = [
+        (sample, float(probability)) for sample, probability in zip(samples, probabilities)
+        if sample.quant_candidate
+    ]
+    quant_candidate_labels = [sample.label for sample, _ in quant_candidates]
+    metrics["quant_candidate_brier"] = (
+        float(brier_score_loss(quant_candidate_labels, [probability for _, probability in quant_candidates]))
+        if quant_candidates and len(set(quant_candidate_labels)) == 2 else None
+    )
+    metrics["quant_candidate_sample_count"] = float(len(quant_candidates))
+    metrics["quant_candidate_session_count"] = float(len({sample.session for sample, _ in quant_candidates}))
+    metrics["quant_candidate_positive_label_count"] = float(sum(quant_candidate_labels))
+    metrics["quant_candidate_negative_label_count"] = float(len(quant_candidate_labels) - sum(quant_candidate_labels))
     # P5 runs inference only after ORB/VWAP passes, so evaluate the same hybrid candidate here.
     predicted_candidates = [
         sample for sample, prediction in zip(samples, predictions)
@@ -665,7 +698,7 @@ class LocalModelRegistry:
         if normalized_market not in _MARKETS or not normalized_symbol:
             raise ValueError("market, symbol, and independent holdout sessions are required")
         holdout_start = holdout_dates[0]
-        eligible: list[tuple[float, str, int, str, str]] = []
+        eligible: list[tuple[float, str, int, int, int, str, str]] = []
         with self._governance_guard():
             for item in self.list_models():
                 if (item.get("integrity_error") or item.get("approved")
@@ -699,9 +732,24 @@ class LocalModelRegistry:
                     if len(validation_sessions) < MIN_MODEL_HOLDOUT_SELECTION_VALIDATION_SESSIONS:
                         continue
                     metrics = metadata.get("validation_metrics")
-                    brier = metrics.get("brier") if isinstance(metrics, dict) else None
+                    brier = metrics.get("quant_candidate_brier") if isinstance(metrics, dict) else None
+                    sample_count = metrics.get("quant_candidate_sample_count") if isinstance(metrics, dict) else None
+                    candidate_session_count = metrics.get("quant_candidate_session_count") if isinstance(metrics, dict) else None
+                    positive_count = metrics.get("quant_candidate_positive_label_count") if isinstance(metrics, dict) else None
+                    negative_count = metrics.get("quant_candidate_negative_label_count") if isinstance(metrics, dict) else None
                     if (isinstance(brier, bool) or not isinstance(brier, (int, float))
                             or not math.isfinite(float(brier)) or not 0 <= float(brier) <= 1):
+                        continue
+                    if (not _is_finite_integer(sample_count)
+                            or sample_count < MIN_MODEL_VALIDATION_QUANT_CANDIDATE_SAMPLES
+                            or not _is_finite_integer(candidate_session_count)
+                            or candidate_session_count < MIN_MODEL_HOLDOUT_SELECTION_VALIDATION_SESSIONS
+                            or not _is_finite_integer(positive_count)
+                            or positive_count <= 0
+                            or not _is_finite_integer(negative_count)
+                            or negative_count <= 0
+                            or positive_count + negative_count != sample_count
+                            or candidate_session_count > len(validation_sessions)):
                         continue
                     cohort = json.dumps({
                         "dataset_sha256": metadata.get("dataset_sha256"),
@@ -712,30 +760,33 @@ class LocalModelRegistry:
                     }, sort_keys=True, separators=(",", ":"))
                     cohort_sha256 = hashlib.sha256(cohort.encode("utf-8")).hexdigest()
                     latest_training_session = max(prior_test_sessions).isoformat()
-                    eligible.append((float(brier), model_id, len(validation_sessions),
-                                     latest_training_session, cohort_sha256))
+                    eligible.append((float(brier), model_id, len(validation_sessions), int(sample_count),
+                                     int(candidate_session_count), latest_training_session, cohort_sha256))
                 except (FileNotFoundError, OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
                     continue
         if not eligible:
             raise ValueError(
-                "no unapproved candidate has three distinct prior validation sessions and a valid Brier score"
+                "no unapproved candidate has three distinct prior validation sessions and sufficient "
+                "ORB/VWAP validation samples with a valid candidate Brier score"
             )
-        latest_training_session = max(value[3] for value in eligible)
-        latest_candidates = [value for value in eligible if value[3] == latest_training_session]
-        latest_cohorts = {value[4] for value in latest_candidates}
+        latest_training_session = max(value[5] for value in eligible)
+        latest_candidates = [value for value in eligible if value[5] == latest_training_session]
+        latest_cohorts = {value[6] for value in latest_candidates}
         if len(latest_cohorts) != 1:
             raise ValueError(
                 "multiple candidate training cohorts share the latest test session; refusing incomparable selection"
             )
-        comparable_candidates = [value for value in latest_candidates if value[4] in latest_cohorts]
-        brier, model_id, validation_session_count, _, _ = min(
+        comparable_candidates = [value for value in latest_candidates if value[6] in latest_cohorts]
+        brier, model_id, validation_session_count, candidate_sample_count, candidate_session_count, _, _ = min(
             comparable_candidates, key=lambda value: (value[0], value[1])
         )
         return {
             "model_id": model_id,
-            "selection_method": "lowest_validation_brier",
-            "validation_brier": brier,
+            "selection_method": "lowest_validation_quant_candidate_brier",
+            "validation_quant_candidate_brier": brier,
             "validation_session_count": validation_session_count,
+            "validation_quant_candidate_sample_count": candidate_sample_count,
+            "validation_quant_candidate_session_count": candidate_session_count,
             "eligible_candidate_count": len(comparable_candidates),
         }
 
@@ -986,14 +1037,43 @@ class LocalModelRegistry:
             selection = evaluation.get("candidate_selection")
             if (not isinstance(selection, dict)
                     or selection.get("model_id") != metadata.get("model_id")
-                    or selection.get("selection_method") != "lowest_validation_brier"
-                    or isinstance(selection.get("validation_brier"), bool)
-                    or not isinstance(selection.get("validation_brier"), (int, float))
-                    or not math.isfinite(float(selection["validation_brier"]))
-                    or not 0 <= float(selection["validation_brier"]) <= 1
+                    or selection.get("selection_method") != "lowest_validation_quant_candidate_brier"
+                    or isinstance(selection.get("validation_quant_candidate_brier"), bool)
+                    or not isinstance(selection.get("validation_quant_candidate_brier"), (int, float))
+                    or not math.isfinite(float(selection["validation_quant_candidate_brier"]))
+                    or not 0 <= float(selection["validation_quant_candidate_brier"]) <= 1
                     or selection.get("validation_session_count", 0)
                     < MIN_MODEL_HOLDOUT_SELECTION_VALIDATION_SESSIONS
+                    or selection.get("validation_quant_candidate_sample_count", 0)
+                    < MIN_MODEL_VALIDATION_QUANT_CANDIDATE_SAMPLES
+                    or selection.get("validation_quant_candidate_session_count", 0)
+                    < MIN_MODEL_HOLDOUT_SELECTION_VALIDATION_SESSIONS
                     or selection.get("eligible_candidate_count", 0) < 1):
+                return False
+            validation_metrics = metadata.get("validation_metrics")
+            if not isinstance(validation_metrics, dict):
+                return False
+            for selection_key, metric_key in (
+                ("validation_quant_candidate_brier", "quant_candidate_brier"),
+                ("validation_quant_candidate_sample_count", "quant_candidate_sample_count"),
+                ("validation_quant_candidate_session_count", "quant_candidate_session_count"),
+            ):
+                selected_value = selection.get(selection_key)
+                metric_value = validation_metrics.get(metric_key)
+                if (isinstance(selected_value, bool) or not isinstance(selected_value, (int, float))
+                        or not math.isfinite(float(selected_value))
+                        or isinstance(metric_value, bool) or not isinstance(metric_value, (int, float))
+                        or not math.isfinite(float(metric_value))
+                        or float(selected_value) != float(metric_value)):
+                    return False
+                if metric_key != "quant_candidate_brier" and not _is_finite_integer(selected_value):
+                    return False
+            positive_count = validation_metrics.get("quant_candidate_positive_label_count")
+            negative_count = validation_metrics.get("quant_candidate_negative_label_count")
+            sample_count = validation_metrics.get("quant_candidate_sample_count")
+            if (not _is_finite_integer(positive_count) or positive_count <= 0
+                    or not _is_finite_integer(negative_count) or negative_count <= 0
+                    or positive_count + negative_count != sample_count):
                 return False
             if evaluation.get("model_artifact_sha256") != metadata.get("artifact_sha256"):
                 return False
@@ -1331,6 +1411,10 @@ class LocalModelRegistry:
             raise ValueError("training partition must contain both outcome classes")
         if len({sample.label for sample in validation}) < 2:
             raise ValueError("validation partition must contain both outcome classes")
+        if len({sample.session for sample in samples}) >= MIN_MODEL_TRAINING_SESSIONS:
+            candidate_reasons = _validation_quant_candidate_reasons(validation)
+            if candidate_reasons:
+                raise ValueError("validation ORB/VWAP candidates are insufficient: " + ", ".join(candidate_reasons))
         if len({sample.label for sample in test}) < 2:
             raise ValueError("test partition must contain both outcome classes")
         try:

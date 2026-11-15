@@ -517,7 +517,8 @@ def test_training_sample_readiness_matches_partition_and_class_gates() -> None:
 
     one_class_training = [
         TrainingSample(sample.session, sample.timestamp, sample.features,
-                       0 if sample.session in set(sessions[:5]) else sample.label)
+                       0 if sample.session in set(sessions[:5]) else sample.label,
+                       sample.quant_candidate, sample.forward_net_return_bps)
         for sample in samples
     ]
     unbalanced = assess_training_samples(one_class_training)
@@ -527,16 +528,21 @@ def test_training_sample_readiness_matches_partition_and_class_gates() -> None:
 
     one_class_validation = [
         TrainingSample(sample.session, sample.timestamp, sample.features,
-                       0 if sample.session in set(sessions[5:8]) else sample.label)
+                       0 if sample.session in set(sessions[5:8]) else sample.label,
+                       sample.quant_candidate, sample.forward_net_return_bps)
         for sample in samples
     ]
     validation_unbalanced = assess_training_samples(one_class_validation)
     assert validation_unbalanced["ready"] is False
-    assert validation_unbalanced["reasons"] == ["validation_partition_requires_both_outcome_classes"]
+    assert validation_unbalanced["reasons"] == [
+        "validation_partition_requires_both_outcome_classes",
+        "validation_quant_candidates_require_both_outcome_classes",
+    ]
 
     one_class_test = [
         TrainingSample(sample.session, sample.timestamp, sample.features,
-                       0 if sample.session in set(sessions[8:]) else sample.label)
+                       0 if sample.session in set(sessions[8:]) else sample.label,
+                       sample.quant_candidate, sample.forward_net_return_bps)
         for sample in samples
     ]
     test_unbalanced = assess_training_samples(one_class_test)
@@ -549,7 +555,27 @@ def test_training_sample_readiness_matches_partition_and_class_gates() -> None:
     ]
     sparse = assess_training_samples(sparse_samples)
     assert sparse["ready"] is False
-    assert sparse["reasons"] == ["insufficient_samples_per_partition"]
+    assert sparse["reasons"] == [
+        "insufficient_samples_per_partition",
+        "insufficient_validation_quant_candidate_samples",
+        "insufficient_validation_quant_candidate_sessions",
+        "validation_quant_candidates_require_both_outcome_classes",
+    ]
+
+
+def test_readiness_requires_validation_candidate_population() -> None:
+    sessions = [date(2026, 1, 1) + timedelta(days=index) for index in range(MIN_MODEL_TRAINING_SESSIONS)]
+    samples = [
+        TrainingSample(session, f"{session}:{index}", (float(index),), index % 2,
+                       quant_candidate=(index < (3 if session in sessions[5:8] else 4)))
+        for session in sessions for index in range(40)
+    ]
+
+    readiness = assess_training_samples(samples)
+
+    assert readiness["ready"] is False
+    assert readiness["partition_candidate_sample_counts"]["validation"] == 9
+    assert readiness["reasons"] == ["insufficient_validation_quant_candidate_samples"]
 
 
 def test_readiness_reports_non_approvable_diagnostic_partitions_before_minimum_sessions() -> None:
@@ -643,6 +669,11 @@ def test_ai_candidate_metrics_apply_the_same_quant_gate_as_paper_runtime() -> No
     assert metrics["candidate_coverage"] == 0.5
     assert metrics["candidate_positive_rate"] == 0.5
     assert metrics["candidate_mean_forward_net_bps"] == 2.5
+    assert metrics["quant_candidate_brier"] == pytest.approx((0.01 + 0.64 + 0.81) / 3)
+    assert metrics["quant_candidate_sample_count"] == 3.0
+    assert metrics["quant_candidate_session_count"] == 1.0
+    assert metrics["quant_candidate_positive_label_count"] == 2.0
+    assert metrics["quant_candidate_negative_label_count"] == 1.0
 
 
 def test_ai_candidate_metrics_leave_no_candidate_result_unavailable() -> None:
@@ -795,6 +826,33 @@ def test_model_training_stops_before_candidate_creation_for_single_class_evaluat
     with pytest.raises(ValueError, match=f"{partition} partition must contain both outcome classes"):
         registry.train_compare(
             market="KR", symbol="005930", sessions=sessions,
+            label_horizon_bars=5, label_round_trip_cost_bps=Decimal("20"),
+            dataset_sha256="a" * 64, dataset_provenance=_provenance("a" * 64),
+        )
+
+    assert list(tmp_path.glob("*.joblib")) == []
+    assert registry.list_models() == []
+
+
+def test_model_training_requires_validation_quant_candidates_before_artifacts(tmp_path, monkeypatch) -> None:
+    source_sessions = _sample_sessions()
+    ordered_dates = [date(2026, 1, 1) + timedelta(days=index) for index in range(13)]
+
+    def sparse_validation_candidates(_sessions, **_kwargs):
+        return [
+            TrainingSample(session, f"{session}:{index}", (float(index),), index % 2,
+                           quant_candidate=(index < (2 if session in ordered_dates[5:8] else 4)))
+            for session in ordered_dates for index in range(40)
+        ]
+
+    monkeypatch.setattr(ai_pipeline, "build_training_samples", sparse_validation_candidates)
+    monkeypatch.setattr(ai_pipeline, "validate_model_training_coverage", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ai_pipeline, "validate_model_session_integrity", lambda **_kwargs: None)
+    registry = LocalModelRegistry(tmp_path)
+
+    with pytest.raises(ValueError, match="insufficient_validation_quant_candidate_samples"):
+        registry.train_compare(
+            market="KR", symbol="005930", sessions=source_sessions,
             label_horizon_bars=5, label_round_trip_cost_bps=Decimal("20"),
             dataset_sha256="a" * 64, dataset_provenance=_provenance("a" * 64),
         )
@@ -987,7 +1045,12 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_hold
         "model_id": model_id, "market": market, "model_type": model_id.split("-")[0], "artifact": artifact_name,
         "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(), "approved": False,
         "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION, "threshold": 0.5,
-        "validation_metrics": {"accuracy": 0.6, "brier": 0.25, "positive_label_rate": 0.5},
+        "validation_metrics": {
+            "accuracy": 0.6, "brier": 0.25, "positive_label_rate": 0.5,
+            "quant_candidate_brier": 0.25, "quant_candidate_sample_count": 12,
+            "quant_candidate_session_count": 3, "quant_candidate_positive_label_count": 6,
+            "quant_candidate_negative_label_count": 6,
+        },
         "test_metrics": {"accuracy": 0.55, "brier": 0.3, "positive_label_rate": 0.5},
         "quant_baseline_test_metrics": {"accuracy": 0.5, "brier": 0.25},
         "quant_backtest_test_metrics": {"session_count": 5.0, "trade_count": 5.0, "net_pnl": 5.0},
@@ -1013,8 +1076,10 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_hold
         "heldout_evaluation": {
             "market": market, "symbol": symbol,
             "candidate_selection": {
-                "model_id": model_id, "selection_method": "lowest_validation_brier",
-                "validation_brier": 0.25, "validation_session_count": 5,
+                "model_id": model_id, "selection_method": "lowest_validation_quant_candidate_brier",
+                "validation_quant_candidate_brier": 0.25, "validation_session_count": 5,
+                "validation_quant_candidate_sample_count": 12,
+                "validation_quant_candidate_session_count": 3,
                 "eligible_candidate_count": 1,
             },
             "dataset_sha256": dataset_sha256,
@@ -1303,7 +1368,7 @@ def test_candidate_cannot_be_re_evaluated_on_multiple_holdout_sets(tmp_path) -> 
         )
 
 
-def test_holdout_selection_uses_validation_brier_and_one_prior_champion(tmp_path) -> None:
+def test_holdout_selection_uses_quant_candidate_brier_and_one_prior_champion(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)
     candidates = (
         ("lightgbm-" + "a" * 32, 0.05),
@@ -1316,6 +1381,7 @@ def test_holdout_selection_uses_validation_brier_and_one_prior_champion(tmp_path
         metadata = json.loads(path.read_text(encoding="utf-8"))
         metadata.pop("heldout_evaluation")
         metadata["validation_metrics"]["brier"] = brier
+        metadata["validation_metrics"]["quant_candidate_brier"] = (0.01, 0.24, 0.05)[index]
         if index == 0:
             metadata["train_sessions"] = [f"2026-09-{day:02d}" for day in range(29, 31)] + [
                 "2026-10-01", "2026-10-02", "2026-10-03",
@@ -1330,8 +1396,11 @@ def test_holdout_selection_uses_validation_brier_and_one_prior_champion(tmp_path
     )
 
     assert selection == {
-        "model_id": candidates[1][0], "selection_method": "lowest_validation_brier",
-        "validation_brier": 0.24, "validation_session_count": 5,
+        "model_id": candidates[2][0],
+        "selection_method": "lowest_validation_quant_candidate_brier",
+        "validation_quant_candidate_brier": 0.05, "validation_session_count": 5,
+        "validation_quant_candidate_sample_count": 12,
+        "validation_quant_candidate_session_count": 3,
         "eligible_candidate_count": 2,
     }
     with pytest.raises(ValueError, match="only the validation-selected candidate"):
@@ -1340,6 +1409,19 @@ def test_holdout_selection_uses_validation_brier_and_one_prior_champion(tmp_path
             market="KR", symbol="005930", dataset_sha256="f" * 64,
             dataset_provenance=_provenance("f" * 64),
         )
+
+
+def test_approval_evidence_binds_selected_candidate_score_to_manifest(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "7" * 32
+    _write_candidate(registry, model_id)
+    path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(path.read_text(encoding="utf-8"))
+    assert registry._has_valid_approval_evidence(metadata) is True
+
+    metadata["validation_metrics"]["quant_candidate_brier"] = 0.1
+
+    assert registry._has_valid_approval_evidence(metadata) is False
 
 
 def test_holdout_selection_rejects_ambiguous_or_datetime_session_keys(tmp_path) -> None:
