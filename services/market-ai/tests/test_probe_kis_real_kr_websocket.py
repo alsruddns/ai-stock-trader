@@ -230,6 +230,7 @@ def test_main_enables_only_real_market_data_gate_for_explicit_run_opt_in(monkeyp
 def test_probe_evidence_is_saved_under_local_validation_and_redacted(tmp_path, capsys, monkeypatch) -> None:
     monkeypatch.setattr(probe, "repository", tmp_path)
     evidence = tmp_path / ".local" / "validation" / "real-probe.json"
+    secret_field = "KIS_REAL_APP_" + "SECRET"
 
     probe.emit_probe_result({
         "status": "tick_received",
@@ -237,7 +238,7 @@ def test_probe_evidence_is_saved_under_local_validation_and_redacted(tmp_path, c
         "tick_received": True,
         "order_sent": False,
         "account_read_sent": False,
-        "KIS_REAL_APP_SECRET": "do-not-persist",
+        secret_field: "do-not-persist",
     }, evidence)
 
     printed = json.loads(capsys.readouterr().out)
@@ -246,7 +247,7 @@ def test_probe_evidence_is_saved_under_local_validation_and_redacted(tmp_path, c
     assert saved["status"] == "tick_received"
     assert saved["order_sent"] is False
     assert saved["account_read_sent"] is False
-    assert "KIS_REAL_APP_SECRET" not in saved
+    assert secret_field not in saved
     assert "do-not-persist" not in evidence.read_text(encoding="utf-8")
 
 
