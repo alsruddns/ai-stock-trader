@@ -44,6 +44,8 @@ jobs:
             'scripts/test-kis-paper-order-lifecycle-isolated.ps1',
             'scripts/run-us-paper-lifecycle-smoke.ps1',
             'scripts/lib/kis-paper-order-preflight.ps1',
+            'scripts/test-real-kis-account-readonly.ps1',
+            'scripts/lib/real-kis-surefire-report.ps1',
             'scripts/lib/kis-paper-order-lifecycle.ps1',
             'scripts/lib/us-paper-lifecycle-smoke.ps1',
             'scripts/lib/lean-cost-inputs.ps1',
@@ -74,7 +76,8 @@ jobs:
             'scripts/lib/dashboard-task.ps1',
             'scripts/run-dashboard-task.ps1',
             'scripts/install-dashboard-task.ps1',
-            'scripts/remove-dashboard-task.ps1'
+            'scripts/remove-dashboard-task.ps1',
+            'scripts/tests/real-kis-surefire-report.Tests.ps1'
           )
           foreach ($scriptFile in $scriptFiles) {
             $tokens = $null
@@ -85,6 +88,11 @@ jobs:
             if ($parseErrors.Count -gt 0) {
               $parseErrors | ForEach-Object { Write-Error "$scriptFile`: $($_.Message)" }
             }
+          }
+
+          $realKisReportResult = Invoke-Pester -Path 'scripts/tests/real-kis-surefire-report.Tests.ps1' -PassThru
+          if ($realKisReportResult.FailedCount -gt 0 -or $realKisReportResult.PassedCount -ne 3) {
+            throw "REAL KIS selected test report checks failed: passed=$($realKisReportResult.PassedCount), failed=$($realKisReportResult.FailedCount)."
           }
 
           $domesticScopeResult = Invoke-Pester -Path 'scripts/tests/domestic-only-validation.Tests.ps1' -PassThru
