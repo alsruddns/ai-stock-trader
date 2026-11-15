@@ -21,6 +21,7 @@ foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerat
 try {
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'lib\real-kis-surefire-report.ps1')
+. (Join-Path $PSScriptRoot 'lib\readonly-kis-execution-gates.ps1')
 $envPath = Join-Path $repoRoot '.env_local'
 if (-not (Test-Path -LiteralPath $envPath)) { $envPath = Join-Path $repoRoot '.env' }
 if (-not (Test-Path -LiteralPath $envPath)) {
@@ -61,9 +62,17 @@ if (-not $env:POSTGRES_PASSWORD) {
 if ($RequireSelectedTestPass -and [string]::IsNullOrWhiteSpace($TestMethod)) {
     throw '-RequireSelectedTestPass requires one explicit -TestMethod.'
 }
-if ($env:TRADING_MODE -ne 'paper' -or $env:LIVE_TRADING_ENABLED -ne 'false' -or
-    $env:KIS_REAL_ORDERS_ENABLED -ne 'false' -or $env:KIS_REAL_RECONCILIATION_ENABLED -ne 'false') {
-    throw 'REAL account smoke test requires paper mode with REAL orders, live trading, and REAL reconciliation disabled.'
+if ($env:TRADING_MODE -ne 'paper') {
+    throw 'REAL account smoke test requires paper mode.'
+}
+$executionGateValues = @{}
+foreach ($name in $script:ReadOnlyKisExecutionGateNames) {
+    $value = [Environment]::GetEnvironmentVariable($name, 'Process')
+    $executionGateValues[$name] = $value
+}
+Assert-KisReadOnlyExecutionGatesDisabled -Values $executionGateValues
+foreach ($name in $script:ReadOnlyKisExecutionGateNames) {
+    [Environment]::SetEnvironmentVariable($name, 'false', 'Process')
 }
 
 $env:RUN_KIS_REAL_ACCOUNT_INTEGRATION_TESTS = 'true'

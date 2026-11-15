@@ -46,6 +46,7 @@ jobs:
             'scripts/lib/kis-paper-order-preflight.ps1',
             'scripts/test-real-kis-account-readonly.ps1',
             'scripts/lib/real-kis-surefire-report.ps1',
+            'scripts/lib/readonly-kis-execution-gates.ps1',
             'scripts/lib/kis-paper-order-lifecycle.ps1',
             'scripts/lib/us-paper-lifecycle-smoke.ps1',
             'scripts/lib/lean-cost-inputs.ps1',
@@ -77,7 +78,8 @@ jobs:
             'scripts/run-dashboard-task.ps1',
             'scripts/install-dashboard-task.ps1',
             'scripts/remove-dashboard-task.ps1',
-            'scripts/tests/real-kis-surefire-report.Tests.ps1'
+            'scripts/tests/real-kis-surefire-report.Tests.ps1',
+            'scripts/tests/readonly-kis-execution-gates.Tests.ps1'
           )
           foreach ($scriptFile in $scriptFiles) {
             $tokens = $null
@@ -93,6 +95,11 @@ jobs:
           $realKisReportResult = Invoke-Pester -Path 'scripts/tests/real-kis-surefire-report.Tests.ps1' -PassThru
           if ($realKisReportResult.FailedCount -gt 0 -or $realKisReportResult.PassedCount -ne 3) {
             throw "REAL KIS selected test report checks failed: passed=$($realKisReportResult.PassedCount), failed=$($realKisReportResult.FailedCount)."
+          }
+
+          $readonlyKisGatesResult = Invoke-Pester -Path 'scripts/tests/readonly-kis-execution-gates.Tests.ps1' -PassThru
+          if ($readonlyKisGatesResult.FailedCount -gt 0 -or $readonlyKisGatesResult.PassedCount -ne 3) {
+            throw "Read-only KIS execution gate checks failed: passed=$($readonlyKisGatesResult.PassedCount), failed=$($readonlyKisGatesResult.FailedCount)."
           }
 
           $domesticScopeResult = Invoke-Pester -Path 'scripts/tests/domestic-only-validation.Tests.ps1' -PassThru
