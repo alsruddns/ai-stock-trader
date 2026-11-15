@@ -635,18 +635,22 @@ class KisOrderIntentPostgresIntegrationTest {
             assertEquals(KisOrderStatus.UNKNOWN, unresolved.getStatus());
             assertNull(unresolved.getBrokerOrderNumber());
 
-            KisOrderIntent linked = store.attachVerifiedPaperOrderAndReconcile(key, brokerNumber,
-                    organizationNumber, new KisBrokerOrderSnapshot(0, order.quantity(), null, false, false));
+            when(kisOrderClient.reconcilePaperOrderByVerifiedCandidate(any(KisOrderIntent.class),
+                    eq(brokerNumber), isNull())).thenReturn(Optional.of(new KisManualPaperOrderMatch(
+                    organizationNumber, new KisBrokerOrderSnapshot(0, order.quantity(), null, false, false))));
+            KisOrderIntentResponse linked = kisOrders.manuallyReconcilePaperOrder(key, brokerNumber, null);
             entityManager.flush();
             entityManager.clear();
 
             KisOrderIntent persisted = kisOrderRepository.findById(key).orElseThrow();
-            assertEquals(KisOrderStatus.ACCEPTED, linked.getStatus());
+            assertEquals(KisOrderStatus.ACCEPTED, linked.status());
             assertEquals(KisOrderStatus.ACCEPTED, persisted.getStatus());
             assertEquals(brokerNumber, persisted.getBrokerOrderNumber());
             assertEquals(organizationNumber, persisted.getBrokerOrganizationNumber());
             assertEquals("MANUAL_ORDER_LINKED", persisted.getBrokerResponseCode());
             assertEquals(order.quantity(), persisted.getRemainingQuantity());
+            verify(kisOrderClient).reconcilePaperOrderByVerifiedCandidate(any(KisOrderIntent.class),
+                    eq(brokerNumber), isNull());
         } finally {
             kisOrderRepository.deleteById(key);
         }
