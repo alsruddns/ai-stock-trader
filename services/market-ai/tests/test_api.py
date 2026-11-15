@@ -23,6 +23,21 @@ def test_health_discloses_read_only_mode() -> None:
     assert response.json()["paper_session_monitor"] == "DISABLED"
 
 
+def test_health_reports_real_market_data_switch_without_exposing_credentials(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_REAL_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setenv("KIS_REAL_APP_KEY", "must-not-be-returned")
+    monkeypatch.setenv("KIS_REAL_APP_SECRET", "must-not-be-returned")
+
+    response = client.get("/api/v1/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kis_real_market_data_enabled"] is True
+    assert "KIS_REAL_APP_KEY" not in body
+    assert "KIS_REAL_APP_SECRET" not in body
+    assert "must-not-be-returned" not in response.text
+
+
 def test_domestic_scope_rejects_non_domestic_websocket_before_kis_approval_key(monkeypatch) -> None:
     class StreamSettings:
         enabled = True

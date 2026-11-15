@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P1 REAL 시세 잠금 상태 가시화 (2026-11-15 17:09 KST):** FastAPI health 응답에 REAL 읽기전용 시세 토글 상태만 추가했습니다. 앱 키·시크릿 등 자격정보는 응답에 넣지 않습니다. 신규 응답과 국내 REAL quote 라우트 집중검사 3/3 통과했습니다. 실제 KIS 호출은 하지 않았으며, 다음 로컬 API 안전 재시작에서 health 응답이 `KIS_REAL_MARKET_DATA_ENABLED=true`를 반영하는지 확인합니다.
+
 - **P1 REAL 국내 호가 경로 및 로컬 읽기 설정 (2026-11-15 17:03–17:07 KST):** 국내 호가 기본 경로는 PAPER를 유지하고, 명시한 `environment=real` 조회만 `KIS_REAL_MARKET_DATA_ENABLED`로 보호해 REAL 자격정보를 선택하도록 했습니다. Spring의 REAL 신호평가와 REAL 호가 기반 사전점검·보호청산은 이제 이 REAL 조회 경로를 사용합니다. quote-route 집중검사 6/6과 Spring `KisMarketAiEvidenceClientTest` 10/10 통과했습니다. 국내 전용 기본 설정에서는 미국 게이트 검사가 의도대로 범위 차단되므로 해당 묶음만 `MARKET_OPERATIONAL_SCOPE=KR,US`로 제한된 프로세스 검사했습니다. 실제 KIS 요청은 하지 않았습니다. ignored `.env_local`에서 읽기 전용 `KIS_REAL_MARKET_DATA_ENABLED=true`만 켰고, 로컬 환경 감시기가 장 종료 후 설정을 재적용했습니다. 일시 연결 거부 후 FastAPI·Spring health 및 PAPER 모니터 `RUNNING`, 저장 대기 0, 주문·자동매매 잠금 정상 상태를 확인했습니다. 계좌 읽기, REAL/PAPER 주문, 자동매매, REAL WebSocket은 계속 꺼져 있습니다. 월요일 장중 REAL 호가와 주문 없는 사전점검은 아직 남아 있습니다.
 
 - **P6 REAL 보호청산 Mock·PostgreSQL 집중검증 (2026-11-15 16:17 KST):** `KisRealOrderClientTest`, `KisRealOrderOrchestratorTest`, `KisRealProtectiveExitMonitorTest` 61/61과 로컬 PostgreSQL 통합검사 `realProtectiveExitCandidateQueryPagesDomesticPlansInPostgres` 1/1을 통과했습니다. 테스트는 주문 식별·위험 차단·보호청산 계획 조회 경로를 검사했으며 DB 스키마 V30이 최신임을 확인했습니다. PostgreSQL 검사 프로세스에서 KIS 자격정보를 비우고 REAL/PAPER 읽기·주문·보호청산·자동매매 스위치를 모두 껐습니다. KIS 계좌·주문 API는 호출하지 않았으며 실제 REAL 주문·체결 검증은 아닙니다.

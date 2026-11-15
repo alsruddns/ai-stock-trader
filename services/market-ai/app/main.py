@@ -332,6 +332,7 @@ def health() -> dict[str, object]:
         "mode": "read-only-preview",
         "broker_connected": broker_connected,
         "kis_market_data_enabled": settings.enabled,
+        "kis_real_market_data_enabled": os.getenv("KIS_REAL_MARKET_DATA_ENABLED", "false").strip().lower() == "true",
         "paper_session_monitor": monitor_status["state"],
         "kr_calendar_compatibility": korean_calendar_compatibility(),
         "paper_automation_enabled": PaperAutomationReadiness.from_environment().enabled,
