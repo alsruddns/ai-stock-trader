@@ -15,7 +15,7 @@ sys.path.insert(0, str(repository / "services" / "market-ai"))
 
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import load_data_provenance
-from app.ai_pipeline import LocalModelRegistry
+from app.ai_pipeline import FEATURE_NAMES, LocalModelRegistry, latest_features
 from app.backtest_metrics import summarize_net_trade_pnls
 from app.market_calendar import exchange_continuous_session_window
 from app.market_scope import require_cli_operational_market
@@ -353,16 +353,24 @@ def main() -> int:
             entry_filter=ai_entry_filter if args.with_active_ai_models else None,
         )
         portfolio_results.append(portfolio)
-        results.append({
-            "date": session.isoformat(),
-            "input_bars_by_symbol": {symbol: len(bars[symbol]) for symbol in sorted(bars)},
-            "quant_signals": portfolio.quant_signals_by_symbol,
-            "strategy_signals": portfolio.signals_by_symbol,
-            "ai_rejections": portfolio.ai_rejections_by_symbol,
-            "accepted_trades": [{
-                "symbol": trade.symbol, "entry_time": trade.entry_time.isoformat(),
-                "signal_time": (trade.entry_time - timedelta(minutes=1)).isoformat(),
-                "exit_time": trade.exit_time.isoformat(), "quantity": trade.quantity,
+        trade_records = []
+        for trade in portfolio.trades:
+            signal_time = trade.entry_time - timedelta(minutes=1)
+            signal_bars = bars[trade.symbol]
+            signal_index = next(
+                (index for index, bar in enumerate(signal_bars) if bar.timestamp == signal_time), None
+            )
+            if signal_index is None:
+                parser.error("accepted trade does not map to its preceding signal bar")
+            feature_values = latest_features(
+                signal_bars[:signal_index + 1], market="KR", quant_config=config,
+            )
+            trade_records.append({
+                "symbol": trade.symbol,
+                "signal_time": signal_time.isoformat(),
+                "entry_time": trade.entry_time.isoformat(),
+                "exit_time": trade.exit_time.isoformat(),
+                "quantity": trade.quantity,
                 "entry_fill_price": str(trade.entry_fill_price),
                 "exit_fill_price": str(trade.exit_fill_price),
                 "entry_notional": str(trade.entry_notional),
@@ -370,7 +378,8 @@ def main() -> int:
                 "initial_stop_distance_bps": str(
                     trade.initial_stop_distance * Decimal(10_000) / trade.entry_fill_price
                 ),
-                "gross_pnl": str(trade.gross_pnl), "estimated_costs": str(trade.costs),
+                "gross_pnl": str(trade.gross_pnl),
+                "estimated_costs": str(trade.costs),
                 "gross_return_bps": str(
                     trade.gross_pnl * Decimal(10_000) / trade.entry_notional
                 ),
@@ -382,7 +391,17 @@ def main() -> int:
                     trade.net_pnl * Decimal(10_000) / trade.entry_notional
                 ),
                 "exit_reason": trade.exit_reason,
-            } for trade in portfolio.trades],
+                "entry_signal_features": {
+                    name: value for name, value in zip(FEATURE_NAMES, feature_values, strict=True)
+                },
+            })
+        results.append({
+            "date": session.isoformat(),
+            "input_bars_by_symbol": {symbol: len(bars[symbol]) for symbol in sorted(bars)},
+            "quant_signals": portfolio.quant_signals_by_symbol,
+            "strategy_signals": portfolio.signals_by_symbol,
+            "ai_rejections": portfolio.ai_rejections_by_symbol,
+            "accepted_trades": trade_records,
             "trade_metrics": summarize_net_trade_pnls(
                 [trade.net_pnl for trade in portfolio.trades],
                 [trade.entry_notional for trade in portfolio.trades],

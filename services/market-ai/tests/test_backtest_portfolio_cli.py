@@ -1,5 +1,6 @@
 import hashlib
 import json
+import math
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -268,6 +269,12 @@ def test_portfolio_cli_reports_auditable_trade_prices_and_stop_metrics(tmp_path:
         assert Decimal(trade["net_return_bps"]) == (
             Decimal(trade["net_pnl"]) * Decimal(10_000) / entry_notional
         )
+        assert set(trade["entry_signal_features"]) == {
+            "return_1m", "return_3m", "return_5m", "close_vwap_pct", "ema9_gap_pct",
+            "ema20_gap_pct", "atr14_pct", "relative_volume20", "spread_bps",
+            "session_progress", "orb_breakout_distance_bps",
+        }
+        assert all(math.isfinite(value) for value in trade["entry_signal_features"].values())
 
 
 def test_portfolio_cli_rejects_non_positive_strategy_parameters(tmp_path: Path) -> None:
