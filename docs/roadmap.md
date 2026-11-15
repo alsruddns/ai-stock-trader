@@ -1,6 +1,6 @@
 # AI Stock Trader v1.0 Roadmap
 
-- **P1 REAL 장중 사전점검의 skipped 오판 방지 (2026-11-15 17:26 KST):** 기존 Surefire 기록에서 `preflightsDomesticRealBuyWithFreshQuoteWithoutSubmittingAnOrder`가 실패 없이 `skipped`였던 것을 확인했습니다. Maven 기본 종료 코드만 보는 예약 작업은 새 호가가 없어도 성공처럼 보일 수 있어, `-RequireSelectedTestPass`를 추가해 실행 후 생성시각이 최신인 Surefire XML에서 해당 테스트가 정확히 한 번 존재하고 skip/failure/error가 없을 때만 성공하도록 했습니다. 기존 09:10 작업 액션에 이 필수 옵션을 적용했습니다. Pester 집중검사 3/3 및 PowerShell AST 구문검사 3개 파일이 통과했습니다. 실제 KIS 요청은 하지 않았습니다.
+- **P1 REAL 장중 사전점검의 skipped 오판 방지 (2026-11-15 17:26–17:30 KST):** 기존 Surefire 기록에서 `preflightsDomesticRealBuyWithFreshQuoteWithoutSubmittingAnOrder`가 실패 없이 `skipped`였던 것을 확인했습니다. Maven 기본 종료 코드만 보는 예약 작업은 새 호가가 없어도 성공처럼 보일 수 있어, `-RequireSelectedTestPass`를 추가해 실행 후 생성시각이 최신인 Surefire XML에서 해당 테스트가 정확히 한 번 존재하고 skip/failure/error가 없을 때만 성공하도록 했습니다. 기존 09:10 작업 액션에 이 필수 옵션을 적용했습니다. Pester 집중검사 3/3 및 PowerShell AST 구문검사 3개 파일이 통과했고 GitHub Actions Windows PAPER preflight `43694733236`도 성공했습니다. 실제 KIS 요청은 하지 않았습니다.
 
 - **P1 국내 REAL REST 호가 연결 확인 (2026-11-15 17:22 KST):** 거래소 마감 상태를 local session endpoint로 먼저 확인한 뒤, 명시적 `environment=real` 국내 시세 경로로 `005930` 읽기 GET 1회를 실행했습니다. HTTP 응답 정상, 시장/종목/통화 및 `KIS_REST_SNAPSHOT` 출처가 일치하고 가격 필드가 존재했으나 장외라 spread는 없었습니다. 값은 출력하거나 전략 입력으로 사용하지 않았습니다. 이는 REAL 자격정보·라우팅·응답 매핑 확인일 뿐 장중 실시간 freshness 검증은 아닙니다. 조회 후 계좌·주문·취소·정정 API는 호출하지 않았고 모든 주문 잠금은 유지했습니다. 월요일 REAL WebSocket tick 및 주문 없는 계좌 사전점검은 계속 예약 상태입니다.
 
