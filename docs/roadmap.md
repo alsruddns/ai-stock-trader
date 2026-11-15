@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P2 국내 PAPER 취소 사전조회 지원 최신 대조 (2026-11-15):** KIS 공식 API 지원표를 다시 확인했으며, 국내 `주식정정취소가능주문조회`에는 모의투자 지원 표시가 없습니다. 공식 취소 예제는 취소 POST 전에 해당 조회의 `psbl_qty`를 확인하도록 요구합니다. 주문 이력·잔고의 다른 수량으로 대체하지 않으며, PAPER 취소 경로는 KIS의 지원 확인 또는 검증된 모의 조회 응답을 얻을 때까지 잠금 상태로 둡니다. 이번 확인은 공개 문서만 읽었고 KIS 계좌/API 요청이나 주문은 없었습니다. [KIS 공식 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#3-api-%EC%A0%9C%EA%B3%B5-%EB%AA%A9%EB%A1%9D) · [공식 취소 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_rvsecncl/order_rvsecncl.py)
+
 - **P1 REAL 국내 최근 체결 GET 확인 (2026-11-15 18:20 KST):** 명시적 단일 테스트 선택으로 `readsDomesticSessionExecutionsWithoutPrintingTradeDetails`를 실행했고, 최근 국내 체결내역 읽기 전용 GET이 1/1 통과했습니다. 최신 Surefire 보고서에서 해당 테스트가 정확히 한 번 실행되어 skipped/failure/error가 없음을 확인했습니다. 체결 상세 및 계좌 식별정보는 출력하지 않았고 KIS 주문·취소 요청은 전송하지 않았습니다. 실주문 잠금과 `.env_local` 값은 변경하지 않았습니다.
 
 - **P1 REAL 국내 잔고 GET과 새 주문 게이트 확인 (2026-11-15 18:12 KST):** `.env_local`을 읽고 `-EnableReadOnlyGetForThisRun` 및 단일 메서드 선택으로 `readsDomesticRealBalanceWithoutPlacingOrders`만 실행했습니다. 12개 주문·자동화 스위치 fail-closed 검사를 통과한 뒤 REAL 계좌 잔고 GET 매핑이 1/1 성공했고, 필수 최신 Surefire 보고서에서도 해당 테스트가 정확히 한 번 실행되어 skipped/failure/error 없이 통과했음을 확인했습니다. PostgreSQL Flyway 30개 migration validation도 통과했고 DB는 최신 상태였습니다. 금액·보유 수량·계좌 식별값은 출력하지 않았으며 주문·정정·취소와 다른 KIS 테스트는 전송하지 않았습니다. `.env_local` 및 실주문 잠금은 변경하지 않았습니다.
