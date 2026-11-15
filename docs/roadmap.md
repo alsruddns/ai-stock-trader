@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P2 UNKNOWN 재시작 후 대사 잠금의 PostgreSQL 통합검사 (작업일 2026-11-15):** 재시작 뒤 `UNKNOWN` 상태로 복구되고 브로커 주문번호가 없는 PAPER 의도를 실제 PostgreSQL 통합검사에서 다시 대사해도 `UNKNOWN`과 빈 주문번호가 유지되는지 확인하도록 검사를 확장했습니다. 로컬 PostgreSQL schema 30에서 해당 단일 Maven 검사 1/1 통과했습니다. PAPER/REAL API 자격정보를 검사 프로세스에서 비우고 KIS API·계좌·주문 요청 없이 검증했습니다.
+
 - **P2 국내 PAPER 취소 사전조회 공식 지원표 재검증 (작업일 2026-11-15):** KIS 공식 API 지원표에서 국내 현금주문·주식정정취소·주식일별주문체결조회·잔고조회는 모의 지원 표시가 있지만, 주식정정취소가능주문조회는 여전히 미표시입니다. 공식 샘플은 취소 전 해당 조회의 `psbl_qty` 확인을 요구하므로 일별 체결조회로 취소 가능 수량을 추정하거나 우회하지 않습니다. 국내 PAPER 취소 POST 및 전체 주문 수명주기 시험은 계속 잠금 상태이며, KIS 요청·계좌·주문은 수행하지 않았습니다. [KIS 공식 API 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#3-api-%EC%A0%9C%EA%B3%B5-%EB%AA%A9%EB%A1%9D) · [KIS 취소가능 주문조회 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_psbl_rvsecncl/inquire_psbl_rvsecncl.py)
 
 - **P7 국내 일일 운영 리포트 schema 18 현행화 (작업일 2026-11-15 08:49 KST):** `scripts/export-daily-report.ps1`로 `.local/reports/operations-2026-11-15.json`을 원자 갱신했습니다. Spring/FastAPI·모의세션·모델·국내 세션 품질·학습준비 endpoint 응답과 Windows 예약작업 상태를 로컬 리포트에 반영했습니다. 운용 범위 KR, 모드 PAPER, PAPER 자동매매·PAPER 주문·REAL 주문·REAL 계좌조회 비활성을 확인했습니다. 005930·000660은 각각 적격 세션 2/13, 추가 11세션 필요, 학습준비 미충족입니다. `optionalDataStatus=COMPLETE`는 선택 endpoint 응답 상태만 뜻합니다. 리포트 생성은 로컬 API GET만 사용했고 KIS 계좌·시세·주문 API는 호출하지 않았습니다.

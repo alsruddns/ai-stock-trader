@@ -1606,11 +1606,15 @@ class KisOrderIntentPostgresIntegrationTest {
                             "--kis.real.app-key=", "--kis.real.app-secret=", "--kis.real.account-number=")) {
                 KisOrderOrchestrator restartedOrders = restarted.getBean(KisOrderOrchestrator.class);
                 KisOrderIntentResponse recovered = restartedOrders.submitPaperOrder(key, order, null);
+                KisOrderIntentResponse reconciled = restartedOrders.reconcilePaperOrder(key);
                 KisOrderIntentResponse repeated = restartedOrders.submitPaperOrder(key, order, null);
 
                 assertEquals(KisOrderStatus.UNKNOWN, recovered.status());
                 assertEquals(key, recovered.idempotencyKey());
                 assertNull(recovered.brokerOrderNumber());
+                assertEquals(KisOrderStatus.UNKNOWN, reconciled.status());
+                assertEquals(key, reconciled.idempotencyKey());
+                assertNull(reconciled.brokerOrderNumber());
                 assertEquals(KisOrderStatus.UNKNOWN, repeated.status());
                 assertEquals(key, repeated.idempotencyKey());
             }
