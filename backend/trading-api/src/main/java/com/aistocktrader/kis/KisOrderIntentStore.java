@@ -70,6 +70,13 @@ public class KisOrderIntentStore {
     }
 
     @Transactional
+    public KisOrderIntent markUnknown(UUID key, String safeDiagnosticCode) {
+        KisOrderIntent intent = repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
+        intent.markUnknown(safeDiagnosticCode);
+        return intent;
+    }
+
+    @Transactional
     public KisOrderIntent reject(UUID key, String code) {
         KisOrderIntent intent = repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
         intent.reject(code);

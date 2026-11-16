@@ -130,6 +130,12 @@ public class KisOrderIntent {
     }
 
     public void markUnknown() { status = KisOrderStatus.UNKNOWN; updatedAt = Instant.now(); }
+    public void markUnknown(String safeDiagnosticCode) {
+        status = KisOrderStatus.UNKNOWN;
+        brokerResponseCode = safeDiagnosticCode != null && safeDiagnosticCode.matches("[A-Za-z0-9_-]{1,32}")
+                ? safeDiagnosticCode : "ORDER_OUTCOME_UNKNOWN";
+        updatedAt = Instant.now();
+    }
     public void confirmNoPaperOrderWasSubmitted() {
         if (environment != KisEnvironment.PAPER || market != Market.KR || status != KisOrderStatus.UNKNOWN
                 || brokerOrderNumber != null && !brokerOrderNumber.isBlank()

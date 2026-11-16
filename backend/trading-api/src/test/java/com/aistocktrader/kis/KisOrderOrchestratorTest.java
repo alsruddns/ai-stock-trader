@@ -336,13 +336,14 @@ class KisOrderOrchestratorTest {
                         new BigDecimal("100000"), List.of(), Instant.now(), "test"));
         when(orders.placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(), any(), any(), nullable(String.class)))
                 .thenThrow(new KisOrderOutcomeUnknownException("unknown", new RuntimeException("timeout")));
-        intent.markUnknown();
-        doReturn(intent).when(intents).markUnknown(key);
+        intent.markUnknown("ORDER_TRANSPORT_UNKNOWN");
+        doReturn(intent).when(intents).markUnknown(key, "ORDER_TRANSPORT_UNKNOWN");
 
         KisOrderIntentResponse response = orchestrator.submitPaperOrder(key, request, null);
 
         assertEquals(KisOrderStatus.UNKNOWN, response.status());
-        verify(intents).markUnknown(key);
+        assertEquals("ORDER_TRANSPORT_UNKNOWN", response.responseCode());
+        verify(intents).markUnknown(key, "ORDER_TRANSPORT_UNKNOWN");
     }
 
     @Test
@@ -359,15 +360,16 @@ class KisOrderOrchestratorTest {
         when(orders.placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(),
                 any(), any(), nullable(String.class))).thenThrow(new KisApiException(HttpStatus.BAD_GATEWAY,
                 "KIS rejected the paper order (code EGW00002)."));
-        when(intents.markUnknown(key)).thenAnswer(invocation -> {
-            intent.markUnknown();
+        when(intents.markUnknown(key, "EGW00002")).thenAnswer(invocation -> {
+            intent.markUnknown("EGW00002");
             return intent;
         });
 
         KisOrderIntentResponse response = orchestrator.submitPaperOrder(key, request, null);
 
         assertEquals(KisOrderStatus.UNKNOWN, response.status());
-        verify(intents).markUnknown(key);
+        assertEquals("EGW00002", response.responseCode());
+        verify(intents).markUnknown(key, "EGW00002");
         verify(intents, never()).reject(key, "EGW00002");
         assertEquals(KisOrderStatus.UNKNOWN,
                 orchestrator.submitPaperOrder(key, request, null).status());

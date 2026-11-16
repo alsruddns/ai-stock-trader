@@ -111,7 +111,8 @@ class KisOrderIntentPostgresIntegrationTest {
                 new BigDecimal("100"), Currency.KRW);
         try {
             store.prepare(firstKey, KisOrderOrchestrator.hash(request, null), request, null);
-            store.markUnknown(firstKey);
+            store.markUnknown(firstKey, "EGW00002");
+            assertEquals("EGW00002", repository.findById(firstKey).orElseThrow().getBrokerResponseCode());
             KisOrderIntent closed = store.confirmNoPaperOrder(firstKey);
 
             assertEquals(KisOrderStatus.NO_ORDER_CONFIRMED, closed.getStatus());

@@ -16,6 +16,20 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class KisOrderIntentTest {
     @Test
+    void unknownOrderPersistsOnlySanitizedDiagnosticCode() {
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new OrderRequest(Market.KR, "035720", OrderSide.BUY, 1,
+                        new BigDecimal("50000"), Currency.KRW), null);
+
+        intent.markUnknown("EGW00002");
+        assertEquals(KisOrderStatus.UNKNOWN, intent.getStatus());
+        assertEquals("EGW00002", intent.getBrokerResponseCode());
+
+        intent.markUnknown("authorization=hidden");
+        assertEquals("ORDER_OUTCOME_UNKNOWN", intent.getBrokerResponseCode());
+    }
+
+    @Test
     void noOrderConfirmationClosesOnlyAnUnfilledUnlinkedDomesticPaperUnknownIntent() {
         KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
                 new OrderRequest(Market.KR, "035720", OrderSide.BUY, 1,
