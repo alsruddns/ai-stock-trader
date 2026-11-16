@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P2 재시작 멱등키 가드 CI 검증 (2026-11-16 14:55 KST):** 새 재시작 가드 9/9 집중 테스트는 통과했으나 KRX 워크플로가 기존 기대 개수 7에 묶여 첫 실행에서 실패했습니다. CI 기대값을 9로 갱신한 뒤 KRX session monitor safety 실행 `43813304949` 성공, Windows PAPER preflight 실행 `43813091532` 성공을 확인했습니다. 운영 API는 아직 구버전 프로세스이며, 실제 재시작 뒤 멱등키 노출 검증은 16:00 예정 작업에서 확인해야 합니다.
+
 - **P2 장후 재시작 뒤 미확인 주문 대사 키 검사 추가 (2026-11-16 14:50 KST):** 현재 실행 중인 구형 Spring 응답에서 미연결·미체결 `UNKNOWN` PAPER 주문의 `idempotencyKey`가 없음을 읽기전용 확인했습니다. 16:00 장후 재시작 검증에만 적용되는 fail-closed 검사를 추가해, 해당 주문이 있으면 재시작 후 유효 UUID가 운영 요약에 노출돼야 통과합니다. 없거나 잘못된 값이면 16:30 미접수 확인 단계로 진행하지 않습니다. 집중 Pester 9/9 통과, `git diff --check` 통과. API·계좌는 조회만 했고 주문/취소는 보내지 않았습니다.
 
 - **P2 PAPER 취소 사전조회 지원범위 확인 (2026-11-16):** [KIS 공식 Open Trading API 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md)는 국내 현금 주문·정정취소 주문·일별 주문체결 조회의 모의투자를 지원으로 표시하지만, `주식정정취소가능주문조회`는 모의투자 지원 표시가 없습니다. [공식 정정취소 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_rvsecncl/order_rvsecncl.py)는 취소 호출 전에 해당 조회의 `psbl_qty`를 확인하라고 요구합니다. 따라서 PAPER에서 이 사전조회가 확인되기 전까지 취소 경로는 잠금 유지하며, API 지원표에 없는 조회를 생략해 취소하지 않습니다. 이는 취소 포함 P2 모의주문 검증의 미완료 항목입니다.
