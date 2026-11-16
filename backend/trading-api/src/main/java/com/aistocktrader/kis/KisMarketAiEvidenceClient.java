@@ -91,6 +91,13 @@ public class KisMarketAiEvidenceClient {
 
     /** Fetches a fresh KIS quote snapshot for a server-side protective-exit decision. */
     public ExitQuote quoteForExit(com.aistocktrader.order.Market market, String symbol, String exchange) {
+        return quoteForExit(KisEnvironment.REAL, market, symbol, exchange);
+    }
+
+    /** Fetches a fresh KIS quote snapshot from the explicitly selected broker environment. */
+    public ExitQuote quoteForExit(KisEnvironment environment, com.aistocktrader.order.Market market,
+                                  String symbol, String exchange) {
+        if (environment == null) throw new IllegalArgumentException("Exit quote environment is required.");
         if (market == null || symbol == null || symbol.isBlank()) {
             throw new IllegalArgumentException("Exit quote market and symbol are required.");
         }
@@ -107,7 +114,7 @@ public class KisMarketAiEvidenceClient {
                         .queryParam("exchange", normalizedExchange).build(normalizedSymbol))
                         .retrieve().body(JsonNode.class)
                 : http.get().uri(uri -> uri.path("/api/v1/market/quotes/KR/{symbol}")
-                        .queryParam("environment", "real").build(normalizedSymbol))
+                        .queryParam("environment", environment.label()).build(normalizedSymbol))
                         .retrieve().body(JsonNode.class);
         OrderRequest sellProbe = new OrderRequest(market, normalizedSymbol, OrderSide.SELL, 1,
                 BigDecimal.ONE, market == com.aistocktrader.order.Market.KR ? Currency.KRW : Currency.USD);

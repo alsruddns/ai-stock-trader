@@ -94,6 +94,7 @@ public class KisPaperExitPlanLifecycleService {
         }
         if (exit.getStatus() == KisOrderStatus.REJECTED || exit.getStatus() == KisOrderStatus.CANCELLED
                 || exit.getStatus() == KisOrderStatus.PARTIALLY_FILLED
+                || exit.getStatus() == KisOrderStatus.NO_ORDER_CONFIRMED
                 || exit.getStatus() == KisOrderStatus.UNKNOWN || exit.getStatus() == KisOrderStatus.SUBMITTING) {
             plans.requireManualReview(plan.getEntryIdempotencyKey());
             return KisPaperExitStatus.MANUAL_REVIEW;

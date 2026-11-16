@@ -85,6 +85,29 @@ class KisPaperExitPlanLifecycleServiceTest {
         verify(plans).requireManualReview(entryKey);
     }
 
+    @Test
+    void confirmedMissingExitOrderRequiresManualReviewInsteadOfRetryLoop() {
+        UUID entryKey = UUID.randomUUID();
+        UUID exitKey = UUID.randomUUID();
+        KisPaperExitPlan plan = mock(KisPaperExitPlan.class);
+        when(plan.getEntryIdempotencyKey()).thenReturn(entryKey);
+        when(plan.getStatus()).thenReturn(KisPaperExitStatus.EXIT_PENDING);
+        when(plan.getExitOrderKey()).thenReturn(exitKey);
+        when(plan.getExitQuantity()).thenReturn(1);
+        when(plan.getExitLimitPrice()).thenReturn(new BigDecimal("71000"));
+        KisOrderIntent entry = entry(entryKey, OrderSide.BUY, "005930", 1, true);
+        entry.reconcile(1, 0, new BigDecimal("70000"), false, false);
+        KisOrderIntent exit = entry(exitKey, OrderSide.SELL, "005930", 1, false);
+        exit.markUnknown();
+        exit.confirmNoPaperOrderWasSubmitted();
+        when(plans.findById(entryKey)).thenReturn(Optional.of(plan));
+        when(intents.findById(entryKey)).thenReturn(Optional.of(entry));
+        when(intents.findById(exitKey)).thenReturn(Optional.of(exit));
+
+        assertEquals(KisPaperExitStatus.MANUAL_REVIEW, service().synchronize(entryKey));
+        verify(plans).requireManualReview(entryKey);
+    }
+
     private KisPaperExitPlanLifecycleService service() {
         return new KisPaperExitPlanLifecycleService(plans, intents);
     }

@@ -48,6 +48,8 @@ kis:
     paper-cancel-preflight-verified: ${KIS_PAPER_CANCEL_PREFLIGHT_VERIFIED:false}
     paper-protective-exit-verified: ${KIS_PAPER_PROTECTIVE_EXIT_VERIFIED:false}
     paper-reconciliation-delay-ms: ${KIS_PAPER_RECONCILIATION_DELAY_MS:30000}
+    paper-exit-monitor-enabled: ${KIS_PAPER_PROTECTIVE_EXIT_AUTOMATION_ENABLED:false}
+    paper-exit-monitor-poll-ms: ${KIS_PAPER_PROTECTIVE_EXIT_POLL_MS:1000}
   account-read-enabled: ${KIS_ACCOUNT_READ_ENABLED:false}
   paper-account-read-enabled: ${KIS_PAPER_ACCOUNT_READ_ENABLED:${KIS_ACCOUNT_READ_ENABLED:false}}
   real-account-read-enabled: ${KIS_REAL_ACCOUNT_READ_ENABLED:false}

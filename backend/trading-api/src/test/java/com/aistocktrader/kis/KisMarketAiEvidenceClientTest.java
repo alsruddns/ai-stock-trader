@@ -145,6 +145,23 @@ class KisMarketAiEvidenceClientTest {
     }
 
     @Test
+    void paperExitQuoteUsesPaperEnvironmentInsteadOfRealMarketData() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:18000");
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930?environment=paper"))
+                .andRespond(withSuccess("{\"market\":\"KR\",\"symbol\":\"005930\","
+                        + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":\"70000\",\"best_bid\":\"69900\","
+                        + "\"best_ask\":\"70000\",\"retrieved_at\":\"" + Instant.now() + "\"}",
+                        MediaType.APPLICATION_JSON));
+
+        var quote = client.quoteForExit(KisEnvironment.PAPER, Market.KR, "005930", null);
+
+        assertEquals(new BigDecimal("69900"), quote.bestBid());
+        server.verify();
+    }
+
+    @Test
     void exitQuoteUsesRequestedUsVenueAndRejectsDifferentVenue() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

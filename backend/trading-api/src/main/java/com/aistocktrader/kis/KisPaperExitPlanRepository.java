@@ -17,6 +17,18 @@ public interface KisPaperExitPlanRepository extends JpaRepository<KisPaperExitPl
     Page<KisPaperExitPlan> findByStatusInOrderByUpdatedAtAsc(List<KisPaperExitStatus> statuses, Pageable pageable);
     Optional<KisPaperExitPlan> findByExitOrderKey(UUID exitOrderKey);
 
+    @Query(value = """
+            SELECT COUNT(*)
+              FROM kis_paper_exit_plan plan
+              JOIN kis_order_intent entry ON entry.idempotency_key = plan.entry_idempotency_key
+             WHERE entry.environment = :environment
+               AND entry.market = :market
+               AND UPPER(entry.symbol) = UPPER(:symbol)
+               AND plan.status IN ('ARMED', 'EXIT_PENDING')
+            """, nativeQuery = true)
+    long countActiveForSymbol(@Param("environment") String environment, @Param("market") String market,
+                              @Param("symbol") String symbol);
+
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Transactional
     @Query(value = """
