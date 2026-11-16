@@ -210,7 +210,7 @@ if ($intent.status -eq 'REJECTED') {
     exit 1
 }
 if ($intent.status -eq 'FILLED') {
-    Write-Output "KIS PAPER filled the one-share request before cancellation. Review the simulated position. Key: $idempotencyKey"
+    Write-Output "KIS PAPER filled the one-share request. Review and reconcile the simulated position. No further order was sent. Key: $idempotencyKey"
     exit 2
 }
 if ($intent.status -notin @('ACCEPTED', 'PARTIALLY_FILLED', 'CANCEL_PENDING')) {

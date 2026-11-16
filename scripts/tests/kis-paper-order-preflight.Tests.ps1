@@ -52,11 +52,28 @@ Describe 'KIS PAPER submit and observe result' {
         $result.message | Should Match 'Cancelability was not tested'
     }
 
-    It 'requires position review after any observed simulated fill' {
+    It 'reports that a partial fill may leave its order open and requires position review' {
         $result = Get-KisPaperOrderSubmitObservationResult -Intent @{ status = 'PARTIALLY_FILLED'; filledQuantity = 1 }
         $result.exitCode | Should Be 2
-        $result.orderRemainsOpen | Should Be $false
-        $result.message | Should Match 'review and reconcile the PAPER position'
+        $result.orderRemainsOpen | Should Be $true
+        $result.message | Should Match 'partial or pending order'
+        $result.message | Should Match 'do not resubmit or assume it is closed'
+    }
+
+    It 'reports a fully filled or broker-cancelled order as terminal while requiring position review' {
+        $filled = Get-KisPaperOrderSubmitObservationResult -Intent @{ status = 'FILLED'; filledQuantity = 1 }
+        $cancelled = Get-KisPaperOrderSubmitObservationResult -Intent @{ status = 'CANCELLED'; filledQuantity = 1 }
+        $filled.orderRemainsOpen | Should Be $false
+        $cancelled.orderRemainsOpen | Should Be $false
+        $filled.message | Should Match 'terminal order state'
+        $cancelled.message | Should Match 'terminal order state'
+    }
+
+    It 'does not infer open-order state from a fill paired with an unknown broker status' {
+        $result = Get-KisPaperOrderSubmitObservationResult -Intent @{ status = 'UNKNOWN'; filledQuantity = 1 }
+        $result.exitCode | Should Be 2
+        $result.orderRemainsOpen | Should Be $null
+        $result.message | Should Match 'does not establish whether an order remains open'
     }
 
     It 'reports a clean broker rejection separately' {

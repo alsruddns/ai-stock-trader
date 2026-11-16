@@ -87,8 +87,22 @@ function Get-KisPaperOrderSubmitObservationResult {
             message = 'KIS PAPER reports the order closed with zero fills.' }
     }
     if ($hasValidFillQuantity -and $filledQuantity -gt 0) {
-        return [pscustomobject]@{ exitCode = 2; filledQuantity = $fillLabel; orderRemainsOpen = $false
-            message = "A simulated fill occurred ($fillLabel share(s)); review and reconcile the PAPER position. No further order was sent." }
+        $orderRemainsOpen = switch ($Intent.status) {
+            'PARTIALLY_FILLED' { $true; break }
+            'CANCEL_PENDING' { $true; break }
+            'FILLED' { $false; break }
+            'CANCELLED' { $false; break }
+            default { $null }
+        }
+        $message = if ($orderRemainsOpen -eq $true) {
+            "A simulated fill occurred ($fillLabel share(s)) and the broker still reports a partial or pending order. Review the position and remaining order; do not resubmit or assume it is closed."
+        } elseif ($orderRemainsOpen -eq $false) {
+            "A simulated fill occurred ($fillLabel share(s)) and the broker reports a terminal order state. Review and reconcile the PAPER position. No further order was sent."
+        } else {
+            "A simulated fill occurred ($fillLabel share(s)), but the broker state does not establish whether an order remains open. Review the PAPER position and reconcile this key manually."
+        }
+        return [pscustomobject]@{ exitCode = 2; filledQuantity = $fillLabel; orderRemainsOpen = $orderRemainsOpen
+            message = $message }
     }
     if ($Intent.status -eq 'ACCEPTED' -and $hasValidFillQuantity -and $filledQuantity -eq 0) {
         return [pscustomobject]@{ exitCode = 2; filledQuantity = $fillLabel; orderRemainsOpen = $true

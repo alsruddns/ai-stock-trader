@@ -625,7 +625,7 @@ function paperOrderSmokeDetail(smoke: PaperOrderSmoke | null) {
   if (smoke.state === "RUNNING") return `${instrument} · 점검 진행 중`;
   if (smoke.outcome === "SKIPPED") return `${instrument} · 사전조건 미충족, 주문 미전송`;
   if (smoke.outcome === "OPEN_UNFILLED") return `${instrument} · 주문 접수, 미체결·미취소 · 수동 확인 필요`;
-  if (smoke.outcome === "FILL_OBSERVED") return `${instrument} · 체결 ${smoke.filledQuantity ?? "미확인"}주 · PAPER 잔고 대조 필요`;
+  if (smoke.outcome === "FILL_OBSERVED") return `${instrument} · 체결 ${smoke.filledQuantity ?? "미확인"}주${smoke.orderRemainsOpen === true ? " · 미체결 주문 잔존" : smoke.orderRemainsOpen === null ? " · 주문 상태 미확인" : ""} · PAPER 잔고 대조 필요`;
   if (smoke.outcome === "ACCEPTED_UNFILLED") return `${instrument} · 주문 접수, 체결 미관측 · 주문 상태 확인 필요`;
   if (smoke.outcome === "REJECTED") return `${instrument} · KIS 주문 거부`;
   if (smoke.outcome === "FAILED") return `${instrument} · 제출 전 점검 실패`;

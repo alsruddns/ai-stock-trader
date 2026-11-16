@@ -753,4 +753,22 @@ Describe 'PAPER order smoke log summary boundary' {
         $summary.preSubmitOrderCount | Should Be 1
         $summary.orderSent | Should Be $false
     }
+
+    It 'preserves an open-order warning when a smoke order is partially filled' {
+        $directory = Join-Path $TestDrive 'partial-fill-logs'
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+        $path = Join-Path $directory 'paper-order-smoke-035720-20261117.log'
+        @(
+            'startedAt=2026-11-17T09:05:00+09:00'
+            'PAPER submit observation: market=KR symbol=035720 status=PARTIALLY_FILLED filled=1 order_remains_open=True key=8f78d163-477d-4194-9d93-3bdde2cfadd2'
+            'completedAt=2026-11-17T09:05:08+09:00; exitCode=2'
+        ) | Set-Content -LiteralPath $path -Encoding utf8
+
+        $summary = Get-AiTraderPaperOrderSmokeSummary -LogDirectory $directory
+
+        $summary.outcome | Should Be 'FILL_OBSERVED'
+        $summary.orderStatus | Should Be 'PARTIALLY_FILLED'
+        $summary.filledQuantity | Should Be 1
+        $summary.orderRemainsOpen | Should Be $true
+    }
 }
