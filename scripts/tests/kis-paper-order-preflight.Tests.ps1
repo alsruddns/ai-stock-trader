@@ -88,6 +88,7 @@ Describe 'Isolated KIS PAPER lifecycle port' {
         $scriptText = Get-Content (Join-Path $PSScriptRoot '../test-kis-paper-order-lifecycle-isolated.ps1') -Raw
         $scriptText.Contains('$env:KIS_PAPER_ORDERS_ENABLED = if ($PreflightOnly) { ''false'' } else { ''true'' }') | Should Be $true
         $scriptText.Contains('$env:MARKET_AI_BASE_URL = $marketAiUri.AbsoluteUri.TrimEnd(''/'')') | Should Be $true
+        $scriptText.Contains('$env:KIS_DOMESTIC_SYMBOL_MASTER_PATH = Join-Path $repoRoot ''.local\reference-data\kis-domestic-symbols.csv''') | Should Be $true
         $scriptText.Contains("if (-not `$PreflightOnly) { `$testArguments += '-EnablePaperOrdersForThisRun' }") | Should Be $true
         $scriptText.Contains("`$expectedPaperOrdersEnabled = `$env:KIS_PAPER_ORDERS_ENABLED -eq 'true'") | Should Be $true
     }

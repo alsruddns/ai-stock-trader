@@ -48,6 +48,9 @@ try {
         }
         [Environment]::SetEnvironmentVariable($name, $value, 'Process')
     }
+    if ([string]::IsNullOrWhiteSpace($env:KIS_DOMESTIC_SYMBOL_MASTER_PATH)) {
+        $env:KIS_DOMESTIC_SYMBOL_MASTER_PATH = Join-Path $repoRoot '.local\reference-data\kis-domestic-symbols.csv'
+    }
 
     if ($env:KIS_ENVIRONMENT -ne 'paper' -or $env:TRADING_MODE -ne 'paper' -or
         $env:LIVE_TRADING_ENABLED -ne 'false' -or $env:KIS_PAPER_ORDERS_ENABLED -ne 'false' -or
