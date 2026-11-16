@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Add : [P2 KIS 문의 초안] 국내 PAPER 취소 사전조회 확인요청 정리 (2026-11-16):** KIS 지원에 문의할 TR ID, PAPER 제공 여부, `OPSQ0002` 응답 의미, 안전한 잔량 확인 절차를 문서화했습니다. 문의에는 계좌번호·App Key·Secret이 없으며 KIS에 발송하지 않았습니다. [문의 초안](kis-paper-cancel-support-request.md)
+
 - **P5 다음 국내 감시 세션 운영 사전점검 (2026-11-16 17:12 KST):** Windows `AIStockTrader-LocalStack` 작업이 `Running`, 5432 PostgreSQL과 Spring/Python 18080/18000 리스너가 loopback 주소에만 바인딩되어 있음을 확인했습니다. `.env_local`을 프로세스에만 로드해 PostgreSQL `SELECT 1` 연결검사와 두 로컬 API health/운영 GET을 통과했습니다. Spring은 PAPER이며 KIS PAPER 주문·PAPER 자동매매·REAL 주문은 비활성, Python은 `ok`/국내 PAPER 감시 `RUNNING`입니다. 11월 17일 08:45 KRX 전체 세션 감시 작업은 `Ready`입니다. 이는 실행 전 준비 확인이며 새 거래 세션이나 주문·체결 검증이 아닙니다.
 
 - **P2 국내 PAPER 취소 사전조회 최신 확인 (2026-11-16 17:10 KST):** `.env_local`의 PAPER 조회 자격정보로 현재 공식 `TTTC0084R` 취소 가능 주문 조회를 읽기 전용 호출했습니다. KIS 응답은 HTTP 200, `rt_cd=1`, `OPSQ0002`, 0행이며 `psbl_qty` 필드는 없었습니다. 마스킹된 결과만 Git 제외 `.local/validation/kis-paper-cancel-preflight-20261116.jsonl`에 저장했습니다. 취소 기능 지원이나 수량을 확인하지 못해 국내 PAPER 취소와 신규 KIS PAPER 주문 검증 잠금을 유지했습니다. 주문·취소 요청은 전송하지 않았습니다.
