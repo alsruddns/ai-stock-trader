@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P5 다음 국내 감시 세션 운영 사전점검 (2026-11-16 17:12 KST):** Windows `AIStockTrader-LocalStack` 작업이 `Running`, 5432 PostgreSQL과 Spring/Python 18080/18000 리스너가 loopback 주소에만 바인딩되어 있음을 확인했습니다. `.env_local`을 프로세스에만 로드해 PostgreSQL `SELECT 1` 연결검사와 두 로컬 API health/운영 GET을 통과했습니다. Spring은 PAPER이며 KIS PAPER 주문·PAPER 자동매매·REAL 주문은 비활성, Python은 `ok`/국내 PAPER 감시 `RUNNING`입니다. 11월 17일 08:45 KRX 전체 세션 감시 작업은 `Ready`입니다. 이는 실행 전 준비 확인이며 새 거래 세션이나 주문·체결 검증이 아닙니다.
+
 - **P2 국내 PAPER 취소 사전조회 최신 확인 (2026-11-16 17:10 KST):** `.env_local`의 PAPER 조회 자격정보로 현재 공식 `TTTC0084R` 취소 가능 주문 조회를 읽기 전용 호출했습니다. KIS 응답은 HTTP 200, `rt_cd=1`, `OPSQ0002`, 0행이며 `psbl_qty` 필드는 없었습니다. 마스킹된 결과만 Git 제외 `.local/validation/kis-paper-cancel-preflight-20261116.jsonl`에 저장했습니다. 취소 기능 지원이나 수량을 확인하지 못해 국내 PAPER 취소와 신규 KIS PAPER 주문 검증 잠금을 유지했습니다. 주문·취소 요청은 전송하지 않았습니다.
 
 - **국내 PAPER 준비 상태 및 변경 CI 검증 (2026-11-16 17:07 KST):** 로컬 Spring/Python GET에서 Spring `paper`, PAPER 주문·자동화 비활성, REAL 주문 비활성, Python `ok` 및 PAPER 감시 `RUNNING`을 확인했습니다. 11월 17일 08:45 국내 감시 작업은 Windows 스케줄러에서 `Ready`입니다. `a1c6355`의 Windows PAPER preflight, Domestic KIS API compatibility, Domestic AI pipeline safety CI가 통과했고, `de8859a`의 국내 quant safety CI `43828478812`도 통과했습니다. 최초 quant 실행은 오래된 테스트 기대값 불일치로 실패했으며, 실제 feature schema v5와 맞춘 단일 회귀 수정 후 선택 테스트와 재실행 CI가 통과했습니다. PAPER 주문·취소는 전송하지 않았습니다.
