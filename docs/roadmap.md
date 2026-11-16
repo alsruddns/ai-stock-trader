@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Update : [P5 종목별 구독 진단] 장전 서비스 적용 확인 (2026-11-17 06:50 KST):** KRX 비개장 시간에 관리형 Spring/FastAPI 스택을 안전 재시작해 `ff60b4d` 변경을 적용했습니다. 운영 PAPER 세션 API에서 005930·000660·035720 각각 체결·호가 구독 승인이 `2/2`, 전체 `6/6`, feed `RUNNING`, 분봉 저장 `RUNNING`/대기 0을 확인했습니다. PAPER 주문·자동매매 및 REAL 주문은 계속 비활성입니다. 대시보드 코드도 커밋됐으며 운영 빌드는 장 마감 후 예약 재빌드가 반영합니다. 장중 틱 수신과 분봉 완성은 개장 후 별도 검증해야 합니다.
+
 - **Add : [P5 종목별 WebSocket 구독 진단] 세션 API·대시보드 노출 (2026-11-17 06:48 KST):** 기존 전체 합계 `6/6`만 보이던 KIS WebSocket 구독 승인을 `subscription_acknowledgements_by_key_by_feed`로 확장해 종목/구독키마다 승인·필요 수를 확인하고, P5 상태 카드에도 표시합니다. 부분 승인, 종목 추가·해제, 대시보드 응답 회귀를 포함한 집중 Python 검사 12/12와 dashboard ESLint·TypeScript 검사가 통과했습니다. 거래·주문 게이트는 변경하지 않았습니다. 운영 적용은 장 시작 전 안전 재시작 후 확인할 예정입니다.
 
 - **Update : [P2 국내 PAPER 취소 게이트] KIS 공식 지원표 재확인 (2026-11-17 06:40 KST):** 한국투자증권 공식 `open-trading-api` 제공표에서 국내 `주식정정취소가능주문조회`의 모의투자 제공란은 비어 있고, 공식 정정·취소 샘플은 취소 POST 전에 `output.psbl_qty`를 확인하도록 명시합니다. 오늘 PAPER 읽기 전용 조회도 `OPSQ0002`/0행으로 수량을 반환하지 않았으므로, PAPER 취소·보호청산·완전 주문 수명주기 게이트를 열지 않습니다. [공식 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#L234-L246) · [공식 취소 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_rvsecncl/order_rvsecncl.py#L499-L503)
