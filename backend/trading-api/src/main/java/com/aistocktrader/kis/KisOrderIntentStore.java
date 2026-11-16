@@ -16,11 +16,18 @@ public class KisOrderIntentStore {
             KisOrderStatus.CANCEL_PENDING, KisOrderStatus.UNKNOWN);
     private final KisOrderIntentRepository repository;
     private final KisRealFillSnapshotStore realFillSnapshots;
+    private final KisPaperExitPlanRepository paperExitPlans;
 
     @Autowired
-    public KisOrderIntentStore(KisOrderIntentRepository repository, KisRealFillSnapshotStore realFillSnapshots) {
+    public KisOrderIntentStore(KisOrderIntentRepository repository, KisRealFillSnapshotStore realFillSnapshots,
+                               KisPaperExitPlanRepository paperExitPlans) {
         this.repository = repository;
         this.realFillSnapshots = realFillSnapshots;
+        this.paperExitPlans = paperExitPlans;
+    }
+
+    public KisOrderIntentStore(KisOrderIntentRepository repository, KisRealFillSnapshotStore realFillSnapshots) {
+        this(repository, realFillSnapshots, null);
     }
 
     public KisOrderIntentStore(KisOrderIntentRepository repository) {
@@ -51,8 +58,15 @@ public class KisOrderIntentStore {
             if (!intent.getRequestHash().equals(hash)) throw new com.aistocktrader.order.IdempotencyConflictException("Idempotency-Key was already used for a different KIS order.");
             return new PreparedIntent(intent, false);
         }
-        return new PreparedIntent(repository.saveAndFlush(new KisOrderIntent(key, hash, environment, request,
-                exchange, exitStopDistancePerShare, exitRewardRiskMultiple)), true);
+        KisOrderIntent saved = repository.saveAndFlush(new KisOrderIntent(key, hash, environment, request,
+                exchange, exitStopDistancePerShare, exitRewardRiskMultiple));
+        if (environment == KisEnvironment.PAPER && exitStopDistancePerShare != null) {
+            if (paperExitPlans == null) {
+                throw new IllegalStateException("PAPER exit plan persistence is unavailable.");
+            }
+            paperExitPlans.saveAndFlush(new KisPaperExitPlan(key));
+        }
+        return new PreparedIntent(saved, true);
     }
 
     @Transactional

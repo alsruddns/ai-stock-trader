@@ -8,6 +8,7 @@ import com.aistocktrader.order.OrderSide;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
@@ -28,6 +29,33 @@ import static org.mockito.Mockito.never;
 class KisOrderIntentStoreTest {
     @Mock KisOrderIntentRepository repository;
     @Mock KisRealFillSnapshotStore realFillSnapshots;
+    @Mock KisPaperExitPlanRepository paperExitPlans;
+
+    @Test
+    void paperSignalEntryAndExitPlanArePersistedTogether() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW, "ORB_VWAP", "model-a");
+        BigDecimal stopDistance = new BigDecimal("500");
+        BigDecimal rewardRisk = new BigDecimal("2");
+        when(repository.findById(key)).thenReturn(Optional.empty());
+        when(repository.saveAndFlush(org.mockito.ArgumentMatchers.any(KisOrderIntent.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(paperExitPlans.saveAndFlush(org.mockito.ArgumentMatchers.any(KisPaperExitPlan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        KisOrderIntentStore store = new KisOrderIntentStore(repository, realFillSnapshots, paperExitPlans);
+
+        var prepared = store.prepare(key, "hash", KisEnvironment.PAPER, request, null,
+                stopDistance, rewardRisk);
+
+        ArgumentCaptor<KisPaperExitPlan> plan = ArgumentCaptor.forClass(KisPaperExitPlan.class);
+        verify(repository).saveAndFlush(org.mockito.ArgumentMatchers.any(KisOrderIntent.class));
+        verify(paperExitPlans).saveAndFlush(plan.capture());
+        assertEquals(key, plan.getValue().getEntryIdempotencyKey());
+        assertEquals(KisPaperExitStatus.WAITING_FOR_ENTRY, plan.getValue().getStatus());
+        assertEquals(key, prepared.intent().getIdempotencyKey());
+        assertEquals(true, prepared.createdNow());
+    }
 
     @Test
     void idempotencyKeyCannotBeReusedAcrossPaperAndRealEnvironments() {
