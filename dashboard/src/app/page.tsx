@@ -24,7 +24,8 @@ type Ops = {
   recentOrders: { id: number; market: string; symbol: string; side: string; quantity: number; filledQuantity: number; limitPrice: string; currency: string; status: string; createdAt: string }[];
 };
 type Model = { model_id: string; market?: string; model_type?: string; approved?: boolean; active?: boolean; integrity_error?: boolean; feature_compatible?: boolean; data_rights_verified?: boolean; approval_evidence_verified?: boolean; holdout_evaluation_status?: "NOT_RUN" | "UNVERIFIED" | "VERIFIED"; artifact_sha256?: string; dataset_sha256?: string; validation_metrics?: Record<string, number | null>; test_metrics?: Record<string, number | null>; quant_baseline_test_metrics?: Record<string, number>; quant_backtest_test_metrics?: Record<string, string | number>; ai_quant_backtest_test_metrics?: Record<string, string | number>; heldout_metrics?: Record<string, number | null>; heldout_quant_baseline_metrics?: Record<string, number>; heldout_quant_backtest_metrics?: Record<string, string | number>; heldout_ai_quant_backtest_metrics?: Record<string, string | number>; heldout_sessions?: string[]; training_config?: Record<string, string | number> };
-type Decision = { market: string; symbol: string; exchange: string | null; signal: string; reason: string; bars_in_session: number; evaluated_at: string | null; model_id?: string | null; executable: false };
+type StrategyDiagnostics = { available?: boolean; bars_observed?: number; bars_required?: number; failed_checks?: string[]; unavailable_reason?: string; observed?: Record<string, string | boolean | null> };
+type Decision = { market: string; symbol: string; exchange: string | null; signal: string; reason: string; bars_in_session: number; evaluated_at: string | null; model_id?: string | null; strategy_diagnostics?: StrategyDiagnostics | null; executable: false };
 type MinuteMarketQuality = { market: string; symbol: string; exchange: string | null; trade_ticks_received: number; orderbook_quotes_received: number; usable_orderbook_quotes: number; empty_or_nonpositive_quotes: number; crossed_quotes: number; stale_quotes: number; bar_closed?: boolean; bar_spread_present?: boolean; bar_spread_observed_at?: string | null };
 type MarketSession = { market: "KR" | "US"; session_date: string; is_session: boolean; is_open: boolean; open_at: string | null; close_at: string | null; evaluated_at: string };
 type SessionQuality = { market: string; symbol: string; session_date: string; status: string; expected_bars: number; observed_bars: number; missing_bars: number; spread_bars: number; spread_coverage_percent: number | null; spread_observation_time_bars?: number; spread_observation_time_coverage_percent?: number | null; source_counts?: Record<string, number>; missing_bar_timestamps?: string[]; bars_without_spread_timestamps?: string[]; bars_without_spread_observation_timestamps?: string[]; full_session_complete: boolean };
@@ -357,7 +358,7 @@ export default function Dashboard() {
       <p className="audit-note">매수 체결의 평균 원가와 체결비용으로 계산하고, 청산 주문에 보존된 전략·모델 ID로 분류합니다. 기대손익은 매도 주문별 평균 순손익, 손익비는 총이익÷총손실, 실현 하락폭은 누적 실현 손익 경로의 최대 고점 대비 하락액입니다. 미분류·과거 기록은 구분되며, 실계좌 수익이나 평가손익을 뜻하지 않습니다.</p>
     </section>
     <section className="panel signals-panel"><div className="panel-title"><div><p className="eyebrow">P5 STRATEGY PREVIEW</p><h2>종목별 판단 상태</h2></div><span className="tag">paper 진입 게이트 · 실계좌 잠금</span></div>
-      {Object.keys(data?.paperSession?.decisions ?? {}).length ? <div className="table-wrap"><table><thead><tr><th>시장</th><th>종목</th><th>판단</th><th>판단 사유</th><th>실시간 수신</th><th>수신 분봉</th><th>저장 품질</th></tr></thead><tbody>{Object.entries(data?.paperSession?.decisions ?? {}).map(([key, item]) => { const quality = qualityBySymbol.get(`${item.market}:${item.symbol}`); const watchKey = `${item.market}:${item.symbol}:${item.exchange ?? ""}`; const receipt = data?.paperSession?.market_data_by_watch_by_feed?.paper?.[watchKey]; return <tr key={key}><td>{item.market}</td><td className="symbol">{item.symbol}{item.exchange ? ` · ${item.exchange}` : ""}</td><td>{signalLabel(item.signal)}</td><td>{decisionReason(item.reason)}</td><td>{receipt ? `체결 ${receipt.trade_ticks_received ?? 0} · 호가 ${receipt.orderbook_quotes_received ?? 0}` : "수신 대기"}</td><td>{item.bars_in_session}</td><td>{quality ? `${quality.status} · ${quality.observed_bars}/${quality.expected_bars} · spread ${quality.spread_coverage_percent ?? "—"}% · ${sessionSourceSummary(quality)}` : "판정 불가"}</td></tr>; })}</tbody></table></div> : <Empty text="세션 모니터가 비활성이거나 아직 종목을 구독하지 않았습니다." />}
+      {Object.keys(data?.paperSession?.decisions ?? {}).length ? <div className="table-wrap"><table><thead><tr><th>시장</th><th>종목</th><th>판단</th><th>판단 사유 · 퀀트 진단</th><th>실시간 수신</th><th>수신 분봉</th><th>저장 품질</th></tr></thead><tbody>{Object.entries(data?.paperSession?.decisions ?? {}).map(([key, item]) => { const quality = qualityBySymbol.get(`${item.market}:${item.symbol}`); const watchKey = `${item.market}:${item.symbol}:${item.exchange ?? ""}`; const receipt = data?.paperSession?.market_data_by_watch_by_feed?.paper?.[watchKey]; return <tr key={key}><td>{item.market}</td><td className="symbol">{item.symbol}{item.exchange ? ` · ${item.exchange}` : ""}</td><td>{signalLabel(item.signal)}</td><td>{decisionReason(item.reason)}{item.strategy_diagnostics && <small>{strategyDiagnosticSummary(item.strategy_diagnostics)}</small>}</td><td>{receipt ? `체결 ${receipt.trade_ticks_received ?? 0} · 호가 ${receipt.orderbook_quotes_received ?? 0}` : "수신 대기"}</td><td>{item.bars_in_session}</td><td>{quality ? `${quality.status} · ${quality.observed_bars}/${quality.expected_bars} · spread ${quality.spread_coverage_percent ?? "—"}% · ${sessionSourceSummary(quality)}` : "판정 불가"}</td></tr>; })}</tbody></table></div> : <Empty text="세션 모니터가 비활성이거나 아직 종목을 구독하지 않았습니다." />}
     </section>
     <section className="panel signals-panel"><div className="panel-title"><div><p className="eyebrow">P5 DOMESTIC LIVE QUALITY</p><h2>국내 분 단위 호가·스프레드 진단</h2></div><span className="tag">최근 최대 400분 · 조회 전용</span></div>
       {minuteQualityRows.length ? <div className="table-wrap"><table><thead><tr><th>시각</th><th>종목</th><th>체결</th><th>호가</th><th>유효 / 빈값 / 역호가 / 지연</th><th>분봉</th><th>스프레드</th><th>호가 관측시각</th></tr></thead><tbody>{minuteQualityRows.map((row) => <tr key={`${row.watchKey}:${row.minute}`}><td>{marketMinute(row.minute, "KR")}</td><td className="symbol">{row.symbol}</td><td>{row.trade_ticks_received}</td><td>{row.orderbook_quotes_received}</td><td>{row.usable_orderbook_quotes} / {row.empty_or_nonpositive_quotes} / {row.crossed_quotes} / {row.stale_quotes}</td><td>{row.bar_closed ? "완료" : "수집 중"}</td><td>{row.bar_closed ? row.bar_spread_present ? "포함" : "누락" : "집계 전"}</td><td>{row.bar_closed ? row.bar_spread_observed_at ? marketSecond(row.bar_spread_observed_at, "KR") : "시각 없음" : "집계 전"}</td></tr>)}</tbody></table></div>
@@ -690,6 +691,34 @@ function orderbookQuoteQualityLabel(value?: Record<string, { usable: number; emp
 }
 function signalLabel(value: string) { return value === "BUY_CANDIDATE" ? "AI·퀀트 후보" : "관망"; }
 function decisionReason(value: string) { return ({ WAITING_FOR_CLOSED_BARS: "닫힌 분봉 대기", INSUFFICIENT_SESSION_HISTORY: "세션 이력 부족", STRATEGY_FILTERS_NOT_MET: "퀀트 조건 미충족", AI_MODEL_NOT_APPROVED_FOR_MARKET: "시장 승인 모델 없음", AI_THRESHOLD_NOT_MET: "AI 기준 미달", AI_INFERENCE_UNAVAILABLE: "AI 추론 불가", BAR_SEQUENCE_INVALID: "분봉 순서 오류", QUANT_AND_APPROVED_AI_CANDIDATE: "퀀트 및 승인 AI 통과" } as Record<string, string>)[value] ?? value; }
+function strategyDiagnosticSummary(value: StrategyDiagnostics) {
+  if (!value.available) return value.unavailable_reason === "STRATEGY_COST_ASSUMPTIONS_UNAVAILABLE"
+    ? "전략 비용 설정 확인 필요"
+    : `이력 부족 · ${value.bars_observed ?? 0}/${value.bars_required ?? "—"}봉`;
+  const observed = value.observed ?? {};
+  const labels: Record<string, string> = {
+    opening_range_breakout: "시가범위 돌파", above_vwap: "VWAP 상회", above_ema: "EMA 상회",
+    relative_volume: "상대 거래량", spread: "스프레드", turnover: "거래대금", reward_to_cost: "보상/비용 비율",
+  };
+  const failed = (value.failed_checks ?? []).map(check => labels[check] ?? check);
+  const compact = (key: string) => formatDiagnosticNumber(observed[key]);
+  const details: string[] = [];
+  if (failed.includes(labels.opening_range_breakout)) details.push(`종가/시가범위 상단 ${compact("close")}/${compact("opening_range_high")}`);
+  if (failed.includes(labels.above_vwap)) details.push(`종가/VWAP ${compact("close")}/${compact("vwap")}`);
+  if (failed.includes(labels.above_ema)) details.push(`종가/EMA ${compact("close")}/${compact("ema")}`);
+  if (failed.includes(labels.relative_volume)) details.push(`상대거래량 ${compact("relative_volume")} (기준 ${compact("minimum_relative_volume")})`);
+  if (failed.includes(labels.spread)) details.push(observed.spread_observed === false
+    ? "스프레드 미관측"
+    : `스프레드 ${compact("spread_bps")}bp (한도 ${compact("maximum_spread_bps")}bp)`);
+  if (failed.includes(labels.turnover)) details.push(`거래대금 ${compact("turnover")} (기준 ${compact("minimum_turnover")})`);
+  if (failed.includes(labels.reward_to_cost)) details.push("최소 보상/비용 비율 미달");
+  return failed.length ? `미충족: ${failed.join(" · ")}${details.length ? ` · ${details.join(" · ")}` : ""}` : "퀀트 필터 통과";
+}
+function formatDiagnosticNumber(value: string | boolean | null | undefined) {
+  if (typeof value !== "string") return value == null ? "—" : String(value);
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 2 }).format(numeric) : value;
+}
 function automationLabel(value?: string) { return ({ EXIT_MONITORING: "감시 중", BASELINE_CAPTURED: "기준선 저장", BASELINE_PRESENT: "기준선 확인", FILLED: "paper 체결", PENDING: "paper 주문 대기", UNKNOWN: "확인 필요", BLOCKED: "차단", DISABLED: "잠금" } as Record<string, string>)[value ?? ""] ?? "잠금"; }
 function sizingRejectionLabel(value?: string | null) {
   if (!value) return "";

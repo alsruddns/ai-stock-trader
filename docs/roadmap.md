@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Update : [P3 국내 판단 대시보드] ORB-VWAP 미충족 조건 표시 (2026-11-17 00:01 KST):** PAPER 종목 판단 표에 퀀트 진단을 연결해 미충족 필터와 종가/시가범위·VWAP·EMA·상대거래량·스프레드·거래대금의 해당 입력을 표시합니다. 비용 설정 또는 세션 이력이 부족한 경우도 읽을 수 있게 했습니다. Next.js ESLint와 TypeScript `--noEmit` 검사를 통과했고 전략 임계값·주문 권한은 변경하지 않았습니다.
+
 - **Update : [P4 국내 모델 후보 재검증] 005930·000660 비용후 validation 결과 (2026-11-16 23:58 KST):** 로컬 read-only training-readiness에서 두 종목은 각각 적격 세션 35/34개와 최소 13개, 후보 표본 분할 조건을 통과해 재학습을 시도했습니다. 권리 확인된 PostgreSQL 데이터를 스크립트로 다시 내보내 LightGBM/XGBoost 후보 생성을 검증했으나 두 종목 모두 `no_profitable_validation_ai_threshold`로 종료했고 모델 후보는 각각 0개입니다. 실패 보고서는 `.local/models/retraining/`에 비밀값 없이 보존했습니다. 035720은 후보 양성 라벨 0/230, 114800은 적격 세션 1/13이라 이번 학습 대상에서 제외했습니다. 기존 승인 모델은 0개이므로 PAPER 신호는 모델 통과할 수 없습니다. 임계값·비용을 낮추거나 자동 승인하지 않았고 주문 API는 호출하지 않았습니다.
 
 - **Update : [P3 국내 ORB-VWAP 진단] PAPER 신호별 필터 결과 노출 (2026-11-16 23:53 KST):** 국내·미국 전략 후보 판정에서 opening-range 돌파, VWAP·EMA, 상대 거래량, 관측 스프레드, 거래대금, 비용대비 보상비율을 각각 평가하고 실패한 조건과 당시 입력값을 PAPER session 결정 API에 포함했습니다. 최소 이력 부족과 전략 비용 설정 누락도 구분합니다. 기존 후보 판정 및 임계값은 바꾸지 않았고 신호는 계속 `executable=false`입니다. `test_quant.py`와 해당 PAPER runtime 검사를 선택 실행해 49/49 통과했습니다. 실계좌·KIS 주문은 요청하지 않았습니다.
