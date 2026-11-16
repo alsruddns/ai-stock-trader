@@ -1233,3 +1233,5 @@ P1/P2 판정은 읽기 전용 연결과 격리 로컬 주문 엔진의 검증 �
 - **Fix : [P2 PAPER 주문 진단] 불명확한 HTTP 결과의 상태코드만 저장 (2026-11-16 14:17 KST):** PAPER 주문 POST가 HTTP 응답을 받은 뒤 결과가 불명확하면 `ORDER_HTTP_<status>`를 주문 의도에 저장하도록 했습니다. 응답 본문·예외 텍스트·자격정보는 진단값에 포함하지 않으며, 연결/읽기 타임아웃은 기존 `ORDER_TRANSPORT_UNKNOWN`으로 유지합니다. 자동 재전송·주문 동작은 바꾸지 않았습니다. `KisOrderClientTest` 35/35와 `KisOrderOrchestratorTest` 28/28 통과, `git diff --check` 통과. 기존 035720 주문의 누락된 진단은 소급 복구할 수 없고, 코드 적용은 다음 승인된 장후 배포 이후 확인해야 합니다.
 
 - **Update : [P2 주문 진단 CI] 국내 호환성 워크플로에 HTTP 오류 검사 연결 (2026-11-16 14:19 KST):** `paperOrderHttpFailurePersistsOnlyBoundedStatusDiagnostic`를 KIS PAPER 성공 계약 검사와 함께 국내 호환성 CI의 선택 테스트에 포함했습니다. 전체 테스트는 실행하지 않았으며, 앞선 클라이언트·오케스트레이터 집중검사에서 해당 기능과 주변 경계 총 63/63이 통과했습니다.
+
+- **Fix : [P2 Windows 사전검사 CI] Pester 통과 기대치 동기화 (2026-11-16 14:20 KST):** 공개 Windows PAPER preflight CI가 현재 55개인 Pester 검사를 모두 통과한 뒤에도 오래된 기대치 53 때문에 실패 처리한 것을 확인했습니다. 검증된 실제 선택검사 수에 맞춰 집계 기준을 55로 갱신합니다. 실행 로그 기준 실패 테스트는 0개였으며, 새 CI 실행에서 정상 결론을 확인해야 합니다.
