@@ -25,6 +25,18 @@ public class KisMarketAiEvidenceClient {
     }
 
     public Evidence inspect(OrderRequest request, String exchange) {
+        return inspect(request, exchange, KisEnvironment.REAL);
+    }
+
+    /** Inspects a PAPER signal against the PAPER domestic quote route and the same approved-model evidence. */
+    public Evidence inspectPaper(OrderRequest request) {
+        if (request == null || request.market() != com.aistocktrader.order.Market.KR) {
+            return new Evidence(false, false, null);
+        }
+        return inspect(request, null, KisEnvironment.PAPER);
+    }
+
+    private Evidence inspect(OrderRequest request, String exchange, KisEnvironment quoteEnvironment) {
         if (request == null || request.market() == null || request.symbol() == null || request.symbol().isBlank()) {
             return new Evidence(false, false, null);
         }
@@ -37,7 +49,8 @@ public class KisMarketAiEvidenceClient {
                             .queryParam("exchange", marketAiExchange(exchange)).build(request.symbol()))
                             .retrieve().body(JsonNode.class)
                     : http.get().uri(uri -> uri.path("/api/v1/market/quotes/KR/{symbol}")
-                            .queryParam("environment", "real").build(request.symbol()))
+                            .queryParam("environment", quoteEnvironment.name().toLowerCase(java.util.Locale.ROOT))
+                            .build(request.symbol()))
                             .retrieve().body(JsonNode.class);
             JsonNode paper = http.get().uri("/api/v1/paper/session").retrieve().body(JsonNode.class);
             BigDecimal stopDistance = signalStopDistance(paper, modelId, request, exchange);

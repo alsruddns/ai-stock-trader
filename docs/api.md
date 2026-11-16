@@ -14,6 +14,7 @@
 | POST | `/api/v1/orders/paper/{id}/cancel` | Paper 취소 처리 |
 | GET | `/api/v1/orders/paper/positions` | Paper 포지션 조회 |
 | GET | `/api/v1/kis/accounts/{paper\|real}/{KR\|US}/balance` | KIS 계좌 읽기 전용 잔고조회 |
+| POST | `/api/v1/kis/orders/paper/signals` | 승인된 국내 PAPER 신호를 Spring에서 재검증·계좌조회·위험한도 수량 산정 후 KIS PAPER 주문으로 전달; 주문·대사·취소 사전조회·보호청산 확인 스위치가 기본 잠금 |
 | POST | `/api/v1/kis/orders/paper/{idempotencyKey}/manual-reconcile` | 주문번호 없는 국내 PAPER `UNKNOWN` 의도를 사용자가 KIS에서 확인한 주문번호로 읽기 전용 대조 후 연결; 조직번호는 선택 입력 (확인값 true와 PAPER 계좌읽기 필요) |
 | POST | `/api/v1/kis/orders/paper/{idempotencyKey}/reconcile` | 저장된 PAPER 주문번호로 KIS 상태를 읽기 전용 재조회 |
 | POST | `/api/v1/kis/orders/paper/{idempotencyKey}/cancel` | 잔량 재조회·사전조건 후 취소 시도; 모의 취소가능수량 지원 미확인 시 차단 |

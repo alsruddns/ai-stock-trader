@@ -59,6 +59,39 @@ class KisMarketAiEvidenceClientTest {
     }
 
     @Test
+    void paperSignalEvidenceUsesPaperDomesticQuoteEnvironment() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:18000");
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/ai/models"))
+                .andRespond(withSuccess("""
+                        {"models":[{"model_id":"lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "market":"KR","active":true,"approved":true,
+                        "feature_compatible":true,"data_rights_verified":true,
+                        "approval_evidence_verified":true,"training_config":{"symbol":"005930"}}]}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930?environment=paper"))
+                .andRespond(withSuccess("{\"market\":\"KR\",\"symbol\":\"005930\","
+                        + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":70000,\"retrieved_at\":\""
+                        + Instant.now() + "\"}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://127.0.0.1:18000/api/v1/paper/session"))
+                .andRespond(withSuccess("{\"decisions\":{\"KR:005930:\":{\"market\":\"KR\","
+                        + "\"symbol\":\"005930\",\"signal\":\"BUY_CANDIDATE\","
+                        + "\"model_id\":\"lightgbm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\","
+                        + "\"strategy_id\":\"ORB_VWAP\",\"evaluated_at\":\"" + Instant.now()
+                        + "\",\"stop_distance_per_share\":\"150\",\"executable\":false}}}",
+                        MediaType.APPLICATION_JSON));
+
+        var evidence = client.inspectPaper(new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                BigDecimal.ONE, Currency.KRW));
+
+        assertTrue(evidence.approvedModelCandidate());
+        assertTrue(evidence.quoteFresh());
+        assertEquals(new BigDecimal("70000"), evidence.quotePrice());
+        server.verify();
+    }
+
+    @Test
     void paperOrderQuoteRequiresRecentMatchingKisRestSnapshot() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

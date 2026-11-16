@@ -8,7 +8,7 @@ Windows 로컬에서 실행하는 국내·미국 주식 자동매매 프로젝�
 - 현재 개발 작업은 사용자의 요청에 따라 `develop`에서만 수행합니다. `main`은 안정 기준으로 유지합니다.
 - 커밋 제목은 `Add : [업무명] 내용`, `Update : [업무명] 내용`, `Fix : [업무명] 내용` 형식을 사용합니다.
 
-> **안전 범위:** 기본값은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ACCOUNT_READ_ENABLED=false`, `KIS_REAL_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ORDERS_ENABLED=false`, `KIS_PAPER_RECONCILIATION_ENABLED=false`, `KIS_REAL_ORDERS_ENABLED=false`, `KIS_REAL_RECONCILIATION_ENABLED=false`, `REAL_PROTECTIVE_EXIT_MANAGER_ENABLED=false`, `KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED=false`, `REAL_SIGNAL_SUBMISSION_ENABLED=false`입니다. 계좌 조회는 전체 허용 스위치와 해당 환경 허용 스위치가 모두 켜져야 합니다. 실계좌 신규 매수는 보호청산 관리기가 검증되기 전까지 별도 잠금 상태이며, 실계좌 주문도 기본 비활성입니다.
+> **안전 범위:** 기본값은 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `KIS_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ACCOUNT_READ_ENABLED=false`, `KIS_REAL_ACCOUNT_READ_ENABLED=false`, `KIS_PAPER_ORDERS_ENABLED=false`, `KIS_PAPER_RECONCILIATION_ENABLED=false`, `KIS_PAPER_SIGNAL_SUBMISSION_ENABLED=false`, `KIS_PAPER_CANCEL_PREFLIGHT_VERIFIED=false`, `KIS_PAPER_PROTECTIVE_EXIT_VERIFIED=false`, `KIS_REAL_ORDERS_ENABLED=false`, `KIS_REAL_RECONCILIATION_ENABLED=false`, `REAL_PROTECTIVE_EXIT_MANAGER_ENABLED=false`, `KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED=false`, `REAL_SIGNAL_SUBMISSION_ENABLED=false`입니다. 계좌 조회는 전체 허용 스위치와 해당 환경 허용 스위치가 모두 켜져야 합니다. 국내 PAPER 신호 주문은 PAPER 취소가능수량 사전조회와 보호청산 경로가 검증될 때까지 잠겨 있습니다. 실계좌 신규 매수는 보호청산 관리기가 검증되기 전까지 별도 잠금 상태이며, 실계좌 주문도 기본 비활성입니다.
 
 > **현재 시장 범위:** 국내·미국 공통 코드는 계속 개발하지만 실행하는 기능 테스트·KIS 연동·시장 세션 검증·PAPER/REAL 운용·데이터 백테스트 및 학습 검증은 국내(KR)만 대상으로 합니다. 미국 계좌나 미국 세션에 연결하는 검증은 하지 않습니다. 국내 전용 운영 probe와 작업 등록 가드가 적용되어 있으며, 일반 US API 경로도 현재 호출하지 않습니다.
 
