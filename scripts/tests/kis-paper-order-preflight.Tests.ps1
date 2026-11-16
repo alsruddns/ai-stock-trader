@@ -365,6 +365,13 @@ Describe 'KIS PAPER exchange session preflight' {
         Test-SessionAssertionThrows -Session $openSession -Market KR -Now $now | Should Be $false
     }
 
+    It 'accepts timezone-aware DateTime values produced by Invoke-RestMethod' {
+        $deserializedSession = $openSession.Clone()
+        $deserializedSession.evaluated_at = [DateTime]::Parse('2026-11-06T08:30:00Z').ToLocalTime()
+        $deserializedSession.close_at = [DateTime]::Parse('2026-11-06T09:30:00Z').ToLocalTime()
+        Test-SessionAssertionThrows -Session $deserializedSession -Market KR -Now $now | Should Be $false
+    }
+
     It 'rejects an exchange holiday' {
         $holiday = $openSession.Clone()
         $holiday.is_session = $false

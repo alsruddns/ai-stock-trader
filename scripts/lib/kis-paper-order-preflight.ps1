@@ -151,6 +151,29 @@ function Assert-KisPaperOrderableFunds {
     }
 }
 
+function ConvertTo-KisSessionTimestamp {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object]$Value)
+
+    if ($Value -is [DateTimeOffset]) { return $Value }
+    if ($Value -is [DateTime]) {
+        if ($Value.Kind -eq [DateTimeKind]::Unspecified) {
+            throw 'Session timestamp does not carry a timezone.'
+        }
+        return [DateTimeOffset]$Value
+    }
+
+    $timestampText = [string]$Value
+    $timestampPattern = '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$'
+    $parsed = [DateTimeOffset]::MinValue
+    if ($timestampText -notmatch $timestampPattern -or
+        -not [DateTimeOffset]::TryParse($timestampText, [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::None, [ref]$parsed)) {
+        throw 'Session timestamp is missing or invalid.'
+    }
+    return $parsed
+}
+
 function Assert-KisPaperSessionOpen {
     param(
         [Parameter(Mandatory)] [object]$Session,
@@ -162,16 +185,10 @@ function Assert-KisPaperSessionOpen {
         throw 'Exchange calendar does not confirm an open session for the requested market.'
     }
 
-    $evaluatedAtText = [string]$Session.evaluated_at
-    $closeAtText = [string]$Session.close_at
-    $timestampPattern = '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$'
-    $evaluatedAt = [DateTimeOffset]::MinValue
-    $closeAt = [DateTimeOffset]::MinValue
-    if ($evaluatedAtText -notmatch $timestampPattern -or $closeAtText -notmatch $timestampPattern -or
-        -not [DateTimeOffset]::TryParse($evaluatedAtText, [Globalization.CultureInfo]::InvariantCulture,
-            [Globalization.DateTimeStyles]::None, [ref]$evaluatedAt) -or
-        -not [DateTimeOffset]::TryParse($closeAtText, [Globalization.CultureInfo]::InvariantCulture,
-            [Globalization.DateTimeStyles]::None, [ref]$closeAt)) {
+    try {
+        $evaluatedAt = ConvertTo-KisSessionTimestamp -Value $Session.evaluated_at
+        $closeAt = ConvertTo-KisSessionTimestamp -Value $Session.close_at
+    } catch {
         throw 'Exchange session response is missing valid timezone-aware timestamps.'
     }
     $ageSeconds = ($Now.ToUniversalTime() - $evaluatedAt.ToUniversalTime()).TotalSeconds
