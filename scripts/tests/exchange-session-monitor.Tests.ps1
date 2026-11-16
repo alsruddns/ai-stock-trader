@@ -413,6 +413,10 @@ Describe 'Domestic post-session refresh task verification' {
 }
 
 Describe 'Existing market session task verification' {
+    It 'uses a bounded ten-minute post-close data finalization grace' {
+        Get-SessionMonitorPostCloseGraceSeconds | Should Be 600
+    }
+
     It 'registers domestic sessions by default and permits the overseas horizon explicitly' {
         (@(Get-SessionMonitorMarkets) -join ',') | Should Be 'KR'
         (@(Get-SessionMonitorMarkets -IncludeUS) -join ',') | Should Be 'KR,US'

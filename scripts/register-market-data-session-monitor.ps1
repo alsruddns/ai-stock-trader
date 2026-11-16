@@ -16,6 +16,7 @@ $koreaZone = [TimeZoneInfo]::FindSystemTimeZoneById('Korea Standard Time')
 if ([TimeZoneInfo]::Local.Id -ne $koreaZone.Id) { throw 'Windows time zone must be Korea Standard Time (KST) for session task scheduling.' }
 $libPath = Join-Path $PSScriptRoot 'lib\exchange-session-monitor.ps1'
 . $libPath
+. (Join-Path $PSScriptRoot 'lib\market-session-scheduler.ps1')
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $market = if ($Feed -eq 'paper') { 'KR' } else { 'US' }
 $taskMarket = if ($Feed -eq 'paper') { 'KRX' } else { 'US' }
@@ -56,7 +57,8 @@ $powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\pow
 if (-not (Test-Path -LiteralPath $powerShellPath)) { $powerShellPath = Join-Path $PSHOME 'pwsh.exe' }
 if (-not (Test-Path -LiteralPath $powerShellPath)) { throw 'No PowerShell executable was found.' }
 $durationSeconds = Get-SessionMonitorDurationSeconds
-$arguments = "-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$monitorPath`" -Feed $Feed -ExpectedSessionDate $SessionDate -DurationSeconds $durationSeconds -PollIntervalSeconds 15 -MaxNoTickSeconds 300 -MinimumBarsDelta $expectedBars -EvidencePath `"$evidencePath`" -RequireSessionClose"
+$postCloseGraceSeconds = Get-SessionMonitorPostCloseGraceSeconds
+$arguments = "-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$monitorPath`" -Feed $Feed -ExpectedSessionDate $SessionDate -DurationSeconds $durationSeconds -PollIntervalSeconds 15 -MaxNoTickSeconds 300 -MinimumBarsDelta $expectedBars -EvidencePath `"$evidencePath`" -RequireSessionClose -PostCloseGraceSeconds $postCloseGraceSeconds"
 $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $arguments -WorkingDirectory $repoRoot
 $trigger = New-ScheduledTaskTrigger -Once -At $runAt
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name

@@ -6,7 +6,7 @@ param(
     [ValidateRange(1, 600)] [int]$MaxStatusUnavailableSeconds = 60,
     [ValidateRange(0, 36000)] [int]$MinimumBarsDelta = 0,
     [ValidateRange(1, 300)] [int]$StartupTimeoutSeconds = 120,
-    [ValidateRange(0, 600)] [int]$PostCloseGraceSeconds = 180,
+    [ValidateRange(0, 600)] [int]$PostCloseGraceSeconds = 600,
     [ValidateSet('paper', 'real')] [string]$Feed,
     [ValidatePattern('^\d{4}-\d{2}-\d{2}$')] [string]$ExpectedSessionDate,
     [string]$EvidencePath,

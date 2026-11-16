@@ -2,6 +2,10 @@ function Get-SessionMonitorDurationSeconds {
     return 25200
 }
 
+function Get-SessionMonitorPostCloseGraceSeconds {
+    return 600
+}
+
 function Get-SessionMonitorMarkets {
     [CmdletBinding()]
     param([switch]$IncludeUS)
