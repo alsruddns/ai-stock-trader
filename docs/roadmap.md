@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Update : [P2 국내 PAPER 취소 게이트] KIS 공식 지원표 재확인 (2026-11-17 06:40 KST):** 한국투자증권 공식 `open-trading-api` 제공표에서 국내 `주식정정취소가능주문조회`의 모의투자 제공란은 비어 있고, 공식 정정·취소 샘플은 취소 POST 전에 `output.psbl_qty`를 확인하도록 명시합니다. 오늘 PAPER 읽기 전용 조회도 `OPSQ0002`/0행으로 수량을 반환하지 않았으므로, PAPER 취소·보호청산·완전 주문 수명주기 게이트를 열지 않습니다. [공식 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#L234-L246) · [공식 취소 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_rvsecncl/order_rvsecncl.py#L499-L503)
+
 - **Update : [P2 국내 PAPER 취소 사전조회 재확인] KIS PAPER 서비스 응답 (2026-11-17 06:27 KST):** 공식 현재 조회 TR `TTTC0084R`의 PAPER 변환 `VTTC0084R`로 종목순서 `inquire-psbl-rvsecncl` GET을 1회 실행했습니다. HTTP 200이었지만 KIS `OPSQ0002`/결과코드 `1`, 결과 0행으로 `psbl_qty`를 확인하지 못했습니다. PAPER 취소와 보호청산 게이트는 계속 닫아 두며, 주문·취소 POST는 전송하지 않았습니다. 비밀값을 제외한 응답 요약은 Git 제외 `.local/validation/kis-paper-cancel-preflight-20261117.jsonl`에 남겼습니다.
 
 - **Update : [P2 국내 PAPER 035720 주문 사전검사] 예약 smoke 준비 확인 (2026-11-17 06:32 KST):** 격리 Spring 인스턴스의 읽기 전용 사전검사에서 PAPER `035720`의 시세 freshness와 1주 주문 가능 자금 검사가 모두 통과했습니다. `PASSED` evidence를 `.local/validation/paper-preflight-latest.json`에 기록했으며 주문·취소는 보내지 않았습니다. 격리 프로세스 종료 후 임시 포트는 닫혔고 운영 PAPER 주문·자동화 및 REAL 주문 잠금은 그대로입니다. 실제 1주 제출·체결/접수 관찰은 오늘 09:05 KST 예약 smoke에서 확인해야 합니다.
