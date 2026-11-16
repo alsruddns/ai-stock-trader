@@ -369,7 +369,16 @@ Describe 'Daily operations report endpoint health summary' {
 
     It 'marks intentionally skipped market quality endpoints as incomplete' {
         Mock Invoke-RestMethod {
-            if ($Uri -like '*api/v1/operations/summary') { return [pscustomobject]@{ tradingMode = 'paper' } }
+            if ($Uri -like '*api/v1/operations/summary') {
+                return [pscustomobject]@{
+                    tradingMode = 'paper'
+                    recentPaperKisOrders = @([pscustomobject]@{
+                        market = 'KR'; symbol = '035720'; status = 'NO_ORDER_CONFIRMED'
+                        responseCode = 'MANUAL_NO_ORDER_CONFIRMED'; initialOutcomeCode = 'ORDER_HTTP_502_EGW00002'
+                        brokerOrderReferencePresent = $false
+                    })
+                }
+            }
             if ($Uri -like '*api/v1/health') { return @{ status = 'ok' } }
             if ($Uri -like '*api/v1/paper/session') { return @{ decisions = @{} } }
             if ($Uri -like '*api/v1/ai/models') { return @{ models = @() } }
@@ -387,7 +396,9 @@ Describe 'Daily operations report endpoint health summary' {
         $report = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
         $archivedReport = Get-Content -LiteralPath $archivePath -Raw | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 18
+        $report.reportSchemaVersion | Should Be 19
+        $report.recentPaperKisOrders[0].responseCode | Should Be 'MANUAL_NO_ORDER_CONFIRMED'
+        $report.recentPaperKisOrders[0].initialOutcomeCode | Should Be 'ORDER_HTTP_502_EGW00002'
         $archivedReport.generatedAt | Should Be $report.generatedAt
         $archivedReport.tradingMode | Should Be $report.tradingMode
         $report.pythonConnected | Should Be $true
@@ -522,7 +533,7 @@ Describe 'Daily operations report endpoint health summary' {
         $json = Get-Content -LiteralPath $outputPath -Raw
         $report = $json | ConvertFrom-Json
 
-        $report.reportSchemaVersion | Should Be 18
+        $report.reportSchemaVersion | Should Be 19
         $report.trainingReadiness.KR.state | Should Be 'AVAILABLE'
         $report.trainingReadiness.KR.symbols.Count | Should Be 1
         $report.trainingReadiness.KR.symbols[0].symbol | Should Be '005930'
