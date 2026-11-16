@@ -8,7 +8,9 @@ param(
     [switch]$PreflightOnly,
     [switch]$EnablePaperOrdersForThisRun,
     [switch]$ConfirmPaperOrderAndCancel,
-    [switch]$ConfirmPaperOrderSubmitAndObserve
+    [switch]$ConfirmPaperOrderSubmitAndObserve,
+    [string]$SubmissionWindowSessionDateKst,
+    [string]$SubmissionWindowStartTimeKst
 )
 
 $originalEnvironment = @{}
@@ -31,6 +33,10 @@ if (-not $PreflightOnly -and -not $ConfirmPaperOrderAndCancel -and -not $Confirm
     throw 'No request was sent. Choose an explicit PAPER validation mode.'
 }
 if ($LimitPrice -le 0) { throw 'LimitPrice must be positive.' }
+if ([string]::IsNullOrWhiteSpace($SubmissionWindowSessionDateKst) -ne
+    [string]::IsNullOrWhiteSpace($SubmissionWindowStartTimeKst)) {
+    throw 'Both submission-window session date and start time must be supplied together.'
+}
 if ($Market -eq 'KR' -and $ConfirmPaperOrderAndCancel) {
     throw 'Domestic PAPER cancel preflight is unsupported; no order was submitted. Use -PreflightOnly or wait until KIS documents a PAPER cancel-quantity query.'
 }
@@ -41,6 +47,7 @@ if ($ConfirmPaperOrderSubmitAndObserve -and -not $EnablePaperOrdersForThisRun -a
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'lib/kis-paper-order-preflight.ps1')
 . (Join-Path $PSScriptRoot 'lib/kis-paper-order-lifecycle.ps1')
+. (Join-Path $PSScriptRoot 'lib/paper-order-smoke-window.ps1')
 $preflightEvidencePath = Join-Path $repoRoot '.local/validation/paper-preflight-latest.json'
 $preflightEvidenceStage = 'Configuration'
 $envPath = Join-Path $repoRoot '.env_local'
@@ -168,6 +175,15 @@ if ($PreflightOnly) {
 
 $marketSession = Get-LocalApi "$MarketAiApiBaseUrl/api/v1/market/sessions/$Market"
 Assert-KisPaperSessionOpen -Session $marketSession -Market $Market
+if (-not [string]::IsNullOrWhiteSpace($SubmissionWindowSessionDateKst)) {
+    $submissionWindowOpen = Test-PaperOrderSmokeSubmissionWindowForKst `
+        -Now ([DateTimeOffset]::Now) -SessionDateKst $SubmissionWindowSessionDateKst `
+        -ScheduledStartTimeKst $SubmissionWindowStartTimeKst
+    if (-not $submissionWindowOpen) {
+        Write-Output 'submissionSkipped=outsideScheduledExecutionWindowBeforeSubmit'
+        exit 5
+    }
+}
 
 $idempotencyKey = [guid]::NewGuid().ToString()
 $order = @{

@@ -8,7 +8,9 @@ param(
     [ValidateRange(1024, 65535)] [int]$TemporaryPort = 18081,
     [switch]$PreflightOnly,
     [switch]$ConfirmPaperOrderSubmitAndObserve,
-    [switch]$ConfirmPaperOrderAndCancel
+    [switch]$ConfirmPaperOrderAndCancel,
+    [string]$SubmissionWindowSessionDateKst,
+    [string]$SubmissionWindowStartTimeKst
 )
 
 $ErrorActionPreference = 'Stop'
@@ -140,12 +142,25 @@ try {
     $testArguments = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $testScript,
         '-Market', $Market, '-Symbol', $Symbol, '-LimitPrice', $limitText, '-Exchange', $Exchange,
         '-SpringApiBaseUrl', "http://127.0.0.1:$TemporaryPort", '-MarketAiApiBaseUrl', $MarketAiApiBaseUrl)
+    if (-not [string]::IsNullOrWhiteSpace($SubmissionWindowSessionDateKst)) {
+        if ([string]::IsNullOrWhiteSpace($SubmissionWindowStartTimeKst)) {
+            throw 'Submission-window session date and start time must be supplied together.'
+        }
+        $testArguments += @('-SubmissionWindowSessionDateKst', $SubmissionWindowSessionDateKst,
+            '-SubmissionWindowStartTimeKst', $SubmissionWindowStartTimeKst)
+    } elseif (-not [string]::IsNullOrWhiteSpace($SubmissionWindowStartTimeKst)) {
+        throw 'Submission-window session date and start time must be supplied together.'
+    }
     if (-not $PreflightOnly) { $testArguments += '-EnablePaperOrdersForThisRun' }
     if ($PreflightOnly) { $testArguments += '-PreflightOnly' }
     elseif ($ConfirmPaperOrderSubmitAndObserve) { $testArguments += '-ConfirmPaperOrderSubmitAndObserve' }
     else { $testArguments += '-ConfirmPaperOrderAndCancel' }
     & $powershellPath @testArguments
-    if ($LASTEXITCODE -ne 0) { throw "PAPER lifecycle test exited with code $LASTEXITCODE." }
+    if ($LASTEXITCODE -eq 5) {
+        $script:submissionSkipped = $true
+    } elseif ($LASTEXITCODE -ne 0) {
+        throw "PAPER lifecycle test exited with code $LASTEXITCODE."
+    }
 } finally {
     if ($null -ne $temporaryApi -and -not $temporaryApi.HasExited) {
         Stop-Process -Id $temporaryApi.Id -Force -ErrorAction SilentlyContinue
@@ -162,3 +177,4 @@ try {
         Set-Item -LiteralPath "Env:$name" -Value $originalEnvironment[$name]
     }
 }
+if ($script:submissionSkipped) { exit 5 }

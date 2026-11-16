@@ -18,4 +18,17 @@ Describe 'PAPER order smoke execution window' {
         catch { $threw = $true }
         $threw | Should Be $true
     }
+
+    It 'rechecks the configured KST window at the broker submission boundary' {
+        $before = [DateTimeOffset]::Parse('2026-11-17T09:04:59+09:00')
+        $start = [DateTimeOffset]::Parse('2026-11-17T09:05:00+09:00')
+        $lastAllowed = [DateTimeOffset]::Parse('2026-11-17T09:09:59+09:00')
+        $closed = [DateTimeOffset]::Parse('2026-11-17T09:10:00+09:00')
+
+        (Test-PaperOrderSmokeSubmissionWindowForKst $before '2026-11-17' '09:05') | Should Be $false
+        (Test-PaperOrderSmokeSubmissionWindowForKst $start '2026-11-17' '09:05') | Should Be $true
+        (Test-PaperOrderSmokeSubmissionWindowForKst $lastAllowed '2026-11-17' '09:05') | Should Be $true
+        (Test-PaperOrderSmokeSubmissionWindowForKst $closed '2026-11-17' '09:05') | Should Be $false
+        (Test-PaperOrderSmokeSubmissionWindowForKst $start.AddDays(1) '2026-11-17' '09:05') | Should Be $false
+    }
 }

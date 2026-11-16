@@ -113,7 +113,7 @@ jobs:
           }
 
           $paperSmokeWindowResult = Invoke-Pester -Path 'scripts/tests/paper-order-smoke-window.Tests.ps1' -PassThru
-          if ($paperSmokeWindowResult.FailedCount -gt 0 -or $paperSmokeWindowResult.PassedCount -ne 2) {
+          if ($paperSmokeWindowResult.FailedCount -gt 0 -or $paperSmokeWindowResult.PassedCount -ne 3) {
             throw "PAPER order smoke execution window tests failed: passed=$($paperSmokeWindowResult.PassedCount), failed=$($paperSmokeWindowResult.FailedCount)."
           }
 
