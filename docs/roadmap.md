@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P1 국내 PAPER 잔고·주문가능금액 최신 GET 확인 (2026-11-16 18:15 KST):** `.env_local`을 프로세스에만 로드하는 `scripts/test-paper-kis.ps1`를 실행했습니다. Spring 기반 KIS 국내 PAPER 잔고와 70,000원 기준 주문가능금액 읽기 GET 2/2가 통과했고, 해당 금액 기준 주문가능액이 충분함을 boolean으로 확인했습니다. 잔고·계좌 식별값은 출력하지 않았습니다. DB schema 31 validation도 통과했습니다. 주문·정정·취소는 전송하지 않았으며 PAPER 주문·자동화 및 REAL 주문 잠금은 그대로 비활성입니다. 이 결과는 읽기 연결과 사전 한도 확인만 증명하며 PAPER 주문 접수·체결 검증은 아닙니다.
+
 - **P2 국내 PAPER 주문 진단 변경 운영 반영 및 CI 통과 (2026-11-16 17:22 KST):** KRX 폐장 확인 후 로컬 스택을 안전 재시작해 `108b649`를 반영했습니다. Spring `paper`, `KIS_PAPER_ORDERS_ENABLED=false`, PAPER 자동매매·REAL 주문·REAL 대사 비활성 및 Python health `ok`/감시 `RUNNING`을 GET으로 확인했습니다. KIS 호환성 실행 `43830336107`의 전체 작업이 성공했고, Spring 운영 범위·PAPER 주문 계약·PostgreSQL 재시작/UNKNOWN/취소 차단 검증을 포함합니다. 실제 KIS 주문·취소는 전송하지 않았습니다.
 
 - **Fix : [P2 KIS 진단] 불명확한 HTTP 오류에서 안전한 브로커 코드 보존 (2026-11-16 17:18 KST):** KIS PAPER 주문 POST가 비정상 HTTP 상태로 끝나 `UNKNOWN`이 되면, 응답 본문을 저장하지 않고 허용 형식의 `msg_cd`만 HTTP 상태와 함께 제한된 진단코드(예: `ORDER_HTTP_500_EGW00002`)로 저장합니다. 코드가 없거나 형식이 다르면 기존 상태코드 진단만 기록합니다. 향후 주문 미접수 원인을 정확히 분류하는 근거를 늘리되, 전송 결과를 `REJECTED`로 추정하거나 재전송하지 않습니다. 클라이언트·오케스트레이터 집중검사 3/3 통과했고 KIS 호환성 CI 선택검사에 추가했습니다. 실제 KIS 주문은 전송하지 않았습니다.
