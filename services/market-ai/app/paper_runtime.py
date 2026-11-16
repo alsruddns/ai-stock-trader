@@ -1084,13 +1084,13 @@ class PaperSessionFeedMonitor:
         from .main import get_kis_candidate_client
 
         client = get_kis_candidate_client(market)
-        try:
-            candidates = await asyncio.to_thread(
-                client.get_ranked_candidates, market, exchange=exchange, limit=limit,
-                minimum_turnover=threshold, maximum_spread_bps=Decimal("15"),
-            )
-        finally:
-            client.close()
+        # get_kis_candidate_client returns the process-wide cached KIS client.
+        # Its lifecycle belongs to main.lifespan; closing it here breaks later
+        # quote/account calls that reuse the same client.
+        candidates = await asyncio.to_thread(
+            client.get_ranked_candidates, market, exchange=exchange, limit=limit,
+            minimum_turnover=threshold, maximum_spread_bps=Decimal("15"),
+        )
         if before is not None and datetime.now(timezone.utc) >= before:
             raise RuntimeError("candidate ranking completed after the exchange opened")
         desired = tuple(

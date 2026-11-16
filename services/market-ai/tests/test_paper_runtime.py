@@ -104,7 +104,7 @@ def test_candidate_auto_refresh_selects_turnover_without_requiring_premarket_spr
     monkeypatch.setattr(runtime, "refresh_discovered_watches", refresh)
     result = asyncio.run(runtime._refresh_candidates_once("KR"))
     assert [watch.symbol for watch in selected[0]] == ["000660"]
-    assert client.closed is True
+    assert client.closed is False
     assert result["selected"] == 1
 
 
