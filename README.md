@@ -209,7 +209,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:18080/api/v1/orders/paper `
 
 주문은 `PENDING` 상태로 PostgreSQL에 기록됩니다. 모의 체결은 별도 paper 전용 API로 직접 기록하며, 주문 수량보다 많이 체결시키거나 보유 수량보다 많이 매도하지 못합니다. 주문 요청은 같은 `Idempotency-Key`, 체결 이벤트는 같은 `fillKey`로 재전송 중복을 막습니다. Spring과 Python은 기본적으로 `127.0.0.1`에만 바인딩되며, 인증이 없는 로컬 개발용 API이므로 외부 네트워크에 노출하지 마세요.
 
-KIS PAPER 주문·취소 lifecycle 스크립트는 구현되어 있지만 현재 국내 전용 운영 범위에서는 실제 브로커 주문을 실행하지 않습니다. 국내 PAPER 취소 가능수량 조회 지원이 확인되지 않아 `-ConfirmPaperOrderAndCancel`은 국내 주문 전 차단되며, 미국 주문·취소 검증은 현 단계에서 실행하지 않습니다. 세부 조건은 [Windows 운영 문서](docs/operations.md)를 참고하세요.
+국내 PAPER 자동 신호 주문과 전체 취소 lifecycle은 잠겨 있습니다. 취소 가능수량 조회 지원이 확인되지 않아 `-ConfirmPaperOrderAndCancel`은 국내 주문 요청 전에 차단됩니다. 별도로 승인된 `-ConfirmPaperOrderSubmitAndObserve`는 격리된 Spring 인스턴스에서 사전조건을 통과하면 실제 KIS 모의계좌에 1주 지정가 주문을 보낼 수 있지만, 주문을 취소하지 않아 미체결 주문이 남을 수 있습니다. 미국 주문·취소 검증은 실행하지 않습니다. 세부 조건과 확인 절차는 [Windows 운영 문서](docs/operations.md)를 참고하세요.
 
 수동 paper 체결과 가상 포지션 조회 예시:
 

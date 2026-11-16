@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Fix : [PAPER 제출 문서 정확성] README 격리 단건 주문 경로 명시 (2026-11-17 08:13 KST):** README가 국내 전용 상태에서 실제 KIS PAPER 주문을 전송하지 않는다고 단정하던 문구를 수정했습니다. 자동 신호 주문·취소 lifecycle은 잠금으로 유지하고, 별도 승인된 `-ConfirmPaperOrderSubmitAndObserve`는 조건 통과 시 1주 제출 가능하며 취소는 하지 않아 미체결이 남을 수 있음을 명시했습니다. 문서만 변경했으며 KIS 요청·주문 또는 운영 설정 변경은 없습니다.
+
 - **Update : [PAPER 잠금 안내 Windows CI] 국내 회귀·PostgreSQL 검증 성공 (2026-11-17 08:11 KST):** 커밋 `eaaed77`의 GitHub Actions run `43976615639`가 `success`로 완료됐습니다. Spring 국내 주문·위험 경계, KIS 호환성, 대시보드 ESLint/TypeScript, PostgreSQL 격리 주문복구·대사·호출제한 통합 job을 모두 통과했습니다. CI는 mock 및 격리 PostgreSQL 검증으로 오늘 KIS PAPER 계좌 주문이나 장중 세션 검증을 대신하지 않습니다.
 
 - **Update : [PAPER 주문 잠금 안내] 예약 단건 점검과 자동 lifecycle 구분 (2026-11-17 08:06 KST):** 대시보드 국내 PAPER 취소 상태 문구가 모든 시험 주문 제출을 막는 것처럼 보이던 부분을 고쳤습니다. 자동 주문·취소 lifecycle은 계속 잠금으로 표시하고, 예약된 격리 단건 submit-and-observe 점검은 별도 사전조건 통과 시에만 실행되며 취소는 보내지 않는다고 구분합니다. 대상 ESLint와 Dashboard TypeScript 검사 통과. 운영 `.next` 화면 반영은 오늘 16:15 KST 예약 빌드에 남아 있으며 KIS 요청이나 주문 설정 변경은 없었습니다.
