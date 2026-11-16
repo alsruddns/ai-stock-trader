@@ -593,9 +593,18 @@ async def market_training_readiness(
             ineligibility_reasons.append("no_stored_data")
         if quality["full_session_complete"] is not True:
             ineligibility_reasons.append("incomplete_session")
-        single_source = next(iter(source_counts), None) if len(source_counts) == 1 else None
-        if (single_source not in approved_sources
-                or source_counts.get(single_source) != len(bars)):
+        source_keys_valid = (
+            isinstance(source_counts, dict)
+            and all(isinstance(source, str) for source in source_counts)
+        )
+        sources = sorted(source_counts) if source_keys_valid else []
+        source_counts_valid = (
+            bool(sources)
+            and all(source in approved_sources for source in sources)
+            and all(type(source_counts.get(source)) is int and source_counts[source] > 0 for source in sources)
+            and sum(source_counts.values()) == len(bars)
+        )
+        if not source_counts_valid:
             ineligibility_reasons.append("unapproved_data_source")
         eligible = not ineligibility_reasons
         eligible_sessions += int(eligible)

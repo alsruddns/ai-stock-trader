@@ -1,5 +1,6 @@
 param(
     [string]$ApiBaseUrl = 'http://127.0.0.1:18000',
+    [string]$SpringApiBaseUrl = 'http://127.0.0.1:18080',
     [ValidateRange(10, 36000)] [int]$DurationSeconds = 60,
     [ValidateRange(1, 60)] [int]$PollIntervalSeconds = 15,
     [ValidateRange(30, 3600)] [int]$MaxNoTickSeconds = 300,
@@ -30,6 +31,7 @@ if ($ExpectedSessionDate) {
 $script:statusReadRetryCount = 0
 $script:statusReadFailureCounts = [ordered]@{}
 $script:statusReadLastFailureCategory = $null
+$script:sessionBarRepairEvidence = $null
 if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
     $EvidencePath = Join-Path $repoRoot '.local\validation\paper-websocket-samples.jsonl'
 }
@@ -114,7 +116,126 @@ function Get-SessionQualityEvidence($Status, $Session, [string]$BaseUrl, [string
         diagnostics = $diagnostics
         verified = $verified
         validation_status = $validationStatus
+        symbols = $symbols
+        raw_quality = $quality
     }
+}
+
+function Try-RepairDomesticPaperSessionBars($Status, $Session, [string]$BaseUrl,
+    [string]$SpringBaseUrl, [string[]]$Symbols, [int]$ExpectedBars, $Quality) {
+    $result = [ordered]@{ attempted = $false; repaired_symbols = @(); reason = 'not_eligible' }
+    if ($Feed -ne 'paper' -or $Session.market -ne 'KR' -or $ExpectedBars -ne 380 -or
+        [string]$Session.session_date -ne [TimeZoneInfo]::ConvertTime(
+            [DateTimeOffset]::Now, [TimeZoneInfo]::FindSystemTimeZoneById('Korea Standard Time')).ToString('yyyy-MM-dd')) {
+        return [pscustomobject]$result
+    }
+
+    $rows = @($Quality.sessions)
+    if ($rows.Count -ne $Symbols.Count -or $Symbols.Count -lt 1 -or $Symbols.Count -gt 50) {
+        $result.reason = 'quality_rows_unbounded_or_incomplete'
+        return [pscustomobject]$result
+    }
+    $repairPlan = @()
+    $minimumBars = [Math]::Ceiling($ExpectedBars * 0.95)
+    foreach ($symbol in $Symbols) {
+        $matches = @($rows | Where-Object { $_.symbol -eq $symbol })
+        if ($matches.Count -ne 1) { $result.reason = 'quality_symbol_ambiguous'; return [pscustomobject]$result }
+        $row = $matches[0]
+        $sourceCounts = $row.source_counts
+        $sourceProperties = if ($sourceCounts) { @($sourceCounts.PSObject.Properties) } else { @() }
+        $ws = if ($sourceCounts) { $sourceCounts.PSObject.Properties['KIS_PAPER_WEBSOCKET'] } else { $null }
+        $restSource = if ($sourceCounts) { $sourceCounts.PSObject.Properties['KIS_REST_MINUTE_SESSION'] } else { $null }
+        $wsCount = 0
+        $wsCountValid = $ws -and [int]::TryParse([string]$ws.Value, [ref]$wsCount)
+        $restCount = 0
+        $restCountValid = -not $restSource -or [int]::TryParse([string]$restSource.Value, [ref]$restCount)
+        $sourceCountTotal = $wsCount + $restCount
+        $requiredObservedCoverage = if ($restCount -gt 0) { $minimumBars } else { [int]$row.observed_bars }
+        $spreadObservationBars = 0
+        $spreadObservationValid = $row.PSObject.Properties['spread_observation_time_bars'] -and
+            [int]::TryParse([string]$row.spread_observation_time_bars, [ref]$spreadObservationBars)
+        if ($row.market -ne 'KR' -or $row.session_date -ne $Session.session_date -or
+            [int]$row.expected_bars -ne $ExpectedBars -or [int]$row.observed_bars -lt $minimumBars -or
+            [int]$row.missing_bars -ne ($ExpectedBars - [int]$row.observed_bars) -or
+            [int]$row.off_grid_bars -ne 0 -or [int]$row.duplicate_bars -ne 0 -or
+            -not $wsCountValid -or -not $restCountValid -or
+            $sourceCountTotal -ne [int]$row.observed_bars -or
+            [int]$row.spread_bars -lt $requiredObservedCoverage -or
+            -not $spreadObservationValid -or $spreadObservationBars -lt $requiredObservedCoverage -or
+            [double]$row.spread_coverage_percent -lt 95.0 -or
+            [double]$row.spread_observation_time_coverage_percent -lt 95.0) {
+            $result.reason = 'gap_not_small_or_observed_data_not_trustworthy'
+            return [pscustomobject]$result
+        }
+        if ($restCount -gt 0) {
+            $alreadyRepaired = ($row.status -eq 'COMPLETE' -and [int]$row.observed_bars -eq $ExpectedBars -and
+                $sourceProperties.Count -eq 2 -and $restCountValid -and
+                $wsCount + $restCount -eq $ExpectedBars -and $wsCount -ge $minimumBars -and
+                $restCount -le ($ExpectedBars - $minimumBars))
+            if (-not $alreadyRepaired) {
+                $result.reason = 'existing_rest_provenance_is_not_a_valid_repair'
+                return [pscustomobject]$result
+            }
+            $repairPlan += [pscustomobject]@{ symbol = $symbol; missing_bars = 0; already_restored = $true }
+            continue
+        }
+        if ([int]$row.observed_bars -ge $ExpectedBars -or $sourceProperties.Count -ne 1 -or
+            $sourceProperties[0].Name -ne 'KIS_PAPER_WEBSOCKET') {
+            $result.reason = 'source_provenance_is_not_repairable'
+            return [pscustomobject]$result
+        }
+        $repairPlan += [pscustomobject]@{
+            symbol = $symbol
+            missing_bars = $ExpectedBars - [int]$row.observed_bars
+            already_restored = $false
+        }
+    }
+
+    try {
+        $operations = Invoke-RestMethod -Uri "$SpringBaseUrl/api/v1/operations/summary" -TimeoutSec 10
+    } catch {
+        $result.reason = 'operations_safety_status_unavailable'
+        return [pscustomobject]$result
+    }
+    if ($operations.tradingMode -ne 'paper' -or $operations.liveTrading -ne 'disabled' -or
+        [bool]$operations.kisPaperOrdersEnabled -or [bool]$operations.paperAutomationEnabled -or
+        [bool]$operations.kisRealOrdersEnabled) {
+        $result.reason = 'orders_or_automation_not_locked'
+        return [pscustomobject]$result
+    }
+
+    $result.attempted = $true
+    $result.reason = 'restored_and_revalidated'
+    $restored = @($repairPlan | Where-Object { $_.already_restored } | ForEach-Object {
+        [pscustomobject]@{ symbol = $_.symbol; filled_gap_bars = 0; already_restored = $true }
+    })
+    foreach ($item in $repairPlan) {
+        if ($item.already_restored) { continue }
+        $url = "$BaseUrl/api/v1/market/sessions/KR/$($item.symbol)/bars?session_date=$($Session.session_date)"
+        try { $response = Invoke-RestMethod -Uri $url -TimeoutSec 30 }
+        catch { $result.reason = 'kis_rest_session_fetch_failed'; return [pscustomobject]$result }
+        if ($response.market -ne 'KR' -or $response.symbol -ne $item.symbol -or
+            [string]$response.session_date -ne [string]$Session.session_date -or
+            $response.source -ne 'KIS_REST_MINUTE_SESSION' -or
+            [bool]$response.spread_bps_available -or @($response.bars).Count -ne $ExpectedBars) {
+            $result.reason = 'kis_rest_session_response_invalid'
+            return [pscustomobject]$result
+        }
+        $expectedOpen = [DateTimeOffset]::Parse("$($Session.session_date)T09:00:00+09:00")
+        $bars = @($response.bars)
+        for ($index = 0; $index -lt $bars.Count; $index++) {
+            $bar = $bars[$index]
+            $timestamp = [DateTimeOffset]::Parse([string]$bar.timestamp)
+            if ($timestamp.ToUniversalTime() -ne $expectedOpen.AddMinutes($index).ToUniversalTime() -or
+                $null -ne $bar.spread_bps -or $null -ne $bar.spread_observed_at) {
+                $result.reason = 'kis_rest_session_timestamps_or_spreads_invalid'
+                return [pscustomobject]$result
+            }
+        }
+        $restored += [pscustomobject]@{ symbol = $item.symbol; filled_gap_bars = $item.missing_bars; already_restored = $false }
+    }
+    $result.repaired_symbols = $restored
+    return [pscustomobject]$result
 }
 
 function Get-SelectedExchangeSessionWindow {
@@ -434,6 +555,22 @@ if ($RequireSessionClose) {
         $qualityStatus = $sessionQualityStatus
         try {
             $qualitySnapshot = Get-SessionQualityEvidence $status $exchangeSession $ApiBaseUrl $Feed $MinimumBarsDelta
+            if ($Feed -eq 'paper' -and $qualitySnapshot.verified.Count -eq 0) {
+                $repair = Try-RepairDomesticPaperSessionBars $status $exchangeSession $ApiBaseUrl `
+                    $SpringApiBaseUrl $qualitySnapshot.symbols $MinimumBarsDelta $qualitySnapshot.raw_quality
+                $script:sessionBarRepairEvidence = $repair
+                if ($repair.attempted -and $repair.reason -eq 'restored_and_revalidated') {
+                    $qualitySnapshot = Get-SessionQualityEvidence $status $exchangeSession $ApiBaseUrl $Feed $MinimumBarsDelta
+                    try {
+                        $qualitySnapshot.verified = @(Assert-ExchangeSessionQuality `
+                            $qualitySnapshot.raw_quality 'KR' ([string]$exchangeSession.session_date) `
+                            $qualitySnapshot.symbols $MinimumBarsDelta 'KIS_PAPER_WEBSOCKET' -AllowDomesticPaperRestRepair)
+                        $qualitySnapshot.validation_status = 'verified_with_domestic_rest_repair'
+                    } catch {
+                        $repair.reason = 'rest_repair_did_not_produce_complete_quality'
+                    }
+                }
+            }
             $qualityEvidence = @($qualitySnapshot.verified)
             $qualityDiagnostics = @($qualitySnapshot.diagnostics)
             $qualityStatus = [string]$qualitySnapshot.validation_status
@@ -462,6 +599,7 @@ if ($RequireSessionClose) {
             session_status_available = $true
             session_quality_ready = ($qualityEvidence.Count -gt 0)
             session_quality_status = $qualityStatus
+            session_bar_rest_repair = $script:sessionBarRepairEvidence
             session_quality_diagnostics = $qualityDiagnostics
             session_quality_diagnostics_recorded_at_utc = $sessionQualityDiagnosticsRecordedAtUtc
             feeds = $status.stream_connections
@@ -575,6 +713,7 @@ $evidence = [ordered]@{
     bar_storage_failure_kind = $barStorageDiagnostic.bar_storage_failure_kind
     bar_storage_reason = $barStorageDiagnostic.bar_storage_reason
     session_quality_status = $sessionQualityStatus
+    session_bar_rest_repair = $script:sessionBarRepairEvidence
     session_quality_diagnostics = $sessionQualityDiagnostics
     session_quality_diagnostics_recorded_at_utc = $sessionQualityDiagnosticsRecordedAtUtc
     session_quality = $sessionQualityEvidence

@@ -670,7 +670,7 @@ def test_training_readiness_includes_exchange_sessions_with_no_stored_bars(monke
     ]
 
 
-def test_kr_training_readiness_accepts_approved_paper_rest_chart_source(monkeypatch) -> None:
+def test_kr_training_readiness_accepts_approved_mixed_paper_sources(monkeypatch) -> None:
     zone = ZoneInfo("Asia/Seoul")
     session_date = date(2026, 11, 5)
     opened = datetime.combine(session_date, datetime.min.time(), tzinfo=zone).replace(hour=9)
@@ -686,7 +686,9 @@ def test_kr_training_readiness_accepts_approved_paper_rest_chart_source(monkeypa
     ),)
     monkeypatch.setattr(main.snapshot_store, "enabled", lambda: True)
     monkeypatch.setattr(main.snapshot_store, "load_minute_bar_training_history", lambda *args: {
-        session_date: {"bars": bars, "source_counts": {"KIS_PAPER_REST_MINUTE_CHART": len(bars)}}
+        session_date: {"bars": bars, "source_counts": {
+            "KIS_PAPER_WEBSOCKET": 379, "KIS_PAPER_REST_MINUTE_CHART": 1,
+        }}
     })
     monkeypatch.setattr(main, "exchange_session_schedule", lambda *args: schedule)
 
@@ -699,7 +701,9 @@ def test_kr_training_readiness_accepts_approved_paper_rest_chart_source(monkeypa
     session = response.json()["sessions"][0]
     assert session["eligible_for_training"] is True
     assert session["ineligibility_reasons"] == []
-    assert session["source_counts"] == {"KIS_PAPER_REST_MINUTE_CHART": 380}
+    assert session["source_counts"] == {
+        "KIS_PAPER_WEBSOCKET": 379, "KIS_PAPER_REST_MINUTE_CHART": 1,
+    }
 
 
 def test_kr_training_readiness_reports_incomplete_session_and_spread_reasons(monkeypatch) -> None:

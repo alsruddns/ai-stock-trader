@@ -170,7 +170,7 @@ def test_model_training_accepts_complete_historical_rest_and_websocket_sessions(
 
     payload["coverage"]["sessions"][0]["sources"] = ["UNVERIFIED_SOURCE"]
     payload["coverage"]["sessions"][0]["source_counts"] = {"UNVERIFIED_SOURCE": 390}
-    with pytest.raises(ValueError, match="one approved KIS source"):
+    with pytest.raises(ValueError, match="approved KIS sources"):
         validate_model_training_coverage(payload, market="US", sessions=sessions)
 
     short_sessions = dict(list(sessions.items())[:-1])
@@ -234,7 +234,7 @@ def test_model_training_rejects_missing_or_partial_session_coverage() -> None:
         validate_model_training_coverage(payload, market="US", sessions=sessions)
 
 
-def test_kr_model_training_rejects_missing_mixed_or_non_integer_source_counts() -> None:
+def test_kr_model_training_accepts_valid_mixed_sources_and_rejects_invalid_counts() -> None:
     first_session = date(2026, 11, 2)
     session_dates = [first_session + timedelta(days=index) for index in range(13)]
     observed_at = datetime(2026, 11, 2, 0, 0, 10, tzinfo=timezone.utc)
@@ -271,21 +271,37 @@ def test_kr_model_training_rejects_missing_mixed_or_non_integer_source_counts() 
     first_row = payload["coverage"]["sessions"][0]
     exact_source_counts = dict(first_row["source_counts"])
     del first_row["source_counts"]
-    with pytest.raises(ValueError, match="one approved KIS source"):
+    with pytest.raises(ValueError, match="approved KIS sources"):
         validate_model_training_coverage(payload, market="KR", sessions=sessions)
     first_row["source_counts"] = exact_source_counts
 
     payload["coverage"]["sessions"][0]["source_counts"] = {
         "KIS_PAPER_WEBSOCKET": 379, "KIS_REST_MINUTE_SESSION": 1,
     }
-    with pytest.raises(ValueError, match="one approved KIS source"):
+    payload["coverage"]["sessions"][0]["sources"] = [
+        "KIS_PAPER_WEBSOCKET", "KIS_REST_MINUTE_SESSION",
+    ]
+    validate_model_training_coverage(payload, market="KR", sessions=sessions)
+    payload["coverage"]["sessions"][0]["source_counts"]["UNKNOWN"] = 1
+    with pytest.raises(ValueError, match="approved KIS sources"):
+        validate_model_training_coverage(payload, market="KR", sessions=sessions)
+    payload["coverage"]["sessions"][0]["source_counts"] = {
+        "KIS_PAPER_WEBSOCKET": 379, "KIS_REST_MINUTE_SESSION": 2,
+    }
+    with pytest.raises(ValueError, match="approved KIS sources"):
+        validate_model_training_coverage(payload, market="KR", sessions=sessions)
+    payload["coverage"]["sessions"][0]["source_counts"] = {
+        "KIS_PAPER_WEBSOCKET": 379, "KIS_REST_MINUTE_SESSION": 1,
+    }
+    payload["coverage"]["sessions"][0]["sources"] = ["KIS_PAPER_WEBSOCKET"]
+    with pytest.raises(ValueError, match="approved KIS sources"):
         validate_model_training_coverage(payload, market="KR", sessions=sessions)
     one_bar_session = session_dates[0]
     sessions[one_bar_session] = [SimpleNamespace(spread_bps=Decimal("5"), spread_observed_at=observed_at)]
     payload["coverage"]["observed_bar_count"] -= 379
     first_row.update({"bars": 1, "expected_bars": 1, "bars_with_spread": 1})
     first_row["source_counts"] = {"KIS_PAPER_WEBSOCKET": True}
-    with pytest.raises(ValueError, match="one approved KIS source"):
+    with pytest.raises(ValueError, match="approved KIS sources"):
         validate_model_training_coverage(payload, market="KR", sessions=sessions)
 
 

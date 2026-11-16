@@ -101,7 +101,10 @@ function Update-ExchangeSessionOpenBarsBaseline(
     return [pscustomobject]@{ awaiting = $false; baseline = $baseline }
 }
 
-function Assert-ExchangeSessionQuality($Quality, [string]$Market, [string]$SessionDate, [string[]]$Symbols, [int]$ExpectedBars, [string]$ExpectedSource) {
+function Assert-ExchangeSessionQuality(
+    $Quality, [string]$Market, [string]$SessionDate, [string[]]$Symbols,
+    [int]$ExpectedBars, [string]$ExpectedSource, [switch]$AllowDomesticPaperRestRepair
+) {
     if (-not $Quality -or $Quality.market -ne $Market -or $Quality.session_date -ne $SessionDate) {
         throw 'Stored market-data quality did not match the monitored exchange session.'
     }
@@ -118,12 +121,23 @@ function Assert-ExchangeSessionQuality($Quality, [string]$Market, [string]$Sessi
         if ($row.market -ne $Market -or $row.session_date -ne $SessionDate -or $row.symbol -ne $symbol) {
             throw "Stored market-data quality row did not match $Market $symbol $SessionDate."
         }
+        $minimumCoveredBars = if ($AllowDomesticPaperRestRepair) { [Math]::Ceiling($ExpectedBars * 0.95) } else { $ExpectedBars }
+        $spreadObservationBars = 0
+        if ($null -ne $row.spread_observation_time_bars) {
+            [void][int]::TryParse([string]$row.spread_observation_time_bars, [ref]$spreadObservationBars)
+        }
+        $spreadObservationCoverage = 0.0
+        if ($null -ne $row.spread_observation_time_coverage_percent) {
+            [void][double]::TryParse([string]$row.spread_observation_time_coverage_percent, [ref]$spreadObservationCoverage)
+        }
         if ($row.status -ne 'COMPLETE' -or -not [bool]$row.full_session_complete -or
             [int]$row.expected_bars -ne $ExpectedBars -or [int]$row.completed_minutes -ne $ExpectedBars -or
             [int]$row.observed_bars -ne $ExpectedBars -or [int]$row.observed_completed_bars -ne $ExpectedBars -or
             [int]$row.missing_bars -ne 0 -or [int]$row.off_grid_bars -ne 0 -or
-            [int]$row.duplicate_bars -ne 0 -or [int]$row.spread_bars -ne $ExpectedBars -or
-            [double]$row.spread_coverage_percent -ne 100) {
+            [int]$row.duplicate_bars -ne 0 -or [int]$row.spread_bars -lt $minimumCoveredBars -or
+            [double]$row.spread_coverage_percent -lt (100 * $minimumCoveredBars / $ExpectedBars) -or
+            ($AllowDomesticPaperRestRepair -and ($spreadObservationBars -lt $minimumCoveredBars -or
+             $spreadObservationCoverage -lt (100 * $minimumCoveredBars / $ExpectedBars)))) {
             throw "Stored market-data quality is incomplete for $Market $symbol."
         }
         $sourceCounts = $row.source_counts
@@ -131,7 +145,27 @@ function Assert-ExchangeSessionQuality($Quality, [string]$Market, [string]$Sessi
             throw "Stored market-data provenance is missing for $Market $symbol."
         }
         $sourceProperties = @($sourceCounts.PSObject.Properties)
-        if ($sourceProperties.Count -ne 1 -or
+        if ($AllowDomesticPaperRestRepair) {
+            $unexpectedSources = @($sourceProperties | Where-Object {
+                $_.Name -notin @('KIS_PAPER_WEBSOCKET', 'KIS_REST_MINUTE_SESSION')
+            })
+            $websocketProperty = $sourceCounts.PSObject.Properties['KIS_PAPER_WEBSOCKET']
+            $restProperty = $sourceCounts.PSObject.Properties['KIS_REST_MINUTE_SESSION']
+            $paperWebsocketBars = 0
+            $restBars = 0
+            $websocketCountValid = -not $websocketProperty -or
+                ([int]::TryParse([string]$websocketProperty.Value, [ref]$paperWebsocketBars) -and $paperWebsocketBars -ge 0)
+            $restCountValid = -not $restProperty -or
+                ([int]::TryParse([string]$restProperty.Value, [ref]$restBars) -and $restBars -ge 0)
+            if ($Market -ne 'KR' -or $ExpectedSource -ne 'KIS_PAPER_WEBSOCKET' -or
+                $unexpectedSources.Count -gt 0 -or
+                -not $websocketCountValid -or -not $restCountValid -or
+                ($paperWebsocketBars + $restBars) -ne $ExpectedBars -or
+                $paperWebsocketBars -lt $minimumCoveredBars -or
+                $restBars -gt ($ExpectedBars - $minimumCoveredBars)) {
+                throw "Stored market-data provenance is incomplete or unexpected for $Market $symbol."
+            }
+        } elseif ($sourceProperties.Count -ne 1 -or
             $sourceProperties[0].Name -ne $ExpectedSource -or
             [int]$sourceProperties[0].Value -ne $ExpectedBars) {
             throw "Stored market-data provenance is incomplete or unexpected for $Market $symbol."
@@ -145,7 +179,7 @@ function Assert-ExchangeSessionQuality($Quality, [string]$Market, [string]$Sessi
             observed_bars = [int]$row.observed_bars
             spread_bars = [int]$row.spread_bars
             spread_coverage_percent = [double]$row.spread_coverage_percent
-            source_counts = @{ $ExpectedSource = [int]$sourceProperties[0].Value }
+            source_counts = $sourceCounts
         }
     }
     return @($verified)
@@ -179,6 +213,8 @@ function Get-SessionQualityDiagnostics($Quality) {
             duplicate_bars = $row.duplicate_bars
             spread_bars = $row.spread_bars
             spread_coverage_percent = $row.spread_coverage_percent
+            spread_observation_time_bars = $row.spread_observation_time_bars
+            spread_observation_time_coverage_percent = $row.spread_observation_time_coverage_percent
             source_counts = $sourceCounts
         }
     }

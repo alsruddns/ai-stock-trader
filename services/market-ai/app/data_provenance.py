@@ -112,7 +112,7 @@ def validate_model_training_coverage(
     minimum_sessions: int = MIN_MODEL_TRAINING_SESSIONS,
     require_spreads: bool = False,
 ) -> None:
-    """Require complete sessions from one approved KIS source per market.
+    """Require complete sessions from approved KIS sources per market.
 
     Historical REST minute bars are suitable for OHLCV model training. They do
     not carry historical order-book spread, so spreads are audited separately
@@ -151,16 +151,21 @@ def validate_model_training_coverage(
     for session, bars in sessions.items():
         row = by_date[session.isoformat()]
         source_counts = row.get("source_counts")
-        source_counts_match = isinstance(source_counts, dict) and len(source_counts) == 1
-        source = next(iter(source_counts), None) if source_counts_match else None
+        source_keys_valid = (
+            isinstance(source_counts, dict)
+            and all(isinstance(source, str) for source in source_counts)
+        )
+        sources = sorted(source_counts) if source_keys_valid else []
         source_counts_match = (
-            source in approved_sources
-            and count_matches(source_counts.get(source), len(bars))
+            bool(sources)
+            and all(source in approved_sources for source in sources)
+            and all(type(source_counts.get(source)) is int and source_counts[source] > 0 for source in sources)
+            and sum(source_counts.values()) == len(bars)
         )
         if (row.get("complete") is not True
                 or not count_matches(row.get("bars"), len(bars))
                 or not count_matches(row.get("expected_bars"), len(bars))
-                or row.get("sources") != [source]
+                or row.get("sources") != sources
                 or not source_counts_match
                 or (require_spreads and (
                     row.get("spread_complete") is not True
@@ -172,7 +177,7 @@ def validate_model_training_coverage(
                 ))
                 ):
             raise ValueError(
-                "model data requires complete sessions from one approved KIS source and required spread coverage"
+                "model data requires complete sessions from approved KIS sources and required spread coverage"
             )
         complete_count += 1
     if not count_matches(coverage.get("complete_session_count"), complete_count):

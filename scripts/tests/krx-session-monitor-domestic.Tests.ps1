@@ -20,6 +20,7 @@ Describe 'Domestic KRX session monitoring' {
             full_session_complete=$true; expected_bars=380; completed_minutes=380
             observed_bars=380; observed_completed_bars=380; missing_bars=0
             off_grid_bars=0; duplicate_bars=0; spread_bars=380; spread_coverage_percent=100.0
+            spread_observation_time_bars=380; spread_observation_time_coverage_percent=100.0
             source_counts=[pscustomobject]@{ KIS_PAPER_WEBSOCKET = 380 }
         }) }
 
@@ -44,6 +45,57 @@ Describe 'Domestic KRX session monitoring' {
         try { Assert-ExchangeSessionQuality $quality 'KR' '2026-11-06' @('005930') 380 'KIS_PAPER_WEBSOCKET' | Out-Null }
         catch { $didThrow = $true }
 
+        $didThrow | Should Be $true
+    }
+
+    It 'accepts a complete PAPER session with a small attributed REST repair and 95 percent spreads' {
+        $quality = @{ market='KR'; session_date='2026-11-06'; sessions=@(@{
+            market='KR'; symbol='005930'; session_date='2026-11-06'; status='COMPLETE'
+            full_session_complete=$true; expected_bars=380; completed_minutes=380
+            observed_bars=380; observed_completed_bars=380; missing_bars=0
+            off_grid_bars=0; duplicate_bars=0; spread_bars=361; spread_coverage_percent=95.0
+            spread_observation_time_bars=361; spread_observation_time_coverage_percent=95.0
+            source_counts=[pscustomobject]@{ KIS_PAPER_WEBSOCKET = 361; KIS_REST_MINUTE_SESSION = 19 }
+        }) }
+
+        $verified = @(Assert-ExchangeSessionQuality $quality 'KR' '2026-11-06' @('005930') `
+            380 'KIS_PAPER_WEBSOCKET' -AllowDomesticPaperRestRepair)
+
+        $verified.Count | Should Be 1
+        $verified[0].source_counts.KIS_REST_MINUTE_SESSION | Should Be 19
+    }
+
+    It 'rejects excessive REST repair, unapproved sources, and insufficient spread coverage' {
+        $row = @{
+            market='KR'; symbol='005930'; session_date='2026-11-06'; status='COMPLETE'
+            full_session_complete=$true; expected_bars=380; completed_minutes=380
+            observed_bars=380; observed_completed_bars=380; missing_bars=0
+            off_grid_bars=0; duplicate_bars=0; spread_bars=380; spread_coverage_percent=100.0
+            spread_observation_time_bars=380; spread_observation_time_coverage_percent=100.0
+            source_counts=[pscustomobject]@{ KIS_PAPER_WEBSOCKET = 360; KIS_REST_MINUTE_SESSION = 20 }
+        }
+        $quality = @{ market='KR'; session_date='2026-11-06'; sessions=@($row) }
+
+        $didThrow = $false
+        try { Assert-ExchangeSessionQuality $quality 'KR' '2026-11-06' @('005930') 380 `
+            'KIS_PAPER_WEBSOCKET' -AllowDomesticPaperRestRepair | Out-Null }
+        catch { $didThrow = $true }
+        $didThrow | Should Be $true
+
+        $row.source_counts = [pscustomobject]@{ KIS_PAPER_WEBSOCKET = 361; KIS_REST_MINUTE_SESSION = 18; UNKNOWN = 1 }
+        $didThrow = $false
+        try { Assert-ExchangeSessionQuality $quality 'KR' '2026-11-06' @('005930') 380 `
+            'KIS_PAPER_WEBSOCKET' -AllowDomesticPaperRestRepair | Out-Null }
+        catch { $didThrow = $true }
+        $didThrow | Should Be $true
+
+        $row.source_counts = [pscustomobject]@{ KIS_PAPER_WEBSOCKET = 361; KIS_REST_MINUTE_SESSION = 19 }
+        $row.spread_bars = 360
+        $row.spread_coverage_percent = 94.74
+        $didThrow = $false
+        try { Assert-ExchangeSessionQuality $quality 'KR' '2026-11-06' @('005930') 380 `
+            'KIS_PAPER_WEBSOCKET' -AllowDomesticPaperRestRepair | Out-Null }
+        catch { $didThrow = $true }
         $didThrow | Should Be $true
     }
 
