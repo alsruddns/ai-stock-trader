@@ -43,8 +43,7 @@ public class KisMarketAiEvidenceClient {
             BigDecimal stopDistance = signalStopDistance(paper, modelId, request, exchange);
             String strategyId = signalStrategyId(paper, modelId, request, exchange);
             boolean approvedCandidate = stopDistance != null && strategyId != null;
-            BigDecimal quotePrice = quote != null && quote.path("price").isNumber()
-                    ? quote.path("price").decimalValue() : null;
+            BigDecimal quotePrice = decimalOrNull(quote == null ? null : quote.path("price"));
             return new Evidence(approvedCandidate, isFreshMatchingQuote(quote, request), stopDistance,
                     approvedCandidate ? modelId : null, approvedCandidate ? strategyId : null, quotePrice);
         } catch (RuntimeException unavailable) {
@@ -108,14 +107,19 @@ public class KisMarketAiEvidenceClient {
         }
         return new ExitQuote(market, normalizedSymbol,
                 market == com.aistocktrader.order.Market.US ? normalizedExchange : null,
-                quote.path("price").decimalValue(), decimalOrNull(quote.path("best_bid")),
+                decimalOrNull(quote.path("price")), decimalOrNull(quote.path("best_bid")),
                 decimalOrNull(quote.path("best_ask")), Instant.parse(quote.path("retrieved_at").asText()));
     }
 
     private static BigDecimal decimalOrNull(JsonNode value) {
-        if (value == null || value.isNull() || value.isMissingNode() || !value.isNumber()) return null;
-        BigDecimal decimal = value.decimalValue();
-        return decimal.signum() > 0 ? decimal : null;
+        if (value == null || value.isNull() || value.isMissingNode()) return null;
+        try {
+            BigDecimal decimal = value.isNumber() ? value.decimalValue()
+                    : value.isTextual() ? new BigDecimal(value.asText()) : null;
+            return decimal != null && decimal.signum() > 0 ? decimal : null;
+        } catch (NumberFormatException invalidDecimal) {
+            return null;
+        }
     }
 
     static boolean hasActiveApprovedModel(JsonNode response, String market, String symbol) {
@@ -187,7 +191,7 @@ public class KisMarketAiEvidenceClient {
         if (quote == null || !request.market().name().equals(quote.path("market").asText())
                 || !request.symbol().equalsIgnoreCase(quote.path("symbol").asText())
                 || !"KIS_REST_SNAPSHOT".equalsIgnoreCase(quote.path("source").asText())
-                || !quote.path("price").isNumber() || quote.path("price").decimalValue().signum() <= 0
+                || decimalOrNull(quote.path("price")) == null
                 || !quote.path("retrieved_at").isTextual()) return false;
         try {
             Instant retrieved = Instant.parse(quote.path("retrieved_at").asText());

@@ -97,16 +97,17 @@ class KisMarketAiEvidenceClientTest {
         var client = new KisMarketAiEvidenceClient(builder, "http://127.0.0.1:18000");
         server.expect(requestTo("http://127.0.0.1:18000/api/v1/market/quotes/KR/005930?environment=real"))
                 .andRespond(withSuccess("{\"market\":\"KR\",\"symbol\":\"005930\","
-                        + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":102,\"best_bid\":101.5,"
-                        + "\"best_ask\":102,\"retrieved_at\":\"" + Instant.now() + "\"}",
+                        + "\"source\":\"KIS_REST_SNAPSHOT\",\"price\":\"102.00\",\"best_bid\":\"101.5\","
+                        + "\"best_ask\":\"102.25\",\"retrieved_at\":\"" + Instant.now() + "\"}",
                         MediaType.APPLICATION_JSON));
 
         var quote = client.quoteForExit(Market.KR, "005930", null);
 
         assertEquals(Market.KR, quote.market());
         assertEquals("005930", quote.symbol());
-        assertEquals(new BigDecimal("102"), quote.price());
+        assertEquals(new BigDecimal("102.00"), quote.price());
         assertEquals(new BigDecimal("101.5"), quote.bestBid());
+        assertEquals(new BigDecimal("102.25"), quote.bestAsk());
         server.verify();
     }
 
@@ -179,6 +180,11 @@ class KisMarketAiEvidenceClientTest {
         ObjectNode quote = mapper.valueToTree(Map.of("market", "KR", "symbol", "005930", "source", "KIS_REST_SNAPSHOT",
                 "price", 70000, "retrieved_at", now.toString()));
         assertTrue(KisMarketAiEvidenceClient.isFreshMatchingQuote(quote, request));
+        quote.put("price", "70000.000");
+        assertTrue(KisMarketAiEvidenceClient.isFreshMatchingQuote(quote, request));
+        quote.put("price", "not-a-price");
+        assertFalse(KisMarketAiEvidenceClient.isFreshMatchingQuote(quote, request));
+        quote.put("price", 70000);
         quote.put("source", "MOCK");
         assertFalse(KisMarketAiEvidenceClient.isFreshMatchingQuote(quote, request));
         quote.put("source", "KIS_REST_SNAPSHOT");
