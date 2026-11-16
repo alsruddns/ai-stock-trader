@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, WebSocket, WebSocketDisconnect
 import psycopg
 from pydantic import BaseModel, Field
-from .kis import (AccountBalance, Exchange, HistoricalMinuteSession, KisApiError,
+from .kis import (AccountBalance, Exchange, HistoricalMinuteSession, KisApiError, KisClientClosedError,
                   KisReadOnlyClient, KisSettings, KisRateLimitError,
                   KisSharedRateLimitUnavailable, Market, Quote)
 from . import snapshot_store
@@ -124,6 +124,18 @@ def close_kis_clients() -> None:
         _KIS_CLIENTS.clear()
     for client in clients:
         client.close()
+
+
+def _get_quote_with_closed_client_recovery(
+    client: KisReadOnlyClient, market: Market, symbol: str, exchange: Exchange | None,
+) -> Quote:
+    try:
+        return client.get_quote(market, symbol, exchange)
+    except KisClientClosedError:
+        replacement = _get_or_create_kis_client(client.settings)
+        if replacement is client:
+            raise
+        return replacement.get_quote(market, symbol, exchange)
 
 
 class Signal(StrEnum):
@@ -703,7 +715,7 @@ def get_quote(
     if market == "KR" and not re.fullmatch(r"\d{6}", symbol):
         raise HTTPException(status_code=422, detail="KR symbols must be six digits")
     try:
-        quote = client.get_quote(market, symbol, exchange)
+        quote = _get_quote_with_closed_client_recovery(client, market, symbol, exchange)
         _persist_snapshot(lambda: snapshot_store.store_quote(quote))
         return quote
     except ValueError as exc:
@@ -712,6 +724,8 @@ def get_quote(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except KisRateLimitError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except KisClientClosedError as exc:
+        raise HTTPException(status_code=503, detail="KIS quote client is unavailable; retry after service recovery.") from exc
     except KisApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

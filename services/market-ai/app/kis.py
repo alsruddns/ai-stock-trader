@@ -66,6 +66,10 @@ class KisSharedRateLimitUnavailable(KisApiError):
     """KIS requests are blocked because PostgreSQL cannot reserve a shared slot."""
 
 
+class KisClientClosedError(KisApiError):
+    """A cached KIS HTTP client closed before it dispatched a request."""
+
+
 class KisRateLimitError(KisApiError):
     """KIS REST request quota was reached; callers should wait before retrying."""
 
@@ -351,6 +355,10 @@ class KisReadOnlyClient:
             self._wait_for_rest_slot()
             try:
                 response = self._http.get(url, headers=headers, params=params)
+            except RuntimeError as exc:
+                if self._http.is_closed and "client has been closed" in str(exc).lower():
+                    raise KisClientClosedError("KIS read-only client closed before request dispatch.") from exc
+                raise
             except httpx.HTTPError as exc:
                 category = _safe_transport_error_category(exc)
                 if attempt >= READ_ONLY_GET_RETRY_LIMIT or category not in {
@@ -420,15 +428,22 @@ class KisReadOnlyClient:
                     # Re-reserve the shared token slot on a retry; failed token requests
                     # still count toward KIS's conservative one-per-minute pacing.
                     self._wait_for_token_slot()
-                    response = self._http.post(
-                        f"{self.settings.base_url}/oauth2/tokenP",
-                        json={
-                            "grant_type": "client_credentials",
-                            "appkey": self.settings.app_key,
-                            "appsecret": self.settings.app_secret,
-                        },
-                        headers={"content-type": "application/json"},
-                    )
+                    try:
+                        response = self._http.post(
+                            f"{self.settings.base_url}/oauth2/tokenP",
+                            json={
+                                "grant_type": "client_credentials",
+                                "appkey": self.settings.app_key,
+                                "appsecret": self.settings.app_secret,
+                            },
+                            headers={"content-type": "application/json"},
+                        )
+                    except RuntimeError as exc:
+                        if self._http.is_closed and "client has been closed" in str(exc).lower():
+                            raise KisClientClosedError(
+                                "KIS read-only client closed before request dispatch."
+                            ) from exc
+                        raise
                     _ensure_kis_http_success(response, "authentication")
                     payload = _response_json(response)
                     token = payload.get("access_token")

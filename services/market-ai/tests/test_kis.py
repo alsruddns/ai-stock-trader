@@ -4,7 +4,7 @@ from decimal import Decimal
 import httpx
 import pytest
 
-from app.kis import KisApiError, KisRateLimitError, KisReadOnlyClient, KisSettings
+from app.kis import KisApiError, KisClientClosedError, KisRateLimitError, KisReadOnlyClient, KisSettings
 
 
 def _token_response() -> dict[str, str]:
@@ -32,6 +32,23 @@ def test_kis_market_data_settings_keep_real_rest_separately_gated(monkeypatch) -
 
     monkeypatch.setenv("KIS_REAL_MARKET_DATA_ENABLED", "true")
     assert KisSettings.from_environment("real").enabled is True
+
+
+def test_closed_read_only_http_client_is_reported_before_request_dispatch() -> None:
+    http = httpx.Client(transport=httpx.MockTransport(
+        lambda _request: pytest.fail("a closed HTTP client must not dispatch a request")
+    ))
+    client = KisReadOnlyClient(
+        KisSettings(True, "paper", "paper-key", "paper-secret", shared_rate_limit_enabled=False),
+        http_client=http,
+    )
+    client.close()
+
+    with pytest.raises(KisClientClosedError, match="closed before request dispatch") as captured:
+        client.get_quote("KR", "005930")
+
+    assert "paper-key" not in str(captured.value)
+    assert "paper-secret" not in str(captured.value)
 
 
 def test_kis_rest_pacing_uses_paper_floor_and_serialized_slots(monkeypatch) -> None:

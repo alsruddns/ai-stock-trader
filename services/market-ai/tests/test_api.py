@@ -3,8 +3,8 @@ from fastapi import HTTPException
 import pytest
 from app import main
 from app.main import app, get_kis_client, get_kis_real_market_data_client, get_market_data_client
-from app.kis import (HistoricalMinuteSession, KisApiError, KisRateLimitError,
-                     KisSharedRateLimitUnavailable, MarketCandidate, Quote)
+from app.kis import (HistoricalMinuteSession, KisApiError, KisClientClosedError, KisRateLimitError,
+                     KisSettings, KisSharedRateLimitUnavailable, MarketCandidate, Quote)
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -1482,6 +1482,43 @@ def test_market_kis_client_is_recreated_after_cached_transport_is_closed(monkeyp
     assert first.closed is True
     assert replacement.is_closed is False
     assert main._KIS_CLIENTS["paper"] is replacement
+
+
+def test_quote_retries_once_with_replacement_after_cached_client_closes(monkeypatch) -> None:
+    settings = KisSettings(True, "paper", "paper-test-key", "paper-test-secret")
+    expected = Quote(
+        market="KR", symbol="005930", exchange=None, currency="KRW", price=Decimal("70000"),
+        change=Decimal("0"), change_percent=Decimal("0"), volume=1000,
+        retrieved_at=datetime.now(timezone.utc),
+    )
+
+    class ClosedClient:
+        def __init__(self):
+            self.settings = settings
+            self.calls = 0
+
+        def get_quote(self, *_args):
+            self.calls += 1
+            raise KisClientClosedError("KIS read-only client closed before request dispatch.")
+
+    class ReplacementClient:
+        def __init__(self):
+            self.settings = settings
+            self.calls = 0
+
+        def get_quote(self, *_args):
+            self.calls += 1
+            return expected
+
+    closed = ClosedClient()
+    replacement = ReplacementClient()
+    monkeypatch.setattr(main, "_get_or_create_kis_client", lambda _settings: replacement)
+
+    quote = main._get_quote_with_closed_client_recovery(closed, "KR", "005930", None)
+
+    assert quote is expected
+    assert closed.calls == 1
+    assert replacement.calls == 1
 
 
 def test_quant_backtest_endpoint_accepts_supplied_bars_and_never_creates_orders() -> None:
