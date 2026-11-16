@@ -109,9 +109,9 @@ def _get_or_create_kis_client(settings: KisSettings) -> KisReadOnlyClient:
     environment = settings.environment
     with _KIS_CLIENTS_LOCK:
         current = _KIS_CLIENTS.get(environment)
-        if current is not None and current.settings == settings:
+        if current is not None and current.settings == settings and not current.is_closed:
             return current
-        if current is not None:
+        if current is not None and not current.is_closed:
             current.close()
         client = KisReadOnlyClient(settings)
         _KIS_CLIENTS[environment] = client

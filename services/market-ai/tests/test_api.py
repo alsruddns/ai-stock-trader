@@ -1445,6 +1445,39 @@ def test_market_kis_client_is_closed_and_evicted_on_shutdown(monkeypatch) -> Non
     assert main._KIS_CLIENTS == {}
 
 
+def test_market_kis_client_is_recreated_after_cached_transport_is_closed(monkeypatch) -> None:
+    created = []
+
+    class FakeKisClient:
+        def __init__(self, settings):
+            self.settings = settings
+            self.closed = False
+            created.append(self)
+
+        @property
+        def is_closed(self):
+            return self.closed
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(main, "_KIS_CLIENTS", {})
+    monkeypatch.setattr(main, "KisReadOnlyClient", FakeKisClient)
+    monkeypatch.setenv("KIS_ENVIRONMENT", "paper")
+    monkeypatch.setenv("KIS_MARKET_DATA_ENABLED", "true")
+    monkeypatch.setenv("KIS_PAPER_APP_KEY", "paper-test-key")
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "paper-test-secret")
+
+    first = main.get_kis_client()
+    first.close()
+    replacement = main.get_kis_client()
+
+    assert replacement is not first
+    assert first.closed is True
+    assert replacement.is_closed is False
+    assert main._KIS_CLIENTS["paper"] is replacement
+
+
 def test_quant_backtest_endpoint_accepts_supplied_bars_and_never_creates_orders() -> None:
     session_open = datetime(2026, 11, 5, 9, 0, tzinfo=timezone(timedelta(hours=9)))
     response = client.post("/api/v1/strategies/orb-vwap/backtest", json={

@@ -327,6 +327,10 @@ class KisReadOnlyClient:
         self._token_expires_at: datetime | None = None
         self._token_lock = threading.Lock()
 
+    @property
+    def is_closed(self) -> bool:
+        return self._http.is_closed
+
     def _wait_for_rest_slot(self) -> None:
         if self.settings.shared_rate_limit_enabled:
             try:
