@@ -20,7 +20,7 @@ if (-not (Test-Path -LiteralPath $powerShellPath)) {
     throw "No PowerShell executable was found for the scheduled report task."
 }
 $action = New-ScheduledTaskAction -Execute $powerShellPath `
-    -Argument "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runnerPath`"" `
+    -Argument "-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runnerPath`"" `
     -WorkingDirectory $repoRoot
 $triggers = New-AiTraderDailyReportTriggers -Times @($DailyTime, $AfterCloseTime)
 $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited

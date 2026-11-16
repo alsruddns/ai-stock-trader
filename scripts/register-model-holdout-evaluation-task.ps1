@@ -72,7 +72,7 @@ $scriptPath = Join-Path $PSScriptRoot 'run-model-holdout-evaluation.ps1'
 $powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 if (-not (Test-Path -LiteralPath $powerShellPath)) { $powerShellPath = Join-Path $PSHOME 'pwsh.exe' }
 if (-not (Test-Path -LiteralPath $powerShellPath)) { throw 'No PowerShell executable was found.' }
-$arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$scriptPath`" -Market $Market -Symbol $symbolValue -FromDate $FromDate -ToDate $ToDate"
+$arguments = "-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$scriptPath`" -Market $Market -Symbol $symbolValue -FromDate $FromDate -ToDate $ToDate"
 $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $arguments -WorkingDirectory $repoRoot
 $trigger = New-ScheduledTaskTrigger -Once -At $runAt
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name

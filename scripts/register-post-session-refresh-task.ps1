@@ -74,7 +74,7 @@ if ($existingTask) {
     return
 }
 
-$arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$restartPath`" -DomesticOnly"
+$arguments = "-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$restartPath`" -DomesticOnly"
 $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $arguments -WorkingDirectory $repoRoot
 $trigger = New-ScheduledTaskTrigger -Once -At $runLocal
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name

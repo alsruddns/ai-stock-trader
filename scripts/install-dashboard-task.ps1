@@ -22,7 +22,7 @@ if ($existing) {
 }
 
 $action = New-ScheduledTaskAction -Execute $powerShellPath `
-    -Argument "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runnerPath`"" `
+    -Argument "-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runnerPath`"" `
     -WorkingDirectory $repoRoot
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
 $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited

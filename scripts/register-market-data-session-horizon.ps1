@@ -132,7 +132,7 @@ if ($InstallDailyRefresh) {
         Write-Output "Verified existing daily refresh task '$refreshTaskName'; it was left unchanged."
     } else {
         $includeUSArgument = if ($IncludeUS) { ' -IncludeUS' } else { '' }
-        $scriptArguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$PSCommandPath`" -SessionCount $SessionCount$includeUSArgument"
+        $scriptArguments = "-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$PSCommandPath`" -SessionCount $SessionCount$includeUSArgument"
         $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $scriptArguments -WorkingDirectory $repoRoot
         $trigger = New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.AddMinutes(5))
         $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
