@@ -69,6 +69,15 @@ try {
 
     $env:SERVER_ADDRESS = '127.0.0.1'
     $env:SERVER_PORT = [string]$TemporaryPort
+    $marketAiUri = $null
+    [IPAddress]$marketAiAddress = $null
+    if (-not [Uri]::TryCreate($MarketAiApiBaseUrl, [UriKind]::Absolute, [ref]$marketAiUri) -or
+        $marketAiUri.Scheme -ne 'http' -or
+        -not [IPAddress]::TryParse($marketAiUri.Host, [ref]$marketAiAddress) -or
+        -not [IPAddress]::IsLoopback($marketAiAddress)) {
+        throw 'The isolated PAPER test requires a loopback HTTP Market AI endpoint.'
+    }
+    $env:MARKET_AI_BASE_URL = $marketAiUri.AbsoluteUri.TrimEnd('/')
     $env:KIS_PAPER_ORDERS_ENABLED = if ($PreflightOnly) { 'false' } else { 'true' }
     $env:KIS_REAL_APP_KEY = ''
     $env:KIS_REAL_APP_SECRET = ''
