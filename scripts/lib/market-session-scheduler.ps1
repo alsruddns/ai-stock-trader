@@ -106,7 +106,7 @@ function Test-PostSessionRefreshTaskDefinition {
         $expectedPowerShellPath = [IO.Path]::GetFullPath($PowerShellPath)
         $actualWorkingDirectory = [IO.Path]::GetFullPath([string]$action.WorkingDirectory)
         $expectedWorkingDirectory = [IO.Path]::GetFullPath($WorkingDirectory)
-        $expectedArguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$RestartPath`" -DomesticOnly"
+        $expectedArguments = "-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$RestartPath`" -DomesticOnly"
     } catch {
         return $false
     }
@@ -131,7 +131,7 @@ function Get-PostSessionRefreshPowerShellPath {
     return [IO.Path]::GetFullPath($powerShellPath)
 }
 
-function Get-KrxPostSessionRefreshTime([string]$SessionDate, [string]$RunTime = '15:45') {
+function Get-KrxPostSessionRefreshTime([string]$SessionDate, [string]$RunTime = '16:00') {
     try {
         $runLocal = [DateTime]::ParseExact(
             "$SessionDate $RunTime", 'yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture

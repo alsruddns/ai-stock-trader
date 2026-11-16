@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$TaskName = 'AIStockTrader-Dashboard-PostSession-20261116',
-    [datetime]$RunAt = [datetime]'2026-11-16T16:05:00'
+    [datetime]$RunAt = [datetime]'2026-11-16T16:15:00'
 )
 
 $ErrorActionPreference = 'Stop'

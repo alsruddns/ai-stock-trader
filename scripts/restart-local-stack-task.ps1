@@ -26,6 +26,15 @@ function Get-RequiredSessionMarkets([switch]$DomesticOnly) {
     return @('KR', 'US')
 }
 
+function Get-SessionMonitorTaskName([string]$SessionDate) {
+    if ($SessionDate -notmatch '^\d{4}-\d{2}-\d{2}$') { throw 'Domestic session date is invalid.' }
+    return "AIStockTrader-KRX-Session-Monitor-$($SessionDate.Replace('-', ''))"
+}
+
+function Test-SessionMonitorRestartAllowed($Task) {
+    return $null -eq $Task -or [string]$Task.State -ne 'Running'
+}
+
 function Test-SessionResponsesFreshAndClosed($Sessions, [DateTimeOffset]$NowUtc, [string[]]$Markets = @('KR', 'US')) {
     if (@($Sessions).Count -ne $Markets.Count) { return $false }
     foreach ($market in $Markets) {
@@ -58,6 +67,7 @@ function Get-ConfirmedClosedSessions([switch]$DomesticOnly) {
     if (-not (Test-SessionResponsesFreshAndClosed $sessions $nowUtc $markets)) {
         throw 'Required exchange sessions must be confirmed closed by fresh local calendar responses; local stack restart was not attempted.'
     }
+    return @($sessions)
 }
 
 function Test-TrackedProcessIdentity($Process, [string]$Description) {
@@ -293,7 +303,17 @@ $postgresListenerAddresses = @(Get-NetTCPConnection -State Listen -LocalPort 543
     Select-Object -ExpandProperty LocalAddress -Unique)
 Assert-PostgresLoopbackForRestart -ListenerAddresses $postgresListenerAddresses
 
-Get-ConfirmedClosedSessions -DomesticOnly:$DomesticOnly
+$closedSessions = @(Get-ConfirmedClosedSessions -DomesticOnly:$DomesticOnly)
+if ($DomesticOnly) {
+    $krxSession = @($closedSessions | Where-Object { [string]$_.market -eq 'KR' }) | Select-Object -First 1
+    if ($krxSession -and [bool]$krxSession.is_session) {
+        $monitorTaskName = Get-SessionMonitorTaskName ([string]$krxSession.session_date)
+        $monitorTask = Get-ScheduledTask -TaskName $monitorTaskName -ErrorAction SilentlyContinue
+        if (-not (Test-SessionMonitorRestartAllowed $monitorTask)) {
+            throw "Domestic KRX session monitor '$monitorTaskName' is still collecting or finalizing; API restart was not attempted."
+        }
+    }
+}
 $pythonHealthBefore = Invoke-RestMethod -Uri $pythonHealthUrl -TimeoutSec 5
 $springSummaryBefore = Invoke-RestMethod -Uri $springSummaryUrl -TimeoutSec 5
 if (-not (Test-LocalTradingLocks $pythonHealthBefore $springSummaryBefore)) {

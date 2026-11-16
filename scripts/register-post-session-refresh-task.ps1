@@ -4,7 +4,7 @@ param(
     [ValidatePattern('^\d{4}-\d{2}-\d{2}$')]
     [string]$SessionDate,
     [ValidatePattern('^([01]\d|2[0-3]):[0-5]\d$')]
-    [string]$RunTime = '15:45'
+    [string]$RunTime = '16:00'
 )
 
 $ErrorActionPreference = 'Stop'

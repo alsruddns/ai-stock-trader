@@ -8,6 +8,8 @@ if ($parseErrors.Count -gt 0) { throw 'The local stack restart script has PowerS
 
 foreach ($functionName in @(
     'Get-RequiredSessionMarkets',
+    'Get-SessionMonitorTaskName',
+    'Test-SessionMonitorRestartAllowed',
     'Test-SessionResponsesFreshAndClosed',
     'Test-TrackedProcessParentage',
     'Test-LocalTaskRestartable',
@@ -36,6 +38,16 @@ Describe 'Domestic local stack restart guards' {
         $open = @([pscustomobject]@{ market = 'KR'; is_open = $true; evaluated_at = $now.ToString('o') })
         (Test-SessionResponsesFreshAndClosed $closed $now @('KR')) | Should Be $true
         (Test-SessionResponsesFreshAndClosed $open $now @('KR')) | Should Be $false
+    }
+
+    It 'does not restart APIs while the KRX session monitor is collecting or finalizing' {
+        (Get-SessionMonitorTaskName '2026-11-16') | Should Be 'AIStockTrader-KRX-Session-Monitor-20261116'
+        (Test-SessionMonitorRestartAllowed ([pscustomobject]@{ State = 'Running' })) | Should Be $false
+        (Test-SessionMonitorRestartAllowed ([pscustomobject]@{ State = 'Ready' })) | Should Be $true
+        (Test-SessionMonitorRestartAllowed $null) | Should Be $true
+        $didThrow = $false
+        try { Get-SessionMonitorTaskName 'not-a-date' | Out-Null } catch { $didThrow = $true }
+        $didThrow | Should Be $true
     }
 
     It 'allows only the recorded children when the runner has exited' {

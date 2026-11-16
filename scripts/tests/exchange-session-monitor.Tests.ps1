@@ -333,7 +333,7 @@ function Test-ExpectedPostSessionRefreshTask($Task) {
         -RestartPath 'C:\repo\scripts\restart-local-stack-task.ps1' `
         -PowerShellPath 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' `
         -WorkingDirectory 'C:\repo' `
-        -ExpectedRunAt ([DateTimeOffset]::Parse('2026-11-16T15:45:00+09:00'))
+        -ExpectedRunAt ([DateTimeOffset]::Parse('2026-11-16T16:00:00+09:00'))
 }
 
 function New-TestPostSessionRefreshTask($Arguments, $StartBoundary, $StartWhenAvailable = $false) {
@@ -360,33 +360,33 @@ function New-TestPostSessionRefreshTask($Arguments, $StartBoundary, $StartWhenAv
 
 Describe 'Domestic post-session refresh task verification' {
     It 'computes the scheduled KRX refresh in KST' {
-        (Get-KrxPostSessionRefreshTime '2026-11-16').ToString('o') | Should Be '2026-11-16T15:45:00.0000000+09:00'
+        (Get-KrxPostSessionRefreshTime '2026-11-16').ToString('o') | Should Be '2026-11-16T16:00:00.0000000+09:00'
     }
 
     It 'accepts a matching domestic no-catch-up restart task' {
         $task = New-TestPostSessionRefreshTask `
-            '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
-            '2026-11-16T15:45:00+09:00'
+            '-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
+            '2026-11-16T16:00:00+09:00'
         (Test-ExpectedPostSessionRefreshTask $task) | Should Be $true
     }
 
     It 'rejects the Confirm string that broke the prior Windows task action' {
         $task = New-TestPostSessionRefreshTask `
             '-File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly -Confirm:$false' `
-            '2026-11-16T15:45:00+09:00'
+            '2026-11-16T16:00:00+09:00'
         (Test-ExpectedPostSessionRefreshTask $task) | Should Be $false
     }
 
     It 'rejects delayed execution and any task that is not domestic-only' {
         $delayed = New-TestPostSessionRefreshTask `
             '-File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
-            '2026-11-16T15:45:00+09:00' $true
+            '2026-11-16T16:00:00+09:00' $true
         $wrongScope = New-TestPostSessionRefreshTask `
             '-File "C:\repo\scripts\restart-local-stack-task.ps1"' `
-            '2026-11-16T15:45:00+09:00'
+            '2026-11-16T16:00:00+09:00'
         $batteryRestricted = New-TestPostSessionRefreshTask `
             '-File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
-            '2026-11-16T15:45:00+09:00'
+            '2026-11-16T16:00:00+09:00'
         $batteryRestricted.Settings.DisallowStartIfOnBatteries = $true
         $batteryRestricted.Settings.StopIfGoingOnBatteries = $true
         (Test-ExpectedPostSessionRefreshTask $delayed) | Should Be $false
@@ -394,20 +394,20 @@ Describe 'Domestic post-session refresh task verification' {
         (Test-ExpectedPostSessionRefreshTask $batteryRestricted) | Should Be $false
 
         $wrongExecutable = New-TestPostSessionRefreshTask `
-            '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
-            '2026-11-16T15:45:00+09:00'
+            '-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
+            '2026-11-16T16:00:00+09:00'
         $wrongExecutable.Actions[0].Execute = 'C:\Windows\System32\cmd.exe'
         (Test-ExpectedPostSessionRefreshTask $wrongExecutable) | Should Be $false
 
         $wrongDirectory = New-TestPostSessionRefreshTask `
-            '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
-            '2026-11-16T15:45:00+09:00'
+            '-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly' `
+            '2026-11-16T16:00:00+09:00'
         $wrongDirectory.Actions[0].WorkingDirectory = 'C:\Windows\System32'
         (Test-ExpectedPostSessionRefreshTask $wrongDirectory) | Should Be $false
 
         $extraArguments = New-TestPostSessionRefreshTask `
-            '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly -Confirm:$false' `
-            '2026-11-16T15:45:00+09:00'
+            '-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\repo\scripts\restart-local-stack-task.ps1" -DomesticOnly -Confirm:$false' `
+            '2026-11-16T16:00:00+09:00'
         (Test-ExpectedPostSessionRefreshTask $extraArguments) | Should Be $false
     }
 }
