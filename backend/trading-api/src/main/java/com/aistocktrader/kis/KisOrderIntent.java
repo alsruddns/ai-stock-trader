@@ -95,15 +95,18 @@ public class KisOrderIntent {
         quantity = request.quantity(); limitPrice = request.limitPrice(); currency = request.currency();
         exchangeCode = exchange == null ? null : exchange.trim().toUpperCase(Locale.ROOT);
         if (exitStopDistancePerShare != null || exitRewardRiskMultiple != null) {
-            if (environment != KisEnvironment.REAL || request.side() != OrderSide.BUY
+            if (request.side() != OrderSide.BUY
                     || exitStopDistancePerShare == null || exitStopDistancePerShare.signum() <= 0
                     || exitRewardRiskMultiple == null || exitRewardRiskMultiple.signum() <= 0
                     || request.limitPrice().compareTo(exitStopDistancePerShare) <= 0) {
-                throw new IllegalArgumentException("A REAL buy exit plan requires valid stop distance and reward/risk inputs.");
+                throw new IllegalArgumentException("A KIS buy exit plan requires valid stop distance and reward/risk inputs.");
+            }
+            if (environment != KisEnvironment.REAL && environment != KisEnvironment.PAPER) {
+                throw new IllegalArgumentException("A KIS buy exit plan requires a supported account environment.");
             }
             this.exitStopDistancePerShare = exitStopDistancePerShare;
             this.exitRewardRiskMultiple = exitRewardRiskMultiple;
-            this.realExitStatus = KisRealExitStatus.WAITING_FOR_ENTRY;
+            if (environment == KisEnvironment.REAL) this.realExitStatus = KisRealExitStatus.WAITING_FOR_ENTRY;
         }
         filledQuantity = 0; remainingQuantity = request.quantity();
         status = KisOrderStatus.SUBMITTING; createdAt = Instant.now(); updatedAt = createdAt;

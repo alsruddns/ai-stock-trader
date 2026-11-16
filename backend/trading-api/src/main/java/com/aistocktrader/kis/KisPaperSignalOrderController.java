@@ -86,7 +86,8 @@ public class KisPaperSignalOrderController {
         }
         OrderRequest request = new OrderRequest(Market.KR, signal.symbol(), OrderSide.BUY,
                 quantity, evidence.quotePrice(), Currency.KRW, evidence.strategyId(), evidence.modelId());
-        KisOrderIntentResponse response = orders.submitPaperOrder(idempotencyKey, request, null);
+        KisOrderIntentResponse response = orders.submitPaperSignalOrder(
+                idempotencyKey, request, evidence.stopDistancePerShare());
         HttpStatus status = response.status() == KisOrderStatus.REJECTED
                 ? HttpStatus.UNPROCESSABLE_ENTITY : HttpStatus.ACCEPTED;
         return ResponseEntity.status(status).body(response);

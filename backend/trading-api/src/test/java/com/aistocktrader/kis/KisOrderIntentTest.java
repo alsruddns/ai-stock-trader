@@ -188,12 +188,26 @@ class KisOrderIntentTest {
                 KisEnvironment.PAPER,
                 new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
                         new BigDecimal("100"), Currency.KRW), null,
-                new BigDecimal("5"), new BigDecimal("2")));
+                new BigDecimal("100"), new BigDecimal("2")));
         assertThrows(IllegalArgumentException.class, () -> new KisOrderIntent(UUID.randomUUID(), "hash",
                 KisEnvironment.REAL,
                 new OrderRequest(Market.KR, "005930", OrderSide.SELL, 1,
                         new BigDecimal("100"), Currency.KRW), null,
                 new BigDecimal("5"), new BigDecimal("2")));
+    }
+
+    @Test
+    void paperSignalStoresExitInputsWithoutOpeningRealExitLifecycle() {
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "paper-signal-hash", KisEnvironment.PAPER,
+                new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                        new BigDecimal("70000"), Currency.KRW), null,
+                new BigDecimal("500"), new BigDecimal("2"));
+
+        assertEquals(new BigDecimal("500"), intent.getExitStopDistancePerShare());
+        assertEquals(new BigDecimal("2"), intent.getExitRewardRiskMultiple());
+        assertEquals(KisRealExitStatus.NOT_APPLICABLE, intent.getRealExitStatus());
+        assertNull(intent.getExitStopPrice());
+        assertNull(intent.getExitTargetPrice());
     }
 
     @Test

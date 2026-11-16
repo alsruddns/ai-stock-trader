@@ -35,19 +35,36 @@ public class KisOrderOrchestrator {
     }
 
     public KisOrderIntentResponse submitPaperOrder(UUID idempotencyKey, OrderRequest request, String exchange) {
+        return submitPaperOrder(idempotencyKey, request, exchange, null, null);
+    }
+
+    public KisOrderIntentResponse submitPaperSignalOrder(UUID idempotencyKey, OrderRequest request,
+                                                          BigDecimal stopDistancePerShare) {
+        if (stopDistancePerShare == null || stopDistancePerShare.signum() <= 0) {
+            throw new IllegalArgumentException("A positive PAPER signal stop distance is required.");
+        }
+        return submitPaperOrder(idempotencyKey, request, null, stopDistancePerShare, new BigDecimal("2"));
+    }
+
+    private KisOrderIntentResponse submitPaperOrder(UUID idempotencyKey, OrderRequest request, String exchange,
+                                                     BigDecimal exitStopDistancePerShare,
+                                                     BigDecimal exitRewardRiskMultiple) {
         if (!orderProperties.paperEnabled()) throw new IllegalStateException("KIS paper orders are disabled.");
         if (safety.liveTradingEnabled() || !"paper".equalsIgnoreCase(safety.mode())) {
             throw new IllegalStateException("KIS orders are locked outside paper mode.");
         }
         KisDomesticOrderPriceValidator.validate(request.market(), request.symbol(), request.limitPrice());
-        String requestHash = hash(request, exchange);
+        String requestHash = exitStopDistancePerShare == null
+                ? hash(request, exchange) : hash(request, exchange, exitStopDistancePerShare, exitRewardRiskMultiple);
         KisOrderIntentStore.PreparedIntent prepared;
         try {
-            prepared = intents.prepare(idempotencyKey, requestHash, request, exchange);
+            prepared = preparePaperIntent(idempotencyKey, requestHash, request, exchange,
+                    exitStopDistancePerShare, exitRewardRiskMultiple);
         } catch (org.springframework.dao.DataIntegrityViolationException duplicateRace) {
             try {
                 // Re-run the store's hash and environment checks after the concurrent insert wins.
-                prepared = intents.prepare(idempotencyKey, requestHash, request, exchange);
+                prepared = preparePaperIntent(idempotencyKey, requestHash, request, exchange,
+                        exitStopDistancePerShare, exitRewardRiskMultiple);
             } catch (org.springframework.dao.DataIntegrityViolationException reservationConflict) {
                 if (isPaperMarketReservationConflict(reservationConflict)) {
                     throw new KisApiException(HttpStatus.LOCKED,
@@ -99,6 +116,15 @@ public class KisOrderOrchestrator {
         } catch (IllegalStateException ex) {
             return KisOrderIntentResponse.from(intents.reject(idempotencyKey, "PREFLIGHT_DISABLED"));
         }
+    }
+
+    private KisOrderIntentStore.PreparedIntent preparePaperIntent(UUID key, String requestHash,
+                                                                   OrderRequest request, String exchange,
+                                                                   BigDecimal stopDistancePerShare,
+                                                                   BigDecimal rewardRiskMultiple) {
+        if (stopDistancePerShare == null) return intents.prepare(key, requestHash, request, exchange);
+        return intents.prepare(key, requestHash, KisEnvironment.PAPER, request, exchange,
+                stopDistancePerShare, rewardRiskMultiple);
     }
 
     public KisOrderIntentResponse cancelPaperOrder(UUID idempotencyKey, String exchange) {
@@ -251,11 +277,30 @@ public class KisOrderOrchestrator {
         String canonical = request.market() + "|" + request.symbol().trim().toUpperCase(Locale.ROOT) + "|" + request.side()
                 + "|" + request.quantity() + "|" + request.limitPrice().stripTrailingZeros().toPlainString()
                 + "|" + request.currency() + "|" + (exchange == null ? "" : exchange.toUpperCase(Locale.ROOT));
+        return sha256(canonical);
+    }
+
+    private static String sha256(String canonical) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable.", exception);
         }
+    }
+
+    static String hash(OrderRequest request, String exchange, BigDecimal stopDistancePerShare,
+                       BigDecimal rewardRiskMultiple) {
+        if (stopDistancePerShare == null || rewardRiskMultiple == null) {
+            throw new IllegalArgumentException("Exit plan values are required for a PAPER signal hash.");
+        }
+        String canonical = request.market() + "|" + request.symbol().trim().toUpperCase(Locale.ROOT) + "|" + request.side()
+                + "|" + request.quantity() + "|" + request.limitPrice().stripTrailingZeros().toPlainString()
+                + "|" + request.currency() + "|" + (exchange == null ? "" : exchange.toUpperCase(Locale.ROOT))
+                + "|strategy=" + (request.strategyId() == null ? "" : request.strategyId())
+                + "|model=" + (request.modelId() == null ? "" : request.modelId())
+                + "|exit=" + stopDistancePerShare.stripTrailingZeros().toPlainString()
+                + "|rr=" + rewardRiskMultiple.stripTrailingZeros().toPlainString();
+        return sha256(canonical);
     }
 
     private static boolean isPaperMarketReservationConflict(

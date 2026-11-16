@@ -18,6 +18,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -47,6 +48,20 @@ class KisOrderOrchestratorTest {
         orchestrator = new KisOrderOrchestrator(orders, accounts, new KisOrderProperties(true, false),
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")),
                 intents, marketEvidence);
+    }
+
+    @Test
+    void paperSignalHashCoversModelStrategyAndExitPlanWithinDatabaseColumnWidth() {
+        OrderRequest first = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW, "ORB_VWAP", "model-a");
+        OrderRequest otherModel = new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1,
+                new BigDecimal("70000"), Currency.KRW, "ORB_VWAP", "model-b");
+        String hash = KisOrderOrchestrator.hash(first, null, new BigDecimal("500"), new BigDecimal("2"));
+
+        assertEquals(64, hash.length());
+        assertNotEquals(hash, KisOrderOrchestrator.hash(first, null, new BigDecimal("600"), new BigDecimal("2")));
+        assertNotEquals(hash, KisOrderOrchestrator.hash(first, null, new BigDecimal("500"), new BigDecimal("1.5")));
+        assertNotEquals(hash, KisOrderOrchestrator.hash(otherModel, null, new BigDecimal("500"), new BigDecimal("2")));
     }
 
     @Test
@@ -377,6 +392,39 @@ class KisOrderOrchestratorTest {
                 any(), any(), nullable(String.class));
         verify(orders, org.mockito.Mockito.times(1)).placePaperLimitOrder(any(), anyString(), any(),
                 org.mockito.ArgumentMatchers.anyInt(), any(), any(), nullable(String.class));
+    }
+
+    @Test
+    void paperSignalPersistsStopPlanAndHashesItsRiskInputsBeforeKisSubmission() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = buyRequest();
+        BigDecimal stopDistance = new BigDecimal("500");
+        BigDecimal rewardRisk = new BigDecimal("2");
+        String requestHash = KisOrderOrchestrator.hash(request, null, stopDistance, rewardRisk);
+        KisOrderIntent intent = new KisOrderIntent(key, requestHash, KisEnvironment.PAPER, request, null,
+                stopDistance, rewardRisk);
+        KisOrderReceipt receipt = new KisOrderReceipt("paper", "KR", "005930", "BUY",
+                "1234", "000000", "0", Instant.now());
+        intent.accept(receipt);
+        when(intents.prepare(key, requestHash, KisEnvironment.PAPER, request, null, stopDistance, rewardRisk))
+                .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
+        when(accounts.getBalance(KisEnvironment.PAPER, Market.KR, "005930",
+                request.limitPrice(), "")).thenReturn(new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR,
+                "KRW", new BigDecimal("1000000"), new BigDecimal("1000000"), List.of(), Instant.now(), "test"));
+        when(orders.placePaperLimitOrder(Market.KR, "005930", OrderSide.BUY, 1,
+                request.limitPrice(), Currency.KRW, null)).thenReturn(receipt);
+        when(intents.accept(key, receipt)).thenReturn(intent);
+
+        KisOrderIntentResponse result = orchestrator.submitPaperSignalOrder(key, request, stopDistance);
+
+        assertEquals(KisOrderStatus.ACCEPTED, result.status());
+        assertEquals(64, requestHash.length());
+        assertEquals(stopDistance, intent.getExitStopDistancePerShare());
+        assertEquals(rewardRisk, intent.getExitRewardRiskMultiple());
+        assertEquals(KisRealExitStatus.NOT_APPLICABLE, intent.getRealExitStatus());
+        verify(intents).prepare(key, requestHash, KisEnvironment.PAPER, request, null, stopDistance, rewardRisk);
+        verify(orders).placePaperLimitOrder(Market.KR, "005930", OrderSide.BUY, 1,
+                request.limitPrice(), Currency.KRW, null);
     }
 
     @Test
