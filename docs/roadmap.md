@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P2 국내 PAPER 취소 사전조회 주문순 재확인 (2026-11-16 18:18 KST):** 공식 샘플이 정의한 다른 조회구분인 주문순(`INQR_DVSN_1=0`)으로 취소 가능 주문 GET을 추가 실행했습니다. `VTTC0084R`도 HTTP 200/`OPSQ0002`/0행을 반환했고 `psbl_qty`는 없었습니다. 종목순 조회와 같은 결과라 조회 구분을 바꾸는 것으로는 모의 API 지원을 확인할 수 없었습니다. 결과는 `.local/validation/kis-paper-cancel-order-sequence-20261116.jsonl`에 허용된 필드만 저장했습니다. 주문·취소는 전송하지 않았으며 PAPER 주문 잠금은 유지됩니다.
+
 - **P1 국내 PAPER 잔고·주문가능금액 최신 GET 확인 (2026-11-16 18:15 KST):** `.env_local`을 프로세스에만 로드하는 `scripts/test-paper-kis.ps1`를 실행했습니다. Spring 기반 KIS 국내 PAPER 잔고와 70,000원 기준 주문가능금액 읽기 GET 2/2가 통과했고, 해당 금액 기준 주문가능액이 충분함을 boolean으로 확인했습니다. 잔고·계좌 식별값은 출력하지 않았습니다. DB schema 31 validation도 통과했습니다. 주문·정정·취소는 전송하지 않았으며 PAPER 주문·자동화 및 REAL 주문 잠금은 그대로 비활성입니다. 이 결과는 읽기 연결과 사전 한도 확인만 증명하며 PAPER 주문 접수·체결 검증은 아닙니다.
 
 - **P2 국내 PAPER 주문 진단 변경 운영 반영 및 CI 통과 (2026-11-16 17:22 KST):** KRX 폐장 확인 후 로컬 스택을 안전 재시작해 `108b649`를 반영했습니다. Spring `paper`, `KIS_PAPER_ORDERS_ENABLED=false`, PAPER 자동매매·REAL 주문·REAL 대사 비활성 및 Python health `ok`/감시 `RUNNING`을 GET으로 확인했습니다. KIS 호환성 실행 `43830336107`의 전체 작업이 성공했고, Spring 운영 범위·PAPER 주문 계약·PostgreSQL 재시작/UNKNOWN/취소 차단 검증을 포함합니다. 실제 KIS 주문·취소는 전송하지 않았습니다.
