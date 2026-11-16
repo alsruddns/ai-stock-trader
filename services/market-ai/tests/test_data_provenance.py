@@ -189,6 +189,29 @@ def test_model_training_accepts_complete_historical_rest_and_websocket_sessions(
         validate_model_training_coverage(short_payload, market="US", sessions=short_sessions)
 
 
+def test_model_training_accepts_local_kis_paper_rest_chart_source_without_spread() -> None:
+    session = date(2026, 11, 2)
+    bars = [SimpleNamespace(spread_bps=None, spread_observed_at=None)]
+    payload = _payload("a" * 64)
+    payload["coverage"] = {
+        "observed_session_count": 1,
+        "observed_bar_count": 1,
+        "complete_session_count": 1,
+        "sessions": [{
+            "session_date": session.isoformat(),
+            "bars": 1,
+            "expected_bars": 1,
+            "complete": True,
+            "sources": ["KIS_PAPER_REST_MINUTE_CHART"],
+            "source_counts": {"KIS_PAPER_REST_MINUTE_CHART": 1},
+        }],
+    }
+
+    validate_model_training_coverage(
+        payload, market="KR", sessions={session: bars}, minimum_sessions=1,
+    )
+
+
 def test_model_training_rejects_missing_or_partial_session_coverage() -> None:
     sessions = {date(2026, 11, 2): [SimpleNamespace(spread_bps=None)]}
     with pytest.raises(ValueError, match="requires exported session quality coverage"):
