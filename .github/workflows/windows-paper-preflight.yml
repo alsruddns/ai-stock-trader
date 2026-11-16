@@ -112,6 +112,11 @@ jobs:
             throw "KIS PAPER preflight tests failed: passed=$($paperPreflightResult.PassedCount), failed=$($paperPreflightResult.FailedCount)."
           }
 
+          $paperSmokeWindowResult = Invoke-Pester -Path 'scripts/tests/paper-order-smoke-window.Tests.ps1' -PassThru
+          if ($paperSmokeWindowResult.FailedCount -gt 0 -or $paperSmokeWindowResult.PassedCount -ne 2) {
+            throw "PAPER order smoke execution window tests failed: passed=$($paperSmokeWindowResult.PassedCount), failed=$($paperSmokeWindowResult.FailedCount)."
+          }
+
           $operationsReportResult = Invoke-Pester -Path 'scripts/tests/operations-report.Tests.ps1' -PassThru
           if ($operationsReportResult.FailedCount -gt 0 -or $operationsReportResult.PassedCount -ne 36) {
             throw "Operations report tests failed: passed=$($operationsReportResult.PassedCount), failed=$($operationsReportResult.FailedCount)."
