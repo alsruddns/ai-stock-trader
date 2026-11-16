@@ -674,6 +674,7 @@ function Get-AiTraderLocalStackTaskSummary {
 function Get-AiTraderValidationTaskScheduleSummary {
     $taskDefinitions = @(
         @{ Pattern = '^AIStockTrader-(KRX|US)-Paper-Lifecycle-Smoke-(\d{8})$'; Kind = 'PAPER_LIFECYCLE'; MarketGroup = 1; DateGroup = 2 },
+        @{ Pattern = '^AIStockTrader-PAPER-Order-Smoke-(KR|US)-([A-Z0-9]+)-(\d{8})$'; Kind = 'PAPER_LIFECYCLE'; MarketGroup = 1; SymbolGroup = 2; DateGroup = 3 },
         @{ Pattern = '^AIStockTrader-P4-Model-(Train|Holdout)-(KR|US)-([A-Z0-9]+)-(\d{8})$'; Kind = 'P4_MODEL'; ModeGroup = 1; MarketGroup = 2; SymbolGroup = 3; DateGroup = 4 }
     )
     try {

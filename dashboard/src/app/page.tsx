@@ -496,7 +496,7 @@ function brokerOrderGuidance(status: string, brokerOrderReferencePresent: boolea
   if (status === "CANCEL_PENDING") return "취소 결과 대조 대기 · 재전송 금지";
   return "—";
 }
-function scheduledTaskLabel(value: string) { return ({ PAPER_LIFECYCLE: "미국 모의 주문·취소", KRX_SESSION_MONITOR: "국내장 시세 감시", US_SESSION_MONITOR: "미국장 시세 감시", P4_MODEL_TRAIN: "AI 모델 재학습", P4_MODEL_HOLDOUT: "AI 모델 미사용 검증" } as Record<string, string>)[value] ?? value; }
+function scheduledTaskLabel(value: string) { return ({ PAPER_LIFECYCLE: "PAPER 주문 점검", KRX_SESSION_MONITOR: "국내장 시세 감시", US_SESSION_MONITOR: "미국장 시세 감시", P4_MODEL_TRAIN: "AI 모델 재학습", P4_MODEL_HOLDOUT: "AI 모델 미사용 검증" } as Record<string, string>)[value] ?? value; }
 function monitorFailureLabel(value: string) {
   return ({ WEBSOCKET_NO_TICKS: "체결 틱 지연", NO_TICKS_IN_SAMPLE_WINDOW: "표본 중 틱 없음", SESSION_FINALIZATION_TIMEOUT: "종료 후 품질 확인 시간 초과", STORED_SESSION_QUALITY_INCOMPLETE: "저장 분봉/호가 미완성", FEED_NOT_READY: "시세 연결 준비 안 됨", SESSION_STATUS_UNAVAILABLE: "로컬 세션 상태 조회 실패", EXCHANGE_CALENDAR_UNAVAILABLE: "거래일 확인 실패", EXCHANGE_SESSION_CLOSE_NOT_REACHED: "장 종료 확인 전", FEED_TIMESTAMP_UNAVAILABLE: "수신시각 정보 없음", BAR_COUNTER_RESET: "분봉 카운터 초기화", SAFETY_LOCK_VIOLATION: "안전 잠금 위반", MINIMUM_BAR_COUNT_NOT_MET: "최소 분봉 수 미달", MONITOR_FAILED: "감시 오류" } as Record<string, string>)[value] ?? "감시 실패";
 }

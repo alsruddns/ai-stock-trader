@@ -184,6 +184,7 @@ Describe 'Optional operations report endpoint diagnostics' {
         Mock Get-ScheduledTask {
             @(
                 [pscustomobject]@{ TaskName = 'AIStockTrader-US-Paper-Lifecycle-Smoke-20261109'; State = 'Ready'; Principal = [pscustomobject]@{ LogonType = 'Interactive' }; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true } },
+                [pscustomobject]@{ TaskName = 'AIStockTrader-PAPER-Order-Smoke-KR-035720-20261117'; State = 'Ready'; Principal = [pscustomobject]@{ LogonType = 'Interactive' }; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true } },
                 [pscustomobject]@{ TaskName = 'AIStockTrader-P4-Model-Train-KR-005930-20261128'; State = 'Ready'; Principal = [pscustomobject]@{ LogonType = 'Interactive' }; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $true; StartWhenAvailable = $true } },
                 [pscustomobject]@{ TaskName = 'AIStockTrader-P4-Model-Holdout-US-AAPL-20261205'; State = 'Ready'; Principal = [pscustomobject]@{ LogonType = 'Password' }; Settings = [pscustomobject]@{ Enabled = $true; WakeToRun = $false; StartWhenAvailable = $false } },
                 [pscustomobject]@{ TaskName = 'AIStockTrader-US-Session-Monitor-20261109'; State = 'Ready'; Settings = [pscustomobject]@{ Enabled = $true } },
@@ -200,14 +201,15 @@ Describe 'Optional operations report endpoint diagnostics' {
 
         $summary = Get-AiTraderValidationTaskScheduleSummary
         $expectedTimeZoneId = [TimeZoneInfo]::Local.Id
-        $paperTask = @($summary.tasks | Where-Object { $_.kind -eq 'PAPER_LIFECYCLE' })[0]
+        $paperTask = @($summary.tasks | Where-Object { $_.kind -eq 'PAPER_LIFECYCLE' -and $_.market -eq 'US' })[0]
+        $domesticPaperTask = @($summary.tasks | Where-Object { $_.kind -eq 'PAPER_LIFECYCLE' -and $_.market -eq 'KR' })[0]
         $trainTask = @($summary.tasks | Where-Object { $_.kind -eq 'P4_MODEL_TRAIN' })[0]
         $holdoutTask = @($summary.tasks | Where-Object { $_.kind -eq 'P4_MODEL_HOLDOUT' })[0]
 
         $summary.state | Should Be 'AVAILABLE'
         $summary.timeZoneId | Should Be $expectedTimeZoneId
-        $summary.registeredCount | Should Be 3
-        $summary.paperLifecycleCount | Should Be 1
+        $summary.registeredCount | Should Be 4
+        $summary.paperLifecycleCount | Should Be 2
         $summary.modelTrainingCount | Should Be 1
         $summary.modelHoldoutCount | Should Be 1
         $paperTask.market | Should Be 'US'
@@ -216,6 +218,10 @@ Describe 'Optional operations report endpoint diagnostics' {
         $paperTask.wakeToRun | Should Be $true
         $paperTask.requiresInteractiveLogon | Should Be $true
         $paperTask.startWhenAvailable | Should Be $true
+        $domesticPaperTask.market | Should Be 'KR'
+        $domesticPaperTask.symbol | Should Be '035720'
+        $domesticPaperTask.taskDate | Should Be '20261117'
+        $domesticPaperTask.principalLogonType | Should Be 'Interactive'
         $trainTask.market | Should Be 'KR'
         $trainTask.symbol | Should Be '005930'
         $trainTask.wakeToRun | Should Be $true
