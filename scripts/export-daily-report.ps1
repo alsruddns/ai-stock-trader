@@ -68,10 +68,16 @@ $paperPreflightPath = if ([string]::IsNullOrWhiteSpace($PaperPreflightEvidencePa
     Join-Path $repoRoot $PaperPreflightEvidencePath
 }
 $paperPreflight = Get-AiTraderPaperPreflightSummary -Path $paperPreflightPath
+$paperOrderSmoke = Get-AiTraderPaperOrderSmokeSummary -LogDirectory (Join-Path $repoRoot '.local\logs')
 $endpointStatus['local.paper_preflight'] = [ordered]@{
     state = $paperPreflight.state
     result = $paperPreflight.result
     stage = $paperPreflight.stage
+}
+$endpointStatus['local.paper_order_smoke'] = [ordered]@{
+    state = $paperOrderSmoke.state
+    outcome = $paperOrderSmoke.outcome
+    orderStatus = $paperOrderSmoke.orderStatus
 }
 $endpointStatus['local.model_retraining'] = [ordered]@{
     state = $modelRetraining.state
@@ -191,6 +197,7 @@ $report | Add-Member -MemberType NoteProperty -Name paperSession -Value $paperSe
 $report | Add-Member -MemberType NoteProperty -Name aiModels -Value $aiModels -Force
 $report | Add-Member -MemberType NoteProperty -Name modelRetraining -Value $modelRetraining -Force
 $report | Add-Member -MemberType NoteProperty -Name paperPreflight -Value $paperPreflight -Force
+$report | Add-Member -MemberType NoteProperty -Name paperOrderSmoke -Value $paperOrderSmoke -Force
 $report | Add-Member -MemberType NoteProperty -Name localStackTask -Value $localStackTask -Force
 $report | Add-Member -MemberType NoteProperty -Name sessionMonitorSchedule -Value $sessionMonitorSchedule -Force
 $report | Add-Member -MemberType NoteProperty -Name domesticSessionMonitor -Value $domesticSessionMonitor -Force

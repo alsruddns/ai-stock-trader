@@ -814,3 +814,95 @@ function Get-AiTraderPaperPreflightSummary {
         }
     }
 }
+
+function Get-AiTraderPaperOrderSmokeSummary {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$LogDirectory)
+
+    $empty = [ordered]@{
+        state = 'MISSING'; outcome = 'NOT_RUN'; market = $null; symbol = $null; taskDate = $null
+        startedAt = $null; completedAt = $null; preSubmitHistoryStatus = $null; preSubmitOrderCount = $null
+        orderStatus = $null; filledQuantity = $null; orderRemainsOpen = $null; exitCode = $null
+        orderSent = $false; cancelSent = $false
+    }
+    if (-not (Test-Path -LiteralPath $LogDirectory -PathType Container)) { return $empty }
+
+    $log = Get-ChildItem -LiteralPath $LogDirectory -Filter 'paper-order-smoke-*.log' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    if ($null -eq $log) { return $empty }
+
+    $nameMatch = [regex]::Match($log.Name, '^paper-order-smoke-(\d{6})-(\d{8})\.log$')
+    if (-not $nameMatch.Success) {
+        $empty.state = 'INVALID'
+        $empty.outcome = 'UNKNOWN'
+        return $empty
+    }
+    $market = 'KR'
+    $symbol = $nameMatch.Groups[1].Value
+    $dateText = $nameMatch.Groups[2].Value
+    $result = [ordered]@{
+        state = 'RUNNING'; outcome = 'UNKNOWN'; market = $market; symbol = $symbol; taskDate = $dateText
+        startedAt = $null; completedAt = $null; preSubmitHistoryStatus = $null; preSubmitOrderCount = $null
+        orderStatus = $null; filledQuantity = $null; orderRemainsOpen = $null; exitCode = $null
+        orderSent = $false; cancelSent = $false
+    }
+
+    try {
+        foreach ($line in Get-Content -LiteralPath $log.FullName -ErrorAction Stop) {
+            if ($line -match '^startedAt=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2}))$') {
+                $timestamp = [DateTimeOffset]::MinValue
+                if ([DateTimeOffset]::TryParse($Matches[1], [Globalization.CultureInfo]::InvariantCulture,
+                        [Globalization.DateTimeStyles]::None, [ref]$timestamp)) {
+                    $result.startedAt = $timestamp.ToUniversalTime().ToString('o')
+                }
+            }
+            elseif ($line -match '^preSubmitHistoryStatus=([A-Za-z0-9_-]{1,32}); rows=(\d{1,6}); requests=(\d{1,6})$') {
+                $result.preSubmitHistoryStatus = $Matches[1]
+                $result.preSubmitOrderCount = [int]$Matches[2]
+            }
+            elseif ($line -match '^submissionSkipped=(brokerOrderHistoryNotProvenEmpty|localTradingSafetyOrOrderLedgerNotClear)$') {
+                $result.outcome = 'SKIPPED'
+            }
+            elseif ($line -match '^PAPER submit observation: market=(KR|US) symbol=([A-Z0-9.-]{1,16}) status=(ACCEPTED|PARTIALLY_FILLED|FILLED|REJECTED|CANCELLED|CANCEL_PENDING|UNKNOWN|SUBMITTING|NO_ORDER_CONFIRMED) filled=(\d{1,6}|unknown) order_remains_open=(True|False|unknown) key=[A-Fa-f0-9-]{36}$') {
+                $observedSymbol = $Matches[2]
+                $observedMarket = $Matches[1]
+                $observedStatus = $Matches[3]
+                $observedFill = $Matches[4]
+                $observedOpen = $Matches[5]
+                $validSymbol = if ($observedMarket -eq 'KR') { $observedSymbol -match '^\d{6}$' } else { $observedSymbol -match '^[A-Z][A-Z0-9.-]{0,15}$' }
+                if ($validSymbol -and $observedSymbol -eq $symbol) {
+                    $result.market = $observedMarket
+                    $result.orderStatus = $observedStatus
+                    $result.filledQuantity = if ($observedFill -eq 'unknown') { $null } else { [int]$observedFill }
+                    $result.orderRemainsOpen = if ($observedOpen -eq 'unknown') { $null } else { [bool]::Parse($observedOpen) }
+                    $result.orderSent = $true
+                    if ($result.orderStatus -eq 'REJECTED') { $result.outcome = 'REJECTED' }
+                    elseif ($result.orderStatus -eq 'FILLED' -or $result.filledQuantity -gt 0) { $result.outcome = 'FILL_OBSERVED' }
+                    elseif ($result.orderRemainsOpen -eq $true) { $result.outcome = 'OPEN_UNFILLED' }
+                    elseif ($result.orderStatus -eq 'ACCEPTED' -and $result.filledQuantity -eq 0) { $result.outcome = 'ACCEPTED_UNFILLED' }
+                    else { $result.outcome = 'REVIEW_REQUIRED' }
+                }
+            }
+            elseif ($line -match '^completedAt=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})); exitCode=(\d{1,3})$') {
+                $timestamp = [DateTimeOffset]::MinValue
+                if ([DateTimeOffset]::TryParse($Matches[1], [Globalization.CultureInfo]::InvariantCulture,
+                        [Globalization.DateTimeStyles]::None, [ref]$timestamp)) {
+                    $result.completedAt = $timestamp.ToUniversalTime().ToString('o')
+                    $result.exitCode = [int]$Matches[2]
+                    $result.state = 'COMPLETED'
+                    if (-not $result.orderSent -and $result.outcome -ne 'SKIPPED') { $result.outcome = 'FAILED' }
+                }
+            }
+        }
+        if ($result.state -eq 'RUNNING' -and -not $result.startedAt) {
+            $result.state = 'INVALID'
+            $result.outcome = 'UNKNOWN'
+        }
+        return $result
+    }
+    catch {
+        $empty.state = 'INVALID'
+        $empty.outcome = 'UNKNOWN'
+        return $empty
+    }
+}

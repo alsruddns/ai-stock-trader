@@ -695,3 +695,62 @@ Describe 'P4 training readiness report boundary' {
         $summary.symbols[0].errorType | Should Be 'InvalidResponse'
     }
 }
+
+Describe 'PAPER order smoke log summary boundary' {
+    It 'reports missing smoke evidence without inventing an order result' {
+        $summary = Get-AiTraderPaperOrderSmokeSummary -LogDirectory (Join-Path $TestDrive 'missing-logs')
+
+        $summary.state | Should Be 'MISSING'
+        $summary.outcome | Should Be 'NOT_RUN'
+        $summary.orderSent | Should Be $false
+        $summary.cancelSent | Should Be $false
+    }
+
+    It 'allowlists a completed open-order result and omits idempotency keys and arbitrary log text' {
+        $directory = Join-Path $TestDrive 'smoke-logs'
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+        $path = Join-Path $directory 'paper-order-smoke-035720-20261117.log'
+        @(
+            'startedAt=2026-11-17T09:05:00+09:00'
+            'preSubmitHistoryStatus=read_complete; rows=0; requests=1'
+            'PAPER submit observation: market=KR symbol=035720 status=ACCEPTED filled=0 order_remains_open=True key=8f78d163-477d-4194-9d93-3bdde2cfadd2'
+            'private broker diagnostic must not appear in report'
+            'completedAt=2026-11-17T09:05:08+09:00; exitCode=2'
+        ) | Set-Content -LiteralPath $path -Encoding utf8
+
+        $summary = Get-AiTraderPaperOrderSmokeSummary -LogDirectory $directory
+        $json = $summary | ConvertTo-Json -Compress
+
+        $summary.state | Should Be 'COMPLETED'
+        $summary.outcome | Should Be 'OPEN_UNFILLED'
+        $summary.market | Should Be 'KR'
+        $summary.symbol | Should Be '035720'
+        $summary.taskDate | Should Be '20261117'
+        $summary.orderStatus | Should Be 'ACCEPTED'
+        $summary.filledQuantity | Should Be 0
+        $summary.orderRemainsOpen | Should Be $true
+        $summary.orderSent | Should Be $true
+        $summary.cancelSent | Should Be $false
+        $json | Should Not Match '8f78d163-477d-4194-9d93-3bdde2cfadd2|private broker diagnostic'
+    }
+
+    It 'reports a pre-submit safety abort as skipped with no order sent' {
+        $directory = Join-Path $TestDrive 'skipped-logs'
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+        $path = Join-Path $directory 'paper-order-smoke-035720-20261117.log'
+        @(
+            'startedAt=2026-11-17T09:05:00+09:00'
+            'preSubmitHistoryStatus=read_complete; rows=1; requests=1'
+            'submissionSkipped=brokerOrderHistoryNotProvenEmpty'
+            'completedAt=2026-11-17T09:05:01+09:00; exitCode=5'
+        ) | Set-Content -LiteralPath $path -Encoding utf8
+
+        $summary = Get-AiTraderPaperOrderSmokeSummary -LogDirectory $directory
+
+        $summary.state | Should Be 'COMPLETED'
+        $summary.outcome | Should Be 'SKIPPED'
+        $summary.preSubmitHistoryStatus | Should Be 'read_complete'
+        $summary.preSubmitOrderCount | Should Be 1
+        $summary.orderSent | Should Be $false
+    }
+}
