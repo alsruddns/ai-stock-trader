@@ -31,4 +31,12 @@ Describe 'AI Stock Trader scheduled PowerShell tasks' {
         $source | Should Match '/api/paper-orders/confirm-no-order'
         $source | Should Match '\[int\]\$noOrderProbe.StatusCode -ne 400'
     }
+
+    It 'records a bounded failure stage and exception type for rollout diagnosis' {
+        $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $source = Get-Content -LiteralPath (Join-Path $repositoryRoot 'scripts/rebuild-dashboard-after-close.ps1') -Raw
+        $source | Should Match 'Dashboard update failed at stage=\$failureStage \(exception_type=\$failureType\)'
+        $source | Should Match 'Dashboard rollback/restart failed at stage=\$script:rolloutStage'
+        $source | Should Not Match 'Write-RolloutLog.*Exception\.Message'
+    }
 }

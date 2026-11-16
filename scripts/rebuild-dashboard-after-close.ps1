@@ -15,6 +15,7 @@ $logPath = Join-Path $repoRoot '.local\logs\dashboard-post-session-rebuild.log'
 $buildPath = Join-Path $dashboardRoot '.next'
 $backupDirectory = Join-Path $repoRoot '.local\backups\dashboard'
 $backupPath = Join-Path $backupDirectory ('.next-rollback-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
+$script:rolloutStage = 'initialization'
 . (Join-Path $PSScriptRoot 'lib\dashboard-task.ps1')
 
 function Write-RolloutLog([string]$Message) {
@@ -23,6 +24,7 @@ function Write-RolloutLog([string]$Message) {
 }
 
 function Assert-ClosedDomesticSession {
+    $script:rolloutStage = 'market_session_gate'
     $session = Invoke-RestMethod -Uri 'http://127.0.0.1:18000/api/v1/market/sessions/KR' -TimeoutSec 5
     if (-not $session -or $session.market -ne 'KR' -or $session.is_open -ne $false -or
         $null -eq $session.PSObject.Properties['evaluated_at']) {
@@ -44,6 +46,7 @@ function Assert-ClosedDomesticSession {
 }
 
 function Assert-TradingLocks {
+    $script:rolloutStage = 'trading_lock_gate'
     $spring = Invoke-RestMethod -Uri 'http://127.0.0.1:18080/api/v1/operations/summary' -TimeoutSec 5
     $python = Invoke-RestMethod -Uri 'http://127.0.0.1:18000/api/v1/health' -TimeoutSec 5
     if ($spring.tradingMode -ne 'paper' -or $spring.liveTrading -ne 'disabled' -or
@@ -110,6 +113,7 @@ function Stop-VerifiedDashboard([switch]$AllowMissingSupervisorState) {
 }
 
 function Start-And-VerifyDashboard {
+    $script:rolloutStage = 'dashboard_task_start'
     $task = Get-ScheduledTask -TaskName $DashboardTaskName -ErrorAction SilentlyContinue
     if (-not $task -or $task.State -eq 'Disabled' -or @($task.Actions | Where-Object {
             [string]$_.Arguments -match [regex]::Escape($dashboardScript)
@@ -124,11 +128,13 @@ function Start-And-VerifyDashboard {
     } while ([DateTimeOffset]::UtcNow -lt $taskDeadline)
     if ($task.State -eq 'Running') { throw 'The previous dashboard task instance did not stop.' }
     Start-ScheduledTask -TaskName $DashboardTaskName
+    $script:rolloutStage = 'dashboard_operations_probe'
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     do {
         try {
             $operations = Invoke-RestMethod -Uri 'http://127.0.0.1:13000/api/operations' -TimeoutSec 20
             if (Test-DashboardOperationsReady -Response $operations) {
+                $script:rolloutStage = 'dashboard_route_contract_probe'
                 $client = [System.Net.Http.HttpClient]::new()
                 $client.Timeout = [TimeSpan]::FromSeconds(5)
                 $content = $null
@@ -152,11 +158,15 @@ function Start-And-VerifyDashboard {
         }
         Start-Sleep -Seconds 2
     } while ([DateTimeOffset]::UtcNow -lt $deadline)
+    $script:rolloutStage = 'dashboard_readiness_timeout'
     throw 'Dashboard did not become healthy with all trading locks verified.'
 }
 
+$script:rolloutStage = 'market_session_gate'
 Assert-ClosedDomesticSession
+$script:rolloutStage = 'trading_lock_gate'
 Assert-TradingLocks
+$script:rolloutStage = 'dashboard_task_validation'
 $dashboardTask = Get-ScheduledTask -TaskName $DashboardTaskName -ErrorAction SilentlyContinue
 if (-not $dashboardTask -or @($dashboardTask.Actions | Where-Object {
         [string]$_.Arguments -match [regex]::Escape($dashboardScript)
@@ -165,23 +175,31 @@ if (-not $dashboardTask -or @($dashboardTask.Actions | Where-Object {
 }
 if (-not (Test-Path -LiteralPath $nextCli)) { throw 'The local Next.js installation is missing.' }
 
+$script:rolloutStage = 'dashboard_listener_stop'
 $hadPreviousBuild = Test-Path -LiteralPath $buildPath
 Stop-VerifiedDashboard
 if ($hadPreviousBuild) {
+    $script:rolloutStage = 'backup_existing_build'
     New-Item -ItemType Directory -Path $backupDirectory -Force | Out-Null
     Move-Item -LiteralPath $buildPath -Destination $backupPath
 }
 $buildSucceeded = $false
 try {
+    $script:rolloutStage = 'production_build'
     Push-Location $dashboardRoot
     try { & npm.cmd run build; if ($LASTEXITCODE -ne 0) { throw "Dashboard build exited with code $LASTEXITCODE." } }
     finally { Pop-Location }
     $buildSucceeded = $true
+    $script:rolloutStage = 'dashboard_restart_and_verification'
     Start-And-VerifyDashboard
     Write-RolloutLog "Dashboard production build and supervisor restart passed after the closed KRX session. Trading locks verified; rollback build retained at $backupPath."
     Write-Output 'Dashboard build and restart verified; PAPER and REAL order locks remain disabled.'
 } catch {
+    $failureStage = $script:rolloutStage
+    $failureType = $_.Exception.GetType().Name
+    Write-RolloutLog ("Dashboard update failed at stage=$failureStage (exception_type=$failureType).")
     try {
+        $script:rolloutStage = 'rollback_cleanup'
         Stop-VerifiedDashboard -AllowMissingSupervisorState
         if (Test-Path -LiteralPath $buildPath) {
             New-Item -ItemType Directory -Path $backupDirectory -Force | Out-Null
@@ -189,6 +207,7 @@ try {
             Move-Item -LiteralPath $buildPath -Destination $failedBuildPath
         }
         if ($hadPreviousBuild -and (Test-Path -LiteralPath $backupPath)) {
+            $script:rolloutStage = 'rollback_supervisor_restart'
             Move-Item -LiteralPath $backupPath -Destination $buildPath
             Start-And-VerifyDashboard
             Write-RolloutLog 'Dashboard update failed; previous production build was restored and restarted.'
@@ -196,8 +215,8 @@ try {
             Write-RolloutLog 'Dashboard update failed and no previous production build was available for rollback.'
         }
     } catch {
-        Write-RolloutLog ('Dashboard rollback/restart also failed (' + $_.Exception.GetType().Name + ').')
+        Write-RolloutLog ("Dashboard rollback/restart failed at stage=$script:rolloutStage (exception_type=$($_.Exception.GetType().Name)).")
     }
-    if (-not $buildSucceeded) { Write-RolloutLog ('Dashboard build failed (' + $_.Exception.GetType().Name + ').') }
+    if (-not $buildSucceeded) { Write-RolloutLog ("Dashboard build failed at stage=$failureStage (exception_type=$failureType).") }
     throw
 }
