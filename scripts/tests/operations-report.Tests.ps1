@@ -754,6 +754,24 @@ Describe 'PAPER order smoke log summary boundary' {
         $summary.orderSent | Should Be $false
     }
 
+    It 'reports an out-of-window smoke start as skipped with no order sent' {
+        $directory = Join-Path $TestDrive 'out-of-window-logs'
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+        $path = Join-Path $directory 'paper-order-smoke-035720-20261117.log'
+        @(
+            'startedAt=2026-11-17T09:12:00+09:00'
+            'submissionSkipped=outsideScheduledExecutionWindow'
+            'completedAt=2026-11-17T09:12:00+09:00; exitCode=5'
+        ) | Set-Content -LiteralPath $path -Encoding utf8
+
+        $summary = Get-AiTraderPaperOrderSmokeSummary -LogDirectory $directory
+
+        $summary.state | Should Be 'COMPLETED'
+        $summary.outcome | Should Be 'SKIPPED'
+        $summary.orderSent | Should Be $false
+        $summary.cancelSent | Should Be $false
+    }
+
     It 'preserves an open-order warning when a smoke order is partially filled' {
         $directory = Join-Path $TestDrive 'partial-fill-logs'
         New-Item -ItemType Directory -Path $directory -Force | Out-Null

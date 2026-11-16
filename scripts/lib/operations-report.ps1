@@ -860,7 +860,7 @@ function Get-AiTraderPaperOrderSmokeSummary {
                 $result.preSubmitHistoryStatus = $Matches[1]
                 $result.preSubmitOrderCount = [int]$Matches[2]
             }
-            elseif ($line -match '^submissionSkipped=(brokerOrderHistoryNotProvenEmpty|localTradingSafetyOrOrderLedgerNotClear)$') {
+            elseif ($line -match '^submissionSkipped=(brokerOrderHistoryNotProvenEmpty|localTradingSafetyOrOrderLedgerNotClear|outsideScheduledExecutionWindow|outsideScheduledExecutionWindowBeforeSubmit)$') {
                 $result.outcome = 'SKIPPED'
             }
             elseif ($line -match '^KIS PAPER rejected the one-share request; no accepted order remains\. Code: [A-Za-z0-9_-]{1,32}\. Key: [A-Fa-f0-9-]{36}$') {
