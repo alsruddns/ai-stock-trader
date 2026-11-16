@@ -921,12 +921,12 @@ def test_model_training_removes_first_candidate_if_comparison_fails(tmp_path, mo
     original_metrics = ai_pipeline._metrics
     calls = 0
 
-    def fail_while_evaluating_second_model(model, samples):
+    def fail_while_evaluating_second_model(model, samples, *, threshold=0.5):
         nonlocal calls
         calls += 1
         if calls == 3:
             raise RuntimeError("second model validation failed")
-        return original_metrics(model, samples)
+        return original_metrics(model, samples, threshold=threshold)
 
     monkeypatch.setattr(ai_pipeline, "_metrics", fail_while_evaluating_second_model)
     monkeypatch.setattr(ai_pipeline, "validate_model_training_coverage", lambda *_args, **_kwargs: None)
