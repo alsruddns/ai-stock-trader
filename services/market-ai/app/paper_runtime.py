@@ -35,7 +35,8 @@ from .market_stream import (
     MinuteBarAggregator, parse_domestic_orderbook_frame_with_diagnostics,
     parse_trade_frame_with_diagnostics,
 )
-from .quant import MinuteBar, QuantConfig, _atr, exchange_session_date, orb_vwap_entry_candidate
+from .quant import (MinuteBar, QuantConfig, _atr, exchange_session_date,
+                    orb_vwap_entry_diagnostics)
 from .paper_automation import PaperAutomationReadiness, PaperAutoTrader, PaperEntryDecision
 from .paper_broker import PaperBrokerError, SpringPaperBrokerClient
 from .real_signal_orders import (RealSignalOrderError, RealSignalOrderOutcomeUnknown,
@@ -2286,22 +2287,33 @@ class PaperSessionFeedMonitor:
         signal = "HOLD"
         reason = "INSUFFICIENT_SESSION_HISTORY"
         model_id: str | None = None
+        strategy_diagnostics: dict[str, object] | None = None
         if len(history) >= max(QuantConfig().opening_range_bars, QuantConfig().ema_period,
                                QuantConfig().atr_period, QuantConfig().relative_volume_period):
             quant_config = _market_quant_config(watch.market)
             if quant_config is None:
                 quant_candidate = False
                 reason = "STRATEGY_COST_ASSUMPTIONS_UNAVAILABLE"
+                strategy_diagnostics = {
+                    "available": False, "candidate": False,
+                    "unavailable_reason": "STRATEGY_COST_ASSUMPTIONS_UNAVAILABLE",
+                }
             else:
                 try:
-                    quant_candidate = orb_vwap_entry_candidate(
+                    strategy_diagnostics = orb_vwap_entry_diagnostics(
                         list(history), quant_config, market=watch.market,
                     )
+                    quant_candidate = bool(strategy_diagnostics["candidate"])
                 except ValueError:
                     quant_candidate = False
                     reason = "BAR_SEQUENCE_INVALID"
+                    strategy_diagnostics = {
+                        "available": False, "candidate": False,
+                        "unavailable_reason": "BAR_SEQUENCE_INVALID",
+                    }
                 else:
-                    reason = "STRATEGY_FILTERS_NOT_MET"
+                    reason = ("STRATEGY_FILTERS_NOT_MET" if strategy_diagnostics["available"]
+                              else "INSUFFICIENT_SESSION_HISTORY")
             if quant_candidate:
                 try:
                     registry = LocalModelRegistry(os.getenv("AI_MODEL_REGISTRY_PATH", ".local/models"))
@@ -2331,6 +2343,7 @@ class PaperSessionFeedMonitor:
             "strategy_id": "ORB_VWAP" if signal == "BUY_CANDIDATE" else None,
             "evaluated_at": bar.timestamp.isoformat(), "model_id": model_id,
             "stop_distance_per_share": str(stop_distance) if stop_distance is not None else None,
+            "strategy_diagnostics": strategy_diagnostics,
             "executable": False,
         }
 

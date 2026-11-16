@@ -285,25 +285,41 @@ def orb_vwap_entry_candidate(
     OHLCV-only strategy setups. Runtime and execution callers keep the default
     and therefore still require a timestamped, in-limit spread.
     """
+    return bool(orb_vwap_entry_diagnostics(
+        bars, config, market=market, require_spread=require_spread,
+    )["candidate"])
+
+
+def orb_vwap_entry_diagnostics(
+    bars: list[MinuteBar], config: QuantConfig = QuantConfig(), *, market: Market,
+    require_spread: bool = True,
+) -> dict[str, object]:
+    """Return the live ORB/VWAP decision and each input check without changing thresholds."""
     _validate_session(bars, market)
-    return _orb_vwap_entry_candidate_validated(
-        bars, config, require_spread=require_spread,
-    )
+    return _orb_vwap_entry_diagnostics_validated(bars, config, require_spread=require_spread)
 
 
-def _orb_vwap_entry_candidate_validated(
+def _orb_vwap_entry_diagnostics_validated(
     bars: list[MinuteBar], config: QuantConfig = QuantConfig(), *,
     require_spread: bool = True,
     vwap_value: Decimal | None = None,
     ema_value: Decimal | None = None,
     atr_value: Decimal | None = None,
     opening_range_high: Decimal | None = None,
-) -> bool:
-    """Evaluate a prefix already validated as one ordered exchange session."""
+) -> dict[str, object]:
+    """Evaluate a validated prefix and expose the exact values behind its decision."""
     required = max(config.opening_range_bars, config.ema_period, config.atr_period,
                    config.relative_volume_period + 1)
     if len(bars) < required:
-        return False
+        return {
+            "candidate": False,
+            "available": False,
+            "bars_observed": len(bars),
+            "bars_required": required,
+            "failed_checks": ["minimum_history"],
+            "checks": {"minimum_history": False},
+            "observed": {},
+        }
     opening_high = opening_range_high or max(bar.high for bar in bars[:config.opening_range_bars])
     current = bars[-1]
     prior_volumes = [bar.volume for bar in bars[max(0, len(bars) - config.relative_volume_period - 1):-1]]
@@ -315,6 +331,8 @@ def _orb_vwap_entry_candidate_validated(
         spread_ok = True
     turnover_ok = current.close * current.volume >= config.minimum_turnover
     reward_covers_costs = True
+    expected_reward_bps: Decimal | None = None
+    estimated_round_trip_cost_bps: Decimal | None = None
     if config.minimum_reward_to_cost_multiple > 0:
         if require_spread and not spread_ok:
             reward_covers_costs = False
@@ -336,12 +354,58 @@ def _orb_vwap_entry_candidate_validated(
             )
     vwap = vwap_value if vwap_value is not None else _vwap(bars)
     ema = ema_value if ema_value is not None else _ema([bar.close for bar in bars], config.ema_period)
-    return (
-        current.close > opening_high and current.close > vwap
-        and current.close > ema
-        and relative_volume >= config.minimum_relative_volume and spread_ok and turnover_ok
-        and reward_covers_costs
-    )
+    checks = {
+        "opening_range_breakout": current.close > opening_high,
+        "above_vwap": current.close > vwap,
+        "above_ema": current.close > ema,
+        "relative_volume": relative_volume >= config.minimum_relative_volume,
+        "spread": spread_ok,
+        "turnover": turnover_ok,
+        "reward_to_cost": reward_covers_costs,
+    }
+    observed: dict[str, str | bool | None] = {
+        "close": str(current.close),
+        "opening_range_high": str(opening_high),
+        "vwap": str(vwap),
+        "ema": str(ema),
+        "relative_volume": str(relative_volume),
+        "minimum_relative_volume": str(config.minimum_relative_volume),
+        "spread_bps": str(current.spread_bps) if spread_observed else None,
+        "spread_observed": spread_observed,
+        "maximum_spread_bps": str(config.maximum_spread_bps),
+        "turnover": str(current.close * current.volume),
+        "minimum_turnover": str(config.minimum_turnover),
+        "expected_reward_bps": str(expected_reward_bps) if expected_reward_bps is not None else None,
+        "estimated_round_trip_cost_bps": (
+            str(estimated_round_trip_cost_bps) if estimated_round_trip_cost_bps is not None else None
+        ),
+        "minimum_reward_to_cost_multiple": str(config.minimum_reward_to_cost_multiple),
+    }
+    failed_checks = [name for name, passed in checks.items() if not passed]
+    return {
+        "candidate": not failed_checks,
+        "available": True,
+        "bars_observed": len(bars),
+        "bars_required": required,
+        "failed_checks": failed_checks,
+        "checks": checks,
+        "observed": observed,
+    }
+
+
+def _orb_vwap_entry_candidate_validated(
+    bars: list[MinuteBar], config: QuantConfig = QuantConfig(), *,
+    require_spread: bool = True,
+    vwap_value: Decimal | None = None,
+    ema_value: Decimal | None = None,
+    atr_value: Decimal | None = None,
+    opening_range_high: Decimal | None = None,
+) -> bool:
+    """Boolean compatibility path for callers that already validated the session."""
+    return bool(_orb_vwap_entry_diagnostics_validated(
+        bars, config, require_spread=require_spread, vwap_value=vwap_value,
+        ema_value=ema_value, atr_value=atr_value, opening_range_high=opening_range_high,
+    )["candidate"])
 
 
 def backtest_orb_vwap(

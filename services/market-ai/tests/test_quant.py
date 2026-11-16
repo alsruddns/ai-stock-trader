@@ -5,6 +5,7 @@ import pytest
 
 from app.quant import (
     MinuteBar, QuantConfig, _ema, backtest_orb_vwap, orb_vwap_entry_candidate,
+    orb_vwap_entry_diagnostics,
     risk_bounded_quantity, risk_bounded_quantity_bounds,
 )
 
@@ -89,6 +90,42 @@ def test_expected_reward_to_cost_filter_checks_the_configured_ratio(monkeypatch)
     # 2 commission bps + 2.5 entry spread bps + 7.5 exit spread bps.
     assert candidate("16.5") is True
     assert candidate("16.6") is False
+
+
+def test_entry_diagnostics_report_failed_checks_and_keep_candidate_semantics(monkeypatch) -> None:
+    bars = _session_bars()[:21]
+    monkeypatch.setattr("app.quant._ema", lambda _values, _period: Decimal("100"))
+    monkeypatch.setattr("app.quant._vwap", lambda _bars: Decimal("100"))
+    monkeypatch.setattr("app.quant._atr", lambda _bars, _period: Decimal("1"))
+    config = QuantConfig(
+        minimum_turnover=Decimal("1000000"), minimum_relative_volume=Decimal("4"),
+        maximum_spread_bps=Decimal("4"), minimum_reward_to_cost_multiple=Decimal("100"),
+        atr_stop_multiple=Decimal("1"), reward_risk_multiple=Decimal("2"),
+    )
+
+    diagnostics = orb_vwap_entry_diagnostics(bars, config, market="KR")
+
+    assert diagnostics["available"] is True
+    assert diagnostics["candidate"] is False
+    assert diagnostics["failed_checks"] == ["relative_volume", "spread", "turnover", "reward_to_cost"]
+    assert diagnostics["checks"]["opening_range_breakout"] is True
+    assert diagnostics["observed"]["relative_volume"] == "3"
+    assert diagnostics["observed"]["spread_bps"] == "5"
+    assert orb_vwap_entry_candidate(bars, config, market="KR") is diagnostics["candidate"]
+
+
+def test_entry_diagnostics_distinguish_insufficient_history() -> None:
+    diagnostics = orb_vwap_entry_diagnostics(_session_bars()[:20], QuantConfig(), market="KR")
+
+    assert diagnostics == {
+        "candidate": False,
+        "available": False,
+        "bars_observed": 20,
+        "bars_required": 21,
+        "failed_checks": ["minimum_history"],
+        "checks": {"minimum_history": False},
+        "observed": {},
+    }
 
 
 def test_orb_vwap_enters_on_next_bar_and_applies_costs() -> None:

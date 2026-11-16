@@ -2457,8 +2457,10 @@ def test_closed_bars_update_non_executable_quant_decision_and_reset_each_session
 
     decision = runtime.decisions()[watch.key]
     assert decision["signal"] == "HOLD"
-    assert decision["reason"] == "STRATEGY_FILTERS_NOT_MET"
+    assert decision["reason"] == "INSUFFICIENT_SESSION_HISTORY"
     assert decision["bars_in_session"] == 20
+    assert decision["strategy_diagnostics"]["available"] is False
+    assert decision["strategy_diagnostics"]["bars_required"] == 21
     assert decision["executable"] is False
 
     next_session = datetime(2026, 11, 6, 9, 0, tzinfo=ZoneInfo("Asia/Seoul"))
