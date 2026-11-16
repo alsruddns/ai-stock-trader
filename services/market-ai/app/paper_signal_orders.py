@@ -16,6 +16,25 @@ import httpx
 
 Market = Literal["KR", "US"]
 
+PAPER_SIGNAL_REQUIRED_GATES = {
+    "TRADING_MODE": "paper",
+    "LIVE_TRADING_ENABLED": "false",
+    "KIS_ENVIRONMENT": "paper",
+    "KIS_MARKET_DATA_ENABLED": "true",
+    "KIS_ACCOUNT_READ_ENABLED": "true",
+    "KIS_PAPER_ACCOUNT_READ_ENABLED": "true",
+    "KIS_PAPER_ORDERS_ENABLED": "true",
+    "KIS_PAPER_RECONCILIATION_ENABLED": "true",
+    "KIS_PAPER_SIGNAL_SUBMISSION_ENABLED": "true",
+    "KIS_PAPER_CANCEL_PREFLIGHT_VERIFIED": "true",
+    "KIS_PAPER_PROTECTIVE_EXIT_VERIFIED": "true",
+    "KIS_PAPER_PROTECTIVE_EXIT_AUTOMATION_ENABLED": "true",
+    "KIS_REAL_ORDERS_ENABLED": "false",
+    "PAPER_AUTOTRADING_ENABLED": "false",
+    "PAPER_SESSION_MONITOR_ENABLED": "true",
+    "MARKET_OPERATIONAL_SCOPE": "kr",
+}
+
 
 class PaperSignalOrderError(RuntimeError):
     pass
@@ -45,25 +64,15 @@ def paper_signal_idempotency_key(
 
 def paper_signal_submission_enabled() -> bool:
     """Require all Python and Spring-side KIS PAPER gates before any write request."""
-    expected = {
-        "TRADING_MODE": "paper",
-        "LIVE_TRADING_ENABLED": "false",
-        "KIS_ENVIRONMENT": "paper",
-        "KIS_MARKET_DATA_ENABLED": "true",
-        "KIS_ACCOUNT_READ_ENABLED": "true",
-        "KIS_PAPER_ACCOUNT_READ_ENABLED": "true",
-        "KIS_PAPER_ORDERS_ENABLED": "true",
-        "KIS_PAPER_RECONCILIATION_ENABLED": "true",
-        "KIS_PAPER_SIGNAL_SUBMISSION_ENABLED": "true",
-        "KIS_PAPER_CANCEL_PREFLIGHT_VERIFIED": "true",
-        "KIS_PAPER_PROTECTIVE_EXIT_VERIFIED": "true",
-        "KIS_PAPER_PROTECTIVE_EXIT_AUTOMATION_ENABLED": "true",
-        "KIS_REAL_ORDERS_ENABLED": "false",
-        "PAPER_AUTOTRADING_ENABLED": "false",
-        "PAPER_SESSION_MONITOR_ENABLED": "true",
-        "MARKET_OPERATIONAL_SCOPE": "kr",
-    }
-    return all(os.getenv(name, "").strip().lower() == value for name, value in expected.items())
+    return not paper_signal_submission_lock_reasons()
+
+
+def paper_signal_submission_lock_reasons() -> list[str]:
+    """Return names of unmet gates only; never expose configured values or secrets."""
+    return [
+        name for name, expected in PAPER_SIGNAL_REQUIRED_GATES.items()
+        if os.getenv(name, "").strip().lower() != expected
+    ]
 
 
 class SpringKisPaperSignalOrderClient:

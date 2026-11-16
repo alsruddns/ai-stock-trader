@@ -223,6 +223,27 @@ def test_paper_session_status_is_monitor_only() -> None:
     }
 
 
+def test_paper_session_status_exposes_only_unmet_signal_gate_names(monkeypatch) -> None:
+    monkeypatch.setattr(main.paper_session_monitor, "status", lambda: {
+        "orders_enabled": False,
+        "kis_paper_signal_state": "LOCKED_BY_SAFETY_GATES",
+        "kis_paper_signal_error": "PAPER_SIGNAL_SAFETY_GATES_NOT_SATISFIED",
+        "kis_paper_signal_lock_reasons": [
+            "KIS_PAPER_ORDERS_ENABLED", "KIS_PAPER_CANCEL_PREFLIGHT_VERIFIED",
+        ],
+    })
+
+    response = client.get("/api/v1/paper/session")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["kis_paper_signal_state"] == "LOCKED_BY_SAFETY_GATES"
+    assert payload["kis_paper_signal_lock_reasons"] == [
+        "KIS_PAPER_ORDERS_ENABLED", "KIS_PAPER_CANCEL_PREFLIGHT_VERIFIED",
+    ]
+    assert "KIS_PAPER_APP_SECRET" not in str(payload)
+
+
 def test_paper_session_status_preserves_domestic_bar_quote_observation_time(monkeypatch) -> None:
     quote_time = "2026-11-06T10:01:30+09:00"
     monkeypatch.setattr(main.paper_session_monitor, "status", lambda: {

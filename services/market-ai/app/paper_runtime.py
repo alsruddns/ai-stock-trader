@@ -44,7 +44,8 @@ from .real_signal_orders import (RealSignalOrderError, RealSignalOrderOutcomeUnk
                                  real_signal_submission_enabled)
 from .paper_signal_orders import (PaperSignalOrderError, PaperSignalOrderOutcomeUnknown,
                                   SpringKisPaperSignalOrderClient, paper_signal_idempotency_key,
-                                  paper_signal_submission_enabled)
+                                  paper_signal_submission_enabled,
+                                  paper_signal_submission_lock_reasons)
 from .market_calendar import exchange_continuous_session_window
 from .market_scope import allowed_operational_markets
 from .paper_ops import (
@@ -286,6 +287,7 @@ class PaperSessionFeedMonitor:
             "candidate_refresh_by_market": {},
             "real_signal_state": "DISABLED", "last_real_signal": None,
             "kis_paper_signal_state": "DISABLED", "kis_paper_signal_error": None,
+            "kis_paper_signal_lock_reasons": [],
             "last_kis_paper_signal": None,
             "paper_reconciliation_required": False, "paper_unknown_idempotency_key": None,
         }
@@ -754,10 +756,11 @@ class PaperSessionFeedMonitor:
                 self._kis_paper_signal_client = SpringKisPaperSignalOrderClient()
                 self._kis_paper_signal_task = asyncio.create_task(self._kis_paper_signal_loop())
                 self._set_status(kis_paper_signal_state="READY", kis_paper_signal_error=None,
-                                 last_kis_paper_signal=None)
+                                 kis_paper_signal_lock_reasons=[], last_kis_paper_signal=None)
             else:
                 self._set_status(kis_paper_signal_state="LOCKED_BY_SAFETY_GATES",
-                                 kis_paper_signal_error=None)
+                                 kis_paper_signal_error="PAPER_SIGNAL_SAFETY_GATES_NOT_SATISFIED",
+                                 kis_paper_signal_lock_reasons=paper_signal_submission_lock_reasons())
         self._set_status(
             state="CONNECTING", enabled=True, subscriptions=len(watches), last_error=None,
             mode="REAL_SIGNAL" if self._real_monitor_mode else "PAPER",

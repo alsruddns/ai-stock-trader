@@ -12,6 +12,7 @@ from app.paper_signal_orders import (
     SpringKisPaperSignalOrderClient,
     paper_signal_idempotency_key,
     paper_signal_submission_enabled,
+    paper_signal_submission_lock_reasons,
 )
 
 
@@ -143,6 +144,29 @@ def test_all_paper_signal_gates_are_required(monkeypatch) -> None:
         monkeypatch.setenv(gate, value)
         assert not paper_signal_submission_enabled(), gate
         enable_paper_signal_gates(monkeypatch)
+
+
+def test_lock_diagnostics_report_only_unmet_gate_names(monkeypatch) -> None:
+    enable_paper_signal_gates(monkeypatch)
+    monkeypatch.setenv("KIS_PAPER_ORDERS_ENABLED", "false")
+    monkeypatch.setenv("KIS_PAPER_CANCEL_PREFLIGHT_VERIFIED", "false")
+
+    assert paper_signal_submission_lock_reasons() == [
+        "KIS_PAPER_ORDERS_ENABLED",
+        "KIS_PAPER_CANCEL_PREFLIGHT_VERIFIED",
+    ]
+    assert not paper_signal_submission_enabled()
+
+
+def test_default_lock_diagnostics_never_include_environment_values(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_PAPER_APP_SECRET", "secret-value-must-not-appear")
+    monkeypatch.setenv("KIS_PAPER_ACCOUNT_NUMBER", "1234567801")
+
+    reasons = paper_signal_submission_lock_reasons()
+
+    assert reasons
+    assert "secret-value-must-not-appear" not in " ".join(reasons)
+    assert "1234567801" not in " ".join(reasons)
 
 
 def test_bar_idempotency_key_is_stable_across_timezone_and_model_changes() -> None:
