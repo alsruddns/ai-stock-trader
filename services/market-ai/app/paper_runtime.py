@@ -275,7 +275,8 @@ class PaperSessionFeedMonitor:
             "stream_last_recovered_at_by_feed": {"paper": None, "real": None},
             "stream_last_recovery_seconds_by_feed": {"paper": None, "real": None},
             "orders_enabled": False,
-            "subscription_acknowledgements_by_feed": {}, "last_subscription_error_code": None,
+            "subscription_acknowledgements_by_feed": {},
+            "subscription_acknowledgements_by_key_by_feed": {}, "last_subscription_error_code": None,
             "last_subscription_error_environment": None,
             "last_subscription_error_transaction_id": None,
             "last_subscription_error_subscription_key": None,
@@ -359,6 +360,10 @@ class PaperSessionFeedMonitor:
             result["stream_reconnecting_since_by_feed"] = dict(self._status["stream_reconnecting_since_by_feed"])
             result["stream_last_recovered_at_by_feed"] = dict(self._status["stream_last_recovered_at_by_feed"])
             result["stream_last_recovery_seconds_by_feed"] = dict(self._status["stream_last_recovery_seconds_by_feed"])
+            result["subscription_acknowledgements_by_key_by_feed"] = {
+                feed: {key: dict(metrics) for key, metrics in keys.items()}
+                for feed, keys in self._status["subscription_acknowledgements_by_key_by_feed"].items()
+            }
             result["candidate_refresh_by_market"] = {
                 key: dict(value) for key, value in self._status["candidate_refresh_by_market"].items()
             }
@@ -1384,7 +1389,9 @@ class PaperSessionFeedMonitor:
                     subscription_tracker = SubscriptionAckTracker(required_subscriptions)
                     acknowledgement_changed = asyncio.Event()
                     self._set_connection_state(environment, "SUBSCRIBING")
-                    self._set_subscription_ack_status(environment, subscription_tracker.status)
+                    self._set_subscription_ack_status(
+                        environment, subscription_tracker.status, subscription_tracker.status_by_key,
+                    )
                     sent_keys: set[str] = set()
                     failure_stage = "subscription_send"
                     for watch in tuple(active_watches):
@@ -1451,18 +1458,19 @@ class PaperSessionFeedMonitor:
                                 try:
                                     acknowledged = subscription_tracker.observe(frame)
                                 except SubscriptionAcknowledgementError as exc:
+                                    self._set_subscription_ack_status(
+                                        environment, subscription_tracker.status, subscription_tracker.status_by_key,
+                                    )
                                     self._set_status(
                                         last_subscription_error_code=exc.broker_code,
                                         last_subscription_error_environment=environment,
                                         last_subscription_error_transaction_id=exc.transaction_id,
                                         last_subscription_error_subscription_key=exc.subscription_key,
-                                        subscription_acknowledgements_by_feed={
-                                            **self.status().get("subscription_acknowledgements_by_feed", {}),
-                                            environment: subscription_tracker.status,
-                                        },
                                     )
                                     raise
-                                self._set_subscription_ack_status(environment, subscription_tracker.status)
+                                self._set_subscription_ack_status(
+                                    environment, subscription_tracker.status, subscription_tracker.status_by_key,
+                                )
                                 if acknowledged:
                                     self._set_status(
                                         last_subscription_error_code=None,
@@ -1556,9 +1564,16 @@ class PaperSessionFeedMonitor:
             return "KIS_APPROVAL_OR_AUTH"
         return "UNCLASSIFIED"
 
-    def _set_subscription_ack_status(self, environment: str, status: dict[str, int | bool]) -> None:
+    def _set_subscription_ack_status(
+        self, environment: str, status: dict[str, int | bool],
+        status_by_key: dict[str, dict[str, int | bool]],
+    ) -> None:
         current = self.status().get("subscription_acknowledgements_by_feed", {})
-        self._set_status(subscription_acknowledgements_by_feed={**current, environment: status})
+        current_by_key = self.status().get("subscription_acknowledgements_by_key_by_feed", {})
+        self._set_status(
+            subscription_acknowledgements_by_feed={**current, environment: status},
+            subscription_acknowledgements_by_key_by_feed={**current_by_key, environment: status_by_key},
+        )
 
     def _set_connection_state(self, environment: str, state: str, *, now: datetime | None = None) -> None:
         if environment not in {"paper", "real"}:
@@ -1646,7 +1661,9 @@ class PaperSessionFeedMonitor:
                                 subscription["tr_id"], subscription["tr_key"],
                                 operation="subscribe" if should_subscribe else "unsubscribe",
                             )
-                        self._set_subscription_ack_status(environment, subscription_tracker.status)
+                        self._set_subscription_ack_status(
+                            environment, subscription_tracker.status, subscription_tracker.status_by_key,
+                        )
                         self._set_connection_state(environment, "SUBSCRIBING")
                         if acknowledgement_changed is not None:
                             acknowledgement_changed.set()

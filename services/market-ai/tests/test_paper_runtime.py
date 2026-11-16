@@ -1301,6 +1301,9 @@ def test_domestic_feed_waits_for_trade_and_orderbook_subscription_acks(monkeypat
     assert runtime.status()["subscription_acknowledgements_by_feed"]["paper"] == {
         "accepted_count": 2, "required_count": 2, "complete": True,
     }
+    assert runtime.status()["subscription_acknowledgements_by_key_by_feed"]["paper"] == {
+        "005930": {"accepted_count": 2, "required_count": 2, "complete": True},
+    }
     assert runtime.status()["last_stream_failure_stage"] == "websocket_connect"
     assert runtime.status()["last_stream_error_category"] == "NETWORK_DISCONNECT"
     assert runtime.status()["last_stream_failure_at"] == "2026-11-05T00:00:00+00:00"
@@ -1446,6 +1449,16 @@ def test_domestic_dynamic_watch_ack_controls_feed_state(
         status = runtime.status()
         assert status["stream_connections"]["paper"] == expected_state
         assert status["subscription_acknowledgements_by_feed"]["paper"] == expected_ack
+        acknowledgements_by_key = status["subscription_acknowledgements_by_key_by_feed"]["paper"]
+        assert acknowledgements_by_key["005930"] == {
+            "accepted_count": 2, "required_count": 2, "complete": True,
+        }
+        if expected_state == "RUNNING":
+            assert set(acknowledgements_by_key) == {"005930"}
+        else:
+            assert acknowledgements_by_key["000660"] == {
+                "accepted_count": 0, "required_count": 2, "complete": False,
+            }
         if expected_error is not None:
             assert status["last_subscription_error_code"] == expected_error
             assert status["last_subscription_error_environment"] == "paper"

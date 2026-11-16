@@ -93,6 +93,21 @@ class SubscriptionAckTracker:
             "complete": self.complete,
         }
 
+    @property
+    def status_by_key(self) -> dict[str, dict[str, int | bool]]:
+        """Expose acknowledgement coverage per KIS subscription key."""
+        keys = sorted({subscription_key for _, subscription_key in self._required})
+        result: dict[str, dict[str, int | bool]] = {}
+        for key in keys:
+            required = {identity for identity in self._required if identity[1] == key}
+            accepted = required.intersection(self._accepted)
+            result[key] = {
+                "accepted_count": len(accepted),
+                "required_count": len(required),
+                "complete": bool(required) and required.issubset(self._accepted),
+            }
+        return result
+
     def require(self, transaction_id: str, subscription_key: str, *, operation: str = "subscribe") -> None:
         if (not re.fullmatch(r"[A-Z0-9]{1,32}", transaction_id)
                 or not isinstance(subscription_key, str) or not _SUBSCRIPTION_KEY.fullmatch(subscription_key)

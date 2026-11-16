@@ -223,6 +223,29 @@ def test_paper_session_status_is_monitor_only() -> None:
     }
 
 
+def test_paper_session_status_exposes_subscription_acknowledgements_per_key(monkeypatch) -> None:
+    monkeypatch.setattr(main.paper_session_monitor, "status", lambda: {
+        "orders_enabled": False,
+        "subscription_acknowledgements_by_key_by_feed": {
+            "paper": {
+                "005930": {"accepted_count": 2, "required_count": 2, "complete": True},
+                "035720": {"accepted_count": 1, "required_count": 2, "complete": False},
+            },
+        },
+    })
+
+    response = client.get("/api/v1/paper/session")
+
+    assert response.status_code == 200
+    assert response.json()["subscription_acknowledgements_by_key_by_feed"] == {
+        "paper": {
+            "005930": {"accepted_count": 2, "required_count": 2, "complete": True},
+            "035720": {"accepted_count": 1, "required_count": 2, "complete": False},
+        },
+    }
+    assert response.json()["orders_enabled"] is False
+
+
 def test_paper_session_status_exposes_only_unmet_signal_gate_names(monkeypatch) -> None:
     monkeypatch.setattr(main.paper_session_monitor, "status", lambda: {
         "orders_enabled": False,

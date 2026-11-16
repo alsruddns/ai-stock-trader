@@ -146,6 +146,20 @@ def test_subscription_ack_tracker_requires_every_requested_subscription() -> Non
     assert tracker.observe('{"header":{"tr_id":"H0STCNT0","tr_key":"000660"},"body":{"rt_cd":"0"}}') is False
     assert tracker.observe('{"header":{"tr_id":"H0STASP0","tr_key":"005930"},"body":{"rt_cd":"0"}}') is True
     assert tracker.complete is True
+    assert tracker.status_by_key == {
+        "000660": {"accepted_count": 1, "required_count": 1, "complete": True},
+        "005930": {"accepted_count": 2, "required_count": 2, "complete": True},
+    }
+
+
+def test_subscription_ack_tracker_reports_partial_acknowledgements_by_symbol() -> None:
+    tracker = SubscriptionAckTracker({("H0STCNT0", "005930"), ("H0STASP0", "005930"), ("H0STCNT0", "035720")})
+    tracker.observe('{"header":{"tr_id":"H0STCNT0","tr_key":"005930"},"body":{"rt_cd":"0"}}')
+
+    assert tracker.status_by_key == {
+        "005930": {"accepted_count": 1, "required_count": 2, "complete": False},
+        "035720": {"accepted_count": 0, "required_count": 1, "complete": False},
+    }
 
 
 def test_subscription_ack_tracker_does_not_count_duplicate_symbol_ack_for_another_symbol() -> None:

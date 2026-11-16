@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Add : [P5 종목별 WebSocket 구독 진단] 세션 API·대시보드 노출 (2026-11-17 06:48 KST):** 기존 전체 합계 `6/6`만 보이던 KIS WebSocket 구독 승인을 `subscription_acknowledgements_by_key_by_feed`로 확장해 종목/구독키마다 승인·필요 수를 확인하고, P5 상태 카드에도 표시합니다. 부분 승인, 종목 추가·해제, 대시보드 응답 회귀를 포함한 집중 Python 검사 12/12와 dashboard ESLint·TypeScript 검사가 통과했습니다. 거래·주문 게이트는 변경하지 않았습니다. 운영 적용은 장 시작 전 안전 재시작 후 확인할 예정입니다.
+
 - **Update : [P2 국내 PAPER 취소 게이트] KIS 공식 지원표 재확인 (2026-11-17 06:40 KST):** 한국투자증권 공식 `open-trading-api` 제공표에서 국내 `주식정정취소가능주문조회`의 모의투자 제공란은 비어 있고, 공식 정정·취소 샘플은 취소 POST 전에 `output.psbl_qty`를 확인하도록 명시합니다. 오늘 PAPER 읽기 전용 조회도 `OPSQ0002`/0행으로 수량을 반환하지 않았으므로, PAPER 취소·보호청산·완전 주문 수명주기 게이트를 열지 않습니다. [공식 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#L234-L246) · [공식 취소 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_rvsecncl/order_rvsecncl.py#L499-L503)
 
 - **Update : [P2 국내 PAPER 취소 사전조회 재확인] KIS PAPER 서비스 응답 (2026-11-17 06:27 KST):** 공식 현재 조회 TR `TTTC0084R`의 PAPER 변환 `VTTC0084R`로 종목순서 `inquire-psbl-rvsecncl` GET을 1회 실행했습니다. HTTP 200이었지만 KIS `OPSQ0002`/결과코드 `1`, 결과 0행으로 `psbl_qty`를 확인하지 못했습니다. PAPER 취소와 보호청산 게이트는 계속 닫아 두며, 주문·취소 POST는 전송하지 않았습니다. 비밀값을 제외한 응답 요약은 Git 제외 `.local/validation/kis-paper-cancel-preflight-20261117.jsonl`에 남겼습니다.
