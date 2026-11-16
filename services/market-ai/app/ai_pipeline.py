@@ -1570,9 +1570,17 @@ class LocalModelRegistry:
             raise RuntimeError("Install the optional ai dependencies to train LightGBM and XGBoost models") from exc
         x_train = np.asarray([sample.features for sample in train], dtype=np.float32)
         y_train = np.asarray([sample.label for sample in train], dtype=np.int32)
+        positive_train_count = int(np.count_nonzero(y_train == 1))
+        negative_train_count = int(np.count_nonzero(y_train == 0))
+        if positive_train_count <= 0 or negative_train_count <= 0:
+            raise ValueError("training partition must contain both outcome classes")
+        xgboost_scale_pos_weight = negative_train_count / positive_train_count
         candidates = {
-            "lightgbm": LGBMClassifier(n_estimators=80, num_leaves=15, learning_rate=0.05, verbosity=-1, random_state=42, n_jobs=1),
-            "xgboost": XGBClassifier(n_estimators=80, max_depth=3, learning_rate=0.05, subsample=0.8, colsample_bytree=0.8, eval_metric="logloss", random_state=42, n_jobs=1),
+            "lightgbm": LGBMClassifier(n_estimators=80, num_leaves=15, learning_rate=0.05,
+                                        class_weight="balanced", verbosity=-1, random_state=42, n_jobs=1),
+            "xgboost": XGBClassifier(n_estimators=80, max_depth=3, learning_rate=0.05, subsample=0.8,
+                                     colsample_bytree=0.8, scale_pos_weight=xgboost_scale_pos_weight,
+                                     eval_metric="logloss", random_state=42, n_jobs=1),
         }
         results: list[ModelTrainingResult] = []
         threshold_rejections: list[dict[str, str]] = []
@@ -1595,6 +1603,10 @@ class LocalModelRegistry:
         ])
         training_config = {
             "symbol": normalized_symbol,
+            "training_positive_samples": positive_train_count,
+            "training_negative_samples": negative_train_count,
+            "lightgbm_class_weight": "balanced",
+            "xgboost_scale_pos_weight": xgboost_scale_pos_weight,
             "label_version": LABEL_VERSION,
             "backtest_version": BACKTEST_VERSION,
             "backtest_spread_model": BACKTEST_SPREAD_MODEL,

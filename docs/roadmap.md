@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Update : [P4 국내 클래스 불균형 학습] 005930·000660 재검증 결과 (2026-11-17 00:22 KST):** 비용후 양성 label이 희소한 학습 표본(005930 train 4/275, 000660 train 6/178)을 그대로 평가할 수 있도록 LightGBM `class_weight=balanced`와 XGBoost의 `scale_pos_weight=negative/positive`를 적용하고 비율·표본 수를 candidate manifest `training_config`에 기록합니다. 기존 chronological validation 비용후 양수 기대값·최소 5회/3세션 게이트와 승인·활성화 요구는 변경하지 않았습니다. P4 선택검사 10/10 통과 후 같은 PostgreSQL 학습 범위로 두 종목을 재학습했으나 둘 다 `no_profitable_validation_ai_threshold`; 새 후보·아티팩트는 0개입니다. 기존 등록모델 14개·승인 0·활성 0은 유지됩니다. class weighting만으로 현재 전략/자료의 validation 약점을 해결하지 못했으므로, 다음 국내 완전 세션 자료를 추가해 다시 평가해야 합니다. KIS·계좌·주문 API 호출은 없습니다.
+
 - **Update : [P4 국내 원천자료 범위 감사] 90일 바깥 적격 세션 건수 확인 (2026-11-17 00:12 KST):** PostgreSQL 전 범위 `2025-01-01`~`2026-11-16` training-session export `--dry-run`을 네 종목에 실행해 파일 없이 저장 기간을 확인했습니다. 적격 세션은 005930 35개(첫 세션 9/21), 000660 34개(9/21), 035720 27개(10/6), 114800 1개(11/16)로 121일/API 준비도 조회 범위를 넓혀도 추가 과거 세션은 없습니다. KR 모델 학습 승인 출처 문서에 이미 코드상 허용된 `KIS_PAPER_REST_MINUTE_CHART`를 반영했습니다. 이 조사는 국내 DB SELECT만 수행했고 KIS API·계좌·주문, 파일 저장은 없었습니다.
 
 - **Fix : [P3 국내 퀀트 CI] 진단 테스트 개수 검증 갱신 (2026-11-17 00:03 KST):** 필터 진단 회귀검사 2건 추가로 국내 선택 검사 대상이 44건에서 46건으로 늘어난 변경을 Actions 선택검증기에도 반영했습니다. 이전 `Domestic quant safety` run은 오래된 개수 상수로 실패했으나 수정 후 국내 범위 선택검사, 퀀트 46건, 비용지표, 포트폴리오, LEAN exit resolver 및 CLI compile을 포함한 `43892267626`가 성공했습니다. 코드 통합 KIS 호환성 run `43892041421`도 성공했습니다. 미국 범위 제외 로직은 그대로 유지합니다.

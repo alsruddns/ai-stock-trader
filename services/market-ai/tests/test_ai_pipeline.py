@@ -839,6 +839,13 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path,
         assert metadata["training_config"]["backtest_sell_commission_bps"] == "5"
         assert metadata["training_config"]["backtest_sell_tax_bps"] == "0"
         assert metadata["training_config"]["backtest_spread_model"] == BACKTEST_SPREAD_MODEL
+        assert metadata["training_config"]["training_positive_samples"] > 0
+        assert metadata["training_config"]["training_negative_samples"] > 0
+        assert metadata["training_config"]["lightgbm_class_weight"] == "balanced"
+        assert metadata["training_config"]["xgboost_scale_pos_weight"] == pytest.approx(
+            metadata["training_config"]["training_negative_samples"]
+            / metadata["training_config"]["training_positive_samples"]
+        )
         assert "candidate_positive_rate" in result.test_metrics
         assert "candidate_mean_forward_net_bps" in result.test_metrics
         assert "candidate_coverage" in result.quant_baseline_test_metrics
