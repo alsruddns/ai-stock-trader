@@ -662,6 +662,83 @@ class KisOrderClientTest {
         server.verify();
     }
 
+    @Test
+    void confirmsNoDomesticPaperOrderOnlyAfterEveryHistoryPageIsEmpty() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        KisOrderIntent intent = unresolvedDomesticPaperIntent("035720");
+        String orderDate = intent.getCreatedAt().atZone(ZoneId.of("Asia/Seoul"))
+                .toLocalDate().format(DateTimeFormatter.BASIC_ISO_DATE);
+        org.springframework.http.HttpHeaders continuationHeaders = new org.springframework.http.HttpHeaders();
+        continuationHeaders.set("tr_cont", "M");
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("tr_id", "VTTC0081R"))
+                .andExpect(queryParam("INQR_STRT_DT", orderDate))
+                .andExpect(queryParam("INQR_END_DT", orderDate))
+                .andExpect(queryParam("PDNO", "035720"))
+                .andExpect(queryParam("ODNO", ""))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[],"ctx_area_fk100":"from-1","ctx_area_nk100":"next-1"}
+                        """, org.springframework.http.MediaType.APPLICATION_JSON)
+                        .headers(continuationHeaders));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("tr_cont", "N"))
+                .andExpect(queryParam("CTX_AREA_FK100", "from-1"))
+                .andExpect(queryParam("CTX_AREA_NK100", "next-1"))
+                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"output1\":[]}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+
+        assertTrue(client(true, builder).confirmNoDomesticPaperOrderInHistory(intent));
+        server.verify();
+    }
+
+    @Test
+    void doesNotConfirmNoOrderWhenHistoryContainsAnySymbolRow() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andRespond(withSuccess("""
+                        {"rt_cd":"0","output1":[{"pdno":"035720","odno":"1234"}]}
+                        """, org.springframework.http.MediaType.APPLICATION_JSON));
+
+        assertFalse(client(true, builder).confirmNoDomesticPaperOrderInHistory(
+                unresolvedDomesticPaperIntent("035720")));
+        server.verify();
+    }
+
+    @Test
+    void incompleteHistoryCannotConfirmNoOrder() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andRespond(withSuccess("{\"rt_cd\":\"0\"}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+
+        assertThrows(KisApiException.class, () -> client(true, builder)
+                .confirmNoDomesticPaperOrderInHistory(unresolvedDomesticPaperIntent("035720")));
+        server.verify();
+    }
+
+    private static KisOrderIntent unresolvedDomesticPaperIntent(String symbol) {
+        var request = new com.aistocktrader.order.OrderRequest(Market.KR, symbol, OrderSide.BUY, 1,
+                new BigDecimal("50000"), Currency.KRW);
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", request, null);
+        intent.markUnknown();
+        return intent;
+    }
+
     private static KisOrderClient client(boolean enabled, RestClient.Builder builder) {
         KisProperties.Account paper = new KisProperties.Account("paper-key", "paper-secret", "1234567801");
         KisProperties properties = new KisProperties(true, true, false, false, paper,

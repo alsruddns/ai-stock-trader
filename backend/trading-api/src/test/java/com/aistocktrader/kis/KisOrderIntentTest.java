@@ -16,6 +16,36 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class KisOrderIntentTest {
     @Test
+    void noOrderConfirmationClosesOnlyAnUnfilledUnlinkedDomesticPaperUnknownIntent() {
+        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new OrderRequest(Market.KR, "035720", OrderSide.BUY, 1,
+                        new BigDecimal("50000"), Currency.KRW), null);
+        intent.markUnknown();
+
+        intent.confirmNoPaperOrderWasSubmitted();
+
+        assertEquals(KisOrderStatus.NO_ORDER_CONFIRMED, intent.getStatus());
+        assertEquals("MANUAL_NO_ORDER_CONFIRMED", intent.getBrokerResponseCode());
+        assertNull(intent.getBrokerOrderNumber());
+    }
+
+    @Test
+    void noOrderConfirmationRejectsLinkedOrRealIntents() {
+        KisOrderIntent real = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL,
+                new OrderRequest(Market.KR, "035720", OrderSide.BUY, 1,
+                        new BigDecimal("50000"), Currency.KRW), null);
+        real.markUnknown();
+        KisOrderIntent linked = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new OrderRequest(Market.KR, "035720", OrderSide.BUY, 1,
+                        new BigDecimal("50000"), Currency.KRW), null);
+        linked.markUnknown();
+        linked.linkManuallyVerifiedPaperOrder("1234", "ORG01");
+
+        assertThrows(IllegalStateException.class, real::confirmNoPaperOrderWasSubmitted);
+        assertThrows(IllegalStateException.class, linked::confirmNoPaperOrderWasSubmitted);
+    }
+
+    @Test
     void newCancelAttemptClearsPriorRejectionAndKeepsConfirmedPendingState() {
         KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
                 new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1, new BigDecimal("70000"), Currency.KRW), null);

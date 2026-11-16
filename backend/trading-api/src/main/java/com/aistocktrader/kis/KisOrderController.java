@@ -68,6 +68,14 @@ public class KisOrderController {
                 request.brokerOrderNumber(), request.brokerOrganizationNumber()));
     }
 
+    @PostMapping("/{idempotencyKey}/confirm-no-order")
+    public ResponseEntity<KisOrderIntentResponse> confirmNoOrder(
+            @PathVariable UUID idempotencyKey,
+            @Valid @RequestBody ConfirmNoPaperOrderRequest request) {
+        paperIntent(idempotencyKey);
+        return ResponseEntity.ok(orders.confirmNoDomesticPaperOrder(idempotencyKey, request.confirmedNoOrder()));
+    }
+
     @PostMapping("/{idempotencyKey}/cancel")
     public ResponseEntity<KisOrderIntentResponse> cancel(@PathVariable UUID idempotencyKey,
                                                          @RequestParam(required = false) String exchange) {
@@ -89,4 +97,6 @@ public class KisOrderController {
             @jakarta.validation.constraints.Pattern(regexp = "[0-9]{1,32}") String brokerOrderNumber,
             @jakarta.validation.constraints.Pattern(regexp = "[A-Za-z0-9_-]{1,32}") String brokerOrganizationNumber,
             boolean confirmed) { }
+
+    public record ConfirmNoPaperOrderRequest(boolean confirmedNoOrder) { }
 }

@@ -203,6 +203,28 @@ public class KisOrderOrchestrator {
                 idempotencyKey, brokerOrderNumber, verified.brokerOrganizationNumber(), verified.snapshot()));
     }
 
+    public KisOrderIntentResponse confirmNoDomesticPaperOrder(UUID idempotencyKey, boolean operatorConfirmedAbsent) {
+        if (!operatorConfirmedAbsent) {
+            throw new IllegalArgumentException("Confirm that KIS PAPER app shows no order before closing this intent.");
+        }
+        KisOrderIntent intent = intents.get(idempotencyKey);
+        requirePaperIntent(intent);
+        if (intent.getMarket() != Market.KR || intent.getStatus() != KisOrderStatus.UNKNOWN
+                || intent.getBrokerOrderNumber() != null && !intent.getBrokerOrderNumber().isBlank()
+                || (intent.getFilledQuantity() != null && intent.getFilledQuantity() != 0)
+                || intent.getRemainingQuantity() == null || intent.getRemainingQuantity() != intent.getQuantity()) {
+            throw new IllegalStateException("Only an unfilled, unlinked domestic PAPER UNKNOWN intent can be confirmed absent.");
+        }
+        if (intent.getCreatedAt().isAfter(java.time.Instant.now().minusSeconds(120))) {
+            throw new IllegalStateException("Wait at least two minutes after submission before confirming no order.");
+        }
+        if (!orders.confirmNoDomesticPaperOrderInHistory(intent)) {
+            throw new KisApiException(HttpStatus.CONFLICT,
+                    "KIS order history contains a row for this symbol; the UNKNOWN intent remains locked.");
+        }
+        return KisOrderIntentResponse.from(intents.confirmNoPaperOrder(idempotencyKey));
+    }
+
     private void reconcileAccount(OrderRequest request, String exchange) {
         BigDecimal notional = request.limitPrice().multiply(BigDecimal.valueOf(request.quantity()));
         BigDecimal maximum = request.currency() == Currency.KRW ? safety.maxOrderNotionalKrw() : safety.maxOrderNotionalUsd();

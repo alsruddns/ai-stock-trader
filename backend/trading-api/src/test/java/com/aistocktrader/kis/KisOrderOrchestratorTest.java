@@ -50,6 +50,50 @@ class KisOrderOrchestratorTest {
     }
 
     @Test
+    void confirmsDomesticPaperIntentAbsentOnlyAfterOperatorAndCompleteKisRead() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
+        intent.markUnknown();
+        org.springframework.test.util.ReflectionTestUtils.setField(intent, "createdAt",
+                Instant.now().minusSeconds(180));
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.confirmNoDomesticPaperOrderInHistory(intent)).thenReturn(true);
+        when(intents.confirmNoPaperOrder(key)).thenAnswer(call -> {
+            intent.confirmNoPaperOrderWasSubmitted();
+            return intent;
+        });
+
+        KisOrderIntentResponse response = orchestrator.confirmNoDomesticPaperOrder(key, true);
+
+        assertEquals(KisOrderStatus.NO_ORDER_CONFIRMED, response.status());
+        assertEquals("MANUAL_NO_ORDER_CONFIRMED", response.responseCode());
+        verify(orders).confirmNoDomesticPaperOrderInHistory(intent);
+        verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(),
+                org.mockito.ArgumentMatchers.anyInt(), any(), any(), anyString());
+        verify(orders, never()).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), anyString());
+    }
+
+    @Test
+    void refusesNoOrderClosureWithoutOperatorConfirmationOrWhenBrokerHistoryHasRows() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
+        intent.markUnknown();
+        org.springframework.test.util.ReflectionTestUtils.setField(intent, "createdAt",
+                Instant.now().minusSeconds(180));
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.confirmNoDomesticPaperOrderInHistory(intent)).thenReturn(false);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> orchestrator.confirmNoDomesticPaperOrder(key, false));
+        assertThrows(KisApiException.class,
+                () -> orchestrator.confirmNoDomesticPaperOrder(key, true));
+        verify(intents, never()).confirmNoPaperOrder(key);
+        verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(),
+                org.mockito.ArgumentMatchers.anyInt(), any(), any(), anyString());
+    }
+
+    @Test
     void duplicateRequestReturnsExistingIntentWithoutSendingAgain() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();

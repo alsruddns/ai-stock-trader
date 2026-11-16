@@ -130,6 +130,17 @@ public class KisOrderIntent {
     }
 
     public void markUnknown() { status = KisOrderStatus.UNKNOWN; updatedAt = Instant.now(); }
+    public void confirmNoPaperOrderWasSubmitted() {
+        if (environment != KisEnvironment.PAPER || market != Market.KR || status != KisOrderStatus.UNKNOWN
+                || brokerOrderNumber != null && !brokerOrderNumber.isBlank()
+                || (filledQuantity != null && filledQuantity != 0)
+                || remainingQuantity == null || remainingQuantity != quantity) {
+            throw new IllegalStateException("Only an unfilled, unlinked domestic PAPER UNKNOWN intent can be closed after verified no-order evidence.");
+        }
+        status = KisOrderStatus.NO_ORDER_CONFIRMED;
+        brokerResponseCode = "MANUAL_NO_ORDER_CONFIRMED";
+        updatedAt = Instant.now();
+    }
     public void linkManuallyVerifiedPaperOrder(String orderNumber, String organizationNumber) {
         if (environment != KisEnvironment.PAPER || status != KisOrderStatus.UNKNOWN
                 || brokerOrderNumber != null && !brokerOrderNumber.isBlank()

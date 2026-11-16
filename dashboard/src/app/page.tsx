@@ -78,6 +78,35 @@ function PaperManualReconciliation({ idempotencyKey, symbol, side, quantity, onC
   </form>;
 }
 
+function PaperNoOrderConfirmation({ idempotencyKey, symbol, onComplete }: {
+  idempotencyKey: string; symbol: string; onComplete: () => void;
+}) {
+  const [confirmedNoOrder, setConfirmedNoOrder] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const submit = async () => {
+    if (!confirmedNoOrder || busy) return;
+    setBusy(true); setMessage("");
+    try {
+      const response = await fetch("/api/paper-orders/confirm-no-order", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idempotencyKey, confirmedNoOrder }),
+      });
+      const result = await response.json() as { error?: string; status?: string };
+      if (!response.ok) throw new Error(result.error ?? "미접수 확인을 완료하지 못했습니다.");
+      setMessage(`KIS 전체 주문내역에서 미접수 확인 · ${statusLabel(result.status ?? "NO_ORDER_CONFIRMED")}`);
+      window.setTimeout(onComplete, 500);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "미접수 확인 요청에 실패했습니다.");
+    } finally { setBusy(false); }
+  };
+  return <div className="paper-reconcile-form">
+    <label className="confirm"><input type="checkbox" checked={confirmedNoOrder} onChange={(event) => setConfirmedNoOrder(event.target.checked)} />KIS 모의투자 앱에서 {symbol} 주문이 없음을 직접 확인했습니다. 서버가 오늘의 KIS 주문내역 전체 페이지를 읽어 재확인합니다.</label>
+    <button type="button" disabled={!confirmedNoOrder || busy} onClick={() => void submit()}>{busy ? "KIS 전체 주문내역 확인 중…" : "주문 미접수 확인"}</button>
+    {message && <span role="status">{message}</span>}
+  </div>;
+}
+
 const money = (value: string | number, currency: string) => new Intl.NumberFormat("ko-KR", { style: "currency", currency, maximumFractionDigits: currency === "KRW" ? 0 : 2 }).format(Number(value));
 const percent = (value?: number | null) => value == null ? "—" : `${(value * 100).toFixed(1)}%`;
 const metricPercent = (value: number | null | undefined) => value === null ? "계산 불가" : value === undefined ? "미기록" : percent(value);
@@ -378,7 +407,7 @@ export default function Dashboard() {
       </div>
     </section>
     <section className="panel"><div className="panel-title"><div><p className="eyebrow">KIS PAPER ORDER INTENTS</p><h2>KIS 모의계좌 주문 상태</h2></div><span className="tag">증권사 주문 조회 · 재전송 없음</span></div>
-      {ops?.recentPaperKisOrders?.length ? <div className="table-wrap"><table><thead><tr><th>시장·종목</th><th>구분</th><th>체결 / 주문</th><th>잔량</th><th>상태</th><th>복구 안내</th><th>응답 코드 / 진단</th><th>갱신</th></tr></thead><tbody>{ops.recentPaperKisOrders.map((o, index) => { const responseLabel = paperKisResponseLabel(o.status, o.responseCode); const manualKey = o.market === "KR" && o.status === "UNKNOWN" && !o.brokerOrderReferencePresent && typeof o.idempotencyKey === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(o.idempotencyKey) ? o.idempotencyKey : null; return <Fragment key={`${o.market}-${o.symbol}-${o.createdAt}-${index}`}><tr><td><small>{o.market}</small><br /><span className="symbol">{o.symbol}</span></td><td className={o.side === "BUY" ? "buy" : "sell"}>{o.side === "BUY" ? "매수" : "매도"}</td><td>{o.filledQuantity ?? 0}/{o.quantity}</td><td>{o.remainingQuantity ?? "—"}</td><td><span className={`order-state ${o.status.toLowerCase()}`}>{statusLabel(o.status)}</span></td><td>{brokerOrderGuidance(o.status, o.brokerOrderReferencePresent)}</td><td title={responseLabel === "원인 미확인" ? "저장된 KIS 응답 코드가 없어 거절 원인을 확인할 수 없습니다." : undefined}>{responseLabel}</td><td>{time(o.updatedAt)}</td></tr>{manualKey && <tr><td colSpan={8}><PaperManualReconciliation idempotencyKey={manualKey} symbol={o.symbol} side={o.side} quantity={o.quantity} onComplete={() => void load()} /></td></tr>}</Fragment>; })}</tbody></table></div> : <Empty text="KIS 모의 주문 의도가 아직 없습니다." />}
+      {ops?.recentPaperKisOrders?.length ? <div className="table-wrap"><table><thead><tr><th>시장·종목</th><th>구분</th><th>체결 / 주문</th><th>잔량</th><th>상태</th><th>복구 안내</th><th>응답 코드 / 진단</th><th>갱신</th></tr></thead><tbody>{ops.recentPaperKisOrders.map((o, index) => { const responseLabel = paperKisResponseLabel(o.status, o.responseCode); const manualKey = o.market === "KR" && o.status === "UNKNOWN" && !o.brokerOrderReferencePresent && typeof o.idempotencyKey === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(o.idempotencyKey) ? o.idempotencyKey : null; return <Fragment key={`${o.market}-${o.symbol}-${o.createdAt}-${index}`}><tr><td><small>{o.market}</small><br /><span className="symbol">{o.symbol}</span></td><td className={o.side === "BUY" ? "buy" : "sell"}>{o.side === "BUY" ? "매수" : "매도"}</td><td>{o.filledQuantity ?? 0}/{o.quantity}</td><td>{o.remainingQuantity ?? "—"}</td><td><span className={`order-state ${o.status.toLowerCase()}`}>{statusLabel(o.status)}</span></td><td>{brokerOrderGuidance(o.status, o.brokerOrderReferencePresent)}</td><td title={responseLabel === "원인 미확인" ? "저장된 KIS 응답 코드가 없어 거절 원인을 확인할 수 없습니다." : undefined}>{responseLabel}</td><td>{time(o.updatedAt)}</td></tr>{manualKey && <tr><td colSpan={8}><PaperManualReconciliation idempotencyKey={manualKey} symbol={o.symbol} side={o.side} quantity={o.quantity} onComplete={() => void load()} /><PaperNoOrderConfirmation idempotencyKey={manualKey} symbol={o.symbol} onComplete={() => void load()} /></td></tr>}</Fragment>; })}</tbody></table></div> : <Empty text="KIS 모의 주문 의도가 아직 없습니다." />}
       <p className="audit-note">KIS PAPER 계좌 주문 요청·대조 기록입니다. 내부 모의 장부 주문과 별도이며 이 대시보드에서는 주문·취소를 전송하지 않습니다. 응답 코드가 보존되지 않은 거절과 취소 거절·불명 상태는 증권사 내역을 읽기 전용으로 대조하기 전까지 재전송하지 않습니다.</p>
     </section>
     <section className="panel"><div className="panel-title"><div><p className="eyebrow">REAL ORDER INTENTS</p><h2>실계좌 주문 의도</h2></div><span className="tag">주문별 상태 · 조회 전용</span></div>
@@ -453,12 +482,13 @@ function StatusCard({ title, good, value, detail }: { title: string; good: boole
 function Metric({ title, value, caption }: { title: string; value: string | number; caption: string }) { return <article className="metric"><span>{title}</span><strong>{value}</strong><small>{caption}</small></article>; }
 function RiskRow({ label, value }: { label: string; value: string }) { return <div className="risk-row"><span>{label}</span><strong>{value}</strong></div>; }
 function Empty({ text }: { text: string }) { return <div className="empty">{text}</div>; }
-function statusLabel(value: string) { return ({ PENDING: "대기", PARTIALLY_FILLED: "부분체결", FILLED: "체결", REJECTED: "거부", CANCEL_PENDING: "취소 확인", CANCELLED: "취소", EXPIRED: "만료", UNKNOWN: "확인 필요" } as Record<string, string>)[value] ?? value; }
+function statusLabel(value: string) { return ({ PENDING: "대기", PARTIALLY_FILLED: "부분체결", FILLED: "체결", REJECTED: "거부", CANCEL_PENDING: "취소 확인", CANCELLED: "취소", EXPIRED: "만료", UNKNOWN: "확인 필요", NO_ORDER_CONFIRMED: "미접수 확인" } as Record<string, string>)[value] ?? value; }
 function paperKisResponseLabel(status: string, responseCode: string | null) {
   if (status === "REJECTED" && (!responseCode || responseCode === "rejected")) return "원인 미확인";
   return responseCode ?? "—";
 }
 function brokerOrderGuidance(status: string, brokerOrderReferencePresent: boolean) {
+  if (status === "NO_ORDER_CONFIRMED") return "KIS 전체 조회 0건 · 사용자 앱 확인 · 미접수 종결";
   if (status === "UNKNOWN" && !brokerOrderReferencePresent) return "주문번호 미수신 · 계좌 확인 필요 · 재전송 금지";
   if (status === "UNKNOWN") return "읽기 전용 대조 대기 · 재전송 금지";
   if (status === "CANCEL_PENDING") return "취소 결과 대조 대기 · 재전송 금지";

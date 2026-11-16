@@ -155,6 +155,74 @@ public class KisOrderClient {
         return reconcilePaperOrder(intent, brokerOrderNumber, brokerOrganizationNumber, true);
     }
 
+    /**
+     * Returns true only when a complete current-session PAPER order-history scan contains no
+     * rows for this domestic symbol. This is a read-only recovery check; it never writes to KIS.
+     */
+    public boolean confirmNoDomesticPaperOrderInHistory(KisOrderIntent intent) {
+        if (intent == null || intent.getEnvironment() != KisEnvironment.PAPER
+                || intent.getMarket() != Market.KR || intent.getStatus() != KisOrderStatus.UNKNOWN
+                || intent.getBrokerOrderNumber() != null && !intent.getBrokerOrderNumber().isBlank()) {
+            throw new IllegalStateException("No-order confirmation requires an unlinked domestic PAPER UNKNOWN intent.");
+        }
+        requirePaperReconciliationReadEnabled();
+        KisProperties.Account credentials = properties.credentials(KisEnvironment.PAPER);
+        String account = credentials.accountNumber();
+        String date = intent.getCreatedAt().atZone(ZoneId.of("Asia/Seoul"))
+                .toLocalDate().format(DateTimeFormatter.BASIC_ISO_DATE);
+        MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+        params.add("CANO", account.substring(0, 8));
+        params.add("ACNT_PRDT_CD", account.substring(8));
+        params.add("INQR_STRT_DT", date);
+        params.add("INQR_END_DT", date);
+        params.add("SLL_BUY_DVSN_CD", "00");
+        params.add("PDNO", intent.getSymbol());
+        params.add("CCLD_DVSN", "00");
+        params.add("INQR_DVSN", "00");
+        params.add("INQR_DVSN_3", "00");
+        params.add("ORD_GNO_BRNO", "");
+        params.add("ODNO", "");
+        params.add("INQR_DVSN_1", "");
+        params.add("EXCG_ID_DVSN_CD", "KRX");
+        String continuation = "";
+        String nextSearch = "";
+        String nextKey = "";
+        Set<List<String>> seenCursors = new HashSet<>();
+        for (int page = 0; page < 10; page++) {
+            params.set("CTX_AREA_FK100", nextSearch);
+            params.set("CTX_AREA_NK100", nextKey);
+            BrokerQueryResponse query = getPaper("/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
+                    "VTTC0081R", params, continuation, credentials);
+            JsonNode response = query.body();
+            if (!"0".equals(response.path("rt_cd").asText())) {
+                throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                        "KIS no-order verification failed (code "
+                                + safeCode(response.path("msg_cd").asText("unknown")) + ").");
+            }
+            JsonNode rows = response.path("output1");
+            if (!rows.isArray()) {
+                throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                        "KIS no-order verification returned an incomplete history page.");
+            }
+            if (!rows.isEmpty()) return false;
+
+            String headerContinuation = query.continuation();
+            if (!"M".equalsIgnoreCase(headerContinuation) && !"F".equalsIgnoreCase(headerContinuation)) {
+                return true;
+            }
+            nextSearch = response.path("ctx_area_fk100").asText("");
+            nextKey = response.path("ctx_area_nk100").asText("");
+            if (nextSearch.isBlank() || nextKey.isBlank()
+                    || !seenCursors.add(List.of(nextSearch, nextKey))) {
+                throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                        "KIS no-order verification pagination was incomplete.");
+            }
+            continuation = "N";
+        }
+        throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                "KIS no-order verification exceeded the complete-history page limit.");
+    }
+
     private Optional<KisManualPaperOrderMatch> reconcilePaperOrder(
             KisOrderIntent intent, String brokerOrderNumber, String brokerOrganizationNumber, boolean manualCandidate) {
         if (intent == null) throw new IllegalArgumentException("A KIS order intent is required.");

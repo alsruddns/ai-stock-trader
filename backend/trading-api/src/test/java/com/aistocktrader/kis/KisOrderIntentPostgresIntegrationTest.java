@@ -103,6 +103,31 @@ class KisOrderIntentPostgresIntegrationTest {
     @MockitoBean KisRealOrderOrchestrator kisRealOrderOrchestrator;
 
     @Test
+    void noOrderConfirmedPaperIntentPersistsAndReleasesItsSymbolReservation() {
+        UUID firstKey = UUID.randomUUID();
+        UUID secondKey = UUID.randomUUID();
+        String symbol = "9" + String.format("%05d", Math.floorMod(firstKey.hashCode(), 100_000));
+        OrderRequest request = new OrderRequest(Market.KR, symbol, OrderSide.BUY, 1,
+                new BigDecimal("100"), Currency.KRW);
+        try {
+            store.prepare(firstKey, KisOrderOrchestrator.hash(request, null), request, null);
+            store.markUnknown(firstKey);
+            KisOrderIntent closed = store.confirmNoPaperOrder(firstKey);
+
+            assertEquals(KisOrderStatus.NO_ORDER_CONFIRMED, closed.getStatus());
+            assertEquals("MANUAL_NO_ORDER_CONFIRMED", closed.getBrokerResponseCode());
+            assertEquals(KisOrderStatus.NO_ORDER_CONFIRMED,
+                    repository.findById(firstKey).orElseThrow().getStatus());
+
+            store.prepare(secondKey, KisOrderOrchestrator.hash(request, null), request, null);
+            assertEquals(KisOrderStatus.SUBMITTING, repository.findById(secondKey).orElseThrow().getStatus());
+        } finally {
+            repository.deleteById(firstKey);
+            repository.deleteById(secondKey);
+        }
+    }
+
+    @Test
     void paperOrderAmendmentAuditFailureRollsBackTheOrderTermsInPostgres() {
         UUID orderKey = UUID.randomUUID();
         UUID amendmentKey = UUID.randomUUID();
