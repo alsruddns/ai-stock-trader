@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P2 PAPER 취소 사전조회 지원범위 확인 (2026-11-16):** [KIS 공식 Open Trading API 지원표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md)는 국내 현금 주문·정정취소 주문·일별 주문체결 조회의 모의투자를 지원으로 표시하지만, `주식정정취소가능주문조회`는 모의투자 지원 표시가 없습니다. [공식 정정취소 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_rvsecncl/order_rvsecncl.py)는 취소 호출 전에 해당 조회의 `psbl_qty`를 확인하라고 요구합니다. 따라서 PAPER에서 이 사전조회가 확인되기 전까지 취소 경로는 잠금 유지하며, API 지원표에 없는 조회를 생략해 취소하지 않습니다. 이는 취소 포함 P2 모의주문 검증의 미완료 항목입니다.
+
 - **P2 국내 PAPER 장중 감시 중간 결과 (2026-11-16 14:45 KST):** PAPER 전체 세션 감시는 여전히 `running`이며 구독 확인 6/6, 누적 1,076개 분봉, 틱·호가 파싱 오류 0, 종목 불일치 0, 저장기 `RUNNING`으로 관측됐습니다. WebSocket 연결 끊김 23회는 약 1.1초 내 복구됐고 상태 조회 timeout 15회가 있어, 장중 감시를 최종 통과로 보지 않습니다. 주문과 자동화는 계속 비활성입니다. KIS PAPER 일별 주문조회는 10:17·11:08·11:37·12:18·13:38에 HTTP 200/성공코드 `70070000`/전체 페이지 조회로 끝났지만 모두 주문 행 0건입니다. `035720` 10:14 주문 의도는 아직 `UNKNOWN`이며 재전송하지 않았습니다. 16:00 장후 서비스 갱신 후 16:30 작업이 Spring에서 KIS 주문내역을 다시 대조하도록 예약돼 있습니다.
 
 - **P2 PAPER 미접수 종결 일회성 작업 등록 (2026-11-16 14:00 KST):** 최신 Spring 갱신 뒤 16:30에만 실행되는 `AIStockTrader-PAPER-No-Order-Confirmation-20261116` 작업을 숨김 PowerShell로 등록했습니다. 잠금이 모두 닫혀 있고, `035720` 10:14 KST 주문 의도가 미체결·미연결 `UNKNOWN`이며 날짜와 UUID가 일치하는 경우에만 Spring의 확인 API를 호출합니다. Spring이 KIS 당일 주문내역 전체를 다시 읽어 0건일 때만 로컬 상태를 `NO_ORDER_CONFIRMED`로 바꾸며, 주문·취소는 보내지 않습니다. 작업 등록 후 상태 `Ready`, 실행 예정 16:30 확인. 신규 집중 테스트 5/5, 기존 숨김 작업 검사 2/2, PowerShell 구문검사 0건 통과. 코드 커밋 `dcbe79e`가 `develop`에 푸시됐습니다.
