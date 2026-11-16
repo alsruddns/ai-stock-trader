@@ -153,6 +153,25 @@ function Test-LocalTradingLocks($PythonHealth, $SpringSummary) {
         $SpringSummary.kisRealProtectiveExitAutomationEnabled -eq $false
 }
 
+function Test-PaperUnknownOrderKeysAvailable($SpringSummary) {
+    if (-not $SpringSummary -or
+        $null -eq $SpringSummary.PSObject.Properties['recentPaperKisOrders']) {
+        return $false
+    }
+    foreach ($order in @($SpringSummary.recentPaperKisOrders)) {
+        if ([string]$order.status -ne 'UNKNOWN' -or [bool]$order.brokerOrderReferencePresent -or
+            [int]$order.filledQuantity -gt 0) {
+            continue
+        }
+        $idempotencyKey = [Guid]::Empty
+        if ($null -eq $order.PSObject.Properties['idempotencyKey'] -or
+            -not [Guid]::TryParse([string]$order.idempotencyKey, [ref]$idempotencyKey)) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Test-LocalCostModelsReady($PythonHealth, $SpringSummary) {
     if (-not $PythonHealth -or -not $SpringSummary -or
         $null -eq $PythonHealth.PSObject.Properties['paper_strategy_cost_model']) {
@@ -393,6 +412,9 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
     }
     if (-not (Test-LocalTradingLocks $pythonHealth $springSummary)) {
         throw 'The restarted APIs did not report the required trading locks.'
+    }
+    if (-not (Test-PaperUnknownOrderKeysAvailable $springSummary)) {
+        throw 'The restarted Spring API did not expose a valid reconciliation key for an unlinked UNKNOWN PAPER order.'
     }
     if (-not (Test-LocalCostModelsReady $pythonHealth $springSummary)) {
         throw 'The restarted APIs did not load the configured domestic PAPER cost models.'

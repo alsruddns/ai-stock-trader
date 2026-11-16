@@ -13,6 +13,7 @@ foreach ($functionName in @(
     'Test-SessionResponsesFreshAndClosed',
     'Test-TrackedProcessParentage',
     'Test-LocalTaskRestartable',
+    'Test-PaperUnknownOrderKeysAvailable',
     'Test-LocalCostModelsReady',
     'Test-PaperMinuteQualityDiagnosticsReady',
     'Test-PaperBarStorageSafeForRestart'
@@ -79,6 +80,26 @@ Describe 'Domestic local stack restart guards' {
         $health.paper_strategy_cost_model.KR.ready = $true
         $summary.paperCostModelEnabled = $false
         (Test-LocalCostModelsReady $health $summary) | Should Be $false
+    }
+
+    It 'requires a valid reconciliation key for an unlinked unfilled UNKNOWN PAPER order' {
+        $order = [pscustomobject]@{
+            status = 'UNKNOWN'; brokerOrderReferencePresent = $false; filledQuantity = 0
+            idempotencyKey = 'e81d7466-d98a-4b5c-9c8e-217d9156176c'
+        }
+        $summary = [pscustomobject]@{ recentPaperKisOrders = @($order) }
+        (Test-PaperUnknownOrderKeysAvailable $summary) | Should Be $true
+
+        $order.idempotencyKey = $null
+        (Test-PaperUnknownOrderKeysAvailable $summary) | Should Be $false
+        $order.idempotencyKey = 'invalid'
+        (Test-PaperUnknownOrderKeysAvailable $summary) | Should Be $false
+
+        $summary.recentPaperKisOrders = @([pscustomobject]@{
+            status = 'ACCEPTED'; brokerOrderReferencePresent = $true; filledQuantity = 0
+        })
+        (Test-PaperUnknownOrderKeysAvailable $summary) | Should Be $true
+        (Test-PaperUnknownOrderKeysAvailable ([pscustomobject]@{})) | Should Be $false
     }
 
     It 'requires the restarted API to expose domestic per-minute quote diagnostics' {
