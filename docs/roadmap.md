@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Update : [P4 실행가능 후보 대시보드] 시간 분할별 수·세션 표시 (2026-11-17 08:17 KST):** 학습준비도 카드에 전체 후보 수와 양·음 비율만 보이던 상태를 보강해, 실행가능 ORB/VWAP 후보를 학습·검증·내부시험 구간별 표본 수, 후보 발생 세션 수, 양·음 라벨 수로 표시합니다. 이제 실행가능한 검증 후보 0개와 같이 학습을 막는 분포를 구간별로 확인할 수 있습니다. 대상 ESLint, TypeScript와 `git diff --check` 통과. 운영 Dashboard 빌드는 오늘 16:15 KST 예약이며 모델·주문 설정과 KIS API는 건드리지 않았습니다.
+
 - **Fix : [PAPER 제출 문서 정확성] README 격리 단건 주문 경로 명시 (2026-11-17 08:13 KST):** README가 국내 전용 상태에서 실제 KIS PAPER 주문을 전송하지 않는다고 단정하던 문구를 수정했습니다. 자동 신호 주문·취소 lifecycle은 잠금으로 유지하고, 별도 승인된 `-ConfirmPaperOrderSubmitAndObserve`는 조건 통과 시 1주 제출 가능하며 취소는 하지 않아 미체결이 남을 수 있음을 명시했습니다. 문서만 변경했으며 KIS 요청·주문 또는 운영 설정 변경은 없습니다.
 
 - **Update : [PAPER 잠금 안내 Windows CI] 국내 회귀·PostgreSQL 검증 성공 (2026-11-17 08:11 KST):** 커밋 `eaaed77`의 GitHub Actions run `43976615639`가 `success`로 완료됐습니다. Spring 국내 주문·위험 경계, KIS 호환성, 대시보드 ESLint/TypeScript, PostgreSQL 격리 주문복구·대사·호출제한 통합 job을 모두 통과했습니다. CI는 mock 및 격리 PostgreSQL 검증으로 오늘 KIS PAPER 계좌 주문이나 장중 세션 검증을 대신하지 않습니다.

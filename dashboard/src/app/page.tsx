@@ -272,8 +272,12 @@ export default function Dashboard() {
         ? ` · ${diagnosticPartitions ? "진단 전용 분할" : "학습 분할"} 양/음 ${classCounts.train?.positive ?? "—"}/${classCounts.train?.negative ?? "—"} · 검증 ${classCounts.validation?.positive ?? "—"}/${classCounts.validation?.negative ?? "—"} · 내부시험 ${classCounts.test?.positive ?? "—"}/${classCounts.test?.negative ?? "—"}`
         : "";
       const candidatePartitionCounts = preflight?.partition_candidate_class_counts;
-      const candidatePartitionText = candidatePartitionCounts
-        ? ` · ORB/VWAP 후보 양/음 ${diagnosticPartitions ? "진단용 " : ""}학습 ${candidatePartitionCounts.train?.positive ?? "—"}/${candidatePartitionCounts.train?.negative ?? "—"} · 검증 ${candidatePartitionCounts.validation?.positive ?? "—"}/${candidatePartitionCounts.validation?.negative ?? "—"} · 내부시험 ${candidatePartitionCounts.test?.positive ?? "—"}/${candidatePartitionCounts.test?.negative ?? "—"}`
+      const candidatePartitionSamples = preflight?.partition_candidate_sample_counts;
+      const candidatePartitionSessions = preflight?.partition_candidate_session_counts;
+      const candidatePartitionText = candidatePartitionCounts && candidatePartitionSamples && candidatePartitionSessions
+        ? ` · 실행가능 ORB/VWAP 후보${diagnosticPartitions ? "(진단)" : ""}: 학습 ${candidatePartitionSamples.train ?? "—"}개/${candidatePartitionSessions.train ?? "—"}세션 양/음 ${candidatePartitionCounts.train?.positive ?? "—"}/${candidatePartitionCounts.train?.negative ?? "—"} · 검증 ${candidatePartitionSamples.validation ?? "—"}개/${candidatePartitionSessions.validation ?? "—"}세션 양/음 ${candidatePartitionCounts.validation?.positive ?? "—"}/${candidatePartitionCounts.validation?.negative ?? "—"} · 내부시험 ${candidatePartitionSamples.test ?? "—"}개/${candidatePartitionSessions.test ?? "—"}세션 양/음 ${candidatePartitionCounts.test?.positive ?? "—"}/${candidatePartitionCounts.test?.negative ?? "—"}`
+        : candidatePartitionCounts
+          ? ` · ORB/VWAP 후보 양/음 ${diagnosticPartitions ? "진단용 " : ""}학습 ${candidatePartitionCounts.train?.positive ?? "—"}/${candidatePartitionCounts.train?.negative ?? "—"} · 검증 ${candidatePartitionCounts.validation?.positive ?? "—"}/${candidatePartitionCounts.validation?.negative ?? "—"} · 내부시험 ${candidatePartitionCounts.test?.positive ?? "—"}/${candidatePartitionCounts.test?.negative ?? "—"}`
         : preflight?.partition_diagnostic_reason === "at_least_three_distinct_sessions_required"
           ? " · 시간분할 진단은 적격 세션 3개부터 가능"
           : preflight?.partition_diagnostic_reason
