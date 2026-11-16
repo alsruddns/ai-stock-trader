@@ -12,6 +12,7 @@ foreach ($functionName in @(
     'Test-SessionMonitorRestartAllowed',
     'Test-SessionResponsesFreshAndClosed',
     'Test-TrackedProcessParentage',
+    'Get-TrackedProcessStopOrder',
     'Test-LocalTaskRestartable',
     'Test-PaperUnknownOrderKeysAvailable',
     'Test-LocalCostModelsReady',
@@ -57,6 +58,16 @@ Describe 'Domestic local stack restart guards' {
         (Test-TrackedProcessParentage $null $backend $marketAi 100) | Should Be $true
         $marketAi.ParentProcessId = 999
         (Test-TrackedProcessParentage $null $backend $marketAi 100) | Should Be $false
+    }
+
+    It 'stops tracked API children before the runner parent' {
+        $runner = [pscustomobject]@{ ProcessId = 100 }
+        $backend = [pscustomobject]@{ ProcessId = 101 }
+        $marketAi = [pscustomobject]@{ ProcessId = 102 }
+        $order = @(Get-TrackedProcessStopOrder $runner $backend $marketAi)
+        ($order.ProcessId -join ',') | Should Be '102,101,100'
+        $order = @(Get-TrackedProcessStopOrder $null $backend $marketAi)
+        ($order.ProcessId -join ',') | Should Be '102,101'
     }
 
     It 'permits restart only while the scheduled task is running or ready' {

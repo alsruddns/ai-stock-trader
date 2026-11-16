@@ -250,7 +250,7 @@ try {
             Write-ProcessState
 
             $marketAiReady = $false
-            $marketAiDeadline = (Get-Date).AddMinutes(2)
+            $marketAiDeadline = (Get-Date).AddMinutes(5)
             while ((Get-Date) -lt $marketAiDeadline) {
                 if ($marketAiProcess.HasExited) { throw "Python market-ai exited during startup (code $($marketAiProcess.ExitCode))." }
                 try {
@@ -261,7 +261,7 @@ try {
                     Start-Sleep -Seconds 2
                 }
             }
-            if (-not $marketAiReady) { throw 'Python market-ai did not become ready within two minutes.' }
+            if (-not $marketAiReady) { throw 'Python market-ai did not become ready within five minutes.' }
             Write-TaskLog 'Spring Boot and Python market-ai are ready. Real KIS order switches are forced off.'
 
             $nextListenerAuditUtc = [DateTimeOffset]::MinValue

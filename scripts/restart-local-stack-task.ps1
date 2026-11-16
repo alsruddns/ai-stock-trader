@@ -1,7 +1,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$TaskName = 'AIStockTrader-LocalStack',
-    [ValidateRange(10, 300)] [int]$StartupTimeoutSeconds = 120,
+    [ValidateRange(10, 300)] [int]$StartupTimeoutSeconds = 300,
     [switch]$DomesticOnly
 )
 
@@ -299,6 +299,12 @@ function Stop-TrackedProcessTree($Process) {
     & $taskkill /PID $Process.ProcessId /T /F 2>$null | Out-Null
 }
 
+function Get-TrackedProcessStopOrder($Runner, $Backend, $MarketAi) {
+    # Stop children before their parent so the parent cannot kill a child whose
+    # PID may then be reused before the subsequent ownership check.
+    return @($MarketAi, $Backend, $Runner) | Where-Object { $null -ne $_ }
+}
+
 function Test-LocalPortsFree {
     foreach ($port in @(18000, 18080)) {
         if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) { return $false }
@@ -369,9 +375,9 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
 
         if ($currentTask.State -eq 'Running') { throw 'Windows did not stop the local stack task in time.' }
     }
-    Stop-TrackedProcessTree $runner
-    Stop-TrackedProcessTree $backend
-    Stop-TrackedProcessTree $marketAi
+    foreach ($process in Get-TrackedProcessStopOrder $runner $backend $marketAi) {
+        Stop-TrackedProcessTree $process
+    }
 
     $portDeadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
     while (-not (Test-LocalPortsFree) -and [DateTimeOffset]::UtcNow -lt $portDeadline) {
