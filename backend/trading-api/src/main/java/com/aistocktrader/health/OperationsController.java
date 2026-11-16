@@ -163,10 +163,10 @@ public class OperationsController {
                 paperKisOrderCounts.put((KisOrderStatus) row[0], ((Number) row[1]).longValue()));
         List<BrokerOrderView> recentRealOrders = kisIntents
                 .findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.REAL).stream()
-                .map(BrokerOrderView::from).toList();
+                .map(item -> BrokerOrderView.from(item, false)).toList();
         List<BrokerOrderView> recentPaperKisOrders = kisIntents
                 .findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.PAPER).stream()
-                .map(BrokerOrderView::from).toList();
+                .map(item -> BrokerOrderView.from(item, true)).toList();
         List<RealExitPlanView> realExitPlans = kisIntents
                 .findTop50ByEnvironmentAndRealExitStatusInOrderByUpdatedAtAsc(KisEnvironment.REAL,
                         List.of(KisRealExitStatus.WAITING_FOR_ENTRY, KisRealExitStatus.ARMED,
@@ -326,12 +326,13 @@ public class OperationsController {
                                     boolean kisRealKrCostsConfigured, boolean kisRealUsCostsConfigured,
                                     List<String> operationalMarkets) { }
 
-    public record BrokerOrderView(String market, String symbol, String side, int quantity, Integer filledQuantity,
+    public record BrokerOrderView(java.util.UUID idempotencyKey, String market, String symbol, String side, int quantity, Integer filledQuantity,
                                   Integer remainingQuantity, String currency, KisOrderStatus status,
                                   String responseCode, boolean brokerOrderReferencePresent,
                                   Instant createdAt, Instant updatedAt) {
-        static BrokerOrderView from(KisOrderIntent item) {
-            return new BrokerOrderView(item.getMarket().name(), item.getSymbol(), item.getSide().name(),
+        static BrokerOrderView from(KisOrderIntent item, boolean exposePaperReconciliationKey) {
+            return new BrokerOrderView(exposePaperReconciliationKey ? item.getIdempotencyKey() : null,
+                    item.getMarket().name(), item.getSymbol(), item.getSide().name(),
                     item.getQuantity(), item.getFilledQuantity(), item.getRemainingQuantity(),
                     item.getCurrency().name(), item.getStatus(), item.getBrokerResponseCode(),
                     item.getBrokerOrderNumber() != null && !item.getBrokerOrderNumber().isBlank(),

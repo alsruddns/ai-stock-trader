@@ -130,7 +130,8 @@ class OperationsControllerTest {
         PaperCashRepository cash = mock(PaperCashRepository.class);
         PaperFillRepository fills = mock(PaperFillRepository.class);
         KisOrderIntentRepository kisIntents = emptyKisIntents();
-        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.REAL,
+        UUID realIntentKey = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(realIntentKey, "hash", KisEnvironment.REAL,
                 new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1, new BigDecimal("70000"), Currency.KRW), null,
                 new BigDecimal("2000"), new BigDecimal("2"));
         intent.accept(new KisOrderReceipt("real", "KR", "005930", "BUY", "9001", "ORG01", "0", Instant.now()));
@@ -153,6 +154,7 @@ class OperationsControllerTest {
         assertEquals("paper", summary.tradingMode());
         assertEquals(1L, summary.realOrderCounts().get(KisOrderStatus.ACCEPTED));
         assertEquals("005930", summary.recentRealOrders().getFirst().symbol());
+        assertNull(summary.recentRealOrders().getFirst().idempotencyKey());
         assertEquals(KisOrderStatus.ACCEPTED, summary.recentRealOrders().getFirst().status());
         assertEquals(1, summary.realExitPlans().size());
         assertEquals(KisRealExitStatus.WAITING_FOR_ENTRY, summary.realExitPlans().getFirst().status());
@@ -198,7 +200,8 @@ class OperationsControllerTest {
         PaperCashRepository cash = mock(PaperCashRepository.class);
         PaperFillRepository fills = mock(PaperFillRepository.class);
         KisOrderIntentRepository kisIntents = emptyKisIntents();
-        KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash", KisEnvironment.PAPER,
+        UUID paperIntentKey = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(paperIntentKey, "hash", KisEnvironment.PAPER,
                 new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1, new BigDecimal("70000"), Currency.KRW), null);
         intent.markUnknown();
         when(kisIntents.findTop10ByEnvironmentOrderByCreatedAtDesc(KisEnvironment.PAPER)).thenReturn(List.of(intent));
@@ -216,6 +219,7 @@ class OperationsControllerTest {
         var unknownOrder = summary.recentPaperKisOrders().getFirst();
         assertEquals(KisOrderStatus.UNKNOWN, unknownOrder.status());
         assertEquals(false, unknownOrder.brokerOrderReferencePresent());
+        assertEquals(paperIntentKey, unknownOrder.idempotencyKey());
     }
 
     @Test
