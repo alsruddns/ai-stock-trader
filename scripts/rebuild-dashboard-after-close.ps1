@@ -53,16 +53,12 @@ function Assert-TradingLocks {
         $python.paper_automation_enabled -ne $false) {
         throw 'Spring and FastAPI must report PAPER mode with all order and automation switches locked.'
     }
-    $paperSession = Invoke-RestMethod -Uri 'http://127.0.0.1:18000/api/v1/paper/session' -TimeoutSec 5
-    if ($paperSession.paper_reconciliation_required -eq $true) {
-        $key = [string]$paperSession.paper_unknown_idempotency_key
-        $matchedIntent = @($spring.recentPaperKisOrders | Where-Object {
-            $_.market -eq 'KR' -and $_.status -eq 'UNKNOWN' -and
-            $_.idempotencyKey -eq $key -and
-            $key -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
-        }).Count -gt 0
-        if (-not $matchedIntent) {
-            throw 'Spring does not expose the matching domestic PAPER UNKNOWN key required by the current dashboard build.'
+    $unknownPaperOrders = @($spring.recentPaperKisOrders | Where-Object { $_.market -eq 'KR' -and $_.status -eq 'UNKNOWN' })
+    foreach ($intent in $unknownPaperOrders) {
+        $keyProperty = $intent.PSObject.Properties['idempotencyKey']
+        if ($null -eq $keyProperty -or [string]$keyProperty.Value -notmatch
+                '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$') {
+            throw 'Spring does not expose a valid domestic PAPER UNKNOWN key required by the current dashboard build.'
         }
     }
 }
