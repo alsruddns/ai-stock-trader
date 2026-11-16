@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P2 국내 PAPER 취소 사전조회 최신 확인 (2026-11-16 17:10 KST):** `.env_local`의 PAPER 조회 자격정보로 현재 공식 `TTTC0084R` 취소 가능 주문 조회를 읽기 전용 호출했습니다. KIS 응답은 HTTP 200, `rt_cd=1`, `OPSQ0002`, 0행이며 `psbl_qty` 필드는 없었습니다. 마스킹된 결과만 Git 제외 `.local/validation/kis-paper-cancel-preflight-20261116.jsonl`에 저장했습니다. 취소 기능 지원이나 수량을 확인하지 못해 국내 PAPER 취소와 신규 KIS PAPER 주문 검증 잠금을 유지했습니다. 주문·취소 요청은 전송하지 않았습니다.
+
 - **국내 PAPER 준비 상태 및 변경 CI 검증 (2026-11-16 17:07 KST):** 로컬 Spring/Python GET에서 Spring `paper`, PAPER 주문·자동화 비활성, REAL 주문 비활성, Python `ok` 및 PAPER 감시 `RUNNING`을 확인했습니다. 11월 17일 08:45 국내 감시 작업은 Windows 스케줄러에서 `Ready`입니다. `a1c6355`의 Windows PAPER preflight, Domestic KIS API compatibility, Domestic AI pipeline safety CI가 통과했고, `de8859a`의 국내 quant safety CI `43828478812`도 통과했습니다. 최초 quant 실행은 오래된 테스트 기대값 불일치로 실패했으며, 실제 feature schema v5와 맞춘 단일 회귀 수정 후 선택 테스트와 재실행 CI가 통과했습니다. PAPER 주문·취소는 전송하지 않았습니다.
 
 - **Fix : [P4 학습 데이터] 적격 KIS 세션 필터 적용 (2026-11-16 16:59 KST):** 학습 readiness가 승인하는 KIS REST 분봉 세션을 재학습 exporter도 허용하도록 국내·미국 공통 출처 허용목록을 공유하고, 완전한 단일 출처 세션만 내보내도록 분리했습니다. 미완성·혼합·비승인 출처 세션은 제외하며, 실제 스프레드가 필요한 독립 홀드아웃은 기존 WebSocket 전용 게이트를 유지합니다. 읽기 전용 dry-run 결과는 005930 7세션, 000660 6세션이며 readiness와 일치합니다. 변경 집중검사 4/4, 파이프라인 선택 검사(100 AI + 4 readiness), Python 구문검사, PowerShell AST 및 `git diff --check` 통과. 모델 재학습·승인·KIS 주문은 실행하지 않았습니다.
