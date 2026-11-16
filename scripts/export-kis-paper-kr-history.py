@@ -55,6 +55,15 @@ def _complete_session_bars(session_date: date, bars: list) -> bool:
     return actual == expected and all(bar.spread_bps is None for bar in bars)
 
 
+def _normalize_symbols(values: list[str]) -> list[str]:
+    symbols = [value.strip() for value in values]
+    if not 1 <= len(symbols) <= 5 or len(set(symbols)) != len(symbols):
+        raise ValueError("provide one to five distinct KR symbols")
+    if any(not re.fullmatch(r"\d{6}", symbol) for symbol in symbols):
+        raise ValueError("each KR symbol must contain exactly six digits")
+    return symbols
+
+
 def _load_safety_settings(parser: argparse.ArgumentParser) -> KisReadOnlyClient:
     try:
         _load_local_environment()
@@ -90,17 +99,16 @@ def main() -> int:
     parser.add_argument("--from-date", type=date.fromisoformat, required=True)
     parser.add_argument("--to-date", type=date.fromisoformat, required=True)
     parser.add_argument("--symbol", action="append", required=True,
-                        help="repeat for each six-digit domestic stock symbol; at least two are required")
+                        help="repeat for each six-digit domestic symbol; one to five are supported")
     parser.add_argument("--output-directory", type=Path, default=Path("data/backtests/kis-rest-kr"),
                         help="local ignored output directory under data/backtests/")
     parser.add_argument("--minimum-shared-sessions", type=int, default=5)
     args = parser.parse_args()
 
-    symbols = [symbol.strip() for symbol in args.symbol]
-    if len(symbols) < 2 or len(symbols) > 5 or len(set(symbols)) != len(symbols):
-        parser.error("provide two to five distinct KR symbols")
-    if any(not re.fullmatch(r"\d{6}", symbol) for symbol in symbols):
-        parser.error("each KR symbol must contain exactly six digits")
+    try:
+        symbols = _normalize_symbols(args.symbol)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.from_date > args.to_date:
         parser.error("--from-date must be on or before --to-date")
     if (args.to_date - args.from_date).days > 45:

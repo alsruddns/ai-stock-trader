@@ -14,6 +14,12 @@ SPEC = importlib.util.spec_from_file_location("export_kis_paper_kr_history", SCR
 assert SPEC is not None and SPEC.loader is not None
 EXPORTER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(EXPORTER)
+IMPORT_SPEC = importlib.util.spec_from_file_location(
+    "import_historical_kr_training_bars", REPOSITORY / "scripts" / "import-historical-kr-training-bars.py",
+)
+assert IMPORT_SPEC is not None and IMPORT_SPEC.loader is not None
+IMPORTER = importlib.util.module_from_spec(IMPORT_SPEC)
+IMPORT_SPEC.loader.exec_module(IMPORTER)
 
 
 def _session_bars(session_date: date, *, count: int = 380, spread_bps=None) -> list:
@@ -39,3 +45,23 @@ def test_complete_session_requires_every_ordered_minute_and_no_spread_claim() ->
 
 def test_non_session_date_is_not_complete() -> None:
     assert EXPORTER._complete_session_bars(date(2026, 11, 7), []) is False
+
+
+def test_historical_export_accepts_one_valid_domestic_symbol() -> None:
+    assert EXPORTER._normalize_symbols([" 035720 "]) == ["035720"]
+
+
+@pytest.mark.parametrize("symbols", [[], ["035720", "035720"], ["AAPL"], ["12345"], ["1" * 7]])
+def test_historical_export_rejects_invalid_symbol_sets(symbols: list[str]) -> None:
+    with pytest.raises(ValueError):
+        EXPORTER._normalize_symbols(symbols)
+
+
+def test_historical_import_accepts_one_valid_domestic_symbol() -> None:
+    assert IMPORTER._normalize_symbol(" 035720 ") == "035720"
+
+
+@pytest.mark.parametrize("symbol", ["AAPL", "12345", "1234567", ""])
+def test_historical_import_rejects_invalid_domestic_symbol(symbol: str) -> None:
+    with pytest.raises(IMPORTER.argparse.ArgumentTypeError):
+        IMPORTER._normalize_symbol(symbol)

@@ -30,6 +30,13 @@ CSV_FIELDS = [
 ]
 
 
+def _normalize_symbol(value: str) -> str:
+    symbol = value.strip()
+    if not re.fullmatch(r"\d{6}", symbol):
+        raise argparse.ArgumentTypeError("symbol must be a six-digit domestic stock code")
+    return symbol
+
+
 def _load_local_env() -> None:
     env_file = repository / ".env_local"
     if not env_file.is_file():
@@ -150,7 +157,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Import only absent, fully validated historical KR KIS REST sessions for local training."
     )
-    parser.add_argument("--symbol", required=True, choices=("000660", "005930"))
+    parser.add_argument("--symbol", required=True, type=_normalize_symbol,
+                        help="six-digit domestic stock code with an approved historical CSV")
     parser.add_argument("--apply", action="store_true", help="write missing complete sessions; default is read-only dry-run")
     args = parser.parse_args()
 
