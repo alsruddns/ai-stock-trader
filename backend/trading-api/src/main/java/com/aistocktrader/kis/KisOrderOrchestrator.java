@@ -84,7 +84,7 @@ public class KisOrderOrchestrator {
                     request.quantity(), request.limitPrice(), request.currency(), exchange);
             return KisOrderIntentResponse.from(intents.accept(idempotencyKey, receipt));
         } catch (KisOrderOutcomeUnknownException ex) {
-            return KisOrderIntentResponse.from(intents.markUnknown(idempotencyKey, "ORDER_TRANSPORT_UNKNOWN"));
+            return KisOrderIntentResponse.from(intents.markUnknown(idempotencyKey, ex.diagnosticCode()));
         } catch (KisApiException ex) {
             if (KisResponseCodes.indicatesIndeterminateOrderOutcome(ex.getMessage())) {
                 // A transient KIS server error does not prove the broker rejected the order.

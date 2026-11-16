@@ -473,7 +473,9 @@ public class KisOrderClient {
         } catch (ResourceAccessException ex) {
             throw new KisOrderOutcomeUnknownException("KIS paper order outcome is unknown; reconcile broker orders before taking further action.", ex);
         } catch (RestClientResponseException ex) {
-            throw new KisOrderOutcomeUnknownException("KIS paper order outcome is unknown; reconcile broker orders before taking further action.", ex);
+            throw new KisOrderOutcomeUnknownException(
+                    "KIS paper order outcome is unknown; reconcile broker orders before taking further action.",
+                    ex, "ORDER_HTTP_" + ex.getStatusCode().value());
         }
     }
 

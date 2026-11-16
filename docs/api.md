@@ -126,7 +126,7 @@ Read timeout, HTTP 429 및 KIS rate-limit 오류는 안전한 오류 응답으�
 
 국내 과거 1분봉 조회는 KIS `inquire-time-dailychartprice`의 `FID_INPUT_DATE_1`·`FID_INPUT_HOUR_1`로 날짜와 커서를 지정하고 공식 샘플과 같이 `FID_PW_DATA_INCU_YN=Y`를 사용합니다. KIS 서버는 과거 분봉을 최대 1년 범위에서 보관한다고 안내하지만, 실제 보유 기간은 종목·서버 자료에 따라 더 짧을 수 있습니다. 이 REST 응답에는 과거 호가 스프레드가 없으므로 실시간 WebSocket 스프레드 자료와 섞어 비용 검증에 사용하지 않습니다. [KIS 국내 과거 분봉 공식 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py).
 
-Paper 주문 응답이 타임아웃되면 `GET /api/v1/orders/paper/by-idempotency/{key}`로 결과를 먼저 대조합니다. 자동화 클라이언트는 주문 쓰기를 재시도하지 않습니다.
+Paper 주문 응답이 타임아웃되면 `GET /api/v1/orders/paper/by-idempotency/{key}`로 결과를 먼저 대조합니다. 자동화 클라이언트는 주문 쓰기를 재시도하지 않습니다. 전송 계층에서 알 수 없는 결과는 `ORDER_TRANSPORT_UNKNOWN`, HTTP 응답을 받았지만 주문 결과가 미확정인 경우에는 `ORDER_HTTP_<status>` 코드(예: `ORDER_HTTP_500`)를 저장합니다. HTTP 상태 코드만 기록하고 응답 본문이나 예외 메시지는 저장하지 않습니다.
 
 ## KIS WebSocket
 

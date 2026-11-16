@@ -1229,3 +1229,5 @@ P1/P2 판정은 읽기 전용 연결과 격리 로컬 주문 엔진의 검증 �
 - **P2 대시보드 장후 검사에 미접수 종결 경로 추가 (2026-11-16 13:20 KST):** 장후 대시보드 배포 검사가 기존 PAPER 수동대사 경로에 더해 `/api/paper-orders/confirm-no-order`도 빈 요청에 400으로 응답하는지 확인하도록 했습니다. 필수 멱등키와 확인값을 빼서 검증하므로 Spring/KIS에 요청을 전달하지 않으며, 새 Next.js 경로가 배포에 포함되지 않으면 갱신을 실패 처리합니다. 변경 파일 Pester 2/2 및 PowerShell AST 파싱 통과. KIS API나 주문은 호출하지 않았습니다.
 
 - **P1 국내 REAL 종목별 주문가능금액 읽기 전용 검증 (2026-11-16 13:24 KST):** `readsDomesticRealOrderableCashForSymbolWithoutPlacingOrders` 선택 통합검사로 KIS REAL 계좌의 005930 주문가능금액 질의를 실행했습니다. 응답 환경·국내시장·원화·잔고/주문가능금액 필드 형식을 검증했고 1/1 통과했습니다. 금액은 출력하지 않았고 REAL 주문·취소를 보내지 않았습니다. 프로세스 한정 계좌읽기 잠금 외의 주문·자동화 잠금은 비활성이었습니다.
+
+- **Fix : [P2 PAPER 주문 진단] 불명확한 HTTP 결과의 상태코드만 저장 (2026-11-16 14:17 KST):** PAPER 주문 POST가 HTTP 응답을 받은 뒤 결과가 불명확하면 `ORDER_HTTP_<status>`를 주문 의도에 저장하도록 했습니다. 응답 본문·예외 텍스트·자격정보는 진단값에 포함하지 않으며, 연결/읽기 타임아웃은 기존 `ORDER_TRANSPORT_UNKNOWN`으로 유지합니다. 자동 재전송·주문 동작은 바꾸지 않았습니다. `KisOrderClientTest` 35/35와 `KisOrderOrchestratorTest` 28/28 통과, `git diff --check` 통과. 기존 035720 주문의 누락된 진단은 소급 복구할 수 없고, 코드 적용은 다음 승인된 장후 배포 이후 확인해야 합니다.

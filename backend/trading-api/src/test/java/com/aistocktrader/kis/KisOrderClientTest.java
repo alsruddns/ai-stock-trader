@@ -201,6 +201,24 @@ class KisOrderClientTest {
     }
 
     @Test
+    void paperOrderHttpFailurePersistsOnlyBoundedStatusDiagnostic() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/uapi/domestic-stock/v1/trading/order-cash"))
+                .andRespond(withServerError().body("sensitive response body must not be persisted"));
+
+        KisOrderOutcomeUnknownException error = assertThrows(KisOrderOutcomeUnknownException.class,
+                () -> client(true, builder).placePaperLimitOrder(
+                        Market.KR, "005930", OrderSide.BUY, 1, new BigDecimal("70000"), Currency.KRW, null));
+
+        assertEquals("ORDER_HTTP_500", error.diagnosticCode());
+        assertFalse(error.diagnosticCode().contains("sensitive"));
+        server.verify();
+    }
+
+    @Test
     void domesticPaperOrderRejectsFractionalWonPriceBeforeBrokerAccess() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
