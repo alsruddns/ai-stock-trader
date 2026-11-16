@@ -389,18 +389,40 @@ def test_training_model_feature_schema_does_not_include_spread() -> None:
     assert "spread_bps" not in FEATURE_NAMES
 
 
-def test_training_keeps_sample_when_spread_is_missing() -> None:
-    sessions = _sample_sessions()
+def test_training_keeps_sample_but_excludes_candidate_when_signal_spread_is_missing(monkeypatch) -> None:
     session = date(2026, 10, 1)
-    entry = sessions[session][21]
-    sessions[session][21] = MinuteBar(entry.timestamp, entry.open, entry.high, entry.low,
-                                      entry.close, entry.volume, None)
+    baseline_sessions = _sample_sessions()
+    missing_spread_sessions = _sample_sessions()
+    signal = missing_spread_sessions[session][20]
+    missing_spread_sessions[session][20] = MinuteBar(
+        signal.timestamp, signal.open, signal.high, signal.low, signal.close, signal.volume, None,
+    )
+    observed_spread_gate: list[bool] = []
 
-    samples = build_training_samples(sessions, market="KR", horizon_bars=5,
-                                     round_trip_cost_bps=Decimal("20"))
-    assert any(sample.session == session
-               and sample.timestamp == sessions[session][20].timestamp.isoformat()
-               for sample in samples)
+    def candidate_requires_observed_spread(history, _config, *, require_spread=True, **_kwargs):
+        observed_spread_gate.append(require_spread)
+        current = history[-1]
+        return (current.spread_bps is not None and current.spread_observed_at is not None
+                and current.spread_bps <= Decimal("15"))
+
+    monkeypatch.setattr(ai_pipeline, "_orb_vwap_entry_candidate_validated", candidate_requires_observed_spread)
+
+    baseline_samples = build_training_samples(
+        baseline_sessions, market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("20"),
+    )
+    samples = build_training_samples(
+        missing_spread_sessions, market="KR", horizon_bars=5, round_trip_cost_bps=Decimal("20"),
+    )
+    baseline_sample = next(sample for sample in baseline_samples
+                           if sample.session == session
+                           and sample.timestamp == signal.timestamp.isoformat())
+    sample = next(sample for sample in samples
+                  if sample.session == session and sample.timestamp == signal.timestamp.isoformat())
+    assert observed_spread_gate and all(observed_spread_gate)
+    assert baseline_sample.quant_candidate
+    assert not sample.quant_candidate
+    assert sample.label == baseline_sample.label
+    assert sample.forward_net_return_bps == baseline_sample.forward_net_return_bps
 
 
 def test_training_sample_generation_rejects_cost_below_backtest_cost() -> None:

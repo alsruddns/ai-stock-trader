@@ -34,7 +34,7 @@ FEATURE_VERSION = 5
 LABEL_VERSION = 4
 BACKTEST_VERSION = 6
 BACKTEST_SPREAD_MODEL = "known_prior_bar_half_spread_entry_exit_v2"
-VALIDATION_THRESHOLD_SELECTION_METHOD = "validation_candidate_positive_net_mean_v1"
+VALIDATION_THRESHOLD_SELECTION_METHOD = "validation_executable_candidate_positive_net_mean_v2"
 DIAGNOSTIC_THRESHOLD_SELECTION_METHOD = "diagnostic_fixed_0_5"
 MIN_MODEL_APPROVAL_TEST_SESSIONS = 5
 MIN_MODEL_APPROVAL_TEST_TRADES = 5
@@ -345,7 +345,7 @@ def build_training_samples(
             forward_net_return_bps = future_return * Decimal(10_000) - round_trip_cost_bps
             label = int(forward_net_return_bps > 0)
             quant_candidate = _orb_vwap_entry_candidate_validated(
-                history, quant_config, require_spread=False,
+                history, quant_config, require_spread=True,
                 vwap_value=vwap,
                 ema_value=ema_values[quant_config.ema_period][index],
                 atr_value=atr_values[quant_config.atr_period][index],
