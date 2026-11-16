@@ -467,6 +467,19 @@ def test_missing_spread_and_low_turnover_block_entries() -> None:
     assert result.trades == ()
 
 
+def test_historical_ohlcv_can_identify_setup_but_cannot_execute_without_spread() -> None:
+    bars = _session_bars()[:21]
+    breakout = bars[-1]
+    bars[-1] = MinuteBar(
+        breakout.timestamp, breakout.open, breakout.high, breakout.low,
+        breakout.close, breakout.volume, None,
+    )
+    config = QuantConfig(minimum_turnover=Decimal("0"), minimum_relative_volume=Decimal("1"))
+
+    assert orb_vwap_entry_candidate(bars, config, market="KR") is False
+    assert orb_vwap_entry_candidate(bars, config, market="KR", require_spread=False) is True
+
+
 def test_spread_without_observation_time_cannot_qualify_entry() -> None:
     bars = [MinuteBar(bar.timestamp, bar.open, bar.high, bar.low, bar.close, bar.volume,
                       bar.spread_bps, None) for bar in _session_bars()]

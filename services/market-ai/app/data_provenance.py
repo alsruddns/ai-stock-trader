@@ -103,16 +103,24 @@ def validate_data_provenance(
 def validate_model_training_coverage(
     provenance: Mapping[str, Any], *, market: str, sessions: Mapping[Any, Sequence[Any]],
     minimum_sessions: int = MIN_MODEL_TRAINING_SESSIONS,
+    require_spreads: bool = False,
 ) -> None:
-    """Require exact, spread-complete approved KIS WebSocket sessions for model data."""
+    """Require complete sessions from one approved KIS source per market.
+
+    Historical REST minute bars are suitable for OHLCV model training. They do
+    not carry historical order-book spread, so spreads are audited separately
+    as an execution/backtest input and are not fabricated for model features.
+    """
     if type(minimum_sessions) is not int or minimum_sessions < 1:
         raise ValueError("minimum eligible session count must be a positive integer")
     normalized_market = market.strip().upper()
-    expected_source = {
-        "KR": "KIS_PAPER_WEBSOCKET",
-        "US": "KIS_REAL_US_WEBSOCKET",
+    approved_sources = {
+        "KR": {
+            "KIS_PAPER_WEBSOCKET", "KIS_REST_MINUTE_SESSION", "KIS_PAPER_REST_MINUTE_CHART",
+        },
+        "US": {"KIS_REAL_US_WEBSOCKET", "KIS_REST_MINUTE_SESSION"},
     }.get(normalized_market)
-    if expected_source is None:
+    if approved_sources is None:
         raise ValueError("model training market must be KR or US")
     coverage = provenance.get("coverage")
     if not isinstance(coverage, dict):
@@ -138,38 +146,34 @@ def validate_model_training_coverage(
             or not count_matches(coverage.get("observed_bar_count"), sum(len(bars) for bars in sessions.values()))):
         raise ValueError("model training session quality does not match the CSV sessions")
     complete_count = 0
-    spread_complete_count = 0
-    spread_observation_time_complete_count = 0
     for session, bars in sessions.items():
         row = by_date[session.isoformat()]
         source_counts = row.get("source_counts")
+        source_counts_match = isinstance(source_counts, dict) and len(source_counts) == 1
+        source = next(iter(source_counts), None) if source_counts_match else None
         source_counts_match = (
-            isinstance(source_counts, dict)
-            and set(source_counts) == {expected_source}
-            and count_matches(source_counts.get(expected_source), len(bars))
+            source in approved_sources
+            and count_matches(source_counts.get(source), len(bars))
         )
-        if (row.get("complete") is not True or row.get("spread_complete") is not True
+        if (row.get("complete") is not True
                 or not count_matches(row.get("bars"), len(bars))
                 or not count_matches(row.get("expected_bars"), len(bars))
-                or not count_matches(row.get("bars_with_spread"), len(bars))
-                or row.get("sources") != [expected_source]
+                or row.get("sources") != [source]
                 or not source_counts_match
-                or row.get("spread_observation_time_complete") is not True
-                or not count_matches(row.get("bars_with_spread_observation_time"), len(bars))
-                or any(getattr(bar, "spread_bps", None) is None
-                       or getattr(bar, "spread_observed_at", None) is None for bar in bars)):
+                or (require_spreads and (
+                    row.get("spread_complete") is not True
+                    or not count_matches(row.get("bars_with_spread"), len(bars))
+                    or row.get("spread_observation_time_complete") is not True
+                    or not count_matches(row.get("bars_with_spread_observation_time"), len(bars))
+                    or any(getattr(bar, "spread_bps", None) is None
+                           or getattr(bar, "spread_observed_at", None) is None for bar in bars)
+                ))
+                ):
             raise ValueError(
-                "model training requires complete sessions with timestamped spreads from the approved KIS WebSocket feed"
+                "model data requires complete sessions from one approved KIS source and required spread coverage"
             )
         complete_count += 1
-        spread_complete_count += 1
-        spread_observation_time_complete_count += 1
-    if (not count_matches(coverage.get("complete_session_count"), complete_count)
-            or not count_matches(coverage.get("spread_complete_session_count"), spread_complete_count)
-            or not count_matches(
-                coverage.get("spread_observation_time_complete_session_count"),
-                spread_observation_time_complete_count,
-            )):
+    if not count_matches(coverage.get("complete_session_count"), complete_count):
         raise ValueError("model training session quality totals are inconsistent")
     if len(expected_dates) < minimum_sessions:
         raise ValueError(
@@ -179,6 +183,7 @@ def validate_model_training_coverage(
 
 def validate_model_session_integrity(
     *, market: str, symbol: str, sessions: Mapping[Any, Sequence[Any]],
+    require_spreads: bool = False,
 ) -> None:
     """Audit supplied bars against the exchange calendar, not only the exported manifest."""
     normalized_market = market.strip().upper()
@@ -201,10 +206,12 @@ def validate_model_session_integrity(
                 or report.get("observed_bars") != len(bars)
                 or report.get("missing_bars") != 0 or report.get("off_grid_bars") != 0
                 or report.get("duplicate_bars") != 0
-                or report.get("spread_bars") != expected
-                or report.get("spread_observation_time_bars") != expected):
+                or (require_spreads and (
+                    report.get("spread_bars") != expected
+                    or report.get("spread_observation_time_bars") != expected
+                ))):
             raise ValueError(
-                f"model data requires a complete exchange session with timestamped spreads: {session}"
+                f"model data requires a complete exchange OHLCV session with required spread coverage: {session}"
             )
 
 

@@ -544,7 +544,9 @@ async def market_training_readiness(
     except psycopg.Error as exc:
         raise HTTPException(status_code=503, detail="Stored market data is unavailable") from exc
 
-    expected_source = "KIS_PAPER_WEBSOCKET" if normalized_market == "KR" else "KIS_REAL_US_WEBSOCKET"
+    approved_sources = ({"KIS_PAPER_WEBSOCKET", "KIS_REST_MINUTE_SESSION"}
+                        if normalized_market == "KR" else
+                        {"KIS_REAL_US_WEBSOCKET", "KIS_REST_MINUTE_SESSION"})
     evaluated_at = datetime.now(timezone.utc)
     reports = []
     eligible_sessions = 0
@@ -581,11 +583,9 @@ async def market_training_readiness(
             ineligibility_reasons.append("no_stored_data")
         if quality["full_session_complete"] is not True:
             ineligibility_reasons.append("incomplete_session")
-        if int(quality["spread_bars"]) != expected_bars:
-            ineligibility_reasons.append("incomplete_spread_coverage")
-        if int(quality["spread_observation_time_bars"]) != expected_bars:
-            ineligibility_reasons.append("missing_spread_observation_time")
-        if source_counts != {expected_source: len(bars)}:
+        single_source = next(iter(source_counts), None) if len(source_counts) == 1 else None
+        if (single_source not in approved_sources
+                or source_counts.get(single_source) != len(bars)):
             ineligibility_reasons.append("unapproved_data_source")
         eligible = not ineligibility_reasons
         eligible_sessions += int(eligible)

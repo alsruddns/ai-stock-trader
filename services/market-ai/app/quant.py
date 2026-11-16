@@ -274,8 +274,14 @@ def risk_bounded_quantity(
 
 def orb_vwap_entry_candidate(
     bars: list[MinuteBar], config: QuantConfig = QuantConfig(), *, market: Market,
+    require_spread: bool = True,
 ) -> bool:
-    """Evaluate a long entry from a complete prefix ending at the current bar."""
+    """Evaluate a long entry from a complete prefix ending at the current bar.
+
+    Historical model validation may set ``require_spread=False`` to identify
+    OHLCV-only strategy setups. Runtime and execution callers keep the default
+    and therefore still require a timestamped, in-limit spread.
+    """
     _validate_session(bars, market)
     required = max(config.opening_range_bars, config.ema_period, config.atr_period,
                    config.relative_volume_period + 1)
@@ -286,24 +292,24 @@ def orb_vwap_entry_candidate(
     prior_volumes = [bar.volume for bar in bars[max(0, len(bars) - config.relative_volume_period - 1):-1]]
     average_volume = Decimal(sum(prior_volumes)) / len(prior_volumes) if prior_volumes else Decimal(0)
     relative_volume = Decimal(current.volume) / average_volume if average_volume else Decimal(0)
-    spread_ok = (
-        current.spread_bps is not None
-        and current.spread_observed_at is not None
-        and current.spread_bps <= config.maximum_spread_bps
-    )
+    spread_observed = current.spread_bps is not None and current.spread_observed_at is not None
+    spread_ok = (spread_observed and current.spread_bps <= config.maximum_spread_bps)
+    if not require_spread and not spread_observed:
+        spread_ok = True
     turnover_ok = current.close * current.volume >= config.minimum_turnover
     reward_covers_costs = True
     if config.minimum_reward_to_cost_multiple > 0:
-        if not spread_ok:
+        if require_spread and not spread_ok:
             reward_covers_costs = False
         else:
             risk_distance = _atr(bars, config.atr_period) * config.atr_stop_multiple
             expected_reward_bps = (
                 risk_distance * config.reward_risk_multiple * Decimal(10_000) / current.close
             )
+            current_spread = current.spread_bps if spread_observed else config.maximum_spread_bps
             estimated_round_trip_cost_bps = (
                 config.minimum_round_trip_cost_bps
-                + current.spread_bps / Decimal(2)
+                + current_spread / Decimal(2)
                 + config.maximum_spread_bps / Decimal(2)
             )
             reward_covers_costs = (

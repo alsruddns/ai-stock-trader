@@ -26,11 +26,11 @@ from .quant import (MinuteBar, QuantConfig, _atr, _ema, _vwap,
 
 FEATURE_NAMES = (
     "return_1m", "return_3m", "return_5m", "close_vwap_pct", "ema9_gap_pct",
-    "ema20_gap_pct", "atr14_pct", "relative_volume20", "spread_bps", "session_progress",
+    "ema20_gap_pct", "atr14_pct", "relative_volume20", "session_progress",
     "orb_breakout_distance_bps",
 )
-FEATURE_VERSION = 4
-LABEL_VERSION = 3
+FEATURE_VERSION = 5
+LABEL_VERSION = 4
 BACKTEST_VERSION = 6
 BACKTEST_SPREAD_MODEL = "known_prior_bar_half_spread_entry_exit_v2"
 MIN_MODEL_APPROVAL_TEST_SESSIONS = 5
@@ -179,11 +179,11 @@ def build_training_samples(
 ) -> list[TrainingSample]:
     """Create samples using features available at t and an executable forward label.
 
-    A signal at t is entered at the next bar open, using the spread observed by
-    the signal close because the next bar's aggregated spread is only known later.
-    The exit is the close ``horizon_bars`` after t. Sessions are processed
-    independently, so labels never cross a close. Caller owns data licensing and
-    corporate-action/symbol normalization.
+    Labels use configured commissions, tax, and slippage. Historical OHLCV does
+    not contain a trustworthy spread, so spread is excluded from both features
+    and labels; live execution continues to enforce a separately observed quote
+    spread gate. Sessions are processed independently, so labels never cross a
+    close. Caller owns data licensing and corporate-action/symbol normalization.
     """
     if horizon_bars <= 0 or warmup_bars <= 0 or round_trip_cost_bps < 0:
         raise ValueError("horizon, warmup, and transaction cost settings are invalid")
@@ -207,8 +207,6 @@ def build_training_samples(
             prior = bars[max(0, index - 20):index]
             mean_volume = Decimal(sum(item.volume for item in prior)) / len(prior) if prior else Decimal(0)
             volume_ratio = Decimal(current.volume) / mean_volume if mean_volume else Decimal(0)
-            if current.spread_bps is None or current.spread_observed_at is None:
-                continue
             entry = bars[index + 1]
             close = current.close
             returns = [
@@ -231,22 +229,18 @@ def build_training_samples(
                 close / ema20 - Decimal(1),
                 atr_pct,
                 volume_ratio,
-                current.spread_bps,
                 session_progress,
                 orb_breakout_distance_bps,
             )
             if any(not value.is_finite() for value in feature_values):
                 continue
             future = bars[index + horizon_bars]
-            if future.spread_bps is None or future.spread_observed_at is None:
-                continue
             future_return = future.close / entry.open - Decimal(1)
-            observed_round_trip_spread = (current.spread_bps + future.spread_bps) / Decimal(2)
-            forward_net_return_bps = (
-                future_return * Decimal(10_000) - round_trip_cost_bps - observed_round_trip_spread
-            )
+            forward_net_return_bps = future_return * Decimal(10_000) - round_trip_cost_bps
             label = int(forward_net_return_bps > 0)
-            quant_candidate = orb_vwap_entry_candidate(history, quant_config, market=normalized_market)
+            quant_candidate = orb_vwap_entry_candidate(
+                history, quant_config, market=normalized_market, require_spread=False,
+            )
             samples.append(TrainingSample(session, current.timestamp.isoformat(),
                                           tuple(float(value) for value in feature_values), label, quant_candidate,
                                           float(forward_net_return_bps)))
@@ -266,8 +260,6 @@ def latest_features(
         raise ValueError("market must be KR or US")
     _validate_session(bars, normalized_market)
     current = bars[-1]
-    if current.spread_bps is None or current.spread_observed_at is None:
-        raise ValueError("latest bar must include a timestamped spread")
     index = len(bars) - 1
     prior = bars[max(0, index - 20):index]
     mean_volume = Decimal(sum(item.volume for item in prior)) / len(prior) if prior else Decimal(0)
@@ -281,7 +273,6 @@ def latest_features(
         close / _ema([item.close for item in bars], 20) - Decimal(1),
         _atr(bars, 14) / close,
         volume_ratio,
-        current.spread_bps,
         _session_progress(current.timestamp, normalized_market),
         (close / opening_range_high - Decimal(1)) * Decimal(10_000),
     )
@@ -1603,8 +1594,11 @@ class LocalModelRegistry:
             validate_model_training_coverage(
                 provenance, market=market, sessions=sessions,
                 minimum_sessions=MIN_MODEL_APPROVAL_TEST_SESSIONS,
+                require_spreads=True,
             )
-            validate_model_session_integrity(market=market, symbol=symbol, sessions=sessions)
+            validate_model_session_integrity(
+                market=market, symbol=symbol, sessions=sessions, require_spreads=True,
+            )
             config_data = metadata["training_config"]
             quant_config = QuantConfig(
                 opening_range_bars=int(config_data["backtest_opening_range_bars"]),

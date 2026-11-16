@@ -536,8 +536,10 @@ def test_training_readiness_counts_only_complete_approved_websocket_sessions(mon
         bars = [MinuteBar(
             timestamp=opened + timedelta(minutes=index),
             open=Decimal("100"), high=Decimal("101"), low=Decimal("99"), close=Decimal("100"),
-            volume=1000, spread_bps=Decimal("5"),
-            spread_observed_at=opened + timedelta(minutes=index, seconds=10),
+            volume=1000,
+            spread_bps=None if source == "KIS_REST_MINUTE_SESSION" else Decimal("5"),
+            spread_observed_at=(None if source == "KIS_REST_MINUTE_SESSION"
+                                else opened + timedelta(minutes=index, seconds=10)),
         ) for index in range(380)]
         history[session_date] = {
             "bars": bars,
@@ -568,18 +570,18 @@ def test_training_readiness_counts_only_complete_approved_websocket_sessions(mon
     assert response.status_code == 200
     body = response.json()
     assert body["minimum_required_sessions"] == 13
-    assert body["eligible_sessions"] == 1
-    assert body["additional_sessions_needed"] == 12
+    assert body["eligible_sessions"] == 2
+    assert body["additional_sessions_needed"] == 11
     assert body["minimum_met"] is False
-    assert [row["eligible_for_training"] for row in body["sessions"]] == [True, False]
-    assert [row["ineligibility_reasons"] for row in body["sessions"]] == [[], ["unapproved_data_source"]]
+    assert [row["eligible_for_training"] for row in body["sessions"]] == [True, True]
+    assert [row["ineligibility_reasons"] for row in body["sessions"]] == [[], []]
     assert body["cost_assumptions"]["configured"] is True
     assert body["training_preflight"] == {
         "ready": False,
-        "sample_count": 355,
-        "session_count": 1,
+        "sample_count": 710,
+        "session_count": 2,
         "positive_label_count": 0,
-        "negative_label_count": 355,
+        "negative_label_count": 710,
         "candidate_sample_count": 0,
         "candidate_coverage": 0.0,
         "candidate_positive_label_count": 0,
@@ -587,6 +589,12 @@ def test_training_readiness_counts_only_complete_approved_websocket_sessions(mon
         "candidate_session_count": 0,
         "session_class_counts": [{
             "session_date": "2026-11-05", "sample_count": 355,
+            "positive": 0, "negative": 355,
+            "candidate_sample_count": 0,
+            "candidate_positive": 0,
+            "candidate_negative": 0,
+        }, {
+            "session_date": "2026-11-06", "sample_count": 355,
             "positive": 0, "negative": 355,
             "candidate_sample_count": 0,
             "candidate_positive": 0,
@@ -688,9 +696,7 @@ def test_kr_training_readiness_reports_incomplete_session_and_spread_reasons(mon
     assert response.status_code == 200
     session = response.json()["sessions"][0]
     assert session["eligible_for_training"] is False
-    assert session["ineligibility_reasons"] == [
-        "incomplete_session", "incomplete_spread_coverage", "missing_spread_observation_time",
-    ]
+    assert session["ineligibility_reasons"] == ["incomplete_session"]
     assert session["spread_observation_time_bars"] == 378
 
 

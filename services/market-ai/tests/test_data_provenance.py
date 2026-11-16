@@ -117,7 +117,7 @@ def test_timezone_is_required_for_retrieval_and_rights_review() -> None:
         validate_data_provenance(payload, expected_sha256=digest, purpose="backtesting")
 
 
-def test_model_training_requires_complete_spread_covered_approved_source_sessions() -> None:
+def test_model_training_accepts_complete_historical_rest_and_websocket_sessions() -> None:
     first_session = date(2026, 11, 2)
     session_dates = [first_session + timedelta(days=index) for index in range(13)]
     observed_at = datetime(2026, 11, 2, 14, 30, 10, tzinfo=timezone.utc)
@@ -145,12 +145,38 @@ def test_model_training_requires_complete_spread_covered_approved_source_session
     validate_model_training_coverage(payload, market="US", sessions=sessions)
 
     payload["coverage"]["sessions"][0]["sources"] = ["KIS_REST_MINUTE_SESSION"]
-    with pytest.raises(ValueError, match="approved KIS WebSocket feed"):
+    payload["coverage"]["sessions"][0]["source_counts"] = {"KIS_REST_MINUTE_SESSION": 390}
+    payload["coverage"]["sessions"][0]["bars_with_spread"] = 0
+    payload["coverage"]["sessions"][0]["spread_complete"] = False
+    payload["coverage"]["sessions"][0]["bars_with_spread_observation_time"] = 0
+    payload["coverage"]["sessions"][0]["spread_observation_time_complete"] = False
+    sessions[session_dates[0]] = [SimpleNamespace(spread_bps=None, spread_observed_at=None) for _ in range(390)]
+    validate_model_training_coverage(payload, market="US", sessions=sessions)
+    one_session_payload = {
+        **payload,
+        "coverage": {
+            **payload["coverage"],
+            "observed_session_count": 1,
+            "observed_bar_count": 390,
+            "complete_session_count": 1,
+            "sessions": [payload["coverage"]["sessions"][0]],
+        },
+    }
+    with pytest.raises(ValueError, match="required spread coverage"):
+        validate_model_training_coverage(
+            one_session_payload, market="US", sessions={session_dates[0]: sessions[session_dates[0]]},
+            minimum_sessions=1, require_spreads=True,
+        )
+
+    payload["coverage"]["sessions"][0]["sources"] = ["UNVERIFIED_SOURCE"]
+    payload["coverage"]["sessions"][0]["source_counts"] = {"UNVERIFIED_SOURCE": 390}
+    with pytest.raises(ValueError, match="one approved KIS source"):
         validate_model_training_coverage(payload, market="US", sessions=sessions)
 
     short_sessions = dict(list(sessions.items())[:-1])
     short_rows = [dict(row) for row in payload["coverage"]["sessions"][:12]]
     short_rows[0]["sources"] = ["KIS_REAL_US_WEBSOCKET"]
+    short_rows[0]["source_counts"] = {"KIS_REAL_US_WEBSOCKET": 390}
     short_coverage = dict(payload["coverage"])
     short_coverage["sessions"] = short_rows
     short_coverage["observed_session_count"] = 12
@@ -181,7 +207,7 @@ def test_model_training_rejects_missing_or_partial_session_coverage() -> None:
             "source_counts": {"KIS_REAL_US_WEBSOCKET": 1},
         }],
     }
-    with pytest.raises(ValueError, match="timestamped spreads"):
+    with pytest.raises(ValueError, match="at least 13 eligible exchange sessions"):
         validate_model_training_coverage(payload, market="US", sessions=sessions)
 
 
@@ -216,28 +242,27 @@ def test_kr_model_training_rejects_missing_mixed_or_non_integer_source_counts() 
     validate_model_training_coverage(payload, market="KR", sessions=sessions)
 
     sessions[session_dates[0]][0] = SimpleNamespace(spread_bps=Decimal("5"), spread_observed_at=None)
-    with pytest.raises(ValueError, match="timestamped spreads"):
-        validate_model_training_coverage(payload, market="KR", sessions=sessions)
+    validate_model_training_coverage(payload, market="KR", sessions=sessions)
     sessions[session_dates[0]][0] = SimpleNamespace(spread_bps=Decimal("5"), spread_observed_at=observed_at)
 
     first_row = payload["coverage"]["sessions"][0]
     exact_source_counts = dict(first_row["source_counts"])
     del first_row["source_counts"]
-    with pytest.raises(ValueError, match="approved KIS WebSocket feed"):
+    with pytest.raises(ValueError, match="one approved KIS source"):
         validate_model_training_coverage(payload, market="KR", sessions=sessions)
     first_row["source_counts"] = exact_source_counts
 
     payload["coverage"]["sessions"][0]["source_counts"] = {
         "KIS_PAPER_WEBSOCKET": 379, "KIS_REST_MINUTE_SESSION": 1,
     }
-    with pytest.raises(ValueError, match="approved KIS WebSocket feed"):
+    with pytest.raises(ValueError, match="one approved KIS source"):
         validate_model_training_coverage(payload, market="KR", sessions=sessions)
     one_bar_session = session_dates[0]
     sessions[one_bar_session] = [SimpleNamespace(spread_bps=Decimal("5"), spread_observed_at=observed_at)]
     payload["coverage"]["observed_bar_count"] -= 379
     first_row.update({"bars": 1, "expected_bars": 1, "bars_with_spread": 1})
     first_row["source_counts"] = {"KIS_PAPER_WEBSOCKET": True}
-    with pytest.raises(ValueError, match="approved KIS WebSocket feed"):
+    with pytest.raises(ValueError, match="one approved KIS source"):
         validate_model_training_coverage(payload, market="KR", sessions=sessions)
 
 
@@ -279,7 +304,7 @@ def test_model_evaluation_coverage_accepts_five_but_rejects_four_eligible_sessio
         )
 
 
-def test_model_session_integrity_audits_real_bar_grid_and_spread_timestamps() -> None:
+def test_model_session_integrity_audits_real_bar_grid_without_historical_spread() -> None:
     session_date = date(2026, 11, 2)
     window = exchange_continuous_session_window(
         "KR", datetime(2026, 11, 2, 12, tzinfo=ZoneInfo("Asia/Seoul")),
@@ -289,21 +314,18 @@ def test_model_session_integrity_audits_real_bar_grid_and_spread_timestamps() ->
     expected_bars = int((closed - opened).total_seconds() // 60)
     bars = [
         SimpleNamespace(
-            timestamp=opened + timedelta(minutes=index), spread_bps=Decimal("5"),
-            spread_observed_at=opened + timedelta(minutes=index, seconds=10),
+            timestamp=opened + timedelta(minutes=index), spread_bps=None,
+            spread_observed_at=None,
         )
         for index in range(expected_bars)
     ]
 
     validate_model_session_integrity(market="KR", symbol="005930", sessions={session_date: bars})
 
-    with pytest.raises(ValueError, match="complete exchange session"):
+    with pytest.raises(ValueError, match="complete exchange OHLCV session"):
         validate_model_session_integrity(
             market="KR", symbol="005930", sessions={session_date: bars[:100] + bars[101:]},
         )
-    bars[10].spread_observed_at = None
-    with pytest.raises(ValueError, match="complete exchange session"):
-        validate_model_session_integrity(market="KR", symbol="005930", sessions={session_date: bars})
 
 
 def test_training_cli_rejects_off_grid_session_before_creating_registry(
@@ -366,7 +388,7 @@ def test_training_cli_rejects_off_grid_session_before_creating_registry(
         runpy.run_path(str(script), run_name="__main__")
 
     assert result.value.code == 2
-    assert "complete exchange session with timestamped spreads" in capsys.readouterr().err
+    assert "complete exchange OHLCV session" in capsys.readouterr().err
     assert not registry.exists()
 
 
