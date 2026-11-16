@@ -1235,3 +1235,5 @@ P1/P2 판정은 읽기 전용 연결과 격리 로컬 주문 엔진의 검증 �
 - **Update : [P2 주문 진단 CI] 국내 호환성 워크플로에 HTTP 오류 검사 연결 (2026-11-16 14:19 KST):** `paperOrderHttpFailurePersistsOnlyBoundedStatusDiagnostic`를 KIS PAPER 성공 계약 검사와 함께 국내 호환성 CI의 선택 테스트에 포함했습니다. 전체 테스트는 실행하지 않았으며, 앞선 클라이언트·오케스트레이터 집중검사에서 해당 기능과 주변 경계 총 63/63이 통과했습니다.
 
 - **Fix : [P2 Windows 사전검사 CI] Pester 통과 기대치 동기화 (2026-11-16 14:20 KST):** 공개 Windows PAPER preflight CI가 현재 55개인 Pester 검사를 모두 통과한 뒤에도 오래된 기대치 53 때문에 실패 처리한 것을 확인했습니다. 검증된 실제 선택검사 수에 맞춰 집계 기준을 55로 갱신합니다. 실행 로그 기준 실패 테스트는 0개였으며, 새 CI 실행에서 정상 결론을 확인해야 합니다.
+
+- **P2 PAPER 차단 상태 및 CI 재검증 (2026-11-16 14:24 KST):** 수정 커밋 `f22b67c`·`c9873e9`를 국내 `develop`에 푸시했고 Domestic KIS API compatibility `43809547986` 성공을 확인했습니다. Windows PAPER preflight의 잘못된 53건 기준은 55건으로 수정했고 새 실행 `43809688350`에서 PowerShell 사전검사와 격리 주문 복구 검사가 모두 성공했습니다. 로컬 Maven 클라이언트·오케스트레이터 집중검사는 63/63, Pester PAPER 사전검사는 55/55입니다. 14:24 KST 운영 API는 국내 PAPER 모드, 시세 감시 RUNNING(46만 tick·1,003봉·저장 RUNNING), PAPER KIS 주문/자동화 잠금, REAL 주문 잠금, 국내 PAPER 취소 미지원 잠금을 확인했습니다. 035720 10:14 의도는 여전히 미대사 `UNKNOWN`이므로 주문을 재전송하지 않았습니다. 장후 API 재시작·대사 작업은 예약 상태이며 아직 실제 주문수명주기는 검증되지 않았습니다.
