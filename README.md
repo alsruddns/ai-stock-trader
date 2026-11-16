@@ -145,6 +145,8 @@ P4 모델 학습은 왕복 레이블 비용과 매수·매도 수수료, 매도�
 
 PostgreSQL에 저장된 분봉은 로컬 CSV로 내보낼 수 있습니다. 예: `.\services\market-ai\.venv\Scripts\python.exe .\scripts\export-market-data.py --market KR --symbol 005930 --from-date 2026-11-01 --to-date 2026-11-06 --output .\data\exports\005930.csv`. 날짜 범위는 거래소 현지 날짜 기준으로 양 끝을 포함합니다. 먼저 `--dry-run`을 추가하면 파일을 만들지 않고 전체 행·출처와 세션별 기대 봉 수, 봉 완전성, 스프레드 완전성을 확인합니다. 실제 내보내기 조회도 DB 읽기 전용이며 `data/`는 Git에서 제외됩니다. 모든 행 출처가 KIS Open API인 경우 sidecar는 사용자가 확인한 로컬 저장·백테스트·본인 계좌용 학습 권한과 개인 운용 제한을 SHA-256에 묶어 기록합니다. 타사 또는 혼합 출처가 포함되면 모든 권한을 `false`로 유지해 해당 제공자의 별도 검토를 요구합니다.
 
+로컬에 이미 보관된 권리 확인 KIS 국내 과거 REST 분봉을 PostgreSQL 학습 저장소에 추가할 때는 `python .\scripts\import-historical-kr-training-bars.py --symbol 005930` 또는 `--symbol 000660`을 실행합니다. 기본은 읽기 전용 계획 출력입니다. `--apply`는 CSV 해시·권리 sidecar·KIS 출처·거래소 1분 그리드를 검증한 뒤, DB에 한 행도 없는 완전한 세션만 삽입하고 기존 날짜는 통째로 건너뜁니다. 데이터 API나 주문 API는 호출하지 않으며 과거 스프레드를 만들지 않습니다.
+
 해외 모델 학습 코드는 `--market US`도 지원하지만 현재 실행하는 학습·검증은 `--market KR`만 대상으로 합니다. 모델 파일과 메타데이터는 `.local/models`에만 저장됩니다. 생성된 모델은 자동 승인되지 않으며, 승인된 활성 모델도 예측 API는 `executable=false`를 반환합니다.
 
 국내 거래소 영업일 판정과 모의 운영 가드 검사에는 `python -m pip install -e ".[dev,ai,ops]"`의 선택 `ops` 의존성이 필요합니다. 해외 시장 지원 코드는 유지하지만 현재 실행하는 테스트와 KIS 연결·모의매매·실전 검증은 국내주식만 대상으로 합니다. `PAPER_AUTOTRADING_ENABLED=false`가 기본값이며, 시세 지연·모델/브로커 상태·일일 손실·연속 손실·보유 종목 수·장 마감 구간의 조건 중 하나라도 실패하면 신규 진입을 차단합니다. 자동매매를 켤 때는 당일 전략 분봉의 재시작 복구를 위해 `KIS_SNAPSHOT_PERSISTENCE_ENABLED=true`도 필수입니다. 분봉 저장/복원 설정이 없으면 PAPER 자동매매 monitor가 시작되지 않습니다. 미국 PAPER 감시용 설정 키는 해외 개발 호환성 때문에 남겨 두었지만 현재 켜거나 검증하지 않습니다.
