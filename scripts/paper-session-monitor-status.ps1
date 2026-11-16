@@ -89,6 +89,7 @@ function Get-MonitorStreamFailureDiagnostic($Status) {
     $allowedCategories = @('TIMEOUT', 'NETWORK_DISCONNECT', 'WEBSOCKET_PROTOCOL', 'KIS_APPROVAL_OR_AUTH', 'SUBSCRIPTION_REJECTED', 'SUBSCRIPTION_TIMEOUT', 'UNCLASSIFIED')
     $stageProperty = if ($Status) { $Status.PSObject.Properties['last_stream_failure_stage'] } else { $null }
     $categoryProperty = if ($Status) { $Status.PSObject.Properties['last_stream_error_category'] } else { $null }
+    $exceptionTypeProperty = if ($Status) { $Status.PSObject.Properties['last_stream_exception_type'] } else { $null }
     $recordedAtProperty = if ($Status) { $Status.PSObject.Properties['last_stream_failure_at'] } else { $null }
     $environmentProperty = if ($Status) { $Status.PSObject.Properties['last_stream_failure_environment'] } else { $null }
     $failureCountsProperty = if ($Status) { $Status.PSObject.Properties['stream_failures_by_feed'] } else { $null }
@@ -116,6 +117,7 @@ function Get-MonitorStreamFailureDiagnostic($Status) {
         stream_failure_diagnostic_available = ($null -ne $stageProperty -and $null -ne $categoryProperty)
         stream_failure_stage = if ($stageProperty -and $stageProperty.Value -in $allowedStages) { [string]$stageProperty.Value } else { $null }
         stream_error_category = if ($categoryProperty -and $categoryProperty.Value -in $allowedCategories) { [string]$categoryProperty.Value } else { $null }
+        stream_exception_type = if ($exceptionTypeProperty -and [string]$exceptionTypeProperty.Value -match '^[A-Za-z][A-Za-z0-9_]{0,63}$') { [string]$exceptionTypeProperty.Value } else { $null }
         stream_failure_at = $recordedAt
         stream_failure_environment = $failureEnvironment
         stream_failure_count_available = $failureCountAvailable

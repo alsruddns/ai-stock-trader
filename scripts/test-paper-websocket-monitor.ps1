@@ -587,6 +587,7 @@ $evidence = [ordered]@{
     stream_failure_diagnostic_available = (Get-MonitorStreamFailureDiagnostic $latest).stream_failure_diagnostic_available
     stream_failure_stage = (Get-MonitorStreamFailureDiagnostic $latest).stream_failure_stage
     stream_error_category = (Get-MonitorStreamFailureDiagnostic $latest).stream_error_category
+    stream_exception_type = (Get-MonitorStreamFailureDiagnostic $latest).stream_exception_type
     stream_failure_at = (Get-MonitorStreamFailureDiagnostic $latest).stream_failure_at
     stream_recovery_diagnostic_available = (Get-MonitorStreamRecoveryDiagnostic $latest $Feed).stream_recovery_diagnostic_available
     stream_reconnecting_since = (Get-MonitorStreamRecoveryDiagnostic $latest $Feed).stream_reconnecting_since

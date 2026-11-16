@@ -1122,13 +1122,18 @@ def test_domestic_websocket_failure_count_is_per_feed_and_keeps_only_safe_fields
     private_detail = "account=private-secret"
 
     runtime._set_connection_state("paper", "RECONNECTING")
-    runtime._record_stream_failure("paper", "websocket_receive", "NETWORK_DISCONNECT")
-    runtime._record_stream_failure("paper", "websocket_receive", "NETWORK_DISCONNECT")
+    runtime._record_stream_failure(
+        "paper", "websocket_receive", "NETWORK_DISCONNECT", exception_type="ConnectionResetError",
+    )
+    runtime._record_stream_failure(
+        "paper", "websocket_receive", "NETWORK_DISCONNECT", exception_type="ConnectionResetError",
+    )
 
     status = runtime.status()
     assert status["stream_failures_by_feed"] == {"paper": 2, "real": 0}
     assert status["last_stream_failure_stage"] == "websocket_receive"
     assert status["last_stream_error_category"] == "NETWORK_DISCONNECT"
+    assert status["last_stream_exception_type"] == "ConnectionResetError"
     assert status["last_error"] == "KIS_STREAM_UNAVAILABLE"
     assert private_detail not in str(status)
 

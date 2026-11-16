@@ -224,6 +224,7 @@ Describe 'Paper session WebSocket failure diagnostics' {
         $status = [pscustomobject]@{
             last_stream_failure_stage = 'websocket_connect'
             last_stream_error_category = 'NETWORK_DISCONNECT'
+            last_stream_exception_type = 'ConnectionResetError'
             last_stream_failure_at = '2026-11-05T00:00:00+00:00'
             last_stream_failure_environment = 'paper'
             stream_failures_by_feed = [pscustomobject]@{ paper = 3; real = 0 }
@@ -234,6 +235,7 @@ Describe 'Paper session WebSocket failure diagnostics' {
         $diagnostic.stream_failure_diagnostic_available | Should Be $true
         $diagnostic.stream_failure_stage | Should Be 'websocket_connect'
         $diagnostic.stream_error_category | Should Be 'NETWORK_DISCONNECT'
+        $diagnostic.stream_exception_type | Should Be 'ConnectionResetError'
         $diagnostic.stream_failure_at | Should Be '2026-11-05T00:00:00.0000000+00:00'
         $diagnostic.stream_failure_environment | Should Be 'paper'
         $diagnostic.stream_failure_count_available | Should Be $true
@@ -244,6 +246,7 @@ Describe 'Paper session WebSocket failure diagnostics' {
         $unsafeStatus = [pscustomobject]@{
             last_stream_failure_stage = 'password=private-value'
             last_stream_error_category = 'appsecret=private-value'
+            last_stream_exception_type = 'password=private-value'
             last_stream_failure_environment = 'paper'
             stream_failures_by_feed = [pscustomobject]@{ paper = -1; real = 0 }
         }
@@ -255,6 +258,7 @@ Describe 'Paper session WebSocket failure diagnostics' {
 
         $unsafe.stream_failure_stage | Should Be $null
         $unsafe.stream_error_category | Should Be $null
+        $unsafe.stream_exception_type | Should Be $null
         $unsafe.stream_failure_count_available | Should Be $false
         $unsafe.stream_failure_count | Should Be $null
         $old.stream_failure_diagnostic_available | Should Be $false

@@ -265,7 +265,7 @@ class PaperSessionFeedMonitor:
             "stream_failures_by_feed": {"paper": 0, "real": 0},
             "last_error": None, "last_stream_failure_stage": None,
             "last_stream_error_category": None, "last_stream_failure_at": None,
-            "last_stream_failure_environment": None,
+            "last_stream_failure_environment": None, "last_stream_exception_type": None,
             "stream_reconnecting_since_by_feed": {"paper": None, "real": None},
             "stream_last_recovered_at_by_feed": {"paper": None, "real": None},
             "stream_last_recovery_seconds_by_feed": {"paper": None, "real": None},
@@ -1427,24 +1427,24 @@ class PaperSessionFeedMonitor:
                             pass
             except asyncio.CancelledError:
                 raise
-            except SubscriptionAcknowledgementError:
+            except SubscriptionAcknowledgementError as exc:
                 connected_seconds = (asyncio.get_running_loop().time() - connected_at
                                      if connected_at is not None else 0)
                 delay = self._next_reconnect_delay(delay, connected_seconds)
                 self._set_connection_state(environment, "RECONNECTING")
                 self._record_stream_failure(
                     environment, failure_stage, "SUBSCRIPTION_REJECTED",
-                    last_error="KIS_SUBSCRIPTION_REJECTED",
+                    last_error="KIS_SUBSCRIPTION_REJECTED", exception_type=type(exc).__name__,
                 )
                 await asyncio.sleep(delay)
-            except SubscriptionAcknowledgementTimeoutError:
+            except SubscriptionAcknowledgementTimeoutError as exc:
                 connected_seconds = (asyncio.get_running_loop().time() - connected_at
                                      if connected_at is not None else 0)
                 delay = self._next_reconnect_delay(delay, connected_seconds)
                 self._set_connection_state(environment, "RECONNECTING")
                 self._record_stream_failure(
                     environment, failure_stage, "SUBSCRIPTION_TIMEOUT",
-                    last_error="KIS_SUBSCRIPTION_ACK_TIMEOUT",
+                    last_error="KIS_SUBSCRIPTION_ACK_TIMEOUT", exception_type=type(exc).__name__,
                 )
                 await asyncio.sleep(delay)
             except Exception as exc:
@@ -1454,11 +1454,13 @@ class PaperSessionFeedMonitor:
                 self._set_connection_state(environment, "RECONNECTING")
                 self._record_stream_failure(
                     environment, failure_stage, self._stream_error_category(exc),
+                    exception_type=type(exc).__name__,
                 )
                 await asyncio.sleep(delay)
 
     def _record_stream_failure(
         self, environment: str, stage: str, category: str, *, last_error: str | None = None,
+        exception_type: str | None = None,
     ) -> None:
         """Count reconnect failures per feed while retaining only safe diagnostic metadata."""
         if environment not in {"paper", "real"}:
@@ -1467,11 +1469,19 @@ class PaperSessionFeedMonitor:
             counts = dict(self._status["stream_failures_by_feed"])
             counts[environment] = int(counts.get(environment, 0)) + 1
             self._status["stream_failures_by_feed"] = counts
+            safe_exception_type = None
+            if exception_type:
+                safe_exception_type = (
+                    exception_type
+                    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", exception_type)
+                    else "OtherException"
+                )
             values: dict[str, object] = {
                 "last_stream_failure_stage": stage,
                 "last_stream_error_category": category,
                 "last_stream_failure_at": datetime.now(timezone.utc).isoformat(),
                 "last_stream_failure_environment": environment,
+                "last_stream_exception_type": safe_exception_type,
             }
             if last_error is not None:
                 values["last_error"] = last_error
