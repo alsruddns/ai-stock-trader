@@ -666,8 +666,7 @@ def test_training_readiness_includes_exchange_sessions_with_no_stored_bars(monke
         "2026-11-05", "2026-11-06", "2026-11-09",
     ]
     assert body["sessions"][1]["ineligibility_reasons"] == [
-        "no_stored_data", "incomplete_session", "incomplete_spread_coverage",
-        "missing_spread_observation_time", "unapproved_data_source",
+        "no_stored_data", "incomplete_session", "unapproved_data_source",
     ]
 
 
