@@ -60,6 +60,13 @@ Describe 'KIS PAPER submit and observe result' {
         $result.message | Should Match 'do not resubmit or assume it is closed'
     }
 
+    It 'keeps a partially filled cancel-pending order marked open' {
+        $result = Get-KisPaperOrderSubmitObservationResult -Intent @{ status = 'CANCEL_PENDING'; filledQuantity = 1 }
+        $result.exitCode | Should Be 2
+        $result.orderRemainsOpen | Should Be $true
+        $result.message | Should Match 'partial or pending order'
+    }
+
     It 'reports a fully filled or broker-cancelled order as terminal while requiring position review' {
         $filled = Get-KisPaperOrderSubmitObservationResult -Intent @{ status = 'FILLED'; filledQuantity = 1 }
         $cancelled = Get-KisPaperOrderSubmitObservationResult -Intent @{ status = 'CANCELLED'; filledQuantity = 1 }
