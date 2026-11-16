@@ -1521,6 +1521,60 @@ def test_quote_retries_once_with_replacement_after_cached_client_closes(monkeypa
     assert replacement.calls == 1
 
 
+def test_quote_route_recovers_closed_client_and_returns_read_only_snapshot(monkeypatch) -> None:
+    settings = KisSettings(True, "paper", "paper-test-key", "paper-test-secret")
+    expected = Quote(
+        market="KR", symbol="005930", exchange=None, currency="KRW", price=Decimal("70000"),
+        change=Decimal("0"), change_percent=Decimal("0"), volume=1000,
+        retrieved_at=datetime.now(timezone.utc),
+    )
+
+    class ClosedClient:
+        def __init__(self):
+            self.settings = settings
+
+        def get_quote(self, *_args):
+            raise KisClientClosedError("KIS read-only client closed before request dispatch.")
+
+    class ReplacementClient:
+        def get_quote(self, *_args):
+            return expected
+
+    monkeypatch.setattr(main, "_get_or_create_kis_client", lambda _settings: ReplacementClient())
+    app.dependency_overrides[get_market_data_client] = lambda: ClosedClient()
+    try:
+        response = client.get("/api/v1/market/quotes/KR/005930")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["market"] == "KR"
+    assert response.json()["symbol"] == "005930"
+    assert response.json()["price"] == "70000"
+
+
+def test_quote_route_returns_safe_unavailable_when_closed_client_cannot_be_replaced(monkeypatch) -> None:
+    settings = KisSettings(True, "paper", "paper-test-key", "paper-test-secret")
+
+    class ClosedClient:
+        def __init__(self):
+            self.settings = settings
+
+        def get_quote(self, *_args):
+            raise KisClientClosedError("KIS read-only client closed before request dispatch.")
+
+    closed = ClosedClient()
+    monkeypatch.setattr(main, "_get_or_create_kis_client", lambda _settings: closed)
+    app.dependency_overrides[get_market_data_client] = lambda: closed
+    try:
+        response = client.get("/api/v1/market/quotes/KR/005930")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "KIS quote client is unavailable; retry after service recovery."
+
+
 def test_quant_backtest_endpoint_accepts_supplied_bars_and_never_creates_orders() -> None:
     session_open = datetime(2026, 11, 5, 9, 0, tzinfo=timezone(timedelta(hours=9)))
     response = client.post("/api/v1/strategies/orb-vwap/backtest", json={
