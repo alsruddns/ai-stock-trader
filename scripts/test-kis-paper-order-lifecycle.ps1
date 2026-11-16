@@ -189,9 +189,16 @@ try {
         -Headers @{ 'Idempotency-Key' = $idempotencyKey } -ContentType 'application/json' `
         -Body ($order | ConvertTo-Json -Compress) -TimeoutSec 20
 } catch {
+    $submissionFailure = $_
+    $submissionStatus = 'unavailable'
+    if ($submissionFailure.Exception.Response -and $submissionFailure.Exception.Response.StatusCode) {
+        try { $submissionStatus = [string][int]$submissionFailure.Exception.Response.StatusCode } catch { }
+    }
+    $submissionDiagnostic = Format-SafeLocalApiFailure -Status $submissionStatus `
+        -Path '/api/v1/kis/orders/paper' -ErrorDetail ([string]$submissionFailure.ErrorDetails.Message)
     # A timeout can happen after KIS received the request. Query this key; never submit a replacement.
     try { $intent = Get-Intent $idempotencyKey }
-    catch { throw "Submission outcome is unknown. Do not submit again; inspect PAPER order key $idempotencyKey in the local dashboard/KIS paper account." }
+    catch { throw "Submission outcome is unknown ($submissionDiagnostic). Do not submit again; inspect PAPER order key $idempotencyKey in the local dashboard/KIS paper account." }
 }
 
 if ($intent.environment -ne 'paper' -or $intent.idempotencyKey -ne $idempotencyKey) {

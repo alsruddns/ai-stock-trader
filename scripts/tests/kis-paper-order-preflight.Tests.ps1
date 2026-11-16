@@ -169,6 +169,13 @@ Describe 'KIS PAPER submit-and-observe opt-in guard' {
         $submitBranch | Should Not Match '\$cancelUri|/cancel'
         $submitBranch | Should Match 'do not resubmit'
     }
+
+    It 'reports only sanitized HTTP context when the submit result and idempotency lookup are unavailable' {
+        $scriptText = Get-Content (Join-Path $PSScriptRoot '../test-kis-paper-order-lifecycle.ps1') -Raw
+        $scriptText | Should Match 'Format-SafeLocalApiFailure -Status \$submissionStatus'
+        $scriptText | Should Match 'Submission outcome is unknown \(\$submissionDiagnostic\)'
+        $scriptText | Should Not Match 'Submission outcome is unknown.*\$submissionFailure\.Exception\.Message'
+    }
 }
 
 function Assert-QuoteExpectation {
