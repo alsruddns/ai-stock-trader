@@ -5,6 +5,7 @@ import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderSide;
 import com.aistocktrader.config.TradingSafetyProperties;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -40,6 +41,7 @@ public class KisOrderClient {
     private static final String DOMESTIC_ORDER_PATH = "/uapi/domestic-stock/v1/trading/order-cash";
     private static final String OVERSEAS_ORDER_PATH = "/uapi/overseas-stock/v1/trading/order";
     private static final String OVERSEAS_CANCEL_PATH = "/uapi/overseas-stock/v1/trading/order-rvsecncl";
+    private static final ObjectMapper ERROR_RESPONSE_MAPPER = new ObjectMapper();
 
     private final KisProperties properties;
     private final KisOrderProperties orderProperties;
@@ -475,8 +477,22 @@ public class KisOrderClient {
         } catch (RestClientResponseException ex) {
             throw new KisOrderOutcomeUnknownException(
                     "KIS paper order outcome is unknown; reconcile broker orders before taking further action.",
-                    ex, "ORDER_HTTP_" + ex.getStatusCode().value());
+                    ex, paperOrderHttpDiagnostic(ex));
         }
+    }
+
+    private static String paperOrderHttpDiagnostic(RestClientResponseException exception) {
+        String statusCode = "ORDER_HTTP_" + exception.getStatusCode().value();
+        byte[] responseBody = exception.getResponseBodyAsByteArray();
+        if (responseBody.length == 0 || responseBody.length > 16_384) return statusCode;
+        JsonNode response;
+        try {
+            response = ERROR_RESPONSE_MAPPER.readTree(responseBody);
+        } catch (java.io.IOException ignored) {
+            return statusCode;
+        }
+        String brokerCode = safeCode(response.path("msg_cd").asText("unknown"));
+        return "unknown".equals(brokerCode) ? statusCode : statusCode + "_" + brokerCode;
     }
 
     private void requirePaperOrdersEnabled() {

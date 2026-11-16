@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Fix : [P2 KIS 진단] 불명확한 HTTP 오류에서 안전한 브로커 코드 보존 (2026-11-16 17:18 KST):** KIS PAPER 주문 POST가 비정상 HTTP 상태로 끝나 `UNKNOWN`이 되면, 응답 본문을 저장하지 않고 허용 형식의 `msg_cd`만 HTTP 상태와 함께 제한된 진단코드(예: `ORDER_HTTP_500_EGW00002`)로 저장합니다. 코드가 없거나 형식이 다르면 기존 상태코드 진단만 기록합니다. 향후 주문 미접수 원인을 정확히 분류하는 근거를 늘리되, 전송 결과를 `REJECTED`로 추정하거나 재전송하지 않습니다. 클라이언트·오케스트레이터 집중검사 3/3 통과했고 KIS 호환성 CI 선택검사에 추가했습니다. 실제 KIS 주문은 전송하지 않았습니다.
+
 - **Add : [P2 KIS 문의 초안] 국내 PAPER 취소 사전조회 확인요청 정리 (2026-11-16):** KIS 지원에 문의할 TR ID, PAPER 제공 여부, `OPSQ0002` 응답 의미, 안전한 잔량 확인 절차를 문서화했습니다. 문의에는 계좌번호·App Key·Secret이 없으며 KIS에 발송하지 않았습니다. [문의 초안](kis-paper-cancel-support-request.md)
 
 - **P5 다음 국내 감시 세션 운영 사전점검 (2026-11-16 17:12 KST):** Windows `AIStockTrader-LocalStack` 작업이 `Running`, 5432 PostgreSQL과 Spring/Python 18080/18000 리스너가 loopback 주소에만 바인딩되어 있음을 확인했습니다. `.env_local`을 프로세스에만 로드해 PostgreSQL `SELECT 1` 연결검사와 두 로컬 API health/운영 GET을 통과했습니다. Spring은 PAPER이며 KIS PAPER 주문·PAPER 자동매매·REAL 주문은 비활성, Python은 `ok`/국내 PAPER 감시 `RUNNING`입니다. 11월 17일 08:45 KRX 전체 세션 감시 작업은 `Ready`입니다. 이는 실행 전 준비 확인이며 새 거래 세션이나 주문·체결 검증이 아닙니다.

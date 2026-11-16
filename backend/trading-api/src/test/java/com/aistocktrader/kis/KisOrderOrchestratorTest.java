@@ -335,15 +335,15 @@ class KisOrderOrchestratorTest {
                 new KisAccountSnapshot(KisEnvironment.PAPER, Market.KR, "KRW", BigDecimal.ZERO,
                         new BigDecimal("100000"), List.of(), Instant.now(), "test"));
         when(orders.placePaperLimitOrder(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyInt(), any(), any(), nullable(String.class)))
-                .thenThrow(new KisOrderOutcomeUnknownException("unknown", new RuntimeException("timeout"), "ORDER_HTTP_502"));
-        intent.markUnknown("ORDER_HTTP_502");
-        doReturn(intent).when(intents).markUnknown(key, "ORDER_HTTP_502");
+                .thenThrow(new KisOrderOutcomeUnknownException("unknown", new RuntimeException("timeout"), "ORDER_HTTP_502_EGW00002"));
+        intent.markUnknown("ORDER_HTTP_502_EGW00002");
+        doReturn(intent).when(intents).markUnknown(key, "ORDER_HTTP_502_EGW00002");
 
         KisOrderIntentResponse response = orchestrator.submitPaperOrder(key, request, null);
 
         assertEquals(KisOrderStatus.UNKNOWN, response.status());
-        assertEquals("ORDER_HTTP_502", response.responseCode());
-        verify(intents).markUnknown(key, "ORDER_HTTP_502");
+        assertEquals("ORDER_HTTP_502_EGW00002", response.responseCode());
+        verify(intents).markUnknown(key, "ORDER_HTTP_502_EGW00002");
     }
 
     @Test
