@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Update : [P5 PAPER 실시간 수신시각 대시보드] 종목별 체결·호가 마지막 수신 표기 (2026-11-17 07:45 KST):** P5 종목 판단 표에서 기존 종목별 수신량에 최근 체결·호가 수신 시각과 유효 호가 수를 추가했습니다. 구독 데이터 행이 없으면 `수신 대기`, 수신 카운터는 있지만 최근 시각이 없으면 `미수신`으로 표시합니다. 변경 파일 ESLint와 Dashboard TypeScript 검사를 통과했고 커밋 `e0d5a23`을 `develop`에 푸시했습니다. 운영 `.next` 빌드와 13000 재시작은 장중 중단을 피하기 위해 16:15 KST 예약 작업에 남아 있으며, 현재 화면에는 변경 사항이 아직 적용되지 않았습니다. 주문·자동매매 설정은 바꾸지 않았습니다.
+
 - **Update : [P2 국내 PAPER 035720 장전 재점검] 읽기 전용 사전조건 통과 (2026-11-17 07:28 KST):** 격리 Spring 인스턴스에서 `KR/035720`, 지정가 29,150원 1주 기준 읽기 전용 PAPER 사전점검을 재실행했습니다. KIS 시세 freshness와 주문가능액 검사가 통과했고 결과는 Git 제외 `.local/validation/paper-preflight-latest.json`에 `PASSED`, `order_sent=false`, `cancel_sent=false`로 저장됐습니다. 운영 요약에서 PAPER 주문·자동매매, REAL 주문은 비활성이고 미해결 PAPER 주문은 0건이었습니다. 오늘 09:05 KST 단건 주문 작업은 `Ready` 상태로 아직 실행되지 않았습니다. 이 사전점검은 실제 주문 접수나 체결을 검증하지 않습니다.
 
 - **Update : [P4 실행가능 후보 게이트 운영 적용] 학습 readiness 오표시 해소 (2026-11-17 07:18 KST):** KRX 세션 `is_open=false`를 확인하고 관리형 로컬 Spring/FastAPI 스택을 재시작해 `29eb382`를 적용했습니다. 재시작 후 DB 기반 readiness GET은 `005930`·`000660` 모두 `ready=false`, validation 실행가능 후보 0개 및 표본·세션·양 클래스 게이트 미충족으로 응답합니다. 총 후보 4/51개는 홀드아웃에만 있으며 각 1/2세션이라 독립 검증에 부족합니다. 이전 프로세스는 이 실행불가 후보를 포함해 `ready=true`였으므로 런타임 갱신으로 잘못된 준비 표시를 바로잡았습니다. PAPER 시세 감시·저장기는 `RUNNING`, PAPER/REAL 주문 및 PAPER 자동화는 비활성, 미해결 주문 0건을 재확인했습니다. 오늘 08:45 감시와 09:05 국내 035720 단건 PAPER 점검 예약은 유지되며 아직 주문을 보내지 않았습니다. 상세 증거는 Git 제외 `.local/validation/p4-executable-candidate-gate-20261117.json`에 기록했습니다.
