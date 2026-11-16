@@ -771,4 +771,43 @@ Describe 'PAPER order smoke log summary boundary' {
         $summary.filledQuantity | Should Be 1
         $summary.orderRemainsOpen | Should Be $true
     }
+
+    It 'recognizes a broker rejection and omits its idempotency key' {
+        $directory = Join-Path $TestDrive 'rejected-logs'
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+        $path = Join-Path $directory 'paper-order-smoke-035720-20261117.log'
+        @(
+            'startedAt=2026-11-17T09:05:00+09:00'
+            'KIS PAPER rejected the one-share request; no accepted order remains. Code: VTTC1234. Key: 8f78d163-477d-4194-9d93-3bdde2cfadd2'
+            'completedAt=2026-11-17T09:05:03+09:00; exitCode=1'
+        ) | Set-Content -LiteralPath $path -Encoding utf8
+
+        $summary = Get-AiTraderPaperOrderSmokeSummary -LogDirectory $directory
+        $json = $summary | ConvertTo-Json -Compress
+
+        $summary.outcome | Should Be 'REJECTED'
+        $summary.orderStatus | Should Be 'REJECTED'
+        $summary.orderSent | Should Be $true
+        $summary.orderRemainsOpen | Should Be $false
+        $json | Should Not Match '8f78d163-477d-4194-9d93-3bdde2cfadd2|VTTC1234'
+    }
+
+    It 'recognizes an immediate fill as a terminal one-share PAPER position' {
+        $directory = Join-Path $TestDrive 'filled-logs'
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+        $path = Join-Path $directory 'paper-order-smoke-035720-20261117.log'
+        @(
+            'startedAt=2026-11-17T09:05:00+09:00'
+            'KIS PAPER filled the one-share request. Review and reconcile the simulated position. No further order was sent. Key: 8f78d163-477d-4194-9d93-3bdde2cfadd2'
+            'completedAt=2026-11-17T09:05:03+09:00; exitCode=2'
+        ) | Set-Content -LiteralPath $path -Encoding utf8
+
+        $summary = Get-AiTraderPaperOrderSmokeSummary -LogDirectory $directory
+
+        $summary.outcome | Should Be 'FILL_OBSERVED'
+        $summary.orderStatus | Should Be 'FILLED'
+        $summary.filledQuantity | Should Be 1
+        $summary.orderRemainsOpen | Should Be $false
+        $summary.orderSent | Should Be $true
+    }
 }

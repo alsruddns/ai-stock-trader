@@ -863,6 +863,20 @@ function Get-AiTraderPaperOrderSmokeSummary {
             elseif ($line -match '^submissionSkipped=(brokerOrderHistoryNotProvenEmpty|localTradingSafetyOrOrderLedgerNotClear)$') {
                 $result.outcome = 'SKIPPED'
             }
+            elseif ($line -match '^KIS PAPER rejected the one-share request; no accepted order remains\. Code: [A-Za-z0-9_-]{1,32}\. Key: [A-Fa-f0-9-]{36}$') {
+                $result.orderStatus = 'REJECTED'
+                $result.filledQuantity = 0
+                $result.orderRemainsOpen = $false
+                $result.orderSent = $true
+                $result.outcome = 'REJECTED'
+            }
+            elseif ($line -match '^KIS PAPER filled the one-share request\. Review and reconcile the simulated position\. No further order was sent\. Key: [A-Fa-f0-9-]{36}$') {
+                $result.orderStatus = 'FILLED'
+                $result.filledQuantity = 1
+                $result.orderRemainsOpen = $false
+                $result.orderSent = $true
+                $result.outcome = 'FILL_OBSERVED'
+            }
             elseif ($line -match '^PAPER submit observation: market=(KR|US) symbol=([A-Z0-9.-]{1,16}) status=(ACCEPTED|PARTIALLY_FILLED|FILLED|REJECTED|CANCELLED|CANCEL_PENDING|UNKNOWN|SUBMITTING|NO_ORDER_CONFIRMED) filled=(\d{1,6}|unknown) order_remains_open=(True|False|unknown) key=[A-Fa-f0-9-]{36}$') {
                 $observedSymbol = $Matches[2]
                 $observedMarket = $Matches[1]
