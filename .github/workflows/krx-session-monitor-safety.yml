@@ -86,7 +86,7 @@ jobs:
           }
 
           $sessionTaskDefinitionResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -TestName 'Existing market session task verification' -PassThru
-          if ($sessionTaskDefinitionResult.FailedCount -gt 0 -or $sessionTaskDefinitionResult.PassedCount -ne 7) {
+          if ($sessionTaskDefinitionResult.FailedCount -gt 0 -or $sessionTaskDefinitionResult.PassedCount -ne 8) {
             throw "Domestic session task definition test failed: passed=$($sessionTaskDefinitionResult.PassedCount), failed=$($sessionTaskDefinitionResult.FailedCount)."
           }
 
