@@ -328,13 +328,15 @@ public class OperationsController {
 
     public record BrokerOrderView(java.util.UUID idempotencyKey, String market, String symbol, String side, int quantity, Integer filledQuantity,
                                   Integer remainingQuantity, String currency, KisOrderStatus status,
-                                  String responseCode, boolean brokerOrderReferencePresent,
+                                  String responseCode, String initialOutcomeCode,
+                                  boolean brokerOrderReferencePresent,
                                   Instant createdAt, Instant updatedAt) {
         static BrokerOrderView from(KisOrderIntent item, boolean exposePaperReconciliationKey) {
             return new BrokerOrderView(exposePaperReconciliationKey ? item.getIdempotencyKey() : null,
                     item.getMarket().name(), item.getSymbol(), item.getSide().name(),
                     item.getQuantity(), item.getFilledQuantity(), item.getRemainingQuantity(),
                     item.getCurrency().name(), item.getStatus(), item.getBrokerResponseCode(),
+                    item.getInitialOutcomeCode(),
                     item.getBrokerOrderNumber() != null && !item.getBrokerOrderNumber().isBlank(),
                     item.getCreatedAt(), item.getUpdatedAt());
         }

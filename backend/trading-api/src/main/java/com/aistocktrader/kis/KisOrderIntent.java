@@ -46,6 +46,8 @@ public class KisOrderIntent {
     private String brokerOrganizationNumber;
     @Column(name = "broker_response_code", length = 32)
     private String brokerResponseCode;
+    @Column(name = "initial_outcome_code", length = 32)
+    private String initialOutcomeCode;
     @Column(name = "exchange_code", length = 8)
     private String exchangeCode;
     @Column(name = "filled_quantity")
@@ -114,6 +116,7 @@ public class KisOrderIntent {
         }
         status = KisOrderStatus.ACCEPTED; brokerOrderNumber = receipt.brokerOrderNumber();
         brokerOrganizationNumber = receipt.brokerOrganizationNumber(); brokerResponseCode = receipt.responseCode();
+        initialOutcomeCode = receipt.responseCode();
         updatedAt = Instant.now();
     }
 
@@ -129,11 +132,17 @@ public class KisOrderIntent {
                 && "0".equals(receipt.responseCode());
     }
 
-    public void markUnknown() { status = KisOrderStatus.UNKNOWN; updatedAt = Instant.now(); }
+    public void markUnknown() {
+        status = KisOrderStatus.UNKNOWN;
+        if (initialOutcomeCode == null) initialOutcomeCode = "ORDER_OUTCOME_UNKNOWN";
+        updatedAt = Instant.now();
+    }
     public void markUnknown(String safeDiagnosticCode) {
         status = KisOrderStatus.UNKNOWN;
-        brokerResponseCode = safeDiagnosticCode != null && safeDiagnosticCode.matches("[A-Za-z0-9_-]{1,32}")
+        String normalizedCode = safeDiagnosticCode != null && safeDiagnosticCode.matches("[A-Za-z0-9_-]{1,32}")
                 ? safeDiagnosticCode : "ORDER_OUTCOME_UNKNOWN";
+        brokerResponseCode = normalizedCode;
+        if (initialOutcomeCode == null) initialOutcomeCode = normalizedCode;
         updatedAt = Instant.now();
     }
     public void confirmNoPaperOrderWasSubmitted() {
@@ -171,6 +180,7 @@ public class KisOrderIntent {
     public void reject(String code) {
         status = KisOrderStatus.REJECTED;
         brokerResponseCode = code;
+        if (initialOutcomeCode == null) initialOutcomeCode = code;
         if (realExitStatus == KisRealExitStatus.WAITING_FOR_ENTRY
                 && (filledQuantity == null || filledQuantity == 0)) realExitStatus = KisRealExitStatus.CLOSED;
         updatedAt = Instant.now();
@@ -238,6 +248,7 @@ public class KisOrderIntent {
     public String getBrokerOrderNumber() { return brokerOrderNumber; }
     public String getBrokerOrganizationNumber() { return brokerOrganizationNumber; }
     public String getBrokerResponseCode() { return brokerResponseCode; }
+    public String getInitialOutcomeCode() { return initialOutcomeCode; }
     public String getExchangeCode() { return exchangeCode; }
     public Integer getFilledQuantity() { return filledQuantity; }
     public Integer getRemainingQuantity() { return remainingQuantity; }

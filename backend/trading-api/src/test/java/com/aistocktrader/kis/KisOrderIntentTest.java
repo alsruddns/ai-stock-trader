@@ -24,9 +24,11 @@ class KisOrderIntentTest {
         intent.markUnknown("EGW00002");
         assertEquals(KisOrderStatus.UNKNOWN, intent.getStatus());
         assertEquals("EGW00002", intent.getBrokerResponseCode());
+        assertEquals("EGW00002", intent.getInitialOutcomeCode());
 
         intent.markUnknown("authorization=hidden");
         assertEquals("ORDER_OUTCOME_UNKNOWN", intent.getBrokerResponseCode());
+        assertEquals("EGW00002", intent.getInitialOutcomeCode());
     }
 
     @Test
@@ -34,12 +36,13 @@ class KisOrderIntentTest {
         KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
                 new OrderRequest(Market.KR, "035720", OrderSide.BUY, 1,
                         new BigDecimal("50000"), Currency.KRW), null);
-        intent.markUnknown();
+        intent.markUnknown("ORDER_HTTP_502_EGW00002");
 
         intent.confirmNoPaperOrderWasSubmitted();
 
         assertEquals(KisOrderStatus.NO_ORDER_CONFIRMED, intent.getStatus());
         assertEquals("MANUAL_NO_ORDER_CONFIRMED", intent.getBrokerResponseCode());
+        assertEquals("ORDER_HTTP_502_EGW00002", intent.getInitialOutcomeCode());
         assertNull(intent.getBrokerOrderNumber());
     }
 

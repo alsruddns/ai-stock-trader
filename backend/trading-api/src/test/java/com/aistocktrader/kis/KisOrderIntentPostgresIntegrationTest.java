@@ -117,8 +117,9 @@ class KisOrderIntentPostgresIntegrationTest {
 
             assertEquals(KisOrderStatus.NO_ORDER_CONFIRMED, closed.getStatus());
             assertEquals("MANUAL_NO_ORDER_CONFIRMED", closed.getBrokerResponseCode());
-            assertEquals(KisOrderStatus.NO_ORDER_CONFIRMED,
-                    repository.findById(firstKey).orElseThrow().getStatus());
+            KisOrderIntent persisted = repository.findById(firstKey).orElseThrow();
+            assertEquals(KisOrderStatus.NO_ORDER_CONFIRMED, persisted.getStatus());
+            assertEquals("EGW00002", persisted.getInitialOutcomeCode());
 
             store.prepare(secondKey, KisOrderOrchestrator.hash(request, null), request, null);
             assertEquals(KisOrderStatus.SUBMITTING, repository.findById(secondKey).orElseThrow().getStatus());

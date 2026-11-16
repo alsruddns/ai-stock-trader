@@ -181,7 +181,7 @@ class KisRealOrderControllerTest {
                 BigDecimal.valueOf(100_000), BigDecimal.valueOf(100_000), BigDecimal.valueOf(100_000),
                 List.of(), Instant.now(), "test");
         KisOrderIntentResponse expected = new KisOrderIntentResponse(key, "real", "KR", "005930", "BUY", 1,
-                "1000", "KRW", KisOrderStatus.ACCEPTED, "broker-order", "broker-org", "0",
+                "1000", "KRW", KisOrderStatus.ACCEPTED, "broker-order", "broker-org", "0", "0",
                 0, 1, null, Instant.now(), Instant.now());
         when(accounts.getBalance(KisEnvironment.REAL, Market.KR, "005930", BigDecimal.valueOf(1000), null))
                 .thenReturn(account);
@@ -210,7 +210,7 @@ class KisRealOrderControllerTest {
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.valueOf(70000), List.of(position), Instant.now(),
                 "KIS_READ_ONLY_REST");
         KisOrderIntentResponse expected = new KisOrderIntentResponse(key, "real", "KR", "005930", "SELL", 1,
-                "70000", "KRW", KisOrderStatus.ACCEPTED, "broker-order", "broker-org", "0",
+                "70000", "KRW", KisOrderStatus.ACCEPTED, "broker-order", "broker-org", "0", "0",
                 0, 1, null, Instant.now(), Instant.now());
         when(accounts.getBalance(KisEnvironment.REAL, Market.KR, null, null, null)).thenReturn(account);
         when(orders.submit(key, sell, null, account)).thenReturn(expected);
@@ -233,7 +233,7 @@ class KisRealOrderControllerTest {
                 BigDecimal.valueOf(100_000), BigDecimal.valueOf(100_000), BigDecimal.valueOf(100_000),
                 List.of(), Instant.now(), "KIS_READ_ONLY_REST");
         KisOrderIntentResponse expected = new KisOrderIntentResponse(key, "real", "KR", "005930", "BUY", 10,
-                "70000", "KRW", KisOrderStatus.ACCEPTED, "broker-order", "broker-org", "0",
+                "70000", "KRW", KisOrderStatus.ACCEPTED, "broker-order", "broker-org", "0", "0",
                 0, 10, null, Instant.now(), Instant.now());
         when(marketAiEvidence.inspect(any(OrderRequest.class), isNull())).thenReturn(
                 new KisMarketAiEvidenceClient.Evidence(true, true, BigDecimal.valueOf(100),
@@ -323,7 +323,7 @@ class KisRealOrderControllerTest {
                 BigDecimal.valueOf(100_000), BigDecimal.valueOf(100_000), BigDecimal.valueOf(100_000),
                 List.of(), Instant.now(), "test");
         KisOrderIntentResponse expected = new KisOrderIntentResponse(key, "real", "KR", "005930", "SELL", 1,
-                "1000", "KRW", KisOrderStatus.ACCEPTED, "broker-order", "broker-org", "0",
+                "1000", "KRW", KisOrderStatus.ACCEPTED, "broker-order", "broker-org", "0", "0",
                 0, 1, null, Instant.now(), Instant.now());
         when(accounts.getBalance(KisEnvironment.REAL, Market.KR, null, null, null))
                 .thenReturn(account);

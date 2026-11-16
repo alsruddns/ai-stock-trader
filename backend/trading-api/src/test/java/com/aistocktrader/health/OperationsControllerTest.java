@@ -190,6 +190,7 @@ class OperationsControllerTest {
         assertEquals("005930", summary.recentPaperKisOrders().getFirst().symbol());
         assertEquals(KisOrderStatus.REJECTED, summary.recentPaperKisOrders().getFirst().status());
         assertEquals("EGW00201", summary.recentPaperKisOrders().getFirst().responseCode());
+        assertEquals("EGW00201", summary.recentPaperKisOrders().getFirst().initialOutcomeCode());
         assertEquals(false, summary.recentPaperKisOrders().getFirst().brokerOrderReferencePresent());
     }
 
