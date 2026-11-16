@@ -121,7 +121,7 @@ def validate_websocket_session_rows(rows: Sequence[tuple], *, market: str, expec
 def select_eligible_model_training_rows(
     rows: Sequence[tuple], *, market: str,
 ) -> tuple[list[tuple], dict[str, object]]:
-    """Keep only complete sessions whose rows all come from one approved KIS training source."""
+    """Keep complete sessions whose rows come only from approved KIS training sources."""
     normalized_market = market.strip().upper()
     approved_sources = APPROVED_MODEL_TRAINING_SOURCES.get(normalized_market)
     if approved_sources is None:
@@ -135,9 +135,20 @@ def select_eligible_model_training_rows(
             reasons.append("incomplete_session")
         source_counts = session["source_counts"]
         sources = session["sources"]
-        if (not isinstance(source_counts, dict) or not isinstance(sources, list) or len(sources) != 1
-                or sources[0] not in approved_sources
-                or source_counts.get(sources[0]) != session["bars"]):
+        source_counts_valid = (
+            isinstance(source_counts, dict)
+            and bool(source_counts)
+            and all(isinstance(source, str) and source in approved_sources for source in source_counts)
+            and all(type(count) is int and count > 0 for count in source_counts.values())
+            and sum(source_counts.values()) == session["bars"]
+        )
+        source_names_match = (
+            isinstance(sources, list)
+            and isinstance(source_counts, dict)
+            and all(isinstance(source, str) for source in source_counts)
+            and sources == sorted(source_counts)
+        )
+        if not source_names_match or not source_counts_valid:
             reasons.append("unapproved_data_source")
         if reasons:
             excluded_sessions.append({"session_date": session["session_date"], "reasons": reasons})

@@ -24,7 +24,7 @@ FOREIGN_MARKERS = re.compile(
 DOMESTIC_API_TESTS = {
     "test_training_readiness_counts_only_complete_approved_websocket_sessions",
     "test_training_readiness_includes_exchange_sessions_with_no_stored_bars",
-    "test_kr_training_readiness_accepts_approved_paper_rest_chart_source",
+    "test_kr_training_readiness_accepts_approved_mixed_paper_sources",
     "test_kr_training_readiness_reports_incomplete_session_and_spread_reasons",
 }
 

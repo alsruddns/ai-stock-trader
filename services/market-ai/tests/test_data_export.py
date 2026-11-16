@@ -271,7 +271,7 @@ def test_training_export_source_gate_accepts_complete_new_york_session() -> None
     validate_websocket_session_rows(rows, market="US", expected_source="KIS_REAL_US_WEBSOCKET")
 
 
-def test_model_training_filter_keeps_only_complete_single_source_kis_sessions() -> None:
+def test_model_training_filter_keeps_complete_sessions_with_approved_mixed_kis_sources() -> None:
     rows = []
     for session_date, source, count in (
         (date(2026, 11, 2), "KIS_REST_MINUTE_SESSION", 380),
@@ -294,14 +294,13 @@ def test_model_training_filter_keeps_only_complete_single_source_kis_sessions() 
 
     selected, summary = select_eligible_model_training_rows(rows, market="KR")
 
-    assert len(selected) == 1140
+    assert len(selected) == 1520
     assert summary["observed_session_count"] == 6
-    assert summary["eligible_session_count"] == 3
-    assert summary["eligible_sessions"] == ["2026-11-02", "2026-11-03", "2026-11-04"]
-    assert summary["excluded_bar_count"] == 1139
+    assert summary["eligible_session_count"] == 4
+    assert summary["eligible_sessions"] == ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-06"]
+    assert summary["excluded_bar_count"] == 759
     assert summary["excluded_sessions"] == [
         {"session_date": "2026-11-05", "reasons": ["incomplete_session"]},
-        {"session_date": "2026-11-06", "reasons": ["unapproved_data_source"]},
         {"session_date": "2026-11-09", "reasons": ["unapproved_data_source"]},
     ]
 
