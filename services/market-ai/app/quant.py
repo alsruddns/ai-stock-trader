@@ -159,7 +159,10 @@ def exchange_session_date(timestamp: datetime, market: Market) -> date:
     return timestamp.astimezone(zone).date()
 
 
-def _validate_session(bars: list[MinuteBar], market: Market, *, require_complete: bool = False) -> None:
+def _validate_session(
+    bars: list[MinuteBar], market: Market, *, require_complete: bool = False,
+    continuous_session_window: tuple[datetime, datetime] | None = None,
+) -> None:
     if not bars:
         raise ValueError("at least one bar is required")
     session_date = exchange_session_date(bars[0].timestamp, market)
@@ -167,7 +170,7 @@ def _validate_session(bars: list[MinuteBar], market: Market, *, require_complete
         raise ValueError("one session per backtest is supported")
     if any(left.timestamp >= right.timestamp for left, right in zip(bars, bars[1:])):
         raise ValueError("bars must be strictly increasing by timestamp")
-    window = exchange_continuous_session_window(market, bars[0].timestamp)
+    window = continuous_session_window or exchange_continuous_session_window(market, bars[0].timestamp)
     if window is None:
         raise ValueError("bars must belong to an official exchange session")
     opened, closed = window
@@ -283,11 +286,25 @@ def orb_vwap_entry_candidate(
     and therefore still require a timestamped, in-limit spread.
     """
     _validate_session(bars, market)
+    return _orb_vwap_entry_candidate_validated(
+        bars, config, require_spread=require_spread,
+    )
+
+
+def _orb_vwap_entry_candidate_validated(
+    bars: list[MinuteBar], config: QuantConfig = QuantConfig(), *,
+    require_spread: bool = True,
+    vwap_value: Decimal | None = None,
+    ema_value: Decimal | None = None,
+    atr_value: Decimal | None = None,
+    opening_range_high: Decimal | None = None,
+) -> bool:
+    """Evaluate a prefix already validated as one ordered exchange session."""
     required = max(config.opening_range_bars, config.ema_period, config.atr_period,
                    config.relative_volume_period + 1)
     if len(bars) < required:
         return False
-    opening_high = max(bar.high for bar in bars[:config.opening_range_bars])
+    opening_high = opening_range_high or max(bar.high for bar in bars[:config.opening_range_bars])
     current = bars[-1]
     prior_volumes = [bar.volume for bar in bars[max(0, len(bars) - config.relative_volume_period - 1):-1]]
     average_volume = Decimal(sum(prior_volumes)) / len(prior_volumes) if prior_volumes else Decimal(0)
@@ -302,7 +319,8 @@ def orb_vwap_entry_candidate(
         if require_spread and not spread_ok:
             reward_covers_costs = False
         else:
-            risk_distance = _atr(bars, config.atr_period) * config.atr_stop_multiple
+            risk_distance = (atr_value if atr_value is not None else _atr(bars, config.atr_period)) \
+                * config.atr_stop_multiple
             expected_reward_bps = (
                 risk_distance * config.reward_risk_multiple * Decimal(10_000) / current.close
             )
@@ -316,9 +334,11 @@ def orb_vwap_entry_candidate(
                 expected_reward_bps
                 >= estimated_round_trip_cost_bps * config.minimum_reward_to_cost_multiple
             )
+    vwap = vwap_value if vwap_value is not None else _vwap(bars)
+    ema = ema_value if ema_value is not None else _ema([bar.close for bar in bars], config.ema_period)
     return (
-        current.close > opening_high and current.close > _vwap(bars)
-        and current.close > _ema([bar.close for bar in bars], config.ema_period)
+        current.close > opening_high and current.close > vwap
+        and current.close > ema
         and relative_volume >= config.minimum_relative_volume and spread_ok and turnover_ok
         and reward_covers_costs
     )

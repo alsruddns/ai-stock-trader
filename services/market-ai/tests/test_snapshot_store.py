@@ -212,3 +212,30 @@ def test_training_history_excludes_premarket_and_afterhours_rows_from_provenance
     assert result[datetime.fromisoformat("2026-11-05").date()]["source_counts"] == {
         "KIS_REAL_US_WEBSOCKET": 1,
     }
+
+
+def test_training_history_uses_one_exchange_schedule_for_the_date_range(monkeypatch) -> None:
+    connection = _FakeConnection()
+    session = datetime.fromisoformat("2026-11-05").date()
+    opened = datetime.fromisoformat("2026-11-05T14:30:00+00:00")
+    closed = datetime.fromisoformat("2026-11-05T21:00:00+00:00")
+    connection.rows = [
+        (opened, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100.5"),
+         1000, None, None, "KIS_REAL_US_WEBSOCKET"),
+    ]
+    schedule_calls = []
+    monkeypatch.setattr(snapshot_store, "_connect", lambda: connection)
+    monkeypatch.setattr(
+        snapshot_store, "exchange_session_schedule",
+        lambda market, start, end: schedule_calls.append((market, start, end)) or ((session, opened, closed),),
+    )
+    monkeypatch.setattr(
+        snapshot_store, "exchange_continuous_session_window",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("per-session calendar lookup should not run")),
+    )
+
+    result = snapshot_store.load_minute_bar_training_history("US", "AAPL", session, session)
+
+    assert schedule_calls == [("US", session, session)]
+    assert len(result[session]["bars"]) == 1
+    assert result[session]["source_counts"] == {"KIS_REAL_US_WEBSOCKET": 1}

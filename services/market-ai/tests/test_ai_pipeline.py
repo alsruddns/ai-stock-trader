@@ -27,7 +27,7 @@ from app.ai_pipeline import (
     _session_progress,
 )
 from app.data_provenance import MIN_MODEL_TRAINING_SESSIONS
-from app.quant import MinuteBar, QuantConfig, backtest_orb_vwap
+from app.quant import MinuteBar, QuantConfig, _atr, _ema, _vwap, backtest_orb_vwap
 from app.market_calendar import exchange_session_window
 
 
@@ -128,6 +128,40 @@ def test_training_samples_cover_actual_orb_candidates_and_strategy_outcomes() ->
     assert candidates_by_session[date(2026, 11, 6)].label == 0
     assert all(backtest_orb_vwap("KR", "005930", bars, config).signals == 1
                for bars in sessions.values())
+
+
+def test_training_sample_build_uses_supplied_verified_schedule_without_daily_calendar_lookups(monkeypatch) -> None:
+    session, bars = next(iter(_sample_sessions().items()))
+    opened = bars[0].timestamp.astimezone(timezone.utc)
+    closed = bars[-1].timestamp.astimezone(timezone.utc) + timedelta(minutes=1)
+    monkeypatch.setattr(
+        ai_pipeline, "exchange_session_schedule",
+        lambda market, start, end: ((session, opened, closed + timedelta(minutes=10)),),
+    )
+    monkeypatch.setattr(
+        ai_pipeline, "exchange_continuous_session_window",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("daily calendar lookup should not run")),
+    )
+
+    samples = build_training_samples(
+        {session: bars}, market="KR", horizon_bars=5,
+        round_trip_cost_bps=Decimal("20"),
+    )
+
+    assert len(samples) > 0
+
+
+def test_incremental_training_indicators_match_quant_prefix_calculations() -> None:
+    bars = _sample_sessions()[date(2026, 10, 1)][:40]
+    vwaps = ai_pipeline._vwap_series(bars)
+    emas = ai_pipeline._ema_series(bars, 9)
+    atrs = ai_pipeline._atr_series(bars, 14)
+
+    for end in range(20, len(bars) + 1):
+        prefix = bars[:end]
+        assert vwaps[end - 1] == _vwap(prefix)
+        assert emas[end - 1] == _ema([bar.close for bar in prefix], 9)
+        assert atrs[end - 1] == _atr(prefix, 14)
 
 
 def test_orb_breakout_feature_uses_the_training_opening_range_config() -> None:

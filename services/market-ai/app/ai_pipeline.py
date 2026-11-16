@@ -12,17 +12,18 @@ import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 from uuid import uuid4
 
 from .data_provenance import (MIN_MODEL_TRAINING_SESSIONS, validate_data_provenance,
                               validate_model_session_integrity, validate_model_training_coverage)
-from .market_calendar import exchange_continuous_session_window
+from .market_calendar import exchange_continuous_session_window, exchange_session_schedule
 from .quant import (MinuteBar, QuantConfig, _atr, _ema, _vwap,
-                    _validate_session, backtest_orb_vwap, exchange_session_date, orb_vwap_entry_candidate)
+                    _orb_vwap_entry_candidate_validated, _validate_session, backtest_orb_vwap,
+                    exchange_session_date)
 
 FEATURE_NAMES = (
     "return_1m", "return_3m", "return_5m", "close_vwap_pct", "ema9_gap_pct",
@@ -102,12 +103,15 @@ def _validation_quant_candidate_reasons(samples: list[TrainingSample]) -> list[s
     return reasons
 
 
-def _session_progress(timestamp: datetime, market: str) -> Decimal:
+def _session_progress(
+    timestamp: datetime, market: str,
+    continuous_session_window: tuple[datetime, datetime] | None = None,
+) -> Decimal:
     """Fraction of the local regular session elapsed, clamped to [0, 1]."""
     normalized_market = market.strip().upper()
     if normalized_market not in _MARKETS:
         raise ValueError("market must be KR or US")
-    window = exchange_continuous_session_window(normalized_market, timestamp)
+    window = continuous_session_window or exchange_continuous_session_window(normalized_market, timestamp)
     if window is None:
         raise ValueError("timestamp must belong to an official market session")
     opened, closed = (bound.astimezone(timezone.utc) for bound in window)
@@ -115,6 +119,49 @@ def _session_progress(timestamp: datetime, market: str) -> Decimal:
     seconds = (instant - opened).total_seconds()
     duration_seconds = (closed - opened).total_seconds()
     return min(Decimal(1), max(Decimal(0), Decimal(seconds) / Decimal(duration_seconds)))
+
+
+def _ema_series(bars: Sequence[MinuteBar], period: int) -> list[Decimal | None]:
+    """Calculate each prefix EMA once using the same seed and recurrence as quant._ema."""
+    values: list[Decimal | None] = [None] * len(bars)
+    if period <= 0 or len(bars) < period:
+        return values
+    alpha = Decimal(2) / Decimal(period + 1)
+    result = sum((bar.close for bar in bars[:period]), Decimal(0)) / Decimal(period)
+    values[period - 1] = result
+    for index in range(period, len(bars)):
+        result = bars[index].close * alpha + result * (Decimal(1) - alpha)
+        values[index] = result
+    return values
+
+
+def _vwap_series(bars: Sequence[MinuteBar]) -> list[Decimal]:
+    """Calculate each cumulative VWAP in one pass, preserving the quant formula."""
+    result: list[Decimal] = []
+    value_volume = Decimal(0)
+    volume = 0
+    for bar in bars:
+        typical_price = (bar.high + bar.low + bar.close) / Decimal(3)
+        value_volume += typical_price * bar.volume
+        volume += bar.volume
+        result.append(value_volume / Decimal(volume) if volume else bar.close)
+    return result
+
+
+def _atr_series(bars: Sequence[MinuteBar], period: int) -> list[Decimal | None]:
+    """Calculate ATR for every prefix with a bounded rolling sum."""
+    if period <= 0:
+        raise ValueError("ATR period must be positive")
+    true_ranges: list[Decimal] = []
+    result: list[Decimal | None] = []
+    for index, bar in enumerate(bars):
+        previous_close = bars[index - 1].close if index else bar.close
+        true_ranges.append(max(
+            bar.high - bar.low, abs(bar.high - previous_close), abs(bar.low - previous_close),
+        ))
+        window = true_ranges[max(0, index - period + 1):index + 1]
+        result.append(sum(window, Decimal(0)) / Decimal(len(window)))
+    return result
 
 
 def _positive_probabilities(model: Any, features: Any) -> Any:
@@ -176,6 +223,7 @@ def build_training_samples(
     sessions: dict[date, list[MinuteBar]], *, market: str, horizon_bars: int = 5,
     round_trip_cost_bps: Decimal = Decimal("10"), warmup_bars: int = 20,
     quant_config: QuantConfig = QuantConfig(),
+    exchange_schedule: Sequence[tuple[date, datetime, datetime]] | None = None,
 ) -> list[TrainingSample]:
     """Create samples using features available at t and an executable forward label.
 
@@ -195,12 +243,36 @@ def build_training_samples(
         raise ValueError("label round-trip cost must cover modeled buy/sell fees, tax, and slippage")
     samples: list[TrainingSample] = []
     required = max(warmup_bars, 21, 15, 10, quant_config.opening_range_bars)
+    if not sessions:
+        return samples
+    verified_schedule = exchange_schedule or exchange_session_schedule(
+        normalized_market, min(sessions), max(sessions),
+    )
+    continuous_windows = {
+        session_date: (
+            opened,
+            closed - timedelta(minutes=10) if normalized_market == "KR" else closed,
+        )
+        for session_date, opened, closed in verified_schedule
+    }
     for session, bars in sorted(sessions.items()):
         if not bars:
             continue
         if any(exchange_session_date(item.timestamp, normalized_market) != session for item in bars):
             raise ValueError("bar date does not match its session key")
-        _validate_session(bars, normalized_market, require_complete=True)
+        continuous_window = continuous_windows.get(session)
+        if continuous_window is None:
+            raise ValueError("training session is not present in the exchange calendar")
+        _validate_session(
+            bars, normalized_market, require_complete=True,
+            continuous_session_window=continuous_window,
+        )
+        vwap_values = _vwap_series(bars)
+        ema_periods = {9, 20, quant_config.ema_period}
+        ema_values = {period: _ema_series(bars, period) for period in ema_periods}
+        atr_periods = {14, quant_config.atr_period}
+        atr_values = {period: _atr_series(bars, period) for period in atr_periods}
+        opening_range_high = max(bar.high for bar in bars[:quant_config.opening_range_bars])
         for index in range(required - 1, len(bars) - horizon_bars):
             current = bars[index]
             history = bars[: index + 1]
@@ -213,12 +285,16 @@ def build_training_samples(
                 Decimal(0) if index < period else close / bars[index - period].close - Decimal(1)
                 for period in (1, 3, 5)
             ]
-            vwap = _vwap(history)
-            ema9 = _ema([item.close for item in history], 9)
-            ema20 = _ema([item.close for item in history], 20)
-            atr_pct = _atr(history, 14) / close
-            session_progress = _session_progress(current.timestamp, normalized_market)
-            opening_range_high = max(item.high for item in bars[:quant_config.opening_range_bars])
+            vwap = vwap_values[index]
+            ema9 = ema_values[9][index]
+            ema20 = ema_values[20][index]
+            atr14 = atr_values[14][index]
+            if ema9 is None or ema20 is None or atr14 is None:
+                continue
+            atr_pct = atr14 / close
+            session_progress = _session_progress(
+                current.timestamp, normalized_market, continuous_window,
+            )
             orb_breakout_distance_bps = (
                 close / opening_range_high - Decimal(1)
             ) * Decimal(10_000)
@@ -238,8 +314,12 @@ def build_training_samples(
             future_return = future.close / entry.open - Decimal(1)
             forward_net_return_bps = future_return * Decimal(10_000) - round_trip_cost_bps
             label = int(forward_net_return_bps > 0)
-            quant_candidate = orb_vwap_entry_candidate(
-                history, quant_config, market=normalized_market, require_spread=False,
+            quant_candidate = _orb_vwap_entry_candidate_validated(
+                history, quant_config, require_spread=False,
+                vwap_value=vwap,
+                ema_value=ema_values[quant_config.ema_period][index],
+                atr_value=atr_values[quant_config.atr_period][index],
+                opening_range_high=opening_range_high,
             )
             samples.append(TrainingSample(session, current.timestamp.isoformat(),
                                           tuple(float(value) for value in feature_values), label, quant_candidate,

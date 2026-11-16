@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .market_calendar import exchange_session_schedule
 from .session_quality import audit_minute_bar_session
 
 _DATE_FIELDS = ("retrieved_at",)
@@ -194,13 +195,27 @@ def validate_model_session_integrity(
         raise ValueError("model sessions are required for completeness validation")
 
     evaluated_at = datetime.now(timezone.utc)
+    session_dates = tuple(sessions)
+    if any(type(session) is not date for session in session_dates):
+        raise ValueError("model session keys must be exchange-local calendar dates")
+    continuous_windows = {
+        session_date: (
+            opened,
+            closed - timedelta(minutes=10) if normalized_market == "KR" else closed,
+        )
+        for session_date, opened, closed in exchange_session_schedule(
+            normalized_market, min(session_dates), max(session_dates),
+        )
+    }
     for session, bars in sessions.items():
-        if type(session) is not date:
-            raise ValueError("model session keys must be exchange-local calendar dates")
         if not isinstance(bars, Sequence) or isinstance(bars, (str, bytes)) or not bars:
             raise ValueError(f"model data requires a complete session with timestamped spreads: {session}")
+        continuous_window = continuous_windows.get(session)
+        if continuous_window is None:
+            raise ValueError(f"model data contains a non-session exchange date: {session}")
         report = audit_minute_bar_session(
             normalized_market, symbol, session, list(bars), evaluated_at=evaluated_at,
+            continuous_session_window=continuous_window,
         )
         expected = report.get("expected_bars")
         if (report.get("status") != "COMPLETE" or report.get("full_session_complete") is not True

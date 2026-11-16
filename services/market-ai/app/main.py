@@ -655,6 +655,7 @@ async def market_training_readiness(
             samples = await asyncio.to_thread(
                 build_training_samples, eligible_history, market=normalized_market,
                 round_trip_cost_bps=round_trip_cost_bps, quant_config=cost_config,
+                exchange_schedule=session_schedule,
             )
             training_preflight = assess_training_samples(samples)
         except (ArithmeticError, TypeError, ValueError):
