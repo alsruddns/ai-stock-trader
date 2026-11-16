@@ -16,6 +16,8 @@ Windows 로컬에서 실행하는 국내·미국 주식 자동매매 프로젝�
 
 국내 PAPER 자동진입은 KIS 취소 가능수량 사전조회와 보호청산까지 확인되기 전에는 잠금 상태입니다. KIS 공식 저장소의 API 제공표는 `주식정정취소가능주문조회`에 모의투자 제공 표시가 없고, 공식 취소 예제는 취소 전에 이 조회의 `psbl_qty`를 확인하도록 요구합니다. 따라서 모의 계좌에서 해당 조회가 실패할 때 사전확인 없이 취소를 보내지 않습니다. [KIS 공식 API 제공표](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/README.md#L233-L246), [KIS 공식 조회 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_psbl_rvsecncl/inquire_psbl_rvsecncl.py#L429-L463), [KIS 공식 취소 샘플](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_rvsecncl/order_rvsecncl.py#L497-L504)
 
+국내 PAPER 신호 worker는 PAPER WebSocket에서 검증된 마감봉 신호의 시장·종목만 로컬 Spring에 전달하며 KIS 주문 API를 직접 호출하지 않습니다. Python과 Spring의 PAPER 신호 제출·계좌 읽기·주문 대사·취소 사전조회·보호청산 검증·보호청산 자동화 설정을 모두 명시적으로 켜야 worker가 시작합니다. 결과 불명은 같은 요청을 재전송하지 않고 수동 대조가 필요하다고 표시합니다. 같은 종목에 이미 보유 수량이 있으면 추가 진입을 거부하며, PAPER 자동매매 설정은 기본 비활성입니다.
+
 ## 구성
 
 ```text

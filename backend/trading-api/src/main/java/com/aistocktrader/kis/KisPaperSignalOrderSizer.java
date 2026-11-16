@@ -40,6 +40,9 @@ public class KisPaperSignalOrderSizer {
         boolean alreadyHeld = account.positions().stream().anyMatch(position -> position != null
                 && position.symbol() != null && symbol.equalsIgnoreCase(position.symbol())
                 && position.quantity() != null && position.quantity().signum() > 0);
+        if (alreadyHeld) {
+            throw new IllegalStateException("PAPER signal cannot add to a symbol with an existing open position.");
+        }
         long openPositions = account.positions().stream().filter(position -> position != null
                         && position.symbol() != null && position.quantity() != null
                         && position.quantity().signum() > 0)

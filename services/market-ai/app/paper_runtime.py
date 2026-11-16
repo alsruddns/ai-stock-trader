@@ -1,9 +1,9 @@
 """Opt-in local market-session monitor with separately gated market data feeds.
 
 KR market data comes from the KIS paper WebSocket. US delayed market data can
-use a separately enabled KIS REAL WebSocket while all order writes remain on
-Spring's local paper ledger. The separately opted-in REAL monitor can forward
-server-verified signal references to Spring; it never calls KIS order APIs.
+use a separately enabled KIS REAL WebSocket while local-paper orders remain on
+Spring's ledger. REAL and domestic KIS PAPER monitors can forward vetted signal
+references to Spring; neither calls KIS order APIs directly.
 """
 
 from __future__ import annotations
@@ -41,6 +41,9 @@ from .paper_broker import PaperBrokerError, SpringPaperBrokerClient
 from .real_signal_orders import (RealSignalOrderError, RealSignalOrderOutcomeUnknown,
                                  SpringRealSignalOrderClient, real_signal_idempotency_key,
                                  real_signal_submission_enabled)
+from .paper_signal_orders import (PaperSignalOrderError, PaperSignalOrderOutcomeUnknown,
+                                  SpringKisPaperSignalOrderClient, paper_signal_idempotency_key,
+                                  paper_signal_submission_enabled)
 from .market_calendar import exchange_continuous_session_window
 from .market_scope import allowed_operational_markets
 from .paper_ops import (
@@ -281,6 +284,8 @@ class PaperSessionFeedMonitor:
             "bar_storage_pending_count": 0,
             "candidate_refresh_by_market": {},
             "real_signal_state": "DISABLED", "last_real_signal": None,
+            "kis_paper_signal_state": "DISABLED", "kis_paper_signal_error": None,
+            "last_kis_paper_signal": None,
             "paper_reconciliation_required": False, "paper_unknown_idempotency_key": None,
         }
         self._aggregators: dict[str, MinuteBarAggregator] = {}
@@ -292,6 +297,10 @@ class PaperSessionFeedMonitor:
         self._real_signal_task: asyncio.Task | None = None
         self._real_signal_client: SpringRealSignalOrderClient | None = None
         self._real_signal_blocked = False
+        self._kis_paper_signal_queue: asyncio.Queue[tuple[PaperWatch, MinuteBar, dict[str, object]]] | None = None
+        self._kis_paper_signal_task: asyncio.Task | None = None
+        self._kis_paper_signal_client: SpringKisPaperSignalOrderClient | None = None
+        self._kis_paper_signal_blocked = False
         self._paper_entry_queue_blocked = False
         self._paper_reconciliation_required = False
         self._paper_unknown_idempotency_key: str | None = None
@@ -726,6 +735,28 @@ class PaperSessionFeedMonitor:
                          or os.getenv("KIS_MARKET_DATA_ENABLED", "false").strip().lower() != "true")
                     else "LOCKED_BY_SAFETY_GATES"
                 ))
+        else:
+            paper_signal_requested = os.getenv(
+                "KIS_PAPER_SIGNAL_SUBMISSION_ENABLED", "false",
+            ).strip().lower() == "true"
+            domestic_scope = operational_markets == frozenset({"KR"}) and all(
+                watch.market == "KR" for watch in watches
+            )
+            if paper_signal_requested and (not persistence_enabled or not bar_storage_ready):
+                self._set_status(kis_paper_signal_state="BLOCKED_BAR_PERSISTENCE_REQUIRED",
+                                 kis_paper_signal_error="BAR_OUTBOX_RECOVERY_PENDING")
+            elif paper_signal_requested and not domestic_scope:
+                self._set_status(kis_paper_signal_state="BLOCKED_DOMESTIC_SCOPE_REQUIRED",
+                                 kis_paper_signal_error="KIS_PAPER_SIGNAL_IS_DOMESTIC_ONLY")
+            elif paper_signal_requested and paper_signal_submission_enabled():
+                self._kis_paper_signal_queue = asyncio.Queue(maxsize=100)
+                self._kis_paper_signal_client = SpringKisPaperSignalOrderClient()
+                self._kis_paper_signal_task = asyncio.create_task(self._kis_paper_signal_loop())
+                self._set_status(kis_paper_signal_state="READY", kis_paper_signal_error=None,
+                                 last_kis_paper_signal=None)
+            else:
+                self._set_status(kis_paper_signal_state="LOCKED_BY_SAFETY_GATES",
+                                 kis_paper_signal_error=None)
         self._set_status(
             state="CONNECTING", enabled=True, subscriptions=len(watches), last_error=None,
             mode="REAL_SIGNAL" if self._real_monitor_mode else "PAPER",
@@ -941,6 +972,8 @@ class PaperSessionFeedMonitor:
         self._automation_task = None
         real_signal_task = self._real_signal_task
         self._real_signal_task = None
+        kis_paper_signal_task = self._kis_paper_signal_task
+        self._kis_paper_signal_task = None
         storage_task = self._bar_storage_task
         self._bar_storage_task = None
         for task in candidate_tasks:
@@ -990,6 +1023,24 @@ class PaperSessionFeedMonitor:
             self._real_signal_client.close()
             self._real_signal_client = None
         self._real_signal_queue = None
+        if kis_paper_signal_task is not None:
+            queue = self._kis_paper_signal_queue
+            if queue is not None:
+                try:
+                    await asyncio.wait_for(queue.join(), timeout=8)
+                except TimeoutError:
+                    self._kis_paper_signal_blocked = True
+                    self._set_status(kis_paper_signal_state="MANUAL_RECONCILIATION_REQUIRED",
+                                     kis_paper_signal_error="SHUTDOWN_DURING_SIGNAL_HANDOFF")
+            kis_paper_signal_task.cancel()
+            try:
+                await kis_paper_signal_task
+            except asyncio.CancelledError:
+                pass
+        if self._kis_paper_signal_client is not None:
+            self._kis_paper_signal_client.close()
+            self._kis_paper_signal_client = None
+        self._kis_paper_signal_queue = None
         if storage_task is not None:
             queue = self._bar_storage_queue
             if queue is not None:
@@ -1781,6 +1832,7 @@ class PaperSessionFeedMonitor:
                     self._paper_entry_queue_blocked = True
                     self._set_status(automation_state="BLOCKED", automation_error="PAPER_WORKER_QUEUE_FULL")
             self._queue_real_signal(watch, bar, decision)
+            self._queue_kis_paper_signal(watch, bar, decision)
 
     def _queue_real_signal(self, watch: PaperWatch, bar: MinuteBar, decision: dict[str, object]) -> None:
         queue = self._real_signal_queue
@@ -1809,6 +1861,87 @@ class PaperSessionFeedMonitor:
             except asyncio.QueueEmpty:
                 return
             else:
+                queue.task_done()
+
+    def _queue_kis_paper_signal(self, watch: PaperWatch, bar: MinuteBar,
+                                decision: dict[str, object]) -> None:
+        queue = self._kis_paper_signal_queue
+        if queue is None or self._kis_paper_signal_blocked:
+            return
+        if (watch.market != "KR" or self._feed_by_watch.get(watch.key) != "paper"
+                or decision.get("signal") != "BUY_CANDIDATE"
+                or decision.get("market") != "KR" or decision.get("symbol") != watch.symbol
+                or decision.get("evaluated_at") != bar.timestamp.isoformat()
+                or decision.get("strategy_id") != "ORB_VWAP" or not decision.get("model_id")):
+            return
+        try:
+            queue.put_nowait((watch, bar, dict(decision)))
+            self._set_status(kis_paper_signal_state="QUEUED", kis_paper_signal_error=None)
+        except asyncio.QueueFull:
+            self._kis_paper_signal_blocked = True
+            self._discard_queued_real_signals(queue)
+            self._set_status(kis_paper_signal_state="BLOCKED_QUEUE_FULL",
+                             kis_paper_signal_error="SIGNAL_QUEUE_CAPACITY_EXCEEDED")
+
+    async def _kis_paper_signal_loop(self) -> None:
+        client = self._kis_paper_signal_client
+        if client is None:
+            self._kis_paper_signal_blocked = True
+            self._set_status(kis_paper_signal_state="BLOCKED_CLIENT_UNAVAILABLE")
+            return
+        while True:
+            queue = self._kis_paper_signal_queue
+            if queue is None:
+                return
+            watch, bar, decision = await queue.get()
+            key = paper_signal_idempotency_key(
+                market="KR", symbol=watch.symbol, exchange=None, bar_timestamp=bar.timestamp,
+            )
+            try:
+                result = await asyncio.to_thread(
+                    client.submit_signal, idempotency_key=key, market="KR", symbol=watch.symbol,
+                )
+                order_status = str(result.get("status", "UNKNOWN")).upper()
+                queue_overflowed = (
+                    self._kis_paper_signal_blocked
+                    and self.status().get("kis_paper_signal_state") == "BLOCKED_QUEUE_FULL"
+                )
+                if order_status not in {"ACCEPTED", "PARTIALLY_FILLED", "FILLED", "REJECTED"}:
+                    self._kis_paper_signal_blocked = True
+                self._set_status(
+                    kis_paper_signal_state=("MANUAL_RECONCILIATION_REQUIRED" if order_status not in {
+                        "ACCEPTED", "PARTIALLY_FILLED", "FILLED", "REJECTED",
+                    } else "BLOCKED_QUEUE_FULL" if queue_overflowed else
+                        "SUBMITTED" if order_status in {"ACCEPTED", "PARTIALLY_FILLED", "FILLED"}
+                        else "REJECTED"),
+                    kis_paper_signal_error=("ORDER_STATUS_UNKNOWN" if order_status not in {
+                        "ACCEPTED", "PARTIALLY_FILLED", "FILLED", "REJECTED",
+                    } else "SIGNAL_QUEUE_CAPACITY_EXCEEDED" if queue_overflowed else None),
+                    last_kis_paper_signal={
+                        "market": "KR", "symbol": watch.symbol, "order_status": order_status,
+                        "idempotency_key": str(key), "submitted_at": datetime.now(timezone.utc).isoformat(),
+                        "executable": False,
+                    },
+                )
+            except PaperSignalOrderOutcomeUnknown:
+                self._kis_paper_signal_blocked = True
+                self._set_status(
+                    kis_paper_signal_state="MANUAL_RECONCILIATION_REQUIRED",
+                    kis_paper_signal_error="SIGNAL_OUTCOME_UNKNOWN",
+                    last_kis_paper_signal={
+                        "market": "KR", "symbol": watch.symbol, "idempotency_key": str(key),
+                        "submitted_at": datetime.now(timezone.utc).isoformat(), "executable": False,
+                    },
+                )
+            except PaperSignalOrderError:
+                self._kis_paper_signal_blocked = True
+                self._set_status(kis_paper_signal_state="BLOCKED_SPRING_REJECTED",
+                                 kis_paper_signal_error="SPRING_REJECTED_SIGNAL_HANDOFF")
+            except Exception:
+                self._kis_paper_signal_blocked = True
+                self._set_status(kis_paper_signal_state="MANUAL_RECONCILIATION_REQUIRED",
+                                 kis_paper_signal_error="UNEXPECTED_SIGNAL_HANDOFF_FAILURE")
+            finally:
                 queue.task_done()
 
     async def _real_signal_loop(self) -> None:

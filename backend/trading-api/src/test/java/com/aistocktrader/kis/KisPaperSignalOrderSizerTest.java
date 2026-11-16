@@ -26,16 +26,14 @@ class KisPaperSignalOrderSizerTest {
     }
 
     @Test
-    void existingSymbolExposureReducesPositionLimit() {
+    void existingSymbolPositionBlocksAdditionalEntryUntilExitCompletes() {
         KisAccountSnapshot account = account("10000000", "1000000", List.of(
                 new KisAccountSnapshot.Position("005930", "Samsung", BigDecimal.ONE, BigDecimal.ONE,
                         BigDecimal.valueOf(70_000), BigDecimal.valueOf(70_000), BigDecimal.valueOf(900_000),
                         BigDecimal.ZERO, BigDecimal.ZERO)));
 
-        int quantity = sizer.sizeDomesticBuy("005930", BigDecimal.valueOf(70_000),
-                BigDecimal.valueOf(1_000), account);
-
-        assertEquals(1, quantity); // only 100,000 KRW remains under the 10% symbol cap
+        assertThrows(IllegalStateException.class, () -> sizer.sizeDomesticBuy("005930",
+                BigDecimal.valueOf(70_000), BigDecimal.valueOf(1_000), account));
     }
 
     @Test

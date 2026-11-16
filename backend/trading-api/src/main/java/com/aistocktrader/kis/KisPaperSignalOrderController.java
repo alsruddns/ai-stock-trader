@@ -33,6 +33,7 @@ public class KisPaperSignalOrderController {
     private final boolean submissionEnabled;
     private final boolean cancelPreflightVerified;
     private final boolean protectiveExitVerified;
+    private final boolean protectiveExitAutomationEnabled;
 
     public KisPaperSignalOrderController(KisOrderOrchestrator orders, KisAccountClient accounts,
                                          KisProperties kis, KisOrderProperties orderProperties,
@@ -40,7 +41,8 @@ public class KisPaperSignalOrderController {
                                          KisPaperSignalOrderSizer sizing, MarketOperationalScope marketScope,
                                          @Value("${kis.orders.paper-signal-submission-enabled:false}") boolean submissionEnabled,
                                          @Value("${kis.orders.paper-cancel-preflight-verified:false}") boolean cancelPreflightVerified,
-                                         @Value("${kis.orders.paper-protective-exit-verified:false}") boolean protectiveExitVerified) {
+                                         @Value("${kis.orders.paper-protective-exit-verified:false}") boolean protectiveExitVerified,
+                                         @Value("${kis.orders.paper-exit-monitor-enabled:false}") boolean protectiveExitAutomationEnabled) {
         this.orders = orders;
         this.accounts = accounts;
         this.kis = kis;
@@ -52,6 +54,7 @@ public class KisPaperSignalOrderController {
         this.submissionEnabled = submissionEnabled;
         this.cancelPreflightVerified = cancelPreflightVerified;
         this.protectiveExitVerified = protectiveExitVerified;
+        this.protectiveExitAutomationEnabled = protectiveExitAutomationEnabled;
     }
 
     @PostMapping
@@ -95,7 +98,7 @@ public class KisPaperSignalOrderController {
 
     private void requireSignalPathEnabled() {
         if (!submissionEnabled || !orderProperties.paperEnabled() || !orderProperties.paperReconciliationEnabled()
-                || !cancelPreflightVerified || !protectiveExitVerified
+                || !cancelPreflightVerified || !protectiveExitVerified || !protectiveExitAutomationEnabled
                 || !kis.accountReadEnabled() || !kis.paperAccountReadEnabled()
                 || !kis.credentials(KisEnvironment.PAPER).configured()
                 || safety.liveTradingEnabled() || !"paper".equals(safety.mode())) {

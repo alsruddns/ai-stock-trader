@@ -18,6 +18,7 @@ from app.market_stream import MinuteBarAggregator, OrderBookQuote, TradeTick
 from app.kis_stream import SubscriptionAckTracker
 from app.quant import MinuteBar
 from app.real_signal_orders import RealSignalOrderOutcomeUnknown, real_signal_idempotency_key
+from app.paper_signal_orders import PaperSignalOrderOutcomeUnknown, paper_signal_idempotency_key
 
 
 @pytest.fixture(autouse=True)
@@ -1876,6 +1877,91 @@ def test_real_signal_worker_sends_stable_key_for_approved_closed_bar(monkeypatch
         "idempotency_key": expected_key, "market": "US", "symbol": "AAPL", "exchange": "NAS",
     }
     assert runtime.status()["last_real_signal"]["idempotency_key"] == str(expected_key)
+
+
+def test_kis_paper_signal_worker_sends_domestic_closed_bar_once() -> None:
+    watch = parse_watchlist("KR:005930")[0]
+    timestamp = datetime(2026, 11, 16, 10, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+    bar = MinuteBar(timestamp, Decimal("70000"), Decimal("70100"), Decimal("69900"), Decimal("70000"),
+                    1000, Decimal("5"))
+    decision = {
+        "market": "KR", "symbol": "005930", "signal": "BUY_CANDIDATE", "strategy_id": "ORB_VWAP",
+        "model_id": "model-v1", "evaluated_at": timestamp.isoformat(),
+    }
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def submit_signal(self, **values):
+            self.calls.append(values)
+            return {"status": "ACCEPTED"}
+
+    runtime = PaperSessionFeedMonitor()
+    runtime._feed_by_watch[watch.key] = "paper"
+    runtime._kis_paper_signal_queue = asyncio.Queue(maxsize=2)
+    runtime._kis_paper_signal_client = Client()
+
+    async def scenario():
+        task = asyncio.create_task(runtime._kis_paper_signal_loop())
+        runtime._queue_kis_paper_signal(watch, bar, decision)
+        for _ in range(100):
+            if runtime.status()["kis_paper_signal_state"] == "SUBMITTED":
+                break
+            await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+    expected_key = paper_signal_idempotency_key(
+        market="KR", symbol="005930", exchange=None, bar_timestamp=timestamp,
+    )
+    assert runtime._kis_paper_signal_client.calls == [{
+        "idempotency_key": expected_key, "market": "KR", "symbol": "005930",
+    }]
+    assert runtime.status()["last_kis_paper_signal"]["idempotency_key"] == str(expected_key)
+
+
+def test_kis_paper_signal_worker_stops_after_unknown_write_without_retry() -> None:
+    watch = parse_watchlist("KR:005930")[0]
+    timestamp = datetime(2026, 11, 16, 10, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+    bar = MinuteBar(timestamp, Decimal("70000"), Decimal("70100"), Decimal("69900"), Decimal("70000"),
+                    1000, Decimal("5"))
+    decision = {
+        "market": "KR", "symbol": "005930", "signal": "BUY_CANDIDATE", "strategy_id": "ORB_VWAP",
+        "model_id": "model-v1", "evaluated_at": timestamp.isoformat(),
+    }
+
+    class Client:
+        calls = 0
+
+        def submit_signal(self, **_values):
+            self.calls += 1
+            raise PaperSignalOrderOutcomeUnknown("do not expose this detail")
+
+    runtime = PaperSessionFeedMonitor()
+    runtime._feed_by_watch[watch.key] = "paper"
+    runtime._kis_paper_signal_queue = asyncio.Queue(maxsize=2)
+    runtime._kis_paper_signal_client = Client()
+
+    async def scenario():
+        task = asyncio.create_task(runtime._kis_paper_signal_loop())
+        runtime._queue_kis_paper_signal(watch, bar, decision)
+        for _ in range(100):
+            if runtime.status()["kis_paper_signal_state"] == "MANUAL_RECONCILIATION_REQUIRED":
+                break
+            await asyncio.sleep(0.01)
+        runtime._queue_kis_paper_signal(watch, bar, decision)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+    assert runtime._kis_paper_signal_client.calls == 1
+    assert runtime.status()["kis_paper_signal_error"] == "SIGNAL_OUTCOME_UNKNOWN"
 
 
 def test_real_signal_worker_stops_after_ambiguous_write_and_never_retries(monkeypatch) -> None:

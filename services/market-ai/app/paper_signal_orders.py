@@ -57,6 +57,11 @@ def paper_signal_submission_enabled() -> bool:
         "KIS_PAPER_SIGNAL_SUBMISSION_ENABLED": "true",
         "KIS_PAPER_CANCEL_PREFLIGHT_VERIFIED": "true",
         "KIS_PAPER_PROTECTIVE_EXIT_VERIFIED": "true",
+        "KIS_PAPER_PROTECTIVE_EXIT_AUTOMATION_ENABLED": "true",
+        "KIS_REAL_ORDERS_ENABLED": "false",
+        "PAPER_AUTOTRADING_ENABLED": "false",
+        "PAPER_SESSION_MONITOR_ENABLED": "true",
+        "MARKET_OPERATIONAL_SCOPE": "kr",
     }
     return all(os.getenv(name, "").strip().lower() == value for name, value in expected.items())
 

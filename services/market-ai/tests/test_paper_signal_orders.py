@@ -28,6 +28,11 @@ def enable_paper_signal_gates(monkeypatch) -> None:
         "KIS_PAPER_SIGNAL_SUBMISSION_ENABLED": "true",
         "KIS_PAPER_CANCEL_PREFLIGHT_VERIFIED": "true",
         "KIS_PAPER_PROTECTIVE_EXIT_VERIFIED": "true",
+        "KIS_PAPER_PROTECTIVE_EXIT_AUTOMATION_ENABLED": "true",
+        "KIS_REAL_ORDERS_ENABLED": "false",
+        "PAPER_AUTOTRADING_ENABLED": "false",
+        "PAPER_SESSION_MONITOR_ENABLED": "true",
+        "MARKET_OPERATIONAL_SCOPE": "KR",
     }.items():
         monkeypatch.setenv(key, value)
 
@@ -128,8 +133,16 @@ def test_server_5xx_is_unknown_and_never_retried(monkeypatch) -> None:
 def test_all_paper_signal_gates_are_required(monkeypatch) -> None:
     enable_paper_signal_gates(monkeypatch)
     assert paper_signal_submission_enabled()
-    monkeypatch.setenv("KIS_PAPER_CANCEL_PREFLIGHT_VERIFIED", "false")
-    assert not paper_signal_submission_enabled()
+    for gate, value in (
+        ("KIS_PAPER_CANCEL_PREFLIGHT_VERIFIED", "false"),
+        ("KIS_PAPER_PROTECTIVE_EXIT_AUTOMATION_ENABLED", "false"),
+        ("PAPER_AUTOTRADING_ENABLED", "true"),
+        ("KIS_REAL_ORDERS_ENABLED", "true"),
+        ("MARKET_OPERATIONAL_SCOPE", "KR,US"),
+    ):
+        monkeypatch.setenv(gate, value)
+        assert not paper_signal_submission_enabled(), gate
+        enable_paper_signal_gates(monkeypatch)
 
 
 def test_bar_idempotency_key_is_stable_across_timezone_and_model_changes() -> None:
