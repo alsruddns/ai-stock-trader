@@ -27,7 +27,7 @@ Describe 'Read-only KIS execution gate validation' {
             if ($_ -match '^\s*([A-Z][A-Z0-9_]+)=') { $Matches[1] }
         })
         $expected = @($templateVariables | Where-Object {
-            $_ -match '^(LIVE_TRADING_ENABLED|KIS_PAPER_ORDERS_ENABLED|KIS_REAL_ORDERS_ENABLED|REAL_TRADING_APPROVAL_CONFIRMED|PAPER_AUTOTRADING_ENABLED|REAL_SIGNAL_SUBMISSION_ENABLED|REAL_PROTECTIVE_EXIT_MANAGER_ENABLED|KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED|KIS_REAL_RECONCILIATION_ENABLED|KIS_REAL_EXECUTION_NOTICES_ENABLED|KIS_PAPER_RECONCILIATION_ENABLED)$'
+            $_ -match '^(LIVE_TRADING_ENABLED|KIS_PAPER_ORDERS_ENABLED|KIS_REAL_ORDERS_ENABLED|REAL_TRADING_APPROVAL_CONFIRMED|PAPER_AUTOTRADING_ENABLED|REAL_SIGNAL_SUBMISSION_ENABLED|REAL_PROTECTIVE_EXIT_MANAGER_ENABLED|KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED|KIS_REAL_RECONCILIATION_ENABLED|KIS_REAL_EXECUTION_NOTICES_ENABLED)$'
         })
         $expected += 'REAL_SIGNAL_MONITOR_ENABLED'
         $missing = @($expected | Where-Object { $script:ReadOnlyKisExecutionGateNames -notcontains $_ })
@@ -39,6 +39,7 @@ Describe 'Read-only KIS execution gate validation' {
         $overrides = Get-KisReadOnlyAccountTestOverrides -TestMethod 'readsDomesticRealBalanceWithoutPlacingOrders'
 
         $overrides.KIS_TEST_REAL_ORDERABLE_READS | Should Be 'false'
+        $overrides.KIS_PAPER_RECONCILIATION_ENABLED | Should Be 'false'
         $overrides.ContainsKey('KIS_REAL_ACCOUNT_ORDERABLE_TEST_SYMBOL') | Should Be $false
     }
 

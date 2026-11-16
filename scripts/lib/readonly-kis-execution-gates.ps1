@@ -9,8 +9,7 @@ $script:ReadOnlyKisExecutionGateNames = @(
     'REAL_PROTECTIVE_EXIT_MANAGER_ENABLED',
     'KIS_REAL_PROTECTIVE_EXIT_AUTOMATION_ENABLED',
     'KIS_REAL_RECONCILIATION_ENABLED',
-    'KIS_REAL_EXECUTION_NOTICES_ENABLED',
-    'KIS_PAPER_RECONCILIATION_ENABLED'
+    'KIS_REAL_EXECUTION_NOTICES_ENABLED'
 )
 
 function Assert-KisReadOnlyExecutionGatesDisabled {
@@ -36,7 +35,12 @@ function Get-KisReadOnlyAccountTestOverrides {
         [string]$ConfiguredOrderableUnitPrice
     )
 
-    $overrides = @{ KIS_TEST_REAL_ORDERABLE_READS = 'false' }
+    # Keep this focused integration-test context from running an unrelated
+    # read-only PAPER reconciliation poll while it verifies a REAL balance GET.
+    $overrides = @{
+        KIS_TEST_REAL_ORDERABLE_READS = 'false'
+        KIS_PAPER_RECONCILIATION_ENABLED = 'false'
+    }
     if ($TestMethod -ne 'readsDomesticRealOrderableCashForSymbolWithoutPlacingOrders') {
         return $overrides
     }
