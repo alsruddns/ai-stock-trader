@@ -15,6 +15,7 @@ on:
       - 'scripts/tests/paper-session-monitor-status.Tests.ps1'
       - 'scripts/tests/paper-session-status-read.Tests.ps1'
       - 'scripts/tests/krx-session-monitor-domestic.Tests.ps1'
+      - 'scripts/tests/domestic-paper-session-repair.Tests.ps1'
       - 'scripts/tests/local-stack-restart-domestic.Tests.ps1'
       - 'scripts/run-local-stack-task.ps1'
       - 'scripts/tests/local-stack-watchdog.Tests.ps1'
@@ -71,8 +72,13 @@ jobs:
           }
 
           $result = Invoke-Pester -Path 'scripts/tests/krx-session-monitor-domestic.Tests.ps1' -PassThru
-          if ($result.FailedCount -gt 0 -or $result.PassedCount -ne 4) {
+          if ($result.FailedCount -gt 0 -or $result.PassedCount -ne 6) {
             throw "Domestic KRX session monitor tests failed: passed=$($result.PassedCount), failed=$($result.FailedCount)."
+          }
+
+          $repairResult = Invoke-Pester -Path 'scripts/tests/domestic-paper-session-repair.Tests.ps1' -PassThru
+          if ($repairResult.FailedCount -gt 0 -or $repairResult.PassedCount -ne 2) {
+            throw "Domestic PAPER REST repair tests failed: passed=$($repairResult.PassedCount), failed=$($repairResult.FailedCount)."
           }
 
           $continuityResult = Invoke-Pester -Path 'scripts/tests/exchange-session-monitor.Tests.ps1' -TestName 'Domestic full-session feed continuity gate' -PassThru
