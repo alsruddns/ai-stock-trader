@@ -11,6 +11,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $runtimeStatePath = Join-Path $repoRoot '.local\logs\local-stack-pids.json'
 $pythonHealthUrl = 'http://127.0.0.1:18000/api/v1/health'
 $pythonPaperSessionUrl = 'http://127.0.0.1:18000/api/v1/paper/session'
+$pythonPaperQuoteUrl = 'http://127.0.0.1:18000/api/v1/market/quotes/KR/005930'
 $springSummaryUrl = 'http://127.0.0.1:18080/api/v1/operations/summary'
 . (Join-Path $PSScriptRoot 'lib\local-postgres-binding.ps1')
 
@@ -108,6 +109,22 @@ function Test-PaperSessionRestored($Session, $PreviousSession) {
             [string]$Session.bar_storage_state -ne 'RUNNING') { return $false }
     if ([bool]$PreviousSession.enabled -and [string]$Session.state -ne 'RUNNING') { return $false }
     return $true
+}
+
+function Test-PostRestartReadOnlyQuote($Quote) {
+    if (-not $Quote -or [string]$Quote.market -ne 'KR' -or [string]$Quote.symbol -ne '005930' -or
+        [string]$Quote.source -ne 'KIS_REST_SNAPSHOT' -or
+        $null -eq $Quote.PSObject.Properties['retrieved_at']) {
+        return $false
+    }
+    $price = [decimal]0
+    if (-not [decimal]::TryParse([string]$Quote.price,
+            [Globalization.NumberStyles]::Number, [Globalization.CultureInfo]::InvariantCulture,
+            [ref]$price) -or $price -le 0) {
+        return $false
+    }
+    $retrievedAt = [DateTimeOffset]::MinValue
+    return [DateTimeOffset]::TryParse([string]$Quote.retrieved_at, [ref]$retrievedAt)
 }
 
 function Test-LocalTradingLocks($PythonHealth, $SpringSummary) {
@@ -375,6 +392,14 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
     if (-not (Test-PaperMinuteQualityDiagnosticsReady $paperSession)) {
         throw 'The restarted Python API did not expose the expected per-minute quote and spread diagnostics.'
     }
+    try {
+        $postRestartQuote = Invoke-RestMethod -Uri $pythonPaperQuoteUrl -TimeoutSec 20
+    } catch {
+        throw 'The restarted Python API could not complete the read-only KIS PAPER quote check.'
+    }
+    if (-not (Test-PostRestartReadOnlyQuote $postRestartQuote)) {
+        throw 'The restarted Python API returned an invalid read-only KIS PAPER quote response.'
+    }
     $closedSessionScope = if ($DomesticOnly) { 'KRX' } else { 'both exchanges' }
-    Write-Output "Local APIs restarted after $closedSessionScope closed; frame/quote/processing diagnostics and monitor/storage were restored and all trading locks remain enabled."
+    Write-Output "Local APIs restarted after $closedSessionScope closed; PAPER KIS read-only quote, diagnostics, monitor/storage, and all trading locks were verified."
 }

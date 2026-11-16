@@ -113,6 +113,11 @@ $paperSessionAst = $restartAst.Find({
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
         $node.Name -eq 'Test-PaperSessionRestored'
 }, $true)
+$postRestartQuoteAst = $restartAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Test-PostRestartReadOnlyQuote'
+}, $true)
 $tradingLocksAst = $restartAst.Find({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -134,6 +139,7 @@ $marketDataDiagnosticsAst = $restartAst.Find({
         $node.Name -eq 'Test-PaperMarketDataDiagnosticsReady'
 }, $true)
 if ($null -eq $identityAst -or $null -eq $parentageAst -or $null -eq $paperSessionAst -or
+    $null -eq $postRestartQuoteAst -or
     $null -eq $tradingLocksAst -or $null -eq $frameDiagnosticsAst -or $null -eq $quoteQualityDiagnosticsAst -or
     $null -eq $marketDataDiagnosticsAst) {
     throw 'Process ownership or paper-session restoration checks were not found.'
@@ -143,6 +149,7 @@ $script:restartScriptDirectory = $PSScriptRoot
 . ([ScriptBlock]::Create($identityAst.Extent.Text))
 . ([ScriptBlock]::Create($parentageAst.Extent.Text))
 . ([ScriptBlock]::Create($paperSessionAst.Extent.Text))
+. ([ScriptBlock]::Create($postRestartQuoteAst.Extent.Text))
 . ([ScriptBlock]::Create($tradingLocksAst.Extent.Text))
 . ([ScriptBlock]::Create($frameDiagnosticsAst.Extent.Text))
 . ([ScriptBlock]::Create($quoteQualityDiagnosticsAst.Extent.Text))
@@ -374,4 +381,22 @@ if (-not (Test-PaperSessionRestored $disabledMonitor $disabledMonitor)) {
     throw 'An intentionally disabled monitor should not block API restart.'
 }
 
-Write-Output 'Local stack restart session, process ownership, and monitor recovery checks passed.'
+$validPostRestartQuote = [pscustomobject]@{
+    market = 'KR'; symbol = '005930'; source = 'KIS_REST_SNAPSHOT'; price = '70000'
+    retrieved_at = [DateTimeOffset]::UtcNow.ToString('o')
+}
+if (-not (Test-PostRestartReadOnlyQuote $validPostRestartQuote)) {
+    throw 'A valid domestic PAPER quote should pass the post-restart read-only check.'
+}
+$wrongPostRestartQuote = $validPostRestartQuote.PSObject.Copy()
+$wrongPostRestartQuote.symbol = '000660'
+if (Test-PostRestartReadOnlyQuote $wrongPostRestartQuote) {
+    throw 'A quote for another symbol must fail the post-restart read-only check.'
+}
+$missingPostRestartPrice = $validPostRestartQuote.PSObject.Copy()
+$missingPostRestartPrice.price = '0'
+if (Test-PostRestartReadOnlyQuote $missingPostRestartPrice) {
+    throw 'A nonpositive quote must fail the post-restart read-only check.'
+}
+
+Write-Output 'Local stack restart session, process ownership, monitor recovery, and PAPER quote checks passed.'
