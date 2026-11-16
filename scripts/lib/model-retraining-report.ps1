@@ -62,6 +62,9 @@ function Get-AiTraderModelTrainingFailureCode {
     if ($text -match 'insufficient samples per chronological partition') {
         return 'insufficient_partition_samples'
     }
+    if ($text -match 'validation quant candidates have no positive-net AI threshold') {
+        return 'no_profitable_validation_ai_threshold'
+    }
     if ($text -match 'training partition must contain both outcome classes') {
         return 'single_class_training_partition'
     }
@@ -100,7 +103,7 @@ function Write-AiTraderModelRetrainingFailureReport {
         'local_configuration_missing', 'market_cost_assumptions_missing_or_invalid',
         'market_cost_assumptions_inconsistent',
         'training_not_approval_ready', 'insufficient_training_sessions', 'insufficient_partition_samples',
-        'single_class_training_partition', 'training_dependencies_missing',
+        'no_profitable_validation_ai_threshold', 'single_class_training_partition', 'training_dependencies_missing',
         'unclassified_training_failure'
     )
     $safeFailureCode = if ($FailureCode -in $safeFailureCodes) { $FailureCode } else { $null }
@@ -191,7 +194,7 @@ function Get-AiTraderModelRetrainingSummary {
             'local_configuration_missing', 'market_cost_assumptions_missing_or_invalid',
             'market_cost_assumptions_inconsistent',
             'training_not_approval_ready', 'insufficient_training_sessions', 'insufficient_partition_samples',
-            'single_class_training_partition', 'training_dependencies_missing',
+            'no_profitable_validation_ai_threshold', 'single_class_training_partition', 'training_dependencies_missing',
             'unclassified_training_failure'
         )
         $failureCode = if ($document.failure_code -in $knownFailureCodes) {

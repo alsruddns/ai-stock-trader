@@ -146,6 +146,12 @@ Describe 'Model retraining failure reports' {
         ) | Should Be 'training_not_approval_ready'
     }
 
+    It 'classifies a validation threshold with no positive net return' {
+        Get-AiTraderModelTrainingFailureCode -Output @(
+            'ValueError: validation quant candidates have no positive-net AI threshold with at least five predictions'
+        ) | Should Be 'no_profitable_validation_ai_threshold'
+    }
+
     It 'maps unknown training errors to a generic safe code' {
         Get-AiTraderModelTrainingFailureCode -Output @('secret-bearing database host detail') |
             Should Be 'unclassified_training_failure'

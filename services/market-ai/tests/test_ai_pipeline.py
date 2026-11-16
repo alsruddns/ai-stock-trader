@@ -763,6 +763,41 @@ def test_ai_candidate_metrics_reject_malformed_binary_probabilities() -> None:
         ai_pipeline._positive_probability(missing_classes, (0.0,))
 
 
+def test_ai_threshold_uses_validation_candidates_below_half_without_touching_test_samples() -> None:
+    validation = []
+    for session in (date(2026, 10, 1), date(2026, 10, 2), date(2026, 10, 5),
+                    date(2026, 10, 6), date(2026, 10, 7)):
+        validation.extend((
+            TrainingSample(session, f"{session}:positive", (0.4,), 1, True, 12.0),
+            TrainingSample(session, f"{session}:negative", (0.1,), 0, True, -8.0),
+        ))
+    model = SimpleNamespace(
+        classes_=[0, 1],
+        predict_proba=lambda features: [[1 - row[0], row[0]] for row in features],
+    )
+
+    threshold = ai_pipeline._select_validation_threshold(model, validation)
+
+    assert threshold == pytest.approx(0.4)
+    assert _metrics(model, validation, threshold=threshold)["candidate_count"] == 5
+    assert _metrics(model, validation)["candidate_count"] == 0
+
+
+def test_ai_threshold_rejects_nonpositive_validation_net_returns() -> None:
+    samples = [
+        TrainingSample(date(2026, 10, 1) + timedelta(days=index), str(index), (0.4,),
+                       1, True, -5.0)
+        for index in range(5)
+    ]
+    model = SimpleNamespace(
+        classes_=[0, 1],
+        predict_proba=lambda features: [[1 - row[0], row[0]] for row in features],
+    )
+
+    with pytest.raises(ValueError, match="no positive-net AI threshold"):
+        ai_pipeline._select_validation_threshold(model, samples)
+
+
 def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path, monkeypatch) -> None:
     sessions = _sample_sessions()
     generated_from = []
@@ -785,6 +820,8 @@ def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path,
     for result in results:
         metadata = LocalModelRegistry(tmp_path).manifest(result.model_id)
         assert metadata["approved"] is False
+        assert metadata["threshold"] == result.threshold
+        assert metadata["threshold_selection_method"] == "diagnostic_fixed_0_5"
         assert "heldout_evaluation" not in metadata
         assert LocalModelRegistry(tmp_path)._has_valid_approval_evidence(metadata) is False
         assert metadata["artifact_sha256"] == result.artifact_sha256
@@ -1041,6 +1078,24 @@ def test_model_with_old_execution_label_cannot_be_approved_or_selected(tmp_path)
         registry.approve(model_id, approved_by="operator", note="Execution aligned labels require a newly trained model.")
 
 
+def test_candidate_without_profitable_validation_threshold_cannot_be_selected_or_approved(tmp_path) -> None:
+    registry = LocalModelRegistry(tmp_path)
+    model_id = "lightgbm-" + "f" * 32
+    _write_candidate(registry, model_id)
+    manifest_path = tmp_path / f"{model_id}.json"
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    metadata.pop("threshold_selection_method")
+    manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    holdout = {date(2026, 10, day): [] for day in range(16, 21)}
+    with pytest.raises(ValueError, match="no unapproved candidate"):
+        registry.select_candidate_for_holdout("KR", "005930", holdout)
+    with pytest.raises(ValueError, match="profitable validation-selected AI threshold"):
+        registry.approve(
+            model_id, approved_by="operator", note="Require a validation-selected profitable AI threshold first.",
+        )
+
+
 def _record_holdout_audit_event(registry: LocalModelRegistry, metadata: dict) -> None:
     evaluation = metadata["heldout_evaluation"]
     registry._record_governance_event({
@@ -1062,6 +1117,7 @@ def _write_candidate(registry: LocalModelRegistry, model_id: str, *, record_hold
         "model_id": model_id, "market": market, "model_type": model_id.split("-")[0], "artifact": artifact_name,
         "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(), "approved": False,
         "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION, "threshold": 0.5,
+        "threshold_selection_method": ai_pipeline.VALIDATION_THRESHOLD_SELECTION_METHOD,
         "validation_metrics": {
             "accuracy": 0.6, "brier": 0.25, "positive_label_rate": 0.5,
             "quant_candidate_brier": 0.25, "quant_candidate_sample_count": 12,

@@ -34,10 +34,14 @@ FEATURE_VERSION = 5
 LABEL_VERSION = 4
 BACKTEST_VERSION = 6
 BACKTEST_SPREAD_MODEL = "known_prior_bar_half_spread_entry_exit_v2"
+VALIDATION_THRESHOLD_SELECTION_METHOD = "validation_candidate_positive_net_mean_v1"
+DIAGNOSTIC_THRESHOLD_SELECTION_METHOD = "diagnostic_fixed_0_5"
 MIN_MODEL_APPROVAL_TEST_SESSIONS = 5
 MIN_MODEL_APPROVAL_TEST_TRADES = 5
 MIN_MODEL_HOLDOUT_SELECTION_VALIDATION_SESSIONS = 3
 MIN_MODEL_VALIDATION_QUANT_CANDIDATE_SAMPLES = 10
+MIN_MODEL_VALIDATION_AI_CANDIDATE_TRADES = 5
+MIN_MODEL_VALIDATION_AI_CANDIDATE_SESSIONS = 3
 MIN_MODEL_TRAIN_SAMPLES = 30
 MIN_MODEL_VALIDATION_SAMPLES = 10
 MIN_MODEL_TEST_SAMPLES = 10
@@ -539,13 +543,65 @@ def require_approval_ready_training(samples: list[TrainingSample]) -> dict[str, 
     return readiness
 
 
-def _metrics(model: Any, samples: list[TrainingSample]) -> dict[str, float | None]:
+def _select_validation_threshold(
+    model: Any, samples: list[TrainingSample], *, allow_diagnostic_fallback: bool = False,
+) -> float:
+    """Choose a fixed threshold only when validation candidates have positive net returns."""
+    candidates = [sample for sample in samples if sample.quant_candidate]
+    if not candidates:
+        if allow_diagnostic_fallback:
+            return 0.5
+        raise ValueError("validation quant candidates are required for AI threshold selection")
+    probabilities = _positive_probabilities(model, [sample.features for sample in candidates])
+    if len(candidates) != len(probabilities):
+        raise ValueError("validation candidate probabilities are incomplete")
+    if any(sample.forward_net_return_bps is None for sample in candidates):
+        raise ValueError("validation candidate net returns are incomplete")
+
+    best_threshold: float | None = None
+    best_score: tuple[float, float, float] | None = None
+    for threshold in sorted({float(value) for value in probabilities}):
+        selected = [
+            (sample, float(probability))
+            for sample, probability in zip(candidates, probabilities)
+            if float(probability) >= threshold
+        ]
+        if (len(selected) < MIN_MODEL_VALIDATION_AI_CANDIDATE_TRADES
+                or len({sample.session for sample, _ in selected})
+                < MIN_MODEL_VALIDATION_AI_CANDIDATE_SESSIONS):
+            continue
+        mean_net_return = sum(
+            float(sample.forward_net_return_bps) for sample, _ in selected
+        ) / len(selected)
+        if mean_net_return <= 0:
+            continue
+        # Choose on validation-only, cost-adjusted forward returns. A candidate
+        # with no profitable validation threshold cannot enter holdout review.
+        score = (mean_net_return, float(len(selected)), threshold)
+        if best_score is None or score > best_score:
+            best_score = score
+            best_threshold = threshold
+
+    if best_threshold is None:
+        if allow_diagnostic_fallback:
+            return 0.5
+        raise ValueError(
+            "validation quant candidates have no positive-net AI threshold with at least "
+            f"{MIN_MODEL_VALIDATION_AI_CANDIDATE_TRADES} predictions across "
+            f"{MIN_MODEL_VALIDATION_AI_CANDIDATE_SESSIONS} sessions"
+        )
+    return best_threshold
+
+
+def _metrics(model: Any, samples: list[TrainingSample], *, threshold: float = 0.5) -> dict[str, float | None]:
     from sklearn.metrics import accuracy_score, brier_score_loss, roc_auc_score
 
     x = [sample.features for sample in samples]
     y = [sample.label for sample in samples]
     probabilities = _positive_probabilities(model, x)
-    predictions = (probabilities >= 0.5).astype(int)
+    if not math.isfinite(threshold) or not 0 <= threshold <= 1:
+        raise ValueError("model decision threshold must be finite and within [0, 1]")
+    predictions = (probabilities >= threshold).astype(int)
     metrics = {"accuracy": float(accuracy_score(y, predictions)), "brier": float(brier_score_loss(y, probabilities))}
     actual_positive = sum(label == 1 for label in y)
     actual_negative = sum(label == 0 for label in y)
@@ -747,6 +803,7 @@ class LocalModelRegistry:
                     "approval_evidence_verified": approval_evidence_verified,
                     "approval_audit_verified": approval_audit_verified,
                     "holdout_evaluation_status": holdout_evaluation_status,
+                    "threshold_selection_method": metadata.get("threshold_selection_method"),
                     "approved": approved,
                     "active": metadata["model_id"] in active_model_ids and approved and model_compatible,
                     "artifact_sha256": metadata["artifact_sha256"],
@@ -792,7 +849,9 @@ class LocalModelRegistry:
                 try:
                     metadata = self.manifest(model_id)
                     if (metadata.get("approved") is True or metadata.get("heldout_evaluation") is not None
-                            or metadata.get("training_config", {}).get("symbol") != normalized_symbol):
+                            or metadata.get("training_config", {}).get("symbol") != normalized_symbol
+                            or metadata.get("threshold_selection_method")
+                            != VALIDATION_THRESHOLD_SELECTION_METHOD):
                         continue
                     partitions = [metadata.get(name) for name in
                                   ("train_sessions", "validation_sessions", "test_sessions")]
@@ -1108,6 +1167,8 @@ class LocalModelRegistry:
     @staticmethod
     def _has_valid_approval_evidence(metadata: dict[str, Any]) -> bool:
         try:
+            if metadata.get("threshold_selection_method") != VALIDATION_THRESHOLD_SELECTION_METHOD:
+                return False
             evaluation = metadata.get("heldout_evaluation")
             if not isinstance(evaluation, dict):
                 return False
@@ -1268,6 +1329,8 @@ class LocalModelRegistry:
                 raise ValueError("model lacks verified data-rights provenance and cannot be approved")
             if not metadata.get("test_sessions") or not metadata.get("test_metrics"):
                 raise ValueError("model has no internal test evidence and cannot be approved")
+            if metadata.get("threshold_selection_method") != VALIDATION_THRESHOLD_SELECTION_METHOD:
+                raise ValueError("model lacks a profitable validation-selected AI threshold")
             threshold = metadata.get("threshold")
             if (isinstance(threshold, bool) or not isinstance(threshold, (int, float))
                     or not math.isfinite(float(threshold)) or not 0 <= threshold <= 1):
@@ -1519,6 +1582,11 @@ class LocalModelRegistry:
         test_bars = {session: bars for session, bars in sessions.items() if session in test_session_dates}
         if set(test_bars) != test_session_dates:
             raise ValueError("every held-out sample session must have source bars for strategy backtesting")
+        approval_ready_session_count = len({sample.session for sample in samples}) >= MIN_MODEL_TRAINING_SESSIONS
+        threshold_selection_method = (
+            VALIDATION_THRESHOLD_SELECTION_METHOD
+            if approval_ready_session_count else DIAGNOSTIC_THRESHOLD_SELECTION_METHOD
+        )
         quant_backtest_test_metrics = _backtest_metrics([
             backtest_orb_vwap(market, normalized_symbol, test_bars[session], quant_config)
             for session in sorted(test_bars)
@@ -1545,13 +1613,17 @@ class LocalModelRegistry:
         try:
             for name, model in candidates.items():
                 model.fit(x_train, y_train)
-                validation_metrics = _metrics(model, validation)
-                test_metrics = _metrics(model, test)
+                threshold = _select_validation_threshold(
+                    model, validation,
+                    allow_diagnostic_fallback=not approval_ready_session_count,
+                )
+                validation_metrics = _metrics(model, validation, threshold=threshold)
+                test_metrics = _metrics(model, test, threshold=threshold)
                 quant_baseline_test_metrics = _quant_baseline_metrics(test)
                 def ai_entry_filter(history: list[MinuteBar]) -> bool:
                     features = latest_features(history, market=market, quant_config=quant_config)
                     probability = _positive_probability(model, features)
-                    return probability >= 0.5
+                    return probability >= threshold
 
                 ai_quant_backtest_test_metrics = _backtest_metrics([
                     backtest_orb_vwap(market, normalized_symbol, test_bars[session], quant_config,
@@ -1576,7 +1648,9 @@ class LocalModelRegistry:
                 manifest = {
                     "model_id": model_id, "market": market, "model_type": name, "artifact": artifact_name,
                     "artifact_sha256": digest, "feature_names": list(FEATURE_NAMES), "feature_version": FEATURE_VERSION,
-                    "threshold": 0.5, "approved": False,
+                    "threshold": threshold,
+                    "threshold_selection_method": threshold_selection_method,
+                    "approved": False,
                     "dataset_sha256": dataset_sha256,
                     "data_provenance": provenance,
                     "validation_metrics": validation_metrics, "test_metrics": test_metrics,
@@ -1590,7 +1664,7 @@ class LocalModelRegistry:
                 manifest_path = self.root / f"{model_id}.json"
                 self._write_json_atomic(manifest_path, manifest)
                 created_paths.append(manifest_path)
-                results.append(ModelTrainingResult(model_id, market, name, 0.5, validation_metrics, test_metrics,
+                results.append(ModelTrainingResult(model_id, market, name, threshold, validation_metrics, test_metrics,
                                                    quant_baseline_test_metrics, quant_backtest_test_metrics,
                                                    ai_quant_backtest_test_metrics, training_config,
                                                    train_dates, validation_dates,
