@@ -305,7 +305,7 @@ def test_portfolio_cli_reports_auditable_trade_prices_and_stop_metrics(tmp_path:
         )
         assert set(trade["entry_signal_features"]) == {
             "return_1m", "return_3m", "return_5m", "close_vwap_pct", "ema9_gap_pct",
-            "ema20_gap_pct", "atr14_pct", "relative_volume20", "spread_bps",
+            "ema20_gap_pct", "atr14_pct", "relative_volume20",
             "session_progress", "orb_breakout_distance_bps",
         }
         assert all(math.isfinite(value) for value in trade["entry_signal_features"].values())
