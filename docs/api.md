@@ -166,3 +166,6 @@ Spring의 `/api/v1/operations/summary`는 paper 장부 주문·체결·현금·�
 
 
 Schema 6 also reports the local Windows Task Scheduler state for dated KR and US session monitor jobs. It includes task name, enabled/running state, next and last run times, and last result code; task query failures are reduced to an error type. A registered or scheduled monitor is not evidence that market data was collected or passed session quality.
+
+
+The `kisPaperReconciliationEnabled` property in `/api/v1/operations/summary` reports whether the PAPER fill-history reconciliation poll is configured. It is read-only and does not enable order submission or cancellation. The Dashboard shows it separately from `kisPaperOrdersEnabled`.

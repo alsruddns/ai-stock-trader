@@ -5,7 +5,7 @@ import { Fragment, useCallback, useEffect, useState, type FormEvent } from "reac
 type Ops = {
   generatedAt: string; tradingMode: string; liveTrading: string; paperAutomationEnabled: boolean;
   operationalMarkets: string[];
-  kisAccountReadsEnabled: boolean; kisPaperAccountReadsEnabled: boolean; kisPaperOrdersEnabled: boolean; kisPaperDomesticCancelSupported: boolean; kisRealOrdersEnabled: boolean; kisRealAccountReadsEnabled: boolean; kisRealReconciliationEnabled: boolean; realTradingApprovalConfirmed: boolean; realProtectiveExitManagerEnabled: boolean; kisRealProtectiveExitAutomationEnabled: boolean;
+  kisAccountReadsEnabled: boolean; kisPaperAccountReadsEnabled: boolean; kisPaperOrdersEnabled: boolean; kisPaperReconciliationEnabled: boolean; kisPaperDomesticCancelSupported: boolean; kisRealOrdersEnabled: boolean; kisRealAccountReadsEnabled: boolean; kisRealReconciliationEnabled: boolean; realTradingApprovalConfirmed: boolean; realProtectiveExitManagerEnabled: boolean; kisRealProtectiveExitAutomationEnabled: boolean;
   kisPaperCredentialsConfigured: boolean; kisRealCredentialsConfigured: boolean;
   kisRealKrCostsConfigured: boolean; kisRealUsCostsConfigured: boolean;
   realOrderCounts: Record<string, number>;
@@ -385,6 +385,7 @@ export default function Dashboard() {
           <RiskRow label="REAL 비용률 형식 KR / US" value={`${ops?.kisRealKrCostsConfigured ? "유효" : "미설정"} / ${ops?.kisRealUsCostsConfigured ? "유효" : "미설정"}`} />
           <RiskRow label="KIS 공통 계좌 조회" value={ops?.kisAccountReadsEnabled ? "사용" : "잠금"} />
           <RiskRow label="KIS 모의 주문" value={ops?.kisPaperOrdersEnabled ? "설정 켜짐" : "잠금"} />
+          <RiskRow label="PAPER 주문 체결 대사" value={ops?.kisPaperReconciliationEnabled ? "읽기 전용 사용" : "잠금"} />
           <RiskRow label="국내 PAPER 취소" value={ops?.kisPaperDomesticCancelSupported ? "지원 확인" : "미지원·잠금"} />
           <RiskRow label="현재 분봉 저장기" value={liveBarStorageDetail(data?.paperSession)} />
           <RiskRow label="WebSocket 최근 실패" value={streamFailureDetail(data?.paperSession?.last_stream_failure_stage, data?.paperSession?.last_stream_error_category, data?.paperSession != null && "last_stream_failure_stage" in data.paperSession, data?.paperSession?.last_stream_failure_at, data?.paperSession?.last_stream_failure_environment)} />

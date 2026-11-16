@@ -52,13 +52,14 @@ class OperationsControllerTest {
         var summary = new OperationsController(orders, positions, cash, fills,
                 new TradingSafetyProperties("paper", false, BigDecimal.TEN, BigDecimal.TEN),
                 emptyKisIntents(), credentials, new KisRealTradingCostProperties("", "", "", "", "", ""),
-                false, false, false, false, false, false, false).summary();
+                false, false, false, true, false, false, false, false).summary();
 
         assertEquals(true, summary.kisPaperCredentialsConfigured());
         assertEquals(false, summary.kisRealCredentialsConfigured());
         assertEquals(false, summary.kisRealKrCostsConfigured());
         assertEquals(false, summary.kisRealUsCostsConfigured());
         assertEquals(false, summary.kisPaperAccountReadsEnabled());
+        assertEquals(true, summary.kisPaperReconciliationEnabled());
         assertEquals(false, summary.kisPaperDomesticCancelSupported());
         assertEquals(false, summary.realProtectiveExitManagerEnabled());
         assertEquals(false, summary.realTradingApprovalConfirmed());
