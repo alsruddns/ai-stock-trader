@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **P2 국내 PAPER 주문 진단 변경 운영 반영 및 CI 통과 (2026-11-16 17:22 KST):** KRX 폐장 확인 후 로컬 스택을 안전 재시작해 `108b649`를 반영했습니다. Spring `paper`, `KIS_PAPER_ORDERS_ENABLED=false`, PAPER 자동매매·REAL 주문·REAL 대사 비활성 및 Python health `ok`/감시 `RUNNING`을 GET으로 확인했습니다. KIS 호환성 실행 `43830336107`의 전체 작업이 성공했고, Spring 운영 범위·PAPER 주문 계약·PostgreSQL 재시작/UNKNOWN/취소 차단 검증을 포함합니다. 실제 KIS 주문·취소는 전송하지 않았습니다.
+
 - **Fix : [P2 KIS 진단] 불명확한 HTTP 오류에서 안전한 브로커 코드 보존 (2026-11-16 17:18 KST):** KIS PAPER 주문 POST가 비정상 HTTP 상태로 끝나 `UNKNOWN`이 되면, 응답 본문을 저장하지 않고 허용 형식의 `msg_cd`만 HTTP 상태와 함께 제한된 진단코드(예: `ORDER_HTTP_500_EGW00002`)로 저장합니다. 코드가 없거나 형식이 다르면 기존 상태코드 진단만 기록합니다. 향후 주문 미접수 원인을 정확히 분류하는 근거를 늘리되, 전송 결과를 `REJECTED`로 추정하거나 재전송하지 않습니다. 클라이언트·오케스트레이터 집중검사 3/3 통과했고 KIS 호환성 CI 선택검사에 추가했습니다. 실제 KIS 주문은 전송하지 않았습니다.
 
 - **Add : [P2 KIS 문의 초안] 국내 PAPER 취소 사전조회 확인요청 정리 (2026-11-16):** KIS 지원에 문의할 TR ID, PAPER 제공 여부, `OPSQ0002` 응답 의미, 안전한 잔량 확인 절차를 문서화했습니다. 문의에는 계좌번호·App Key·Secret이 없으며 KIS에 발송하지 않았습니다. [문의 초안](kis-paper-cancel-support-request.md)
