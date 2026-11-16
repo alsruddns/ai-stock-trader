@@ -27,5 +27,7 @@ Describe 'AI Stock Trader scheduled PowerShell tasks' {
         $source | Should Match '\.next-rollback-'
         $source | Should Match '/api/paper-orders/manual-reconcile'
         $source | Should Match '\[int\]\$probe.StatusCode -ne 400'
+        $source | Should Match '/api/paper-orders/confirm-no-order'
+        $source | Should Match '\[int\]\$noOrderProbe.StatusCode -ne 400'
     }
 }

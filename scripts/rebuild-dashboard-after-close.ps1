@@ -131,18 +131,24 @@ function Start-And-VerifyDashboard {
             if (Test-DashboardOperationsReady -Response $operations) {
                 $client = [System.Net.Http.HttpClient]::new()
                 $client.Timeout = [TimeSpan]::FromSeconds(5)
+                $content = $null
+                $noOrderContent = $null
                 try {
                     $content = [System.Net.Http.StringContent]::new('{}', [Text.Encoding]::UTF8, 'application/json')
                     $probe = $client.PostAsync('http://127.0.0.1:13000/api/paper-orders/manual-reconcile', $content).GetAwaiter().GetResult()
                     if ([int]$probe.StatusCode -ne 400) { throw 'The new manual reconciliation route did not reject an invalid request.' }
+                    $noOrderContent = [System.Net.Http.StringContent]::new('{}', [Text.Encoding]::UTF8, 'application/json')
+                    $noOrderProbe = $client.PostAsync('http://127.0.0.1:13000/api/paper-orders/confirm-no-order', $noOrderContent).GetAwaiter().GetResult()
+                    if ([int]$noOrderProbe.StatusCode -ne 400) { throw 'The no-order confirmation route did not reject an invalid request.' }
                 } finally {
                     if ($content) { $content.Dispose() }
+                    if ($noOrderContent) { $noOrderContent.Dispose() }
                     $client.Dispose()
                 }
                 return
             }
         } catch {
-            if ($_.Exception.Message -match 'new manual reconciliation route') { throw }
+            if ($_.Exception.Message -match 'new manual reconciliation route|no-order confirmation route') { throw }
         }
         Start-Sleep -Seconds 2
     } while ([DateTimeOffset]::UtcNow -lt $deadline)
