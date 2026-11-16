@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Update : [P1/P5 국내 PAPER 장전 상태] 11월 17일 03:04 KST 읽기 확인:** 로컬 Spring 운영 요약과 FastAPI health/PAPER session GET에서 Spring `paper`, FastAPI `ok`/감시 `RUNNING`, 국내 WebSocket 구독 승인 6/6, 감시 종목 005930·000660·035720 3개, 분봉 저장 `RUNNING`/대기 0건을 확인했습니다. 세 종목의 장중 틱·분봉은 아직 0이며 최근 PAPER WebSocket 연결 종료 2회는 약 1.1초 내 재연결됐습니다. 장 시작 전 스냅샷이므로 시세 세션 품질이나 주문 검증 완료로 보지 않습니다. PAPER 주문·자동매매·REAL 주문은 비활성, 미해결 PAPER 주문 0건입니다. 이번 확인은 localhost 운영 GET만 사용했고 KIS 계좌·주문 API는 호출하지 않았습니다.
+
 - **Update : [P7 PAPER 신호 게이트 진단] 잠금 원인 API·대시보드 표시 (2026-11-17):** `LOCKED_BY_SAFETY_GATES`만으로는 시세 감시가 주문을 전달하지 않는 이유를 운영자가 구분할 수 없어, FastAPI 세션 API가 미충족 환경설정 게이트 이름만 반환하고 대시보드가 각 조건을 한국어로 표시하도록 추가했습니다. 기대 설정값·키·계좌번호는 반환하지 않으며 주문 허용 로직은 그대로 fail-closed입니다. 집중 Python 신호 게이트 검사와 API 응답 비밀정보 차단 검사를 통과했고, dashboard ESLint 및 TypeScript 검사를 통과했습니다. PAPER/REAL 주문 스위치는 바꾸지 않았습니다.
 
 - **Update : [P4 국내 클래스 불균형 학습] 005930·000660 재검증 결과 (2026-11-17 00:22 KST):** 비용후 양성 label이 희소한 학습 표본(005930 train 4/275, 000660 train 6/178)을 그대로 평가할 수 있도록 LightGBM `class_weight=balanced`와 XGBoost의 `scale_pos_weight=negative/positive`를 적용하고 비율·표본 수를 candidate manifest `training_config`에 기록합니다. 기존 chronological validation 비용후 양수 기대값·최소 5회/3세션 게이트와 승인·활성화 요구는 변경하지 않았습니다. P4 선택검사 10/10 통과 후 같은 PostgreSQL 학습 범위로 두 종목을 재학습했으나 둘 다 `no_profitable_validation_ai_threshold`; 새 후보·아티팩트는 0개입니다. 기존 등록모델 14개·승인 0·활성 0은 유지됩니다. class weighting만으로 현재 전략/자료의 validation 약점을 해결하지 못했으므로, 다음 국내 완전 세션 자료를 추가해 다시 평가해야 합니다. KIS·계좌·주문 API 호출은 없습니다.
