@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Update : [PAPER 잠금 안내 Windows CI] 국내 회귀·PostgreSQL 검증 성공 (2026-11-17 08:11 KST):** 커밋 `eaaed77`의 GitHub Actions run `43976615639`가 `success`로 완료됐습니다. Spring 국내 주문·위험 경계, KIS 호환성, 대시보드 ESLint/TypeScript, PostgreSQL 격리 주문복구·대사·호출제한 통합 job을 모두 통과했습니다. CI는 mock 및 격리 PostgreSQL 검증으로 오늘 KIS PAPER 계좌 주문이나 장중 세션 검증을 대신하지 않습니다.
+
 - **Update : [PAPER 주문 잠금 안내] 예약 단건 점검과 자동 lifecycle 구분 (2026-11-17 08:06 KST):** 대시보드 국내 PAPER 취소 상태 문구가 모든 시험 주문 제출을 막는 것처럼 보이던 부분을 고쳤습니다. 자동 주문·취소 lifecycle은 계속 잠금으로 표시하고, 예약된 격리 단건 submit-and-observe 점검은 별도 사전조건 통과 시에만 실행되며 취소는 보내지 않는다고 구분합니다. 대상 ESLint와 Dashboard TypeScript 검사 통과. 운영 `.next` 화면 반영은 오늘 16:15 KST 예약 빌드에 남아 있으며 KIS 요청이나 주문 설정 변경은 없었습니다.
 
 - **Update : [P4 국내 실행가능 후보 분포] 학습·검증 구간 readiness 재확인 (2026-11-17 08:00 KST):** 로컬 FastAPI의 종목별 학습준비도 GET에서 적격 세션과 시간순 분할을 확인했습니다. 005930은 적격 57세션 중 실행가능 ORB/VWAP 후보 4개가 모두 test 1세션에 있고 양성 0개, 000660은 적격 56세션 중 후보 51개(양성 10·음성 41)가 test 2세션에만 있으며, 035720은 적격 56세션에서 후보가 없습니다. 세 종목 모두 train·validation 후보 0개이며 `trainingPreflightReady=false`입니다. 입력 일수 부족이 아니라 최신/검증 구간에 실행 가능한 전략 후보가 부족한 상태이므로 기준을 완화하거나 test 구간을 학습에 재사용하지 않습니다. 이 확인은 localhost GET만 수행했으며 KIS 계좌·시세·주문 API, 학습, 모델 등록/승인, 주문 설정 변경은 없었습니다.
