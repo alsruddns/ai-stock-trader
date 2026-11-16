@@ -20,7 +20,7 @@ from .kis import (AccountBalance, Exchange, HistoricalMinuteSession, KisApiError
 from . import snapshot_store
 from . import kis_stream
 from .ai_pipeline import LocalModelRegistry, assess_training_samples, build_training_samples
-from .data_provenance import MIN_MODEL_TRAINING_SESSIONS
+from .data_provenance import APPROVED_MODEL_TRAINING_SOURCES, MIN_MODEL_TRAINING_SESSIONS
 from .quant import MinuteBar, QuantConfig, backtest_orb_vwap
 from .paper_ops import exchange_session_window, korean_calendar_compatibility
 from .paper_automation import PaperAutomationReadiness
@@ -556,9 +556,7 @@ async def market_training_readiness(
     except psycopg.Error as exc:
         raise HTTPException(status_code=503, detail="Stored market data is unavailable") from exc
 
-    approved_sources = ({"KIS_PAPER_WEBSOCKET", "KIS_REST_MINUTE_SESSION"}
-                        if normalized_market == "KR" else
-                        {"KIS_REAL_US_WEBSOCKET", "KIS_REST_MINUTE_SESSION"})
+    approved_sources = APPROVED_MODEL_TRAINING_SOURCES.get(normalized_market, frozenset())
     evaluated_at = datetime.now(timezone.utc)
     reports = []
     eligible_sessions = 0

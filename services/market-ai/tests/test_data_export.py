@@ -7,6 +7,7 @@ import pytest
 
 from app.data_export import (
     build_minute_bar_export,
+    select_eligible_model_training_rows,
     summarize_session_coverage,
     validate_websocket_session_rows,
     write_minute_bar_export,
@@ -268,3 +269,46 @@ def test_training_export_source_gate_accepts_complete_new_york_session() -> None
     rows = [_row(opened + timedelta(minutes=index), "KIS_REAL_US_WEBSOCKET") for index in range(390)]
 
     validate_websocket_session_rows(rows, market="US", expected_source="KIS_REAL_US_WEBSOCKET")
+
+
+def test_model_training_filter_keeps_only_complete_single_source_kis_sessions() -> None:
+    rows = []
+    for session_date, source, count in (
+        (date(2026, 11, 2), "KIS_REST_MINUTE_SESSION", 380),
+        (date(2026, 11, 3), "KIS_PAPER_REST_MINUTE_CHART", 380),
+        (date(2026, 11, 4), "KIS_PAPER_WEBSOCKET", 380),
+        (date(2026, 11, 5), "KIS_REST_MINUTE_SESSION", 379),
+        (date(2026, 11, 6), "MIXED_KIS_SOURCES", 380),
+        (date(2026, 11, 9), "OTHER_VENDOR", 380),
+    ):
+        opened = datetime.combine(session_date, datetime.min.time(), tzinfo=timezone.utc)
+        opened = opened.replace(hour=0)
+        for index in range(count):
+            row_source = (
+                "KIS_REST_MINUTE_SESSION" if index < 200 else "KIS_PAPER_WEBSOCKET"
+            ) if source == "MIXED_KIS_SOURCES" else source
+            row = _row(opened + timedelta(minutes=index), row_source)
+            if row_source != "KIS_PAPER_WEBSOCKET":
+                row = (*row[:6], None, None, row[-1])
+            rows.append(row)
+
+    selected, summary = select_eligible_model_training_rows(rows, market="KR")
+
+    assert len(selected) == 1140
+    assert summary["observed_session_count"] == 6
+    assert summary["eligible_session_count"] == 3
+    assert summary["eligible_sessions"] == ["2026-11-02", "2026-11-03", "2026-11-04"]
+    assert summary["excluded_bar_count"] == 1139
+    assert summary["excluded_sessions"] == [
+        {"session_date": "2026-11-05", "reasons": ["incomplete_session"]},
+        {"session_date": "2026-11-06", "reasons": ["unapproved_data_source"]},
+        {"session_date": "2026-11-09", "reasons": ["unapproved_data_source"]},
+    ]
+
+
+def test_model_training_filter_rejects_when_no_eligible_session_exists() -> None:
+    opened = datetime(2026, 11, 5, 0, 0, tzinfo=timezone.utc)
+    rows = [_row(opened + timedelta(minutes=index), "OTHER_VENDOR") for index in range(380)]
+
+    with pytest.raises(ValueError, match="no complete sessions from an approved KIS"):
+        select_eligible_model_training_rows(rows, market="KR")

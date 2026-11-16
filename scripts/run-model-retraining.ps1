@@ -130,7 +130,7 @@ $exportArgs = @(
     '--from-date', $FromDate.ToString('yyyy-MM-dd'),
     '--to-date', $ToDate.ToString('yyyy-MM-dd'),
     '--output', $exportRelativePath,
-    '--require-approved-websocket-source'
+    '--eligible-training-sessions-only'
 )
 
 Push-Location $repoRoot
@@ -142,7 +142,7 @@ try {
     }
     $export = ($exportOutput -join [Environment]::NewLine) | ConvertFrom-Json
     $sidecarPath = "$csvPath.provenance.json"
-    if ($export.rights_reviewed -ne $true -or $export.source_quality_verified -ne $true -or
+    if ($export.rights_reviewed -ne $true -or $export.training_session_quality_verified -ne $true -or
         -not (Test-Path -LiteralPath $csvPath -PathType Leaf) -or
         -not (Test-Path -LiteralPath $sidecarPath -PathType Leaf)) {
         throw 'Export did not produce a rights-reviewed, source-quality-verified CSV and provenance sidecar.'

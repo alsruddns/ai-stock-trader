@@ -16,6 +16,12 @@ _TEXT_FIELDS = ("provider", "dataset_name", "source_reference", "license_or_term
 _PERMISSIONS = ("local_storage", "backtesting", "model_training")
 _PURPOSE_PERMISSION = {"backtesting": "backtesting", "model_training": "model_training"}
 MIN_MODEL_TRAINING_SESSIONS = 13
+APPROVED_MODEL_TRAINING_SOURCES = {
+    "KR": frozenset({
+        "KIS_PAPER_WEBSOCKET", "KIS_REST_MINUTE_SESSION", "KIS_PAPER_REST_MINUTE_CHART",
+    }),
+    "US": frozenset({"KIS_REAL_US_WEBSOCKET", "KIS_REST_MINUTE_SESSION"}),
+}
 
 
 def validate_data_provenance(
@@ -114,12 +120,7 @@ def validate_model_training_coverage(
     if type(minimum_sessions) is not int or minimum_sessions < 1:
         raise ValueError("minimum eligible session count must be a positive integer")
     normalized_market = market.strip().upper()
-    approved_sources = {
-        "KR": {
-            "KIS_PAPER_WEBSOCKET", "KIS_REST_MINUTE_SESSION", "KIS_PAPER_REST_MINUTE_CHART",
-        },
-        "US": {"KIS_REAL_US_WEBSOCKET", "KIS_REST_MINUTE_SESSION"},
-    }.get(normalized_market)
+    approved_sources = APPROVED_MODEL_TRAINING_SOURCES.get(normalized_market)
     if approved_sources is None:
         raise ValueError("model training market must be KR or US")
     coverage = provenance.get("coverage")

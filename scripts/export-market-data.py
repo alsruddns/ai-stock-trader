@@ -13,7 +13,10 @@ repository = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repository / "services" / "market-ai"))
 
 import psycopg
-from app.data_export import summarize_session_coverage, validate_websocket_session_rows, write_minute_bar_export
+from app.data_export import (
+    select_eligible_model_training_rows, summarize_session_coverage,
+    validate_websocket_session_rows, write_minute_bar_export,
+)
 from app.market_calendar import exchange_continuous_session_window
 from app.market_scope import require_cli_operational_market
 
@@ -48,8 +51,11 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True,
                         help="CSV destination under the ignored local data/ directory")
     parser.add_argument("--overwrite", action="store_true", help="replace an existing CSV and sidecar")
-    parser.add_argument("--require-approved-websocket-source", action="store_true",
-                        help="require complete, spread-populated sessions from the market's approved KIS WebSocket feed")
+    source_selection = parser.add_mutually_exclusive_group()
+    source_selection.add_argument("--require-approved-websocket-source", action="store_true",
+                                  help="require complete, spread-populated sessions from the market's approved KIS WebSocket feed")
+    source_selection.add_argument("--eligible-training-sessions-only", action="store_true",
+                                  help="export only complete sessions from one approved KIS model-training source; spreads may be absent")
     parser.add_argument("--dry-run", action="store_true", help="query PostgreSQL and report row counts without writing files")
     args = parser.parse_args()
 
@@ -113,6 +119,14 @@ def main() -> int:
         and window[0] <= row[0].astimezone(ZoneInfo("UTC")) < window[1]
     ]
 
+    database_row_count = len(rows)
+    training_session_selection = None
+    if args.eligible_training_sessions_only:
+        try:
+            rows, training_session_selection = select_eligible_model_training_rows(rows, market=market)
+        except ValueError as exc:
+            parser.error(str(exc))
+
     sources = sorted({row[8] for row in rows if row[8]})
     session_coverage = summarize_session_coverage(rows, market=market)
     if args.dry_run:
@@ -120,8 +134,10 @@ def main() -> int:
             "market": market,
             "symbol": symbol,
             "row_count": len(rows),
+            "database_row_count": database_row_count,
             "sources": sources,
             "session_coverage": session_coverage,
+            "training_session_selection": training_session_selection,
             "dry_run": True,
             "files_written": False,
         }, ensure_ascii=False, indent=2))
@@ -148,14 +164,17 @@ def main() -> int:
         "market": market,
         "symbol": symbol,
         "row_count": len(rows),
+        "database_row_count": database_row_count,
         "sources": sources,
         "session_coverage": session_coverage,
+        "training_session_selection": training_session_selection,
         "csv_path": str(output_path.relative_to(repository)),
         "provenance_path": str(sidecar_path.relative_to(repository)),
         "dataset_sha256": sidecar["dataset_sha256"],
         "rights_reviewed": sidecar["rights_reviewed"],
         "permissions": sidecar["permissions"],
         "source_quality_verified": source_quality_verified,
+        "training_session_quality_verified": training_session_selection is not None,
     }, ensure_ascii=False, indent=2))
     return 0
 

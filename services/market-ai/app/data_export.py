@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Sequence
 from zoneinfo import ZoneInfo
 
+from .data_provenance import APPROVED_MODEL_TRAINING_SOURCES
 from .market_calendar import exchange_continuous_session_window
 
 
@@ -115,6 +116,47 @@ def validate_websocket_session_rows(rows: Sequence[tuple], *, market: str, expec
         actual_timestamps = [row[0].astimezone(timezone.utc) for row in session_rows]
         if actual_timestamps != expected_timestamps:
             raise ValueError("WebSocket session must contain every expected minute exactly once")
+
+
+def select_eligible_model_training_rows(
+    rows: Sequence[tuple], *, market: str,
+) -> tuple[list[tuple], dict[str, object]]:
+    """Keep only complete sessions whose rows all come from one approved KIS training source."""
+    normalized_market = market.strip().upper()
+    approved_sources = APPROVED_MODEL_TRAINING_SOURCES.get(normalized_market)
+    if approved_sources is None:
+        raise ValueError("model training market must be KR or US")
+    coverage = summarize_session_coverage(rows, market=normalized_market)
+    eligible_dates: set[str] = set()
+    excluded_sessions: list[dict[str, object]] = []
+    for session in coverage:
+        reasons = []
+        if session["complete"] is not True:
+            reasons.append("incomplete_session")
+        source_counts = session["source_counts"]
+        sources = session["sources"]
+        if (not isinstance(source_counts, dict) or not isinstance(sources, list) or len(sources) != 1
+                or sources[0] not in approved_sources
+                or source_counts.get(sources[0]) != session["bars"]):
+            reasons.append("unapproved_data_source")
+        if reasons:
+            excluded_sessions.append({"session_date": session["session_date"], "reasons": reasons})
+        else:
+            eligible_dates.add(str(session["session_date"]))
+
+    zone = ZoneInfo("Asia/Seoul" if normalized_market == "KR" else "America/New_York")
+    selected = [row for row in rows if row[0].astimezone(zone).date().isoformat() in eligible_dates]
+    if not selected:
+        raise ValueError("no complete sessions from an approved KIS model-training source were found")
+    return selected, {
+        "observed_session_count": len(coverage),
+        "eligible_session_count": len(eligible_dates),
+        "eligible_sessions": sorted(eligible_dates),
+        "excluded_session_count": len(excluded_sessions),
+        "eligible_bar_count": len(selected),
+        "excluded_bar_count": len(rows) - len(selected),
+        "excluded_sessions": excluded_sessions,
+    }
 
 
 def build_minute_bar_export(
