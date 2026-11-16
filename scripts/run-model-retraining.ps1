@@ -248,6 +248,7 @@ try {
         dataset_sha256 = $training.dataset_sha256
         data_rights_verified = $true
         candidate_models_created = $true
+        training_diagnostics = $training.training_diagnostics
         candidates = @($training.models | ForEach-Object {
             New-AiTraderModelCandidateReport -Candidate $_
         })

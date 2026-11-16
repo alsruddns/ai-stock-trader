@@ -86,6 +86,7 @@ def main() -> int:
     )
     print(json.dumps({"dataset_sha256": dataset_sha256,
                       "data_rights_verified": True,
+                      "training_diagnostics": results[0].training_diagnostics if results else {},
                       "models": [result.__dict__ for result in results]}, indent=2))
     return 0
 

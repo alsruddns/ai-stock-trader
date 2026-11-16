@@ -943,6 +943,70 @@ def test_model_training_removes_first_candidate_if_comparison_fails(tmp_path, mo
     assert registry.list_models() == []
 
 
+def test_model_training_skips_unprofitable_family_and_evaluates_the_other(tmp_path, monkeypatch) -> None:
+    sessions = _sample_sessions()
+    registry = LocalModelRegistry(tmp_path)
+    original_selector = ai_pipeline._select_validation_threshold
+    selected_models = []
+
+    def reject_lightgbm_but_select_xgboost(model, samples, *, allow_diagnostic_fallback=False):
+        selected_models.append(type(model).__name__)
+        if type(model).__name__ == "LGBMClassifier":
+            raise ValueError(
+                "validation quant candidates have no positive-net AI threshold with at least "
+                "5 predictions across 3 sessions"
+            )
+        return original_selector(model, samples, allow_diagnostic_fallback=allow_diagnostic_fallback)
+
+    monkeypatch.setattr(ai_pipeline, "_select_validation_threshold", reject_lightgbm_but_select_xgboost)
+    monkeypatch.setattr(ai_pipeline, "validate_model_training_coverage", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ai_pipeline, "validate_model_session_integrity", lambda **_kwargs: None)
+
+    results = registry.train_compare(
+        market="KR", symbol="000660", sessions=sessions,
+        label_horizon_bars=5, label_round_trip_cost_bps=Decimal("20"),
+        dataset_sha256="a" * 64, dataset_provenance=_provenance("a" * 64),
+    )
+
+    assert len(selected_models) == 2
+    assert len(results) == 1
+    assert results[0].model_type == "xgboost"
+    assert results[0].training_diagnostics == {
+        "threshold_selection_rejections": [{
+            "model_type": "lightgbm",
+            "failure_code": "no_profitable_validation_ai_threshold",
+        }],
+    }
+    manifest = registry.manifest(results[0].model_id)
+    assert manifest["approved"] is False
+    assert manifest["training_diagnostics"] == results[0].training_diagnostics
+
+
+def test_model_training_rejects_all_families_without_profitable_threshold(tmp_path, monkeypatch) -> None:
+    sessions = _sample_sessions()
+    registry = LocalModelRegistry(tmp_path)
+
+    def reject_every_family(*_args, **_kwargs):
+        raise ValueError(
+            "validation quant candidates have no positive-net AI threshold with at least "
+            "5 predictions across 3 sessions"
+        )
+
+    monkeypatch.setattr(ai_pipeline, "_select_validation_threshold", reject_every_family)
+    monkeypatch.setattr(ai_pipeline, "validate_model_training_coverage", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ai_pipeline, "validate_model_session_integrity", lambda **_kwargs: None)
+
+    with pytest.raises(ValueError, match="no positive-net AI threshold.*no_profitable_validation_ai_threshold"):
+        registry.train_compare(
+            market="KR", symbol="000660", sessions=sessions,
+            label_horizon_bars=5, label_round_trip_cost_bps=Decimal("20"),
+            dataset_sha256="a" * 64, dataset_provenance=_provenance("a" * 64),
+        )
+
+    assert list(tmp_path.glob("*.joblib")) == []
+    assert list(tmp_path.glob("*.json")) == []
+
+
 def test_model_prediction_rejects_market_scope_mismatch(tmp_path) -> None:
     registry = LocalModelRegistry(tmp_path)
     model_id = "lightgbm-" + "c" * 32

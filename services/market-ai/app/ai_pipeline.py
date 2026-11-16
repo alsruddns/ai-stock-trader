@@ -11,7 +11,7 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -221,6 +221,7 @@ class ModelTrainingResult:
     validation_sessions: tuple[str, ...]
     test_sessions: tuple[str, ...]
     artifact_sha256: str
+    training_diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 def build_training_samples(
@@ -1574,6 +1575,7 @@ class LocalModelRegistry:
             "xgboost": XGBClassifier(n_estimators=80, max_depth=3, learning_rate=0.05, subsample=0.8, colsample_bytree=0.8, eval_metric="logloss", random_state=42, n_jobs=1),
         }
         results: list[ModelTrainingResult] = []
+        threshold_rejections: list[dict[str, str]] = []
         created_paths: list[Path] = []
         train_dates = tuple(sorted({sample.session.isoformat() for sample in train}))
         validation_dates = tuple(sorted({sample.session.isoformat() for sample in validation}))
@@ -1613,10 +1615,19 @@ class LocalModelRegistry:
         try:
             for name, model in candidates.items():
                 model.fit(x_train, y_train)
-                threshold = _select_validation_threshold(
-                    model, validation,
-                    allow_diagnostic_fallback=not approval_ready_session_count,
-                )
+                try:
+                    threshold = _select_validation_threshold(
+                        model, validation,
+                        allow_diagnostic_fallback=not approval_ready_session_count,
+                    )
+                except ValueError as exc:
+                    if "no positive-net AI threshold with at least" not in str(exc):
+                        raise
+                    threshold_rejections.append({
+                        "model_type": name,
+                        "failure_code": "no_profitable_validation_ai_threshold",
+                    })
+                    continue
                 validation_metrics = _metrics(model, validation, threshold=threshold)
                 test_metrics = _metrics(model, test, threshold=threshold)
                 quant_baseline_test_metrics = _quant_baseline_metrics(test)
@@ -1669,6 +1680,21 @@ class LocalModelRegistry:
                                                    ai_quant_backtest_test_metrics, training_config,
                                                    train_dates, validation_dates,
                                                    test_dates, digest))
+            if not results:
+                raise ValueError(
+                    "validation quant candidates have no positive-net AI threshold with at least "
+                    f"{MIN_MODEL_VALIDATION_AI_CANDIDATE_TRADES} predictions across "
+                    f"{MIN_MODEL_VALIDATION_AI_CANDIDATE_SESSIONS} sessions for any model family "
+                    "(no_profitable_validation_ai_threshold)"
+                )
+            if threshold_rejections:
+                diagnostics = {"threshold_selection_rejections": threshold_rejections}
+                for index, result in enumerate(results):
+                    manifest_path = self.root / f"{result.model_id}.json"
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    manifest["training_diagnostics"] = diagnostics
+                    self._write_json_atomic(manifest_path, manifest)
+                    results[index] = replace(result, training_diagnostics=diagnostics)
         except Exception:
             for path in created_paths:
                 path.unlink(missing_ok=True)

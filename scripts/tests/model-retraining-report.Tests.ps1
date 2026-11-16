@@ -152,6 +152,12 @@ Describe 'Model retraining failure reports' {
         ) | Should Be 'no_profitable_validation_ai_threshold'
     }
 
+    It 'classifies rejection after every model family misses the validation threshold' {
+        Get-AiTraderModelTrainingFailureCode -Output @(
+            'ValueError: validation quant candidates have no positive-net AI threshold with at least 5 predictions across 3 sessions for any model family (no_profitable_validation_ai_threshold)'
+        ) | Should Be 'no_profitable_validation_ai_threshold'
+    }
+
     It 'maps unknown training errors to a generic safe code' {
         Get-AiTraderModelTrainingFailureCode -Output @('secret-bearing database host detail') |
             Should Be 'unclassified_training_failure'
