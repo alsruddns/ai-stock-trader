@@ -178,8 +178,19 @@ try {
             ForEach-Object { $_.Name }
     )
     $stage = 'candidate_training'
-    $trainingOutput = & $PythonPath @trainingArgs 2>&1
-    $stageExitCode = $LASTEXITCODE
+    # Python reports expected training-gate failures on stderr. With the
+    # repository's Stop preference, PowerShell can turn that stream into a
+    # terminating RemoteException before LASTEXITCODE is captured, leaving a
+    # stale zero and losing the bounded failure code. Capture native output
+    # non-terminating for this invocation only, then restore the caller policy.
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $trainingOutput = & $PythonPath @trainingArgs 2>&1
+        $stageExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     if ($stageExitCode -ne 0) {
         $candidateModelIds = @(
             Get-ChildItem -LiteralPath $modelDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue |
