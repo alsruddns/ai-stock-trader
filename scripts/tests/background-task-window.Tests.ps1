@@ -10,7 +10,8 @@ Describe 'AI Stock Trader scheduled PowerShell tasks' {
             'scripts/register-market-data-session-horizon.ps1',
             'scripts/register-model-candidate-retraining-task.ps1',
             'scripts/register-model-holdout-evaluation-task.ps1',
-            'scripts/register-dashboard-post-session-task.ps1'
+            'scripts/register-dashboard-post-session-task.ps1',
+            'scripts/register-paper-no-order-confirmation-task.ps1'
         )
 
         foreach ($relativePath in $registrationScripts) {
