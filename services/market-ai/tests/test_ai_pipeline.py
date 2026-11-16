@@ -3,6 +3,7 @@ from decimal import Decimal
 import hashlib
 import json
 import multiprocessing
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -794,8 +795,22 @@ def test_ai_threshold_rejects_nonpositive_validation_net_returns() -> None:
         predict_proba=lambda features: [[1 - row[0], row[0]] for row in features],
     )
 
-    with pytest.raises(ValueError, match="no positive-net AI threshold"):
+    with pytest.raises(ai_pipeline.ValidationThresholdSelectionError,
+                       match="no positive-net AI threshold") as error:
         ai_pipeline._select_validation_threshold(model, samples)
+
+    assert error.value.diagnostics == {
+        "validation_quant_candidate_count": 5,
+        "validation_quant_candidate_session_count": 5,
+        "validation_thresholds_evaluated": 1,
+        "validation_eligible_threshold_count": 1,
+        "validation_positive_net_threshold_count": 0,
+        "validation_max_selected_predictions": 5,
+        "validation_max_selected_sessions": 5,
+        "validation_best_eligible_mean_net_return_bps": -5.0,
+        "minimum_validation_trades": 5,
+        "minimum_validation_sessions": 3,
+    }
 
 
 def test_model_training_compares_both_models_and_keeps_them_unapproved(tmp_path, monkeypatch) -> None:
@@ -993,22 +1008,53 @@ def test_model_training_rejects_all_families_without_profitable_threshold(tmp_pa
     sessions = _sample_sessions()
     registry = LocalModelRegistry(tmp_path)
 
+    class LGBMClassifier:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def fit(self, *_args, **_kwargs):
+            return self
+
+    class XGBClassifier:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def fit(self, *_args, **_kwargs):
+            return self
+
+    monkeypatch.setitem(sys.modules, "lightgbm", SimpleNamespace(LGBMClassifier=LGBMClassifier))
+    monkeypatch.setitem(sys.modules, "xgboost", SimpleNamespace(XGBClassifier=XGBClassifier))
+    monkeypatch.setitem(sys.modules, "joblib", SimpleNamespace())
+
     def reject_every_family(*_args, **_kwargs):
-        raise ValueError(
-            "validation quant candidates have no positive-net AI threshold with at least "
-            "5 predictions across 3 sessions"
-        )
+        raise ai_pipeline.ValidationThresholdSelectionError({
+            "validation_quant_candidate_count": 20,
+            "validation_quant_candidate_session_count": 4,
+            "validation_thresholds_evaluated": 10,
+            "validation_eligible_threshold_count": 2,
+            "validation_positive_net_threshold_count": 0,
+            "validation_max_selected_predictions": 9,
+            "validation_max_selected_sessions": 4,
+            "validation_best_eligible_mean_net_return_bps": -3.5,
+            "minimum_validation_trades": 5,
+            "minimum_validation_sessions": 3,
+        })
 
     monkeypatch.setattr(ai_pipeline, "_select_validation_threshold", reject_every_family)
     monkeypatch.setattr(ai_pipeline, "validate_model_training_coverage", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(ai_pipeline, "validate_model_session_integrity", lambda **_kwargs: None)
 
-    with pytest.raises(ValueError, match="no positive-net AI threshold.*no_profitable_validation_ai_threshold"):
+    with pytest.raises(ai_pipeline.NoProfitableValidationThresholdError,
+                       match="no positive-net AI threshold.*no_profitable_validation_ai_threshold") as error:
         registry.train_compare(
             market="KR", symbol="000660", sessions=sessions,
             label_horizon_bars=5, label_round_trip_cost_bps=Decimal("20"),
             dataset_sha256="a" * 64, dataset_provenance=_provenance("a" * 64),
         )
+
+    assert len(error.value.diagnostics) == 2
+    assert {item["model_type"] for item in error.value.diagnostics} == {"lightgbm", "xgboost"}
+    assert error.value.diagnostics[0]["validation"]["validation_best_eligible_mean_net_return_bps"] == -3.5
 
     assert list(tmp_path.glob("*.joblib")) == []
     assert list(tmp_path.glob("*.json")) == []

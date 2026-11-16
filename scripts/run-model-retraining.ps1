@@ -216,6 +216,7 @@ try {
             -FromDate $FromDate.ToString('yyyy-MM-dd') -ToDate $ToDate.ToString('yyyy-MM-dd') `
             -DatasetPath $exportRelativePath -DatasetSha256 $datasetSha256 -ExitCode $stageExitCode `
             -FailureCode (Get-AiTraderModelTrainingFailureCode -Output $trainingOutput) `
+            -ThresholdSelectionDiagnostics (Get-AiTraderModelTrainingDiagnostics -Output $trainingOutput) `
             -CandidateModelIds $candidateModelIds -OrphanCandidateArtifacts $orphanCandidateArtifacts
         throw 'Candidate training failed; only sanitized failure metadata was recorded.'
     }

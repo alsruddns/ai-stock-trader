@@ -10,7 +10,8 @@ from pathlib import Path
 repository = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repository / "services" / "market-ai"))
 
-from app.ai_pipeline import LocalModelRegistry, build_training_samples, require_approval_ready_training
+from app.ai_pipeline import (LocalModelRegistry, NoProfitableValidationThresholdError,
+                             build_training_samples, require_approval_ready_training)
 from app.data_import import load_minute_bar_sessions
 from app.data_provenance import (load_data_provenance, validate_model_session_integrity,
                                  validate_model_training_coverage)
@@ -79,11 +80,20 @@ def main() -> int:
             require_approval_ready_training(samples)
         except ValueError as exc:
             parser.error(str(exc))
-    results = LocalModelRegistry(args.registry).train_compare(
-        market=args.market, symbol=args.symbol, sessions=sessions, quant_config=quant_config,
-        label_horizon_bars=args.horizon_bars, label_round_trip_cost_bps=args.round_trip_cost_bps,
-        dataset_sha256=dataset_sha256, dataset_provenance=provenance,
-    )
+    try:
+        results = LocalModelRegistry(args.registry).train_compare(
+            market=args.market, symbol=args.symbol, sessions=sessions, quant_config=quant_config,
+            label_horizon_bars=args.horizon_bars, label_round_trip_cost_bps=args.round_trip_cost_bps,
+            dataset_sha256=dataset_sha256, dataset_provenance=provenance,
+        )
+    except NoProfitableValidationThresholdError as exc:
+        # This marker contains only fixed-schema aggregate metrics; the PowerShell
+        # wrapper validates it before persisting anything in a local report.
+        print("AI_TRADER_TRAINING_DIAGNOSTICS=" + json.dumps({
+            "schema_version": 1,
+            "threshold_selection_rejections": exc.diagnostics,
+        }, allow_nan=False, separators=(",", ":")), file=sys.stderr)
+        raise
     print(json.dumps({"dataset_sha256": dataset_sha256,
                       "data_rights_verified": True,
                       "training_diagnostics": results[0].training_diagnostics if results else {},

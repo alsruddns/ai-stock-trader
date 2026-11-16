@@ -74,6 +74,76 @@ function Get-AiTraderModelTrainingFailureCode {
     return 'unclassified_training_failure'
 }
 
+function Get-AiTraderModelTrainingDiagnostics {
+    param([object[]]$Output)
+
+    # Parse a single, fixed-schema marker emitted by train-ai-models.py. Ignore
+    # all surrounding Python output and reconstruct only bounded numeric fields.
+    $prefix = 'AI_TRADER_TRAINING_DIAGNOSTICS='
+    $markers = @($Output | ForEach-Object { [string]$_ } |
+        Where-Object { $_.StartsWith($prefix, [StringComparison]::Ordinal) })
+    if ($markers.Count -ne 1) { return $null }
+    try {
+        $parsed = $markers[0].Substring($prefix.Length) | ConvertFrom-Json -ErrorAction Stop
+    } catch { return $null }
+    if ($parsed.schema_version -ne 1 -or $null -eq $parsed.threshold_selection_rejections) {
+        return $null
+    }
+    $rejections = @($parsed.threshold_selection_rejections)
+    if ($rejections.Count -lt 1 -or $rejections.Count -gt 2) { return $null }
+    $result = @()
+    foreach ($rejection in $rejections) {
+        if ($rejection.model_type -notin @('lightgbm', 'xgboost') -or
+            $rejection.failure_code -ne 'no_profitable_validation_ai_threshold' -or
+            $null -eq $rejection.validation) { return $null }
+        $source = $rejection.validation
+        $integerNames = @(
+            'validation_quant_candidate_count', 'validation_quant_candidate_session_count',
+            'validation_thresholds_evaluated', 'validation_eligible_threshold_count',
+            'validation_positive_net_threshold_count', 'validation_max_selected_predictions',
+            'validation_max_selected_sessions', 'minimum_validation_trades', 'minimum_validation_sessions'
+        )
+        $values = @{}
+        foreach ($name in $integerNames) {
+            $property = $source.PSObject.Properties[$name]
+            if ($null -eq $property -or $property.Value -is [bool] -or
+                $property.Value -isnot [ValueType] -or [double]$property.Value -lt 0 -or
+                [double]$property.Value -gt 1000000 -or [double]$property.Value -ne [math]::Truncate([double]$property.Value)) {
+                return $null
+            }
+            $values[$name] = [int]$property.Value
+        }
+        $meanName = 'validation_best_eligible_mean_net_return_bps'
+        $meanProperty = $source.PSObject.Properties[$meanName]
+        if ($null -eq $meanProperty) { return $null }
+        $mean = $meanProperty.Value
+        if ($null -ne $mean -and ($mean -is [bool] -or $mean -isnot [ValueType] -or
+            [double]::IsNaN([double]$mean) -or [double]::IsInfinity([double]$mean) -or
+            [math]::Abs([double]$mean) -gt 1000000)) { return $null }
+        if ($values.validation_eligible_threshold_count -gt $values.validation_thresholds_evaluated -or
+            $values.validation_positive_net_threshold_count -gt $values.validation_eligible_threshold_count -or
+            $values.validation_max_selected_predictions -gt $values.validation_quant_candidate_count -or
+            $values.validation_max_selected_sessions -gt $values.validation_quant_candidate_session_count -or
+            $values.minimum_validation_trades -ne 5 -or $values.minimum_validation_sessions -ne 3) {
+            return $null
+        }
+        $result += [pscustomobject]@{
+            model_type = [string]$rejection.model_type
+            validation_quant_candidate_count = $values.validation_quant_candidate_count
+            validation_quant_candidate_session_count = $values.validation_quant_candidate_session_count
+            validation_thresholds_evaluated = $values.validation_thresholds_evaluated
+            validation_eligible_threshold_count = $values.validation_eligible_threshold_count
+            validation_positive_net_threshold_count = $values.validation_positive_net_threshold_count
+            validation_max_selected_predictions = $values.validation_max_selected_predictions
+            validation_max_selected_sessions = $values.validation_max_selected_sessions
+            validation_best_eligible_mean_net_return_bps = $mean
+            minimum_validation_trades = $values.minimum_validation_trades
+            minimum_validation_sessions = $values.minimum_validation_sessions
+        }
+    }
+    return ,$result
+}
+
 function Write-AiTraderModelRetrainingFailureReport {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -89,7 +159,8 @@ function Write-AiTraderModelRetrainingFailureReport {
         [System.Exception]$Exception,
         [string]$FailureCode,
         [string[]]$CandidateModelIds = @(),
-        [string[]]$OrphanCandidateArtifacts = @()
+        [string[]]$OrphanCandidateArtifacts = @(),
+        [object[]]$ThresholdSelectionDiagnostics = @()
     )
 
     $status = switch ($FailureStage) {
@@ -121,6 +192,7 @@ function Write-AiTraderModelRetrainingFailureReport {
         exit_code = $ExitCode
         error_type = $errorType
         failure_code = $safeFailureCode
+        threshold_selection_diagnostics = @($ThresholdSelectionDiagnostics)
         candidate_models_created = ($CandidateModelIds.Count -gt 0)
         candidate_model_ids = @($CandidateModelIds)
         orphan_candidate_artifacts = @($OrphanCandidateArtifacts)
@@ -203,6 +275,35 @@ function Get-AiTraderModelRetrainingSummary {
         if (($null -eq $failureCode) -and ($document.status -eq 'training_failed') -and ($document.output -is [string])) {
             $failureCode = Get-AiTraderModelTrainingFailureCode -Output @([string]$document.output)
         }
+        $thresholdSelectionDiagnostics = @()
+        if ($document.threshold_selection_diagnostics) {
+            $diagnosticRejections = @($document.threshold_selection_diagnostics | ForEach-Object {
+                $diagnostic = $_
+                [ordered]@{
+                    model_type = $diagnostic.model_type
+                    failure_code = 'no_profitable_validation_ai_threshold'
+                    validation = [ordered]@{
+                        validation_quant_candidate_count = $diagnostic.validation_quant_candidate_count
+                        validation_quant_candidate_session_count = $diagnostic.validation_quant_candidate_session_count
+                        validation_thresholds_evaluated = $diagnostic.validation_thresholds_evaluated
+                        validation_eligible_threshold_count = $diagnostic.validation_eligible_threshold_count
+                        validation_positive_net_threshold_count = $diagnostic.validation_positive_net_threshold_count
+                        validation_max_selected_predictions = $diagnostic.validation_max_selected_predictions
+                        validation_max_selected_sessions = $diagnostic.validation_max_selected_sessions
+                        validation_best_eligible_mean_net_return_bps = $diagnostic.validation_best_eligible_mean_net_return_bps
+                        minimum_validation_trades = $diagnostic.minimum_validation_trades
+                        minimum_validation_sessions = $diagnostic.minimum_validation_sessions
+                    }
+                }
+            })
+            $markerPayload = [ordered]@{
+                schema_version = 1
+                threshold_selection_rejections = $diagnosticRejections
+            } | ConvertTo-Json -Depth 8 -Compress
+            $thresholdSelectionDiagnostics = @(Get-AiTraderModelTrainingDiagnostics -Output @(
+                ('AI_TRADER_TRAINING_DIAGNOSTICS=' + $markerPayload)
+            ))
+        }
 
         return [pscustomobject]@{
             state = 'AVAILABLE'
@@ -213,6 +314,7 @@ function Get-AiTraderModelRetrainingSummary {
                     [string]$document.failure_stage
                 } else { $null }
                 failureCode = $failureCode
+                thresholdSelectionDiagnostics = $thresholdSelectionDiagnostics
                 market = [string]$document.market
                 symbol = [string]$document.symbol
                 fromDate = [string]$document.from_date

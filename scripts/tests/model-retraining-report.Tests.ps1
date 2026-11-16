@@ -152,6 +152,39 @@ Describe 'Model retraining failure reports' {
         ) | Should Be 'no_profitable_validation_ai_threshold'
     }
 
+    It 'parses only bounded aggregate threshold diagnostics from the trainer marker' {
+        $marker = 'AI_TRADER_TRAINING_DIAGNOSTICS={"schema_version":1,"threshold_selection_rejections":[{"model_type":"lightgbm","failure_code":"no_profitable_validation_ai_threshold","validation":{"validation_quant_candidate_count":20,"validation_quant_candidate_session_count":4,"validation_thresholds_evaluated":10,"validation_eligible_threshold_count":2,"validation_positive_net_threshold_count":0,"validation_max_selected_predictions":9,"validation_max_selected_sessions":4,"validation_best_eligible_mean_net_return_bps":-3.5,"minimum_validation_trades":5,"minimum_validation_sessions":3}}]}'
+        $diagnostics = Get-AiTraderModelTrainingDiagnostics -Output @(
+            'Traceback contains secret-local-path', $marker
+        )
+
+        $diagnostics.Count | Should Be 1
+        $diagnostics[0].model_type | Should Be 'lightgbm'
+        $diagnostics[0].validation_best_eligible_mean_net_return_bps | Should Be -3.5
+        ($diagnostics | ConvertTo-Json -Depth 4 -Compress) | Should Not Match 'secret-local-path|failure_code'
+
+        $directory = Join-Path $TestDrive 'threshold-diagnostics'
+        New-Item -ItemType Directory -Path $directory | Out-Null
+        $path = Join-Path $directory 'threshold-diagnostics.json'
+        Write-AiTraderModelRetrainingFailureReport -Path $path -RunId 'kr-005930-20261116-cccccccccccc' `
+            -FailureStage 'candidate_training' -Market 'KR' -Symbol '005930' `
+            -FromDate '2026-11-02' -ToDate '2026-11-06' -DatasetPath 'data/model-candidates/test.csv' `
+            -FailureCode 'no_profitable_validation_ai_threshold' `
+            -ThresholdSelectionDiagnostics $diagnostics
+        $report = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $report.threshold_selection_diagnostics.Count | Should Be 1
+        $report.threshold_selection_diagnostics[0].validation_positive_net_threshold_count | Should Be 0
+        $summary = Get-AiTraderModelRetrainingSummary -Directory (Split-Path -Parent $path)
+        $summary.latestRun.thresholdSelectionDiagnostics.Count | Should Be 1
+        $summary.latestRun.thresholdSelectionDiagnostics[0].validation_best_eligible_mean_net_return_bps | Should Be -3.5
+    }
+
+    It 'rejects malformed or unsafe threshold diagnostics' {
+        $marker = 'AI_TRADER_TRAINING_DIAGNOSTICS={"schema_version":1,"threshold_selection_rejections":[{"model_type":"lightgbm","failure_code":"no_profitable_validation_ai_threshold","validation":{"validation_quant_candidate_count":20,"validation_quant_candidate_session_count":4,"validation_thresholds_evaluated":10,"validation_eligible_threshold_count":2,"validation_positive_net_threshold_count":0,"validation_max_selected_predictions":999,"validation_max_selected_sessions":4,"validation_best_eligible_mean_net_return_bps":-3.5,"minimum_validation_trades":5,"minimum_validation_sessions":3}}]}'
+
+        Get-AiTraderModelTrainingDiagnostics -Output @($marker) | Should Be $null
+    }
+
     It 'classifies rejection after every model family misses the validation threshold' {
         Get-AiTraderModelTrainingFailureCode -Output @(
             'ValueError: validation quant candidates have no positive-net AI threshold with at least 5 predictions across 3 sessions for any model family (no_profitable_validation_ai_threshold)'

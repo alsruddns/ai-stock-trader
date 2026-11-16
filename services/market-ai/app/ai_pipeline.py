@@ -53,6 +53,31 @@ _GOVERNANCE_GENESIS_SHA256 = "0" * 64
 _MARKETS = {"KR", "US"}
 
 
+class ValidationThresholdSelectionError(ValueError):
+    """A safe, aggregate explanation for a validation-threshold rejection."""
+
+    def __init__(self, diagnostics: dict[str, Any]) -> None:
+        self.diagnostics = diagnostics
+        super().__init__(
+            "validation quant candidates have no positive-net AI threshold with at least "
+            f"{MIN_MODEL_VALIDATION_AI_CANDIDATE_TRADES} predictions across "
+            f"{MIN_MODEL_VALIDATION_AI_CANDIDATE_SESSIONS} sessions"
+        )
+
+
+class NoProfitableValidationThresholdError(ValueError):
+    """All model families failed the fixed validation profitability gate."""
+
+    def __init__(self, rejections: list[dict[str, Any]]) -> None:
+        self.diagnostics = rejections
+        super().__init__(
+            "validation quant candidates have no positive-net AI threshold with at least "
+            f"{MIN_MODEL_VALIDATION_AI_CANDIDATE_TRADES} predictions across "
+            f"{MIN_MODEL_VALIDATION_AI_CANDIDATE_SESSIONS} sessions for any model family "
+            "(no_profitable_validation_ai_threshold)"
+        )
+
+
 def _validated_session_dates(sessions: dict[date, list[MinuteBar]]) -> list[date]:
     """Require unambiguous exchange-session keys before ordering holdout data."""
     if not isinstance(sessions, dict) or not sessions:
@@ -561,21 +586,34 @@ def _select_validation_threshold(
 
     best_threshold: float | None = None
     best_score: tuple[float, float, float] | None = None
-    for threshold in sorted({float(value) for value in probabilities}):
+    thresholds = sorted({float(value) for value in probabilities})
+    eligible_threshold_count = 0
+    positive_net_threshold_count = 0
+    max_selected_predictions = 0
+    max_selected_sessions = 0
+    best_eligible_mean_net_return_bps: float | None = None
+    for threshold in thresholds:
         selected = [
             (sample, float(probability))
             for sample, probability in zip(candidates, probabilities)
             if float(probability) >= threshold
         ]
+        selected_session_count = len({sample.session for sample, _ in selected})
+        max_selected_predictions = max(max_selected_predictions, len(selected))
+        max_selected_sessions = max(max_selected_sessions, selected_session_count)
         if (len(selected) < MIN_MODEL_VALIDATION_AI_CANDIDATE_TRADES
-                or len({sample.session for sample, _ in selected})
-                < MIN_MODEL_VALIDATION_AI_CANDIDATE_SESSIONS):
+                or selected_session_count < MIN_MODEL_VALIDATION_AI_CANDIDATE_SESSIONS):
             continue
+        eligible_threshold_count += 1
         mean_net_return = sum(
             float(sample.forward_net_return_bps) for sample, _ in selected
         ) / len(selected)
+        if (best_eligible_mean_net_return_bps is None
+                or mean_net_return > best_eligible_mean_net_return_bps):
+            best_eligible_mean_net_return_bps = mean_net_return
         if mean_net_return <= 0:
             continue
+        positive_net_threshold_count += 1
         # Choose on validation-only, cost-adjusted forward returns. A candidate
         # with no profitable validation threshold cannot enter holdout review.
         score = (mean_net_return, float(len(selected)), threshold)
@@ -586,11 +624,18 @@ def _select_validation_threshold(
     if best_threshold is None:
         if allow_diagnostic_fallback:
             return 0.5
-        raise ValueError(
-            "validation quant candidates have no positive-net AI threshold with at least "
-            f"{MIN_MODEL_VALIDATION_AI_CANDIDATE_TRADES} predictions across "
-            f"{MIN_MODEL_VALIDATION_AI_CANDIDATE_SESSIONS} sessions"
-        )
+        raise ValidationThresholdSelectionError({
+            "validation_quant_candidate_count": len(candidates),
+            "validation_quant_candidate_session_count": len({sample.session for sample in candidates}),
+            "validation_thresholds_evaluated": len(thresholds),
+            "validation_eligible_threshold_count": eligible_threshold_count,
+            "validation_positive_net_threshold_count": positive_net_threshold_count,
+            "validation_max_selected_predictions": max_selected_predictions,
+            "validation_max_selected_sessions": max_selected_sessions,
+            "validation_best_eligible_mean_net_return_bps": best_eligible_mean_net_return_bps,
+            "minimum_validation_trades": MIN_MODEL_VALIDATION_AI_CANDIDATE_TRADES,
+            "minimum_validation_sessions": MIN_MODEL_VALIDATION_AI_CANDIDATE_SESSIONS,
+        })
     return best_threshold
 
 
@@ -1583,7 +1628,7 @@ class LocalModelRegistry:
                                      eval_metric="logloss", random_state=42, n_jobs=1),
         }
         results: list[ModelTrainingResult] = []
-        threshold_rejections: list[dict[str, str]] = []
+        threshold_rejections: list[dict[str, Any]] = []
         created_paths: list[Path] = []
         train_dates = tuple(sorted({sample.session.isoformat() for sample in train}))
         validation_dates = tuple(sorted({sample.session.isoformat() for sample in validation}))
@@ -1638,6 +1683,8 @@ class LocalModelRegistry:
                     threshold_rejections.append({
                         "model_type": name,
                         "failure_code": "no_profitable_validation_ai_threshold",
+                        **({"validation": exc.diagnostics}
+                           if isinstance(exc, ValidationThresholdSelectionError) else {}),
                     })
                     continue
                 validation_metrics = _metrics(model, validation, threshold=threshold)
@@ -1693,12 +1740,7 @@ class LocalModelRegistry:
                                                    train_dates, validation_dates,
                                                    test_dates, digest))
             if not results:
-                raise ValueError(
-                    "validation quant candidates have no positive-net AI threshold with at least "
-                    f"{MIN_MODEL_VALIDATION_AI_CANDIDATE_TRADES} predictions across "
-                    f"{MIN_MODEL_VALIDATION_AI_CANDIDATE_SESSIONS} sessions for any model family "
-                    "(no_profitable_validation_ai_threshold)"
-                )
+                raise NoProfitableValidationThresholdError(threshold_rejections)
             if threshold_rejections:
                 diagnostics = {"threshold_selection_rejections": threshold_rejections}
                 for index, result in enumerate(results):
