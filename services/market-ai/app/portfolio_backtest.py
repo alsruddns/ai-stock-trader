@@ -691,7 +691,7 @@ def backtest_domestic_portfolio(
             cash += position.cash_debit + net_pnl
             del positions[symbol]
             exited_this_bar.add(symbol)
-            loss_streak = loss_streak + 1 if net_pnl < 0 else 0
+            loss_streak = min(max_consecutive_losses, loss_streak + 1) if net_pnl < 0 else 0
             if loss_streak >= max_consecutive_losses:
                 streak_hit = True
 

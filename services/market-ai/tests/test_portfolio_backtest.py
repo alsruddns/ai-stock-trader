@@ -473,6 +473,25 @@ def test_three_consecutive_losses_stop_later_entries(monkeypatch) -> None:
     assert result.ending_consecutive_losses == 3
 
 
+def test_simultaneous_position_losses_cap_carried_streak_at_configured_limit(monkeypatch) -> None:
+    _signals_at_lengths(monkeypatch, {0: {21}, 1: {21}})
+    data = {f"00000{index + 1}": _bars(index) for index in range(2)}
+    for bars in data.values():
+        stamp = bars[22].timestamp
+        bars[22] = MinuteBar(stamp, Decimal("100"), Decimal("101"), Decimal("95"), Decimal("96"),
+                             1000, Decimal("5"), stamp + timedelta(seconds=30))
+
+    result = _run(data, initial_consecutive_losses=2)
+
+    assert len(result.trades) == 2
+    assert result.consecutive_loss_limit_hit is True
+    assert result.ending_consecutive_losses == 3
+    next_session = {symbol: _shift_bars(bars, 1) for symbol, bars in data.items()}
+    next_result = _run(next_session, initial_consecutive_losses=result.ending_consecutive_losses)
+    assert next_result.trades == ()
+    assert next_result.ending_consecutive_losses == 3
+
+
 def test_compounded_session_continues_consecutive_loss_streak(monkeypatch) -> None:
     _signals_at_lengths(monkeypatch, {index: {21} for index in range(2)})
     monkeypatch.setattr("app.portfolio_backtest._atr", lambda _bars, _period: Decimal("10"))
