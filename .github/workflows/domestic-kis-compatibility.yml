@@ -110,7 +110,7 @@ jobs:
         run: bash ./mvnw --batch-mode '-Dtest=KisDomesticOrderPriceValidatorTest,KisOrderOrchestratorTest,KisOrderClientTest#domesticPaperOrderRejectsFractionalWonPriceBeforeBrokerAccess,KisRealOrderClientTest#domesticRealOrderRejectsFractionalWonPriceBeforeTokenOrOrderRequest' test
       - name: Run KIS order success result-code acceptance tests only
         working-directory: backend/trading-api
-        run: bash ./mvnw --batch-mode '-Dtest=KisOrderClientTest#domesticPaperLimitOrderUsesPaperCredentialsAndLimitOnlyContract,KisRealOrderClientTest#domesticRealBuyUsesOfficialRealTransactionAndAccountCredentials' test
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderClientTest#domesticPaperLimitOrderUsesPaperCredentialsAndLimitOnlyContract+paperOrderHttpFailurePersistsOnlyBoundedStatusDiagnostic,KisRealOrderClientTest#domesticRealBuyUsesOfficialRealTransactionAndAccountCredentials' test
       - name: Verify manual domestic PAPER reconciliation identity matching
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderClientTest#manualPaperReconciliationQueriesAndVerifiesExactDomesticOrderIdentity+manualPaperReconciliationRejectsCandidateWithMismatchedQuantityOrPrice+manualPaperReconciliationRejectsCandidateWhenKisOmitsBrokerOrganizationNumber+manualPaperReconciliationRejectsUserSuppliedOrganizationMismatch' test
