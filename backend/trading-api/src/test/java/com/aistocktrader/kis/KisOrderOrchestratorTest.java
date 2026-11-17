@@ -109,6 +109,57 @@ class KisOrderOrchestratorTest {
     }
 
     @Test
+    void linkedUnknownClosesOnlyAfterOperatorConfirmationAndCompleteEmptyHistory() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0",
+                Instant.now()));
+        intent.markUnknown("ORDER_HTTP_500");
+        org.springframework.test.util.ReflectionTestUtils.setField(intent, "createdAt",
+                Instant.now().minusSeconds(180));
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.confirmNoDomesticPaperOrderInHistory(intent)).thenReturn(true);
+        when(intents.confirmLinkedPaperOrderAbsentFromHistory(key)).thenAnswer(call -> {
+            intent.confirmLinkedPaperOrderAbsentFromCompleteHistory();
+            return intent;
+        });
+
+        KisOrderIntentResponse response = orchestrator.confirmNoDomesticPaperOrder(key, true);
+
+        assertEquals(KisOrderStatus.NO_ORDER_CONFIRMED, response.status());
+        verify(orders).confirmNoDomesticPaperOrderInHistory(intent);
+        verify(intents).confirmLinkedPaperOrderAbsentFromHistory(key);
+        verify(intents, never()).confirmNoPaperOrder(key);
+        verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(),
+                org.mockito.ArgumentMatchers.anyInt(), any(), any(), anyString());
+        verify(orders, never()).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), anyString());
+    }
+
+    @Test
+    void linkedUnknownStaysLockedWhenHistoryHasAnySymbolOrder() {
+        UUID key = UUID.randomUUID();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);
+        intent.accept(new KisOrderReceipt("paper", "KR", "005930", "BUY", "1234", "ORG01", "0",
+                Instant.now()));
+        intent.markUnknown("ORDER_HTTP_500");
+        org.springframework.test.util.ReflectionTestUtils.setField(intent, "createdAt",
+                Instant.now().minusSeconds(180));
+        when(intents.get(key)).thenReturn(intent);
+        when(orders.confirmNoDomesticPaperOrderInHistory(intent)).thenReturn(false);
+
+        assertThrows(KisApiException.class, () -> orchestrator.confirmNoDomesticPaperOrder(key, true));
+
+        verify(orders).confirmNoDomesticPaperOrderInHistory(intent);
+        verify(intents, never()).confirmLinkedPaperOrderAbsentFromHistory(key);
+        verify(intents, never()).confirmNoPaperOrder(key);
+        verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(),
+                org.mockito.ArgumentMatchers.anyInt(), any(), any(), anyString());
+        verify(orders, never()).cancelPaperOrder(any(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), anyString());
+    }
+
+    @Test
     void duplicateRequestReturnsExistingIntentWithoutSendingAgain() {
         UUID key = UUID.randomUUID();
         OrderRequest request = buyRequest();

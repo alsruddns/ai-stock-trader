@@ -17,6 +17,7 @@
 | POST | `/api/v1/kis/orders/paper/signals` | 승인된 국내 PAPER 신호를 Spring에서 재검증·계좌조회·위험한도 수량 산정 후 KIS PAPER 주문으로 전달; 주문·대사·취소 사전조회·보호청산 확인 스위치가 기본 잠금 |
 | POST | `/api/v1/kis/orders/paper/{idempotencyKey}/manual-reconcile` | 주문번호 없는 국내 PAPER `UNKNOWN` 의도를 사용자가 KIS에서 확인한 주문번호로 읽기 전용 대조 후 연결; 조직번호는 선택 입력 (확인값 true와 PAPER 계좌읽기 필요) |
 | POST | `/api/v1/kis/orders/paper/{idempotencyKey}/reconcile` | 저장된 PAPER 주문번호로 KIS 상태를 읽기 전용 재조회 |
+| POST | `/api/v1/kis/orders/paper/{idempotencyKey}/confirm-no-order` | 사용자가 PAPER 앱에서 미주문을 확인한 국내 미체결 `UNKNOWN` 의도를 KIS 당일 주문이력 전체 페이지에서 해당 종목 행이 없음을 확인한 경우 종결; 브로커 주문참조가 있어도 완전한 이력 스캔이 비어 있어야 하며 주문·취소는 전송하지 않음 |
 | POST | `/api/v1/kis/orders/paper/{idempotencyKey}/cancel` | 잔량 재조회·사전조건 후 취소 시도; 모의 취소가능수량 지원 미확인 시 차단 |
 | GET | `/api/v1/kis/accounts/realized-pnl/real/{KR\|US}?from=YYYY-MM-DD&to=YYYY-MM-DD` | KIS REAL 기간손익 원문 조회(최대 31일, REAL 계좌읽기 스위치 필요) |
 | POST | `/api/v1/kis/orders/real` | REAL 주문 의도 제출 (`Idempotency-Key` 필수, 모든 REAL 주문·계좌 읽기 스위치 필요) |

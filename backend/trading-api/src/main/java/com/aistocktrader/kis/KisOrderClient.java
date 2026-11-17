@@ -227,8 +227,9 @@ public class KisOrderClient {
     public boolean confirmNoDomesticPaperOrderInHistory(KisOrderIntent intent) {
         if (intent == null || intent.getEnvironment() != KisEnvironment.PAPER
                 || intent.getMarket() != Market.KR || intent.getStatus() != KisOrderStatus.UNKNOWN
-                || intent.getBrokerOrderNumber() != null && !intent.getBrokerOrderNumber().isBlank()) {
-            throw new IllegalStateException("No-order confirmation requires an unlinked domestic PAPER UNKNOWN intent.");
+                || (intent.getFilledQuantity() != null && intent.getFilledQuantity() != 0)
+                || intent.getRemainingQuantity() == null || intent.getRemainingQuantity() != intent.getQuantity()) {
+            throw new IllegalStateException("No-order confirmation requires an unfilled domestic PAPER UNKNOWN intent.");
         }
         requirePaperReconciliationReadEnabled();
         KisProperties.Account credentials = properties.credentials(KisEnvironment.PAPER);

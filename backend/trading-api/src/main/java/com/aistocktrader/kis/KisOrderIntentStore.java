@@ -143,6 +143,14 @@ public class KisOrderIntentStore {
     }
 
     @Transactional
+    public KisOrderIntent confirmLinkedPaperOrderAbsentFromHistory(UUID key) {
+        KisOrderIntent intent = repository.findByIdForUpdate(key)
+                .orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
+        intent.confirmLinkedPaperOrderAbsentFromCompleteHistory();
+        return intent;
+    }
+
+    @Transactional
     public KisOrderIntent recordCancelRejection(UUID key, String code) {
         KisOrderIntent intent = repository.findById(key).orElseThrow(() -> new NoSuchElementException("KIS order intent not found."));
         intent.recordCancelRejection(code);

@@ -159,6 +159,17 @@ public class KisOrderIntent {
         brokerResponseCode = "MANUAL_NO_ORDER_CONFIRMED";
         updatedAt = Instant.now();
     }
+    public void confirmLinkedPaperOrderAbsentFromCompleteHistory() {
+        if (environment != KisEnvironment.PAPER || market != Market.KR || status != KisOrderStatus.UNKNOWN
+                || brokerOrderNumber == null || brokerOrderNumber.isBlank()
+                || (filledQuantity != null && filledQuantity != 0)
+                || remainingQuantity == null || remainingQuantity != quantity) {
+            throw new IllegalStateException("Only an unfilled linked domestic PAPER UNKNOWN intent can be closed after a complete empty symbol-history scan.");
+        }
+        status = KisOrderStatus.NO_ORDER_CONFIRMED;
+        brokerResponseCode = "MANUAL_NO_ORDER_CONFIRMED";
+        updatedAt = Instant.now();
+    }
     public void linkManuallyVerifiedPaperOrder(String orderNumber, String organizationNumber) {
         if (environment != KisEnvironment.PAPER || status != KisOrderStatus.UNKNOWN
                 || brokerOrderNumber != null && !brokerOrderNumber.isBlank()

@@ -248,10 +248,9 @@ public class KisOrderOrchestrator {
         KisOrderIntent intent = intents.get(idempotencyKey);
         requirePaperIntent(intent);
         if (intent.getMarket() != Market.KR || intent.getStatus() != KisOrderStatus.UNKNOWN
-                || intent.getBrokerOrderNumber() != null && !intent.getBrokerOrderNumber().isBlank()
                 || (intent.getFilledQuantity() != null && intent.getFilledQuantity() != 0)
                 || intent.getRemainingQuantity() == null || intent.getRemainingQuantity() != intent.getQuantity()) {
-            throw new IllegalStateException("Only an unfilled, unlinked domestic PAPER UNKNOWN intent can be confirmed absent.");
+            throw new IllegalStateException("Only an unfilled domestic PAPER UNKNOWN intent can be confirmed absent.");
         }
         if (intent.getCreatedAt().isAfter(java.time.Instant.now().minusSeconds(120))) {
             throw new IllegalStateException("Wait at least two minutes after submission before confirming no order.");
@@ -259,6 +258,9 @@ public class KisOrderOrchestrator {
         if (!orders.confirmNoDomesticPaperOrderInHistory(intent)) {
             throw new KisApiException(HttpStatus.CONFLICT,
                     "KIS order history contains a row for this symbol; the UNKNOWN intent remains locked.");
+        }
+        if (intent.getBrokerOrderNumber() != null && !intent.getBrokerOrderNumber().isBlank()) {
+            return KisOrderIntentResponse.from(intents.confirmLinkedPaperOrderAbsentFromHistory(idempotencyKey));
         }
         return KisOrderIntentResponse.from(intents.confirmNoPaperOrder(idempotencyKey));
     }

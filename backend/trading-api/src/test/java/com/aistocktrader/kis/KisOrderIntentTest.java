@@ -63,6 +63,22 @@ class KisOrderIntentTest {
     }
 
     @Test
+    void linkedPaperIntentCanCloseOnlyThroughSeparateCompleteHistoryConfirmation() {
+        KisOrderIntent linked = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new OrderRequest(Market.KR, "035720", OrderSide.BUY, 1,
+                        new BigDecimal("50000"), Currency.KRW), null);
+        linked.accept(new KisOrderReceipt("paper", "KR", "035720", "BUY", "1234", "ORG01", "0",
+                Instant.now()));
+        linked.markUnknown("ORDER_HTTP_500");
+
+        linked.confirmLinkedPaperOrderAbsentFromCompleteHistory();
+
+        assertEquals(KisOrderStatus.NO_ORDER_CONFIRMED, linked.getStatus());
+        assertEquals("1234", linked.getBrokerOrderNumber());
+        assertEquals("MANUAL_NO_ORDER_CONFIRMED", linked.getBrokerResponseCode());
+    }
+
+    @Test
     void newCancelAttemptClearsPriorRejectionAndKeepsConfirmedPendingState() {
         KisOrderIntent intent = new KisOrderIntent(UUID.randomUUID(), "hash",
                 new OrderRequest(Market.KR, "005930", OrderSide.BUY, 1, new BigDecimal("70000"), Currency.KRW), null);

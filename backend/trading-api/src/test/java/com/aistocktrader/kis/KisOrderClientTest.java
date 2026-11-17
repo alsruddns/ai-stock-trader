@@ -855,6 +855,30 @@ class KisOrderClientTest {
     }
 
     @Test
+    void linkedUnknownRequiresCompleteEmptySymbolHistoryBeforeNoOrderConfirmation() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/uapi/domestic-stock/v1/trading/inquire-daily-ccld?")))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("tr_id", "VTTC0081R"))
+                .andExpect(queryParam("PDNO", "035720"))
+                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"output1\":[]}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+        KisOrderIntent linked = new KisOrderIntent(UUID.randomUUID(), "hash",
+                new com.aistocktrader.order.OrderRequest(Market.KR, "035720", OrderSide.BUY, 1,
+                        new BigDecimal("50000"), Currency.KRW), null);
+        linked.accept(new KisOrderReceipt("paper", "KR", "035720", "BUY", "1234", "ORG01", "0",
+                Instant.now()));
+        linked.markUnknown();
+
+        assertTrue(client(true, builder).confirmNoDomesticPaperOrderInHistory(linked));
+        server.verify();
+    }
+
+    @Test
     void incompleteHistoryCannotConfirmNoOrder() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
