@@ -130,6 +130,34 @@ class KisOrderIntentPostgresIntegrationTest {
     }
 
     @Test
+    void linkedNoOrderConfirmationPersistsAndReleasesItsSymbolReservation() {
+        UUID firstKey = UUID.randomUUID();
+        UUID secondKey = UUID.randomUUID();
+        String symbol = "8" + String.format("%05d", Math.floorMod(firstKey.hashCode(), 100_000));
+        OrderRequest request = new OrderRequest(Market.KR, symbol, OrderSide.BUY, 1,
+                new BigDecimal("100"), Currency.KRW);
+        try {
+            store.prepare(firstKey, KisOrderOrchestrator.hash(request, null), request, null);
+            store.accept(firstKey, new KisOrderReceipt("paper", "KR", symbol, "BUY", "123456", "ORG01",
+                    "0", Instant.now()));
+            store.markUnknown(firstKey, "ORDER_HTTP_500");
+
+            KisOrderIntent closed = store.confirmLinkedPaperOrderAbsentFromHistory(firstKey);
+            assertEquals(KisOrderStatus.NO_ORDER_CONFIRMED, closed.getStatus());
+            assertEquals("123456", closed.getBrokerOrderNumber());
+            KisOrderIntent persisted = repository.findById(firstKey).orElseThrow();
+            assertEquals(KisOrderStatus.NO_ORDER_CONFIRMED, persisted.getStatus());
+            assertEquals("123456", persisted.getBrokerOrderNumber());
+            assertEquals("ORDER_HTTP_500", persisted.getInitialOutcomeCode());
+
+            store.prepare(secondKey, KisOrderOrchestrator.hash(request, null), request, null);
+            assertEquals(KisOrderStatus.SUBMITTING, repository.findById(secondKey).orElseThrow().getStatus());
+        } finally {
+            repository.deleteAllById(List.of(firstKey, secondKey));
+        }
+    }
+
+    @Test
     void paperOrderAmendmentAuditFailureRollsBackTheOrderTermsInPostgres() {
         UUID orderKey = UUID.randomUUID();
         UUID amendmentKey = UUID.randomUUID();

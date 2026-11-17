@@ -226,6 +226,9 @@ jobs:
       - name: Verify manual PAPER order reconciliation persists in PostgreSQL
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#manuallyVerifiedPaperOrderIdentityAndReconciliationPersistInPostgres' test
+      - name: Verify confirmed absent linked PAPER order releases PostgreSQL reservation
+        working-directory: backend/trading-api
+        run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#linkedNoOrderConfirmationPersistsAndReleasesItsSymbolReservation' test
       - name: Verify concurrent KIS order snapshots stay terminal in PostgreSQL
         working-directory: backend/trading-api
         run: bash ./mvnw --batch-mode '-Dtest=KisOrderIntentPostgresIntegrationTest#concurrentBrokerSnapshotsCannotReopenCancelledIntent' test
