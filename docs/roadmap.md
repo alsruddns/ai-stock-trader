@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Update : [P4 모델 검증 문서] 실제 feature·데이터 출처 계약 반영 (2026-11-17):** 모델 코드와 다른 `feature_version=4` 및 학습자료 전체에 과거 호가 스프레드를 요구하던 설명을 수정했습니다. 현재 계약은 feature v5·label v4이며, 학습 입력에는 검증된 OHLCV를 사용하고 스프레드는 합성하지 않습니다. REST 분봉은 권리·해시·출처 검증 후 학습 후보가 될 수 있으며, 실시간 진입 스프레드 필터와 체결비용 기반 백테스트·홀드아웃의 시간표시 스프레드 요구는 유지합니다. `git diff --check` 통과. 문서 변경이며 전체 테스트는 실행하지 않았습니다.
+
 - **Fix : [P5 감시 실패 원인 분류] 저장장애와 주문잠금 위반 구분 (2026-11-17 12:41 KST):** 11월 17일 monitor 실패의 `automation_state=BLOCKED`는 분봉 저장 `ERROR` 및 대기 2건과 함께 나타났고 `orders_enabled=false`였습니다. PAPER 모니터가 이를 일반 `SAFETY_LOCK_VIOLATION`으로만 기록하지 않도록, durable bar storage로 자동매매가 차단된 경우 `BAR_STORAGE_BLOCKED`로 분류하고 주문 경로가 실제 켜진 경우에만 안전잠금 위반으로 분류하도록 했습니다. 해당 failure-code 선택 Pester 6/6 통과, KRX session monitor safety CI에 같은 6개 검사를 추가했습니다. 오늘 실패 기록의 원래 코드는 보존합니다.
 
 - **Update : [P5 종일 PAPER 세션검증] 11월 17일 실행 실패와 재검증 예약 확인 (2026-11-17 12:38 KST):** `AIStockTrader-KRX-Session-Monitor-20261117`는 08:45에 시작했으나 09:19 KST, 2,045초 뒤 `SAFETY_LOCK_VIOLATION`으로 실패했습니다. 로컬 progress 증거에는 PAPER 세션 API의 타임아웃 15회·연결 실패 5회와 저장 대기 2건/저장 상태 `ERROR`가 기록되어 종일 검증을 통과하지 못했습니다. watchdog 로그는 09:17 두 차례 health 실패 뒤 stack 재시작, 09:19:08 양 API 준비 완료를 확인합니다. 오늘 세션은 미완료로 둡니다. 다음 전체 검증 작업 `AIStockTrader-KRX-Session-Monitor-20261118`은 08:45, 7시간, 폐장 및 전체 세션 품질 필수 조건으로 예약돼 있으며 현행 watcher가 적용된 로컬 스택은 10:43에 시작됐습니다. PAPER 자동매매와 PAPER/REAL 주문은 비활성입니다.
