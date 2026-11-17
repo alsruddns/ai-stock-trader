@@ -4,6 +4,7 @@ import com.aistocktrader.order.Currency;
 import com.aistocktrader.order.Market;
 import com.aistocktrader.order.OrderSide;
 import com.aistocktrader.config.TradingSafetyProperties;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -452,6 +453,7 @@ public class KisOrderClient {
 
     private JsonNode post(String path, String trId, Map<String, String> body) {
         KisProperties.Account credentials = properties.credentials(KisEnvironment.PAPER);
+        byte[] requestBody = serializePaperOrderBody(body);
         try {
             String bearer = tokenProvider.accessToken(KisEnvironment.PAPER);
             rateLimiter.acquire(KisEnvironment.PAPER, credentials.appKey(), properties.minRequestInterval());
@@ -459,7 +461,8 @@ public class KisOrderClient {
                     .contentType(MediaType.APPLICATION_JSON).accept(MediaType.APPLICATION_JSON)
                     .header("authorization", "Bearer " + bearer)
                     .header("appkey", credentials.appKey()).header("appsecret", credentials.appSecret())
-                    .header("tr_id", trId).header("custtype", "P").body(body).retrieve().body(JsonNode.class);
+                    .header("tr_id", trId).header("custtype", "P")
+                    .contentLength(requestBody.length).body(requestBody).retrieve().body(JsonNode.class);
             if (response == null || !"0".equals(response.path("rt_cd").asText())) {
                 String code = response == null ? "unknown" : response.path("msg_cd").asText("unknown");
                 throw new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
@@ -478,6 +481,14 @@ public class KisOrderClient {
             throw new KisOrderOutcomeUnknownException(
                     "KIS paper order outcome is unknown; reconcile broker orders before taking further action.",
                     ex, paperOrderHttpDiagnostic(ex));
+        }
+    }
+
+    private static byte[] serializePaperOrderBody(Map<String, String> body) {
+        try {
+            return ERROR_RESPONSE_MAPPER.writeValueAsBytes(body);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalArgumentException("KIS PAPER order request could not be serialized.");
         }
     }
 
