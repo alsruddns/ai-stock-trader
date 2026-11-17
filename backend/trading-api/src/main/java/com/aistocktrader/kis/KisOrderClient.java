@@ -40,6 +40,7 @@ public class KisOrderClient {
     private static final Logger log = LoggerFactory.getLogger(KisOrderClient.class);
     private static final int MAX_TRANSIENT_READ_RETRIES = 1;
     private static final String DOMESTIC_ORDER_PATH = "/uapi/domestic-stock/v1/trading/order-cash";
+    private static final String DOMESTIC_CANCEL_PATH = "/uapi/domestic-stock/v1/trading/order-rvsecncl";
     private static final String OVERSEAS_ORDER_PATH = "/uapi/overseas-stock/v1/trading/order";
     private static final String OVERSEAS_CANCEL_PATH = "/uapi/overseas-stock/v1/trading/order-rvsecncl";
     private static final ObjectMapper ERROR_RESPONSE_MAPPER = new ObjectMapper();
@@ -123,8 +124,23 @@ public class KisOrderClient {
             throw new IllegalArgumentException("A symbol, original broker order, and positive reconciled remaining quantity are required.");
         }
         if (market == Market.KR) {
-            throw new KisApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
-                    "Domestic PAPER cancellation is locked until KIS documents a supported mock cancel-quantity preflight (code PAPER_CANCEL_UNSUPPORTED).");
+            if (!orderProperties.paperHistoryCancelPreflightEnabled()) {
+                throw new KisApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                        "Domestic PAPER cancellation requires the explicit history-based preflight switch (code PAPER_CANCEL_UNSUPPORTED).");
+            }
+            if (brokerOrganizationNumber == null || brokerOrganizationNumber.isBlank()) {
+                throw new IllegalArgumentException("A verified broker organization number is required for a domestic PAPER cancel.");
+            }
+            String account = properties.credentials(KisEnvironment.PAPER).accountNumber();
+            Map<String, String> body = Map.ofEntries(Map.entry("CANO", account.substring(0, 8)),
+                    Map.entry("ACNT_PRDT_CD", account.substring(8)),
+                    Map.entry("KRX_FWDG_ORD_ORGNO", brokerOrganizationNumber),
+                    Map.entry("ORGN_ODNO", brokerOrderNumber), Map.entry("ORD_DVSN", "00"),
+                    Map.entry("RVSE_CNCL_DVSN_CD", "02"), Map.entry("ORD_QTY", "0"),
+                    Map.entry("ORD_UNPR", "0"), Map.entry("QTY_ALL_ORD_YN", "Y"),
+                    Map.entry("EXCG_ID_DVSN_CD", "KRX"));
+            post(DOMESTIC_CANCEL_PATH, "VTTC0013U", body);
+            return;
         }
         String account = properties.credentials(KisEnvironment.PAPER).accountNumber();
         Map<String, String> body = Map.ofEntries(Map.entry("CANO", account.substring(0, 8)),

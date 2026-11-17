@@ -350,13 +350,50 @@ class KisOrderClientTest {
     }
 
     @Test
-    void domesticPaperCancelIsLockedWithoutSupportedMockPreflightAndSendsNoRequest() {
+    void domesticPaperCancelHistoryPreflightRemainsOffByDefaultAndSendsNoRequest() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         KisApiException error = assertThrows(KisApiException.class, () -> client(true, builder).cancelPaperOrder(
                 Market.KR, "005930", "1234", "ORG01", 1, null));
         assertEquals(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, error.status());
         assertTrue(error.getMessage().contains("PAPER_CANCEL_UNSUPPORTED"));
+        server.verify();
+    }
+
+    @Test
+    void domesticPaperCancelUsesDocumentedMockTransactionAndFullCancelContractWhenHistoryPreflightIsEnabled() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/oauth2/tokenP"))
+                .andRespond(withSuccess(token(), org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://openapivts.koreainvestment.com:29443/uapi/domestic-stock/v1/trading/order-rvsecncl"))
+                .andExpect(method(HttpMethod.POST)).andExpect(header("tr_id", "VTTC0013U"))
+                .andExpect(jsonPath("$.CANO").value("12345678"))
+                .andExpect(jsonPath("$.ACNT_PRDT_CD").value("01"))
+                .andExpect(jsonPath("$.KRX_FWDG_ORD_ORGNO").value("ORG01"))
+                .andExpect(jsonPath("$.ORGN_ODNO").value("1234"))
+                .andExpect(jsonPath("$.ORD_DVSN").value("00"))
+                .andExpect(jsonPath("$.RVSE_CNCL_DVSN_CD").value("02"))
+                .andExpect(jsonPath("$.ORD_QTY").value("0"))
+                .andExpect(jsonPath("$.ORD_UNPR").value("0"))
+                .andExpect(jsonPath("$.QTY_ALL_ORD_YN").value("Y"))
+                .andExpect(jsonPath("$.EXCG_ID_DVSN_CD").value("KRX"))
+                .andRespond(withSuccess("{\"rt_cd\":\"0\",\"msg_cd\":\"0\",\"output\":{}}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+
+        assertDoesNotThrow(() -> client(true, true, builder).cancelPaperOrder(
+                Market.KR, "005930", "1234", "ORG01", 1, null));
+        server.verify();
+    }
+
+    @Test
+    void domesticPaperCancelRequiresVerifiedBrokerOrganizationBeforeNetwork() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+
+        assertThrows(IllegalArgumentException.class, () -> client(true, true, builder).cancelPaperOrder(
+                Market.KR, "005930", "1234", "", 1, null));
+
         server.verify();
     }
 
@@ -800,10 +837,15 @@ class KisOrderClientTest {
     }
 
     private static KisOrderClient client(boolean enabled, RestClient.Builder builder) {
+        return client(enabled, false, builder);
+    }
+
+    private static KisOrderClient client(boolean enabled, boolean historyCancelPreflightEnabled,
+                                         RestClient.Builder builder) {
         KisProperties.Account paper = new KisProperties.Account("paper-key", "paper-secret", "1234567801");
         KisProperties properties = new KisProperties(true, true, false, false, paper,
                 new KisProperties.Account("", "", ""), Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ofMillis(100));
-        return new KisOrderClient(properties, new KisOrderProperties(enabled, false),
+        return new KisOrderClient(properties, new KisOrderProperties(enabled, false, historyCancelPreflightEnabled),
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("250")), builder);
     }
 
