@@ -268,6 +268,7 @@ try {
             $nextListenerAuditUtc = [DateTimeOffset]::MinValue
             $nextHealthAuditUtc = [DateTimeOffset]::MinValue
             $healthFailureCount = 0
+            $healthRestartThreshold = 4
 
             while ($true) {
                 Start-Sleep -Seconds 2
@@ -302,9 +303,12 @@ try {
                         $failureSummary = Get-LocalStackHealthFailureSummary `
                             -PythonHealth $pythonHealth -PythonFailureCategory $pythonFailureCategory `
                             -SpringSummary $springSummary -SpringFailureCategory $springFailureCategory
-                        Write-TaskLog ("Local API health check failed ({0}/2): {1}." -f $healthFailureCount, $failureSummary)
-                        if ($healthFailureCount -ge 2) {
-                            throw 'Local API health remained unavailable or unsafe across two checks; restarting the local stack.'
+                        Write-TaskLog ("Local API health check failed ({0}/{1}): {2}." -f $healthFailureCount, $healthRestartThreshold, $failureSummary)
+                        $recoveryDecision = Get-LocalStackHealthRecoveryDecision `
+                            -FailureSummary $failureSummary -ConsecutiveFailureCount $healthFailureCount `
+                            -RestartThreshold $healthRestartThreshold
+                        if ($recoveryDecision -eq 'RESTART') {
+                            throw 'Local API health remained unavailable or safety-untrusted; restarting the local stack.'
                         }
                     }
                     $nextHealthAuditUtc = $nowUtc.AddSeconds(30)

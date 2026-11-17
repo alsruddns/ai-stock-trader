@@ -108,4 +108,20 @@ Describe 'Local stack API health watchdog safety response' {
         Get-LocalStackHealthComponentOutcome -Component Spring -FailureCategory 'password=hidden' |
             Should Be 'REQUEST_FAILURE'
     }
+
+    It 'retries transient API timeouts before restarting the local stack' {
+        Get-LocalStackHealthRecoveryDecision -FailureSummary 'python=TIMEOUT; spring=TIMEOUT' `
+            -ConsecutiveFailureCount 2 -RestartThreshold 4 | Should Be 'RETRY'
+        Get-LocalStackHealthRecoveryDecision -FailureSummary 'python=TIMEOUT; spring=PAPER_SAFE' `
+            -ConsecutiveFailureCount 3 -RestartThreshold 4 | Should Be 'RETRY'
+        Get-LocalStackHealthRecoveryDecision -FailureSummary 'python=TIMEOUT; spring=TIMEOUT' `
+            -ConsecutiveFailureCount 4 -RestartThreshold 4 | Should Be 'RESTART'
+    }
+
+    It 'restarts immediately when an API reports trading unlocked or missing safety fields' {
+        Get-LocalStackHealthRecoveryDecision -FailureSummary 'python=TRADING_UNLOCKED; spring=PAPER_SAFE' `
+            -ConsecutiveFailureCount 1 -RestartThreshold 4 | Should Be 'RESTART'
+        Get-LocalStackHealthRecoveryDecision -FailureSummary 'python=PAPER_SAFE; spring=MISSING_SAFETY_FIELDS' `
+            -ConsecutiveFailureCount 1 -RestartThreshold 4 | Should Be 'RESTART'
+    }
 }

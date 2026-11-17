@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Fix : [P5 로컬 stack health timeout 재시작 완화] (2026-11-17 10:31 KST):** 10:20 KST supervisor 로그에서 Spring/FastAPI 프로세스가 살아 있는 동안 두 차례의 3초 health GET timeout만으로 stack 전체를 재시작한 것을 확인했습니다. 일시적 health 오류 재시작 기준을 연속 2회에서 4회(30초 간격, 약 90초 이상)로 높였고, API가 PAPER/REAL 잠금 필드를 누락하거나 거래 잠금 해제를 보고하면 즉시 복구하도록 했습니다. watchdog Pester 12/12 및 변경 PowerShell 파일 AST 검사가 통과했습니다. 현재 서비스는 계속 가동하고 있으며 실행 중인 watchdog 코드는 다음 관리형 stack 시작 때 갱신됩니다.
+
 - **Update : [로컬 서비스 즉시 복구 및 P2 주문 본문 호환성] (2026-11-17 10:18–10:24 KST):** localhost API가 내려간 상태여서 `AIStockTrader-LocalStack` 숨김 작업으로 Spring/FastAPI를 재시작했습니다. 시작 중 health monitor가 두 API timeout을 감지해 작업이 stack을 한 번 더 복구했고, 10:24 KST 양 API가 정상 응답했습니다. 분봉 저장 `RUNNING`·대기 0, PAPER 자동매매·주문 및 REAL 주문·계좌읽기 비활성도 확인했습니다. `EGW00202` 오류에 대한 호환성 개선으로 Spring PAPER 주문 본문을 JSON 바이트 배열과 명시적 `Content-Length`로 보내도록 변경했습니다. KIS 공식 Python 주문 예제는 JSON 문자열을 POST body로 전달하며, 제3자 보고에서도 청크 전송과 같은 오류 사례가 있으나 이번 계좌 오류의 원인으로 확정된 것은 아닙니다. 국내 주문 경로와 `EGW00202` 비밀정보 비노출 mock 집중검사 각각 1/1 통과. KIS 주문은 전송하지 않았습니다. 최신 `KisOrderClient.class` 빌드가 10:23:52, Spring 프로세스 시작이 10:23:56으로 확인되어 변경이 실행 중인 프로세스에 포함됐습니다. 사용자가 즉시 재시작을 요청해 16:00 중복 예약은 비활성화했습니다.
 
 - **Fix : [P2 PAPER EGW00202 진단 회귀검사] (2026-11-17 10:13 KST):** 11월 17일 국내 PAPER 단건 점검에서 관측된 HTTP 500 `EGW00202`를 Spring KIS 주문 클라이언트 집중검사에 추가했습니다. HTTP 상태와 검증된 브로커 코드만 진단값에 남고 응답 메시지의 계정별 상세는 노출되지 않는지 확인했습니다. `KisOrderClientTest#paperOrderHttp500Egw00202RetainsBrokerCodeWithoutMessageBody` 1/1 통과. 이 검사는 mock 전용이며 오류 원인을 해결하거나 KIS 주문 성공을 입증하지 않습니다.

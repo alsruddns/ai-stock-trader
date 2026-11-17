@@ -156,3 +156,18 @@ function Get-LocalStackHealthFailureSummary {
         -Response $SpringSummary -FailureCategory $SpringFailureCategory
     return "python=$pythonOutcome; spring=$springOutcome"
 }
+
+function Get-LocalStackHealthRecoveryDecision {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$FailureSummary,
+        [Parameter(Mandatory)][ValidateRange(1, 100)][int]$ConsecutiveFailureCount,
+        [Parameter()][ValidateRange(1, 100)][int]$RestartThreshold = 4
+    )
+
+    if ($FailureSummary -match '(?:^|; )(?:python|spring)=(?:TRADING_UNLOCKED|MISSING_SAFETY_FIELDS)(?:;|$)') {
+        return 'RESTART'
+    }
+    if ($ConsecutiveFailureCount -ge $RestartThreshold) { return 'RESTART' }
+    return 'RETRY'
+}
