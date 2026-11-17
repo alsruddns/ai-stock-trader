@@ -755,7 +755,7 @@ function decisionReason(value: string) { return ({ WAITING_FOR_CLOSED_BARS: "닫
 function strategyDiagnosticSummary(value: StrategyDiagnostics) {
   if (!value.available) {
     if (value.unavailable_reason === "STRATEGY_COST_ASSUMPTIONS_UNAVAILABLE") return "전략 비용 설정 확인 필요";
-    if (value.unavailable_reason === "BAR_SEQUENCE_INVALID") return "저장 분봉과 실시간 판단 이력 불일치 · 복구 대기";
+    if (value.unavailable_reason === "BAR_SEQUENCE_INVALID") return "분봉 연속성 검증 실패 · 전략 평가 중단";
     return `이력 부족 · ${value.bars_observed ?? 0}/${value.bars_required ?? "—"}봉`;
   }
   const observed = value.observed ?? {};
