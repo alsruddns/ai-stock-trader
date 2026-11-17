@@ -26,7 +26,24 @@ function Get-PaperNoOrderConfirmationCandidate {
             return $false
         }
         try {
-            $created = [DateTimeOffset]::Parse([string]$_.createdAt)
+            $createdValue = $_.createdAt
+            if ($createdValue -is [DateTimeOffset]) {
+                $created = $createdValue
+            } elseif ($createdValue -is [DateTime]) {
+                $createdDate = [DateTime]$createdValue
+                if ($createdDate.Kind -eq [DateTimeKind]::Unspecified) {
+                    # Spring serializes timestamps as UTC. PowerShell JSON cmdlets may
+                    # deserialize them as DateTime, so preserve UTC instead of stringifying
+                    # and accidentally treating the value as local time.
+                    $createdDate = [DateTime]::SpecifyKind($createdDate, [DateTimeKind]::Utc)
+                }
+                $created = [DateTimeOffset]::new($createdDate)
+            } else {
+                $created = [DateTimeOffset]::Parse(
+                    [string]$createdValue,
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::AssumeUniversal)
+            }
             $local = [TimeZoneInfo]::ConvertTime($created, $kst)
             $local.ToString('yyyy-MM-dd') -eq $SessionDate -and $local.ToString('HH:mm') -eq $OrderMinute
         } catch { $false }

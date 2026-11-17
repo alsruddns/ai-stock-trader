@@ -50,6 +50,19 @@ Describe 'PAPER no-order confirmation guard' {
         $candidate.idempotencyKey | Should Be 'e81d7466-d98a-4b5c-9c8e-217d9156176c'
     }
 
+    It 'matches a UTC DateTime value returned by PowerShell JSON deserialization' {
+        $summary = New-PaperNoOrderSummary -CreatedAt '2026-11-17T00:06:10.708052Z'
+        $summary.recentPaperKisOrders[0].createdAt = [DateTime]::Parse(
+            '2026-11-17T00:06:10.708052Z',
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind)
+
+        $candidate = Get-PaperNoOrderConfirmationCandidate -OperationsSummary $summary `
+            -SessionDate '2026-11-17' -Symbol '035720' -OrderMinute '09:06'
+        $candidate.alreadyConfirmed | Should Be $false
+        $candidate.idempotencyKey | Should Be 'e81d7466-d98a-4b5c-9c8e-217d9156176c'
+    }
+
     It 'blocks when PAPER submission or any REAL trading gate is enabled' {
         $summary = New-PaperNoOrderSummary
         $summary.kisPaperOrdersEnabled = $true
