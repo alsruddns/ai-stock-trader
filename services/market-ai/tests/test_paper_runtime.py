@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
+from app import snapshot_store
 from websockets.exceptions import InvalidMessage
 
 from app.paper_runtime import PaperSessionFeedMonitor, PaperWatch, next_market_session_open, parse_watchlist
@@ -533,6 +534,34 @@ def test_partial_session_restore_cannot_create_a_buy_candidate(monkeypatch) -> N
     assert decision["reason"] == "BAR_SEQUENCE_INVALID"
     assert decision["model_id"] is None
     assert decision["executable"] is False
+
+
+def test_invalid_live_history_resyncs_from_complete_persisted_session(monkeypatch) -> None:
+    _set_quant_cost_settings(monkeypatch, "KR")
+    monkeypatch.setattr(snapshot_store, "enabled", lambda: True)
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    start = datetime.fromisoformat("2026-11-05T09:00:00+09:00")
+    persisted = [
+        MinuteBar(start + timedelta(minutes=index), Decimal("100"), Decimal("101"),
+                  Decimal("99"), Decimal("100.5"), 1000, Decimal("5"),
+                  start + timedelta(minutes=index, seconds=30))
+        for index in range(30)
+    ]
+    monkeypatch.setattr(
+        snapshot_store, "load_session_minute_bars",
+        lambda market, symbol, session_date: persisted,
+    )
+    runtime._bars[watch.key] = deque(bar for index, bar in enumerate(persisted[:-1])
+                                     if index not in {14, 15, 16})
+    runtime._decisions[watch.key] = {}
+
+    runtime._record_closed_bar(watch, persisted[-1])
+
+    decision = runtime.decisions()[watch.key]
+    assert len(runtime.bars(watch)) == len(persisted)
+    assert decision["reason"] != "BAR_SEQUENCE_INVALID"
+    assert decision["bars_in_session"] == len(persisted)
 
 
 def test_intraday_bar_gap_sends_hold_to_paper_worker(monkeypatch) -> None:

@@ -2301,6 +2301,43 @@ class PaperSessionFeedMonitor:
             history.clear()
         history.append(bar)
         self._evaluate_closed_history(watch, bar)
+        decision = self._decisions.get(watch.key, {})
+        if (decision.get("reason") == "BAR_SEQUENCE_INVALID"
+                and snapshot_store.enabled()):
+            self._resync_invalid_session_history(watch, bar)
+
+    def _resync_invalid_session_history(self, watch: PaperWatch, current_bar: MinuteBar) -> None:
+        """Replace a broken in-memory prefix only with a validated persisted session prefix."""
+        history = self._bars[watch.key]
+        try:
+            restored = snapshot_store.load_session_minute_bars(
+                watch.market, watch.symbol,
+                exchange_session_date(current_bar.timestamp, watch.market),
+            )
+        except Exception:
+            # A storage read must never turn an invalid sequence into an executable signal.
+            return
+        if not restored or len(restored) <= len(history):
+            return
+        if restored[-1].timestamp > current_bar.timestamp:
+            return
+        repaired = list(restored)
+        if repaired[-1].timestamp == current_bar.timestamp:
+            # The just-closed live bar is authoritative for the current spread gate.
+            repaired[-1] = current_bar
+        else:
+            repaired.append(current_bar)
+        try:
+            # Validate continuity and session boundaries without using this diagnostic
+            # to waive the live spread requirement used by the actual strategy below.
+            orb_vwap_entry_diagnostics(
+                repaired, QuantConfig(), market=watch.market, require_spread=False,
+            )
+        except (ArithmeticError, ValueError):
+            return
+        history.clear()
+        history.extend(repaired)
+        self._evaluate_closed_history(watch, current_bar)
 
     def _evaluate_closed_history(self, watch: PaperWatch, bar: MinuteBar) -> None:
         history = self._bars[watch.key]
