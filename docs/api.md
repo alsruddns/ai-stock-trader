@@ -63,7 +63,7 @@ Python health의 `broker_connected=true`는 모니터가 활성화되어 있고 
 
 `GET /api/v1/paper/session`은 분봉 저장 오류가 발생한 경우 고정 허용목록의 `bar_storage_failure_kind`를 추가로 반환할 수 있습니다. 이 값은 PostgreSQL 연결·쓰기·재시도 또는 로컬 저장 대기열 오류를 구분하며 예외 메시지, SQL 접속 문자열, 파일 경로는 포함하지 않습니다. 정상 복구되고 대기열이 비워지면 분류값도 초기화됩니다.
 
-`decisions`의 `HOLD/BAR_SEQUENCE_INVALID`는 매수 조건 평가 결과가 아니라, 현재 메모리의 분봉이 거래소 정규장 개장부터 연속하지 않아 전략 판단을 막은 상태입니다. 저장 이력이 켜져 있으면 다음 닫힌 봉에서 해당 세션을 다시 읽고 개장부터 현재 봉까지 연속성이 검증될 때만 메모리 이력을 교체합니다. 복구에 실패하거나 저장 이력에도 간격이 있으면 `HOLD`를 유지합니다. 성공한 런타임 복구 횟수는 종목별 `bar_history_resync_count`로 표시되며 프로세스 재시작 때 초기화됩니다. 이 복구는 현재 봉의 spread 검사를 생략하지 않습니다.
+`decisions`의 `HOLD/BAR_SEQUENCE_INVALID`는 매수 조건 평가 결과가 아니라, 현재 메모리의 분봉이 거래소 정규장 개장부터 연속하지 않아 전략 판단을 막은 상태입니다. 저장 이력이 켜져 있으면 다음 닫힌 봉에서 해당 세션을 다시 읽고 개장부터 현재 봉까지 연속성이 검증될 때만 메모리 이력을 교체합니다. 저장소 조회는 WebSocket event loop 밖에서 실행합니다. 복구에 실패하거나 저장 이력에도 간격이 있으면 `HOLD`를 유지합니다. 성공한 런타임 복구 횟수는 종목별 `bar_history_resync_count`로 표시되며 프로세스 재시작 때 초기화됩니다. 이 복구는 현재 봉의 spread 검사를 생략하지 않습니다.
 
 같은 응답의 `kis_paper_signal_state`, `kis_paper_signal_error`, `kis_paper_signal_lock_reasons`는 국내 KIS PAPER 신호 전달이 잠긴 상태와 해당 환경설정 게이트 이름만 보여줍니다. 값, 키, 계좌번호는 반환하지 않으며 이 목록은 Spring의 모델·위험·계좌 검증 결과를 대신하지 않습니다. 모든 환경설정 게이트를 통과해도 각 신호는 Spring에서 다시 검증됩니다.
 
