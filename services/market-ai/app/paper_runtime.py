@@ -295,6 +295,7 @@ class PaperSessionFeedMonitor:
         self._aggregators: dict[str, MinuteBarAggregator] = {}
         self._bars: dict[str, deque[MinuteBar]] = {}
         self._decisions: dict[str, dict[str, object]] = {}
+        self._bar_history_resync_counts: dict[str, int] = {}
         self._automation_queue: asyncio.Queue[tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]] | None = None
         self._automation_task: asyncio.Task | None = None
         self._real_signal_queue: asyncio.Queue[tuple[PaperWatch, MinuteBar, dict[str, object]]] | None = None
@@ -2317,7 +2318,7 @@ class PaperSessionFeedMonitor:
         except Exception:
             # A storage read must never turn an invalid sequence into an executable signal.
             return
-        if not restored or len(restored) <= len(history):
+        if not restored:
             return
         if restored[-1].timestamp > current_bar.timestamp:
             return
@@ -2337,6 +2338,9 @@ class PaperSessionFeedMonitor:
             return
         history.clear()
         history.extend(repaired)
+        self._bar_history_resync_counts[watch.key] = (
+            self._bar_history_resync_counts.get(watch.key, 0) + 1
+        )
         self._evaluate_closed_history(watch, current_bar)
 
     def _evaluate_closed_history(self, watch: PaperWatch, bar: MinuteBar) -> None:
@@ -2401,6 +2405,7 @@ class PaperSessionFeedMonitor:
             "evaluated_at": bar.timestamp.isoformat(), "model_id": model_id,
             "stop_distance_per_share": str(stop_distance) if stop_distance is not None else None,
             "strategy_diagnostics": strategy_diagnostics,
+            "bar_history_resync_count": self._bar_history_resync_counts.get(watch.key, 0),
             "executable": False,
         }
 

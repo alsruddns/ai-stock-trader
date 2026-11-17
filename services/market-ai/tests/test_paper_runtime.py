@@ -562,6 +562,35 @@ def test_invalid_live_history_resyncs_from_complete_persisted_session(monkeypatc
     assert len(runtime.bars(watch)) == len(persisted)
     assert decision["reason"] != "BAR_SEQUENCE_INVALID"
     assert decision["bars_in_session"] == len(persisted)
+    assert decision["bar_history_resync_count"] == 1
+
+
+def test_invalid_persisted_history_keeps_strategy_blocked(monkeypatch) -> None:
+    _set_quant_cost_settings(monkeypatch, "KR")
+    monkeypatch.setattr(snapshot_store, "enabled", lambda: True)
+    runtime = PaperSessionFeedMonitor()
+    watch = parse_watchlist("KR:005930")[0]
+    start = datetime.fromisoformat("2026-11-05T09:00:00+09:00")
+    complete = [
+        MinuteBar(start + timedelta(minutes=index), Decimal("100"), Decimal("101"),
+                  Decimal("99"), Decimal("100.5"), 1000, Decimal("5"),
+                  start + timedelta(minutes=index, seconds=30))
+        for index in range(31)
+    ]
+    incomplete = [bar for index, bar in enumerate(complete) if index != 16]
+    monkeypatch.setattr(
+        snapshot_store, "load_session_minute_bars",
+        lambda market, symbol, session_date: incomplete,
+    )
+    runtime._bars[watch.key] = deque(bar for index, bar in enumerate(complete[:20]) if index != 16)
+    runtime._decisions[watch.key] = {}
+
+    runtime._record_closed_bar(watch, complete[-1])
+
+    decision = runtime.decisions()[watch.key]
+    assert decision["signal"] == "HOLD"
+    assert decision["reason"] == "BAR_SEQUENCE_INVALID"
+    assert decision.get("bar_history_resync_count", 0) == 0
 
 
 def test_intraday_bar_gap_sends_hold_to_paper_worker(monkeypatch) -> None:
