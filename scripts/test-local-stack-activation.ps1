@@ -50,6 +50,7 @@ $pythonHealth = [pscustomobject]@{
 $springSummary = [pscustomobject]@{
     tradingMode = 'paper'; liveTrading = 'disabled'
     paperAutomationEnabled = $false; kisRealOrdersEnabled = $false
+    kisPaperHistoryCancelFallbackEnabled = $false
 }
 Assert-LocalStackReadyResponses -PythonHealth $pythonHealth -SpringSummary $springSummary
 
