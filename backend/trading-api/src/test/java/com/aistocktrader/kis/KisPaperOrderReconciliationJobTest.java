@@ -28,7 +28,7 @@ class KisPaperOrderReconciliationJobTest {
         KisOrderIntentRepository intents = mock(KisOrderIntentRepository.class);
         KisOrderOrchestrator orchestrator = mock(KisOrderOrchestrator.class);
 
-        job(new KisOrderProperties(false, false), kisProperties(true, true, true),
+        job(new KisOrderProperties(false, false, false), kisProperties(true, true, true),
                 paperSafety(), intents, orchestrator).reconcileKnownBrokerOrders();
 
         verifyNoInteractions(intents, orchestrator);
@@ -39,13 +39,13 @@ class KisPaperOrderReconciliationJobTest {
         KisOrderIntentRepository intents = mock(KisOrderIntentRepository.class);
         KisOrderOrchestrator orchestrator = mock(KisOrderOrchestrator.class);
 
-        job(new KisOrderProperties(false, true), kisProperties(false, true, true),
+        job(new KisOrderProperties(false, true, false), kisProperties(false, true, true),
                 paperSafety(), intents, orchestrator).reconcileKnownBrokerOrders();
-        job(new KisOrderProperties(false, true), kisProperties(true, false, true),
+        job(new KisOrderProperties(false, true, false), kisProperties(true, false, true),
                 paperSafety(), intents, orchestrator).reconcileKnownBrokerOrders();
-        job(new KisOrderProperties(false, true), kisProperties(true, true, false),
+        job(new KisOrderProperties(false, true, false), kisProperties(true, true, false),
                 paperSafety(), intents, orchestrator).reconcileKnownBrokerOrders();
-        job(new KisOrderProperties(false, true), kisProperties(true, true, true),
+        job(new KisOrderProperties(false, true, false), kisProperties(true, true, true),
                 new TradingSafetyProperties("real", true, true, new BigDecimal("1000000"), new BigDecimal("100")),
                 intents, orchestrator).reconcileKnownBrokerOrders();
 
@@ -68,7 +68,7 @@ class KisPaperOrderReconciliationJobTest {
                 eq(KisEnvironment.PAPER), anyCollection(), anyCollection(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(foreign, missingBroker, domestic)));
 
-        job(new KisOrderProperties(false, true), kisProperties(true, true, true),
+        job(new KisOrderProperties(false, true, false), kisProperties(true, true, true),
                 paperSafety(), intents, orchestrator).reconcileKnownBrokerOrders();
 
         verify(intents).findReconciliationCandidates(
@@ -92,7 +92,7 @@ class KisPaperOrderReconciliationJobTest {
         doThrow(new KisApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "safe failure"))
                 .when(orchestrator).reconcilePaperOrder(firstKey);
 
-        job(new KisOrderProperties(false, true), kisProperties(true, true, true),
+        job(new KisOrderProperties(false, true, false), kisProperties(true, true, true),
                 paperSafety(), intents, orchestrator).reconcileKnownBrokerOrders();
 
         verify(orchestrator).reconcilePaperOrder(firstKey);
@@ -109,7 +109,7 @@ class KisPaperOrderReconciliationJobTest {
                     Pageable pageable = invocation.getArgument(3);
                     return new PageImpl<KisOrderIntent>(List.of(), pageable, 120);
                 });
-        KisPaperOrderReconciliationJob job = job(new KisOrderProperties(false, true),
+        KisPaperOrderReconciliationJob job = job(new KisOrderProperties(false, true, false),
                 kisProperties(true, true, true), paperSafety(), intents, orchestrator);
 
         job.reconcileKnownBrokerOrders();

@@ -45,7 +45,7 @@ class KisOrderOrchestratorTest {
         marketEvidence = mock(KisMarketAiEvidenceClient.class);
         org.mockito.Mockito.doNothing().when(marketEvidence)
                 .requireFreshPaperOrderQuote(any(), nullable(String.class));
-        orchestrator = new KisOrderOrchestrator(orders, accounts, new KisOrderProperties(true, false),
+        orchestrator = new KisOrderOrchestrator(orders, accounts, new KisOrderProperties(true, false, false),
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")),
                 intents, marketEvidence);
     }
@@ -462,7 +462,7 @@ class KisOrderOrchestratorTest {
 
     @Test
     void disabledOrdersFailClosed() {
-        KisOrderOrchestrator locked = new KisOrderOrchestrator(orders, accounts, new KisOrderProperties(false, false),
+        KisOrderOrchestrator locked = new KisOrderOrchestrator(orders, accounts, new KisOrderProperties(false, false, false),
                 new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")),
                 intents, marketEvidence);
         assertThrows(IllegalStateException.class, () -> locked.submitPaperOrder(UUID.randomUUID(), buyRequest(), null));

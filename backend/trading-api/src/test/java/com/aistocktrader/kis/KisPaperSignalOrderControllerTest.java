@@ -21,7 +21,7 @@ class KisPaperSignalOrderControllerTest {
                 new KisProperties.Account("key", "secret", "1234567801"),
                 new KisProperties.Account("", "", ""), null, null, null);
         var controller = new KisPaperSignalOrderController(orders, accounts, properties,
-                new KisOrderProperties(false, false),
+                new KisOrderProperties(false, false, false),
                 new TradingSafetyProperties("paper", false, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
                 evidence, sizing, MarketOperationalScope.domesticOnly(), false, false, false, false);
 
@@ -42,7 +42,7 @@ class KisPaperSignalOrderControllerTest {
                 new KisProperties.Account("key", "secret", "1234567801"),
                 new KisProperties.Account("", "", ""), null, null, null);
         var controller = new KisPaperSignalOrderController(orders, accounts, properties,
-                new KisOrderProperties(true, true),
+                new KisOrderProperties(true, true, false),
                 new TradingSafetyProperties("paper", false, BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100)),
                 evidence, sizing, MarketOperationalScope.domesticOnly(), true, true, true, false);
 

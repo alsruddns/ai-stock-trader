@@ -1057,7 +1057,7 @@ class KisOrderIntentPostgresIntegrationTest {
             KisProperties.Account paper = new KisProperties.Account("paper-key", "paper-secret", "1234567801");
             KisProperties kisProperties = new KisProperties(true, true, false, false, paper,
                     new KisProperties.Account("", "", ""), Duration.ofSeconds(3), Duration.ofSeconds(8), Duration.ZERO);
-            KisOrderProperties orderProperties = new KisOrderProperties(false, true);
+            KisOrderProperties orderProperties = new KisOrderProperties(false, true, false);
             KisOrderClient mockedHttpBroker = new KisOrderClient(kisProperties, orderProperties,
                     tradingSafetyProperties, http);
             KisOrderOrchestrator orchestrator = new KisOrderOrchestrator(mockedHttpBroker, kisAccountClient,
