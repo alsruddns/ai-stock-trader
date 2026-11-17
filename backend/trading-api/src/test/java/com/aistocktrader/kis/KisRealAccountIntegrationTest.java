@@ -108,8 +108,12 @@ class KisRealAccountIntegrationTest {
         assertEquals(Market.KR, response.effectiveOrder().market());
         assertEquals("005930", response.effectiveOrder().symbol());
         assertTrue(response.effectiveOrder().quantity() > 0);
-        System.out.printf("KIS REAL domestic order-free preflight approved=%s reasonCount=%d (financial values suppressed)%n",
-                response.approved(), response.reasons().size());
+        String reasonCodes = response.reasons().stream()
+                .map(reason -> reason != null && reason.matches("[A-Z][A-Z0-9_]{0,63}")
+                        ? reason : "UNCLASSIFIED_REASON")
+                .distinct().sorted().collect(java.util.stream.Collectors.joining(","));
+        System.out.printf("KIS REAL domestic order-free preflight approved=%s reasonCount=%d reasonCodes=%s (financial values suppressed)%n",
+                response.approved(), response.reasons().size(), reasonCodes);
     }
 
     @Test
