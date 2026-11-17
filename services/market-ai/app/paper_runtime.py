@@ -1558,7 +1558,7 @@ class PaperSessionFeedMonitor:
             return "TIMEOUT"
         if isinstance(error, (ConnectionError, OSError)) or error_name.startswith("ConnectionClosed"):
             return "NETWORK_DISCONNECT"
-        if error_name in {"InvalidStatus", "InvalidHandshake", "WebSocketException"}:
+        if error_name in {"InvalidStatus", "InvalidHandshake", "InvalidMessage", "WebSocketException"}:
             return "WEBSOCKET_PROTOCOL"
         if error_name == "KisApiError":
             return "KIS_APPROVAL_OR_AUTH"

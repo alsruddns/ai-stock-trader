@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
+from websockets.exceptions import InvalidMessage
 
 from app.paper_runtime import PaperSessionFeedMonitor, PaperWatch, next_market_session_open, parse_watchlist
 from app.candidate_watch_store import CandidateWatchStore
@@ -1114,6 +1115,7 @@ def test_websocket_failure_diagnostics_use_secret_safe_categories() -> None:
     assert runtime.status()["last_stream_error_category"] is None
     assert PaperSessionFeedMonitor._stream_error_category(ConnectionResetError(private_detail)) == "NETWORK_DISCONNECT"
     assert PaperSessionFeedMonitor._stream_error_category(TimeoutError(private_detail)) == "TIMEOUT"
+    assert PaperSessionFeedMonitor._stream_error_category(InvalidMessage(private_detail)) == "WEBSOCKET_PROTOCOL"
     assert PaperSessionFeedMonitor._stream_error_category(RuntimeError(private_detail)) == "UNCLASSIFIED"
     assert private_detail not in str(runtime.status())
 
