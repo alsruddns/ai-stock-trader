@@ -9,6 +9,7 @@ param(
     [switch]$PreflightOnly,
     [switch]$ConfirmPaperOrderSubmitAndObserve,
     [switch]$ConfirmPaperOrderAndCancel,
+    [switch]$EnablePaperHistoryCancelPreflightForThisRun,
     [string]$SubmissionWindowSessionDateKst,
     [string]$SubmissionWindowStartTimeKst
 )
@@ -21,7 +22,11 @@ if (@([bool]$PreflightOnly, [bool]$ConfirmPaperOrderSubmitAndObserve, [bool]$Con
 }
 if ($LimitPrice -le 0) { throw 'LimitPrice must be positive.' }
 if ($Market -eq 'KR' -and $ConfirmPaperOrderAndCancel) {
-    throw 'Domestic PAPER cancel preflight is unsupported; no order was submitted. Use -PreflightOnly or wait until KIS documents a PAPER cancel-quantity query.'
+    if (-not $EnablePaperHistoryCancelPreflightForThisRun) {
+        throw 'Domestic PAPER cancel requires -EnablePaperHistoryCancelPreflightForThisRun; no order was submitted.'
+    }
+} elseif ($EnablePaperHistoryCancelPreflightForThisRun) {
+    throw 'The history-cancel opt-in is available only with a domestic PAPER submit-and-cancel run.'
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -37,6 +42,7 @@ foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerat
 $temporaryApi = $null
 
 try {
+    $env:KIS_PAPER_HISTORY_CANCEL_PREFLIGHT_ENABLED = 'false'
     foreach ($line in Get-Content -LiteralPath $envPath) {
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
@@ -56,6 +62,7 @@ try {
 
     if ($env:KIS_ENVIRONMENT -ne 'paper' -or $env:TRADING_MODE -ne 'paper' -or
         $env:LIVE_TRADING_ENABLED -ne 'false' -or $env:KIS_PAPER_ORDERS_ENABLED -ne 'false' -or
+        $env:KIS_PAPER_HISTORY_CANCEL_PREFLIGHT_ENABLED -ne 'false' -or
         $env:KIS_REAL_ORDERS_ENABLED -ne 'false' -or $env:KIS_REAL_RECONCILIATION_ENABLED -ne 'false' -or
         $env:PAPER_AUTOTRADING_ENABLED -ne 'false') {
         throw 'Isolated test requires PAPER mode and all persistent order/automation switches disabled in .env_local.'
@@ -84,6 +91,8 @@ try {
     }
     $env:MARKET_AI_BASE_URL = $marketAiUri.AbsoluteUri.TrimEnd('/')
     $env:KIS_PAPER_ORDERS_ENABLED = if ($PreflightOnly) { 'false' } else { 'true' }
+    $env:KIS_PAPER_HISTORY_CANCEL_PREFLIGHT_ENABLED = if ($Market -eq 'KR' -and $ConfirmPaperOrderAndCancel -and
+        $EnablePaperHistoryCancelPreflightForThisRun) { 'true' } else { 'false' }
     $env:KIS_REAL_APP_KEY = ''
     $env:KIS_REAL_APP_SECRET = ''
     $env:KIS_REAL_ACCOUNT_NUMBER = ''
@@ -126,6 +135,8 @@ try {
             $expectedPaperOrdersEnabled = $env:KIS_PAPER_ORDERS_ENABLED -eq 'true'
             if ($operations.tradingMode -eq 'paper' -and $operations.liveTrading -eq 'disabled' -and
                 ([bool]$operations.kisPaperOrdersEnabled -eq $expectedPaperOrdersEnabled) -and
+                ([bool]$operations.kisPaperHistoryCancelFallbackEnabled -eq
+                    ($env:KIS_PAPER_HISTORY_CANCEL_PREFLIGHT_ENABLED -eq 'true')) -and
                 -not $operations.kisRealOrdersEnabled -and
                 -not $operations.kisRealReconciliationEnabled -and -not $operations.paperAutomationEnabled) {
                 $ready = $true
@@ -152,6 +163,9 @@ try {
         throw 'Submission-window session date and start time must be supplied together.'
     }
     if (-not $PreflightOnly) { $testArguments += '-EnablePaperOrdersForThisRun' }
+    if ($EnablePaperHistoryCancelPreflightForThisRun) {
+        $testArguments += '-EnablePaperHistoryCancelPreflightForThisRun'
+    }
     if ($PreflightOnly) { $testArguments += '-PreflightOnly' }
     elseif ($ConfirmPaperOrderSubmitAndObserve) { $testArguments += '-ConfirmPaperOrderSubmitAndObserve' }
     else { $testArguments += '-ConfirmPaperOrderAndCancel' }

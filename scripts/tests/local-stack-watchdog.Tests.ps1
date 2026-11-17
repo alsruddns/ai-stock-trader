@@ -51,6 +51,7 @@ Describe 'Local stack API health watchdog safety response' {
         }
         $springSummary = [pscustomobject]@{
             tradingMode = 'paper'; liveTrading = 'disabled'; paperAutomationEnabled = $false; kisRealOrdersEnabled = $false
+            kisPaperHistoryCancelFallbackEnabled = $false
         }
         { Assert-LocalStackReadyResponses -PythonHealth $pythonHealth -SpringSummary $springSummary } | Should Not Throw
     }
@@ -61,6 +62,7 @@ Describe 'Local stack API health watchdog safety response' {
         }
         $springSummary = [pscustomobject]@{
             tradingMode = 'paper'; liveTrading = 'disabled'; paperAutomationEnabled = $false; kisRealOrdersEnabled = $false
+            kisPaperHistoryCancelFallbackEnabled = $false
         }
         (Test-LocalStackReadinessRejects $pythonHealth $springSummary) | Should Be $true
     }
@@ -71,6 +73,7 @@ Describe 'Local stack API health watchdog safety response' {
         }
         $springSummary = [pscustomobject]@{
             tradingMode = 'paper'; liveTrading = 'disabled'; paperAutomationEnabled = $false; kisRealOrdersEnabled = $false
+            kisPaperHistoryCancelFallbackEnabled = $false
         }
         (Test-LocalStackReadinessRejects $pythonHealth $springSummary) | Should Be $true
         $pythonHealth.live_trading_enabled = $false
@@ -84,6 +87,7 @@ Describe 'Local stack API health watchdog safety response' {
         }
         $springSummary = [pscustomobject]@{
             tradingMode = 'real'; liveTrading = 'disabled'; paperAutomationEnabled = $false; kisRealOrdersEnabled = $false
+            kisPaperHistoryCancelFallbackEnabled = $false
         }
         (Test-LocalStackReadinessRejects $pythonHealth $springSummary) | Should Be $true
         $springSummary.tradingMode = 'paper'
@@ -95,9 +99,11 @@ Describe 'Local stack API health watchdog safety response' {
         $python = Get-LocalStackHealthComponentOutcome -Component Python -FailureCategory 'TIMEOUT'
         $spring = Get-LocalStackHealthComponentOutcome -Component Spring -Response ([pscustomobject]@{
             tradingMode = 'paper'; liveTrading = 'disabled'; paperAutomationEnabled = $false; kisRealOrdersEnabled = $false
+            kisPaperHistoryCancelFallbackEnabled = $false
         })
         $summary = Get-LocalStackHealthFailureSummary -PythonFailureCategory $python -SpringSummary ([pscustomobject]@{
             tradingMode = 'paper'; liveTrading = 'disabled'; paperAutomationEnabled = $false; kisRealOrdersEnabled = $false
+            kisPaperHistoryCancelFallbackEnabled = $false
         })
 
         $summary | Should Be 'python=TIMEOUT; spring=PAPER_SAFE'
@@ -123,5 +129,16 @@ Describe 'Local stack API health watchdog safety response' {
             -ConsecutiveFailureCount 1 -RestartThreshold 4 | Should Be 'RESTART'
         Get-LocalStackHealthRecoveryDecision -FailureSummary 'python=PAPER_SAFE; spring=MISSING_SAFETY_FIELDS' `
             -ConsecutiveFailureCount 1 -RestartThreshold 4 | Should Be 'RESTART'
+    }
+
+    It 'rejects the experimental PAPER history-cancel fallback in the managed service' {
+        $pythonHealth = [pscustomobject]@{
+            status = 'ok'; live_trading_enabled = $false; paper_automation_enabled = $false
+        }
+        $springSummary = [pscustomobject]@{
+            tradingMode = 'paper'; liveTrading = 'disabled'; paperAutomationEnabled = $false; kisRealOrdersEnabled = $false
+            kisPaperHistoryCancelFallbackEnabled = $true
+        }
+        (Test-LocalStackReadinessRejects $pythonHealth $springSummary) | Should Be $true
     }
 }

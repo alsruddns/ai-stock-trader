@@ -119,7 +119,7 @@ Describe 'Isolated KIS PAPER lifecycle port' {
 }
 
 Describe 'Domestic KIS PAPER lifecycle fail-closed guard' {
-    $expected = 'Domestic PAPER cancel preflight is unsupported; no order was submitted. Use -PreflightOnly or wait until KIS documents a PAPER cancel-quantity query.'
+    $expected = 'Domestic PAPER cancel requires -EnablePaperHistoryCancelPreflightForThisRun; no order was submitted.'
 
     It 'stops the direct lifecycle script before local API calls' {
         $message = $null
@@ -137,6 +137,16 @@ Describe 'Domestic KIS PAPER lifecycle fail-closed guard' {
                 -Market KR -Symbol '069500' -LimitPrice 50000 -ConfirmPaperOrderAndCancel
         } catch { $message = $_.Exception.Message }
         $message | Should Be $expected
+    }
+
+    It 'rejects using the experimental domestic cancel opt-in for a different operation' {
+        $message = $null
+        try {
+            & (Join-Path $PSScriptRoot '../test-kis-paper-order-lifecycle.ps1') `
+                -Market KR -Symbol '005930' -LimitPrice 100 -ConfirmPaperOrderSubmitAndObserve `
+                -EnablePaperHistoryCancelPreflightForThisRun
+        } catch { $message = $_.Exception.Message }
+        $message | Should Be 'The history-cancel opt-in is available only with a domestic PAPER submit-and-cancel run.'
     }
 }
 

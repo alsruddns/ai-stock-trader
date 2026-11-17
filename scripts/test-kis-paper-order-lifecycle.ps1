@@ -8,6 +8,7 @@ param(
     [switch]$PreflightOnly,
     [switch]$EnablePaperOrdersForThisRun,
     [switch]$ConfirmPaperOrderAndCancel,
+    [switch]$EnablePaperHistoryCancelPreflightForThisRun,
     [switch]$ConfirmPaperOrderSubmitAndObserve,
     [string]$SubmissionWindowSessionDateKst,
     [string]$SubmissionWindowStartTimeKst
@@ -38,7 +39,11 @@ if ([string]::IsNullOrWhiteSpace($SubmissionWindowSessionDateKst) -ne
     throw 'Both submission-window session date and start time must be supplied together.'
 }
 if ($Market -eq 'KR' -and $ConfirmPaperOrderAndCancel) {
-    throw 'Domestic PAPER cancel preflight is unsupported; no order was submitted. Use -PreflightOnly or wait until KIS documents a PAPER cancel-quantity query.'
+    if (-not $EnablePaperHistoryCancelPreflightForThisRun) {
+        throw 'Domestic PAPER cancel requires -EnablePaperHistoryCancelPreflightForThisRun; no order was submitted.'
+    }
+} elseif ($EnablePaperHistoryCancelPreflightForThisRun) {
+    throw 'The history-cancel opt-in is available only with a domestic PAPER submit-and-cancel run.'
 }
 if ($ConfirmPaperOrderSubmitAndObserve -and -not $EnablePaperOrdersForThisRun -and $env:KIS_PAPER_ORDERS_ENABLED -ne 'true') {
     throw 'PAPER order submission requires an explicit one-run enable switch or a PAPER-orders-enabled isolated service.'
@@ -54,6 +59,7 @@ $envPath = Join-Path $repoRoot '.env_local'
 if (-not (Test-Path -LiteralPath $envPath)) { $envPath = Join-Path $repoRoot '.env' }
 if (-not (Test-Path -LiteralPath $envPath)) { throw 'Missing ignored .env_local or .env file.' }
 
+$env:KIS_PAPER_HISTORY_CANCEL_PREFLIGHT_ENABLED = 'false'
 foreach ($line in Get-Content -LiteralPath $envPath) {
     $trimmed = $line.Trim()
     if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
@@ -67,6 +73,9 @@ foreach ($line in Get-Content -LiteralPath $envPath) {
     }
     [Environment]::SetEnvironmentVariable($name, $value, 'Process')
 }
+if ($env:KIS_PAPER_HISTORY_CANCEL_PREFLIGHT_ENABLED -ne 'false') {
+    throw 'Keep the persistent history-based cancel fallback disabled; use the explicit one-run option.'
+}
 
 if ($EnablePaperOrdersForThisRun) {
     $env:KIS_PAPER_ORDERS_ENABLED = 'true'
@@ -74,6 +83,9 @@ if ($EnablePaperOrdersForThisRun) {
     $env:KIS_REAL_APP_SECRET = ''
     $env:KIS_REAL_ACCOUNT_NUMBER = ''
     $env:KIS_REAL_ACCOUNT_READ_ENABLED = 'false'
+}
+if ($Market -eq 'KR' -and $ConfirmPaperOrderAndCancel -and $EnablePaperHistoryCancelPreflightForThisRun) {
+    $env:KIS_PAPER_HISTORY_CANCEL_PREFLIGHT_ENABLED = 'true'
 }
 
 if ($env:KIS_ENVIRONMENT -ne 'paper' -or $env:TRADING_MODE -ne 'paper' -or
@@ -120,8 +132,11 @@ function Get-Intent([string]$Id) {
 $preflightEvidenceStage = 'LocalServiceState'
 $operations = Get-LocalApi "$SpringApiBaseUrl/api/v1/operations/summary"
 $expectedPaperOrdersEnabled = $env:KIS_PAPER_ORDERS_ENABLED -eq 'true'
+$expectedHistoryCancelFallbackEnabled = $Market -eq 'KR' -and $ConfirmPaperOrderAndCancel -and
+    $EnablePaperHistoryCancelPreflightForThisRun
 if ($operations.tradingMode -ne 'paper' -or $operations.liveTrading -ne 'disabled' -or
     ([bool]$operations.kisPaperOrdersEnabled -ne $expectedPaperOrdersEnabled) -or $operations.kisRealOrdersEnabled -or
+    ([bool]$operations.kisPaperHistoryCancelFallbackEnabled -ne $expectedHistoryCancelFallbackEnabled) -or
     $operations.kisRealReconciliationEnabled -or $operations.paperAutomationEnabled) {
     throw 'Running Spring service does not report the required PAPER-only settings for this mode.'
 }

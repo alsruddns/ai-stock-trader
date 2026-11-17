@@ -50,6 +50,7 @@ public class OperationsController {
     private final boolean kisPaperAccountReadsEnabled;
     private final boolean kisPaperOrdersEnabled;
     private final boolean kisPaperReconciliationEnabled;
+    private final boolean kisPaperHistoryCancelFallbackEnabled;
     private final KisOrderIntentRepository kisIntents;
     private final boolean kisRealAccountReadsEnabled;
     private final boolean kisRealReconciliationEnabled;
@@ -78,6 +79,7 @@ public class OperationsController {
                                 @Value("${paper.costs.enabled:false}") boolean paperCostModelEnabled) {
         this(orders, positions, cash, fills, safety, kisIntents, kisProperties, realTradingCosts,
                 kisAccountReadsEnabled, kisPaperAccountReadsEnabled, kisPaperOrdersEnabled, kisPaperReconciliationEnabled,
+                false,
                 kisRealAccountReadsEnabled, kisRealReconciliationEnabled,
                 kisRealProtectiveExitAutomationEnabled, false, paperCostModelEnabled,
                 MarketOperationalScope.domesticOnly());
@@ -94,6 +96,7 @@ public class OperationsController {
                                 @Value("${kis.paper-account-read-enabled:false}") boolean kisPaperAccountReadsEnabled,
                                 @Value("${kis.orders.paper-enabled:false}") boolean kisPaperOrdersEnabled,
                                 @Value("${kis.orders.paper-reconciliation-enabled:false}") boolean kisPaperReconciliationEnabled,
+                                @Value("${kis.orders.paper-history-cancel-preflight-enabled:false}") boolean kisPaperHistoryCancelFallbackEnabled,
                                 @Value("${kis.real-account-read-enabled:false}") boolean kisRealAccountReadsEnabled,
                                 @Value("${kis.real-reconciliation-enabled:false}") boolean kisRealReconciliationEnabled,
                                 @Value("${kis.real-protective-exit-automation-enabled:false}") boolean kisRealProtectiveExitAutomationEnabled,
@@ -110,6 +113,7 @@ public class OperationsController {
         this.kisPaperAccountReadsEnabled = kisPaperAccountReadsEnabled;
         this.kisPaperOrdersEnabled = kisPaperOrdersEnabled;
         this.kisPaperReconciliationEnabled = kisPaperReconciliationEnabled;
+        this.kisPaperHistoryCancelFallbackEnabled = kisPaperHistoryCancelFallbackEnabled;
         this.kisRealAccountReadsEnabled = kisRealAccountReadsEnabled;
         this.kisRealReconciliationEnabled = kisRealReconciliationEnabled;
         this.realTradingApprovalConfirmed = realTradingApprovalConfirmed;
@@ -132,7 +136,7 @@ public class OperationsController {
                 new KisProperties(false, false,
                         new KisProperties.Account("", "", ""), new KisProperties.Account("", "", ""),
                         null, null, null), new KisRealTradingCostProperties("", "", "", "", "", ""),
-                kisAccountReadsEnabled, kisAccountReadsEnabled, kisPaperOrdersEnabled, false,
+                kisAccountReadsEnabled, kisAccountReadsEnabled, kisPaperOrdersEnabled, false, false,
                 kisRealAccountReadsEnabled, kisRealReconciliationEnabled, false, false,
                 paperCostModelEnabled, MarketOperationalScope.domesticOnly());
     }
@@ -179,7 +183,7 @@ public class OperationsController {
 
         return new OperationsSummary(now, safety.mode(), safety.liveTradingEnabled() ? "enabled" : "disabled",
                 false, kisAccountReadsEnabled, kisPaperAccountReadsEnabled, kisPaperOrdersEnabled,
-                kisPaperReconciliationEnabled, false, safety.realOrdersEnabled(),
+                kisPaperReconciliationEnabled, kisPaperHistoryCancelFallbackEnabled, false, safety.realOrdersEnabled(),
                 kisRealAccountReadsEnabled, kisRealReconciliationEnabled, realTradingApprovalConfirmed,
                 safety.realProtectiveExitManagerEnabled(),
                 kisRealProtectiveExitAutomationEnabled, realOrderCounts, paperKisOrderCounts,
@@ -310,6 +314,7 @@ public class OperationsController {
                                     boolean paperAutomationEnabled, boolean kisAccountReadsEnabled,
                                     boolean kisPaperAccountReadsEnabled, boolean kisPaperOrdersEnabled,
                                     boolean kisPaperReconciliationEnabled,
+                                    boolean kisPaperHistoryCancelFallbackEnabled,
                                     boolean kisPaperDomesticCancelSupported, boolean kisRealOrdersEnabled,
                                     boolean kisRealAccountReadsEnabled, boolean kisRealReconciliationEnabled,
                                     boolean realTradingApprovalConfirmed,

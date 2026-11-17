@@ -27,7 +27,8 @@ function Assert-LocalStackPaperLocks {
     param([Parameter(Mandatory)][hashtable]$Environment)
 
     foreach ($name in @('LIVE_TRADING_ENABLED', 'KIS_PAPER_ORDERS_ENABLED',
-            'KIS_REAL_ORDERS_ENABLED', 'REAL_TRADING_APPROVAL_CONFIRMED', 'PAPER_AUTOTRADING_ENABLED')) {
+            'KIS_PAPER_HISTORY_CANCEL_PREFLIGHT_ENABLED', 'KIS_REAL_ORDERS_ENABLED',
+            'REAL_TRADING_APPROVAL_CONFIRMED', 'PAPER_AUTOTRADING_ENABLED')) {
         if ([string]$Environment[$name] -eq 'true') {
             throw "Local stack activation refused because $name is enabled."
         }
@@ -87,7 +88,8 @@ function Assert-LocalStackReadyResponses {
             throw 'Python health response is missing a required safety status.'
         }
     }
-    foreach ($name in @('tradingMode', 'liveTrading', 'paperAutomationEnabled', 'kisRealOrdersEnabled')) {
+    foreach ($name in @('tradingMode', 'liveTrading', 'paperAutomationEnabled', 'kisRealOrdersEnabled',
+            'kisPaperHistoryCancelFallbackEnabled')) {
         if ($null -eq $SpringSummary.PSObject.Properties[$name]) {
             throw 'Spring operations response is missing a required safety status.'
         }
@@ -98,7 +100,8 @@ function Assert-LocalStackReadyResponses {
         [string]$SpringSummary.tradingMode -ne 'paper' -or
         [string]$SpringSummary.liveTrading -ne 'disabled' -or
         [bool]$SpringSummary.paperAutomationEnabled -or
-        [bool]$SpringSummary.kisRealOrdersEnabled) {
+        [bool]$SpringSummary.kisRealOrdersEnabled -or
+        [bool]$SpringSummary.kisPaperHistoryCancelFallbackEnabled) {
         throw 'Local APIs did not confirm healthy PAPER mode with trading locks enabled.'
     }
 }

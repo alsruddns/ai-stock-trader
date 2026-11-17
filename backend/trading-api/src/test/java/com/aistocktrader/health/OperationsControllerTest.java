@@ -60,6 +60,7 @@ class OperationsControllerTest {
         assertEquals(false, summary.kisRealUsCostsConfigured());
         assertEquals(false, summary.kisPaperAccountReadsEnabled());
         assertEquals(true, summary.kisPaperReconciliationEnabled());
+        assertEquals(false, summary.kisPaperHistoryCancelFallbackEnabled());
         assertEquals(false, summary.kisPaperDomesticCancelSupported());
         assertEquals(false, summary.realProtectiveExitManagerEnabled());
         assertEquals(false, summary.realTradingApprovalConfirmed());
