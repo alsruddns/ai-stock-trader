@@ -17,6 +17,7 @@ foreach ($functionName in @(
     'Test-PaperUnknownOrderKeysAvailable',
     'Test-LocalCostModelsReady',
     'Test-PaperMinuteQualityDiagnosticsReady',
+    'Test-PaperBarHistoryResyncDiagnosticsReady',
     'Test-PaperBarStorageSafeForRestart'
 )) {
     $functionAst = $restartAst.Find({
@@ -124,6 +125,22 @@ Describe 'Domestic local stack restart guards' {
         (Test-PaperMinuteQualityDiagnosticsReady ([pscustomobject]@{})) | Should Be $false
         $status.market_data_minute_quality_by_watch_by_feed = [pscustomobject]@{ paper = [pscustomobject]@{} }
         (Test-PaperMinuteQualityDiagnosticsReady $status) | Should Be $false
+    }
+
+    It 'requires the restarted API to expose valid bar-history resync counters for each decision' {
+        $status = [pscustomobject]@{
+            decisions = [pscustomobject]@{
+                'KR:005930:' = [pscustomobject]@{ bar_history_resync_count = 0 }
+                'KR:000660:' = [pscustomobject]@{ bar_history_resync_count = 1 }
+            }
+        }
+        (Test-PaperBarHistoryResyncDiagnosticsReady $status) | Should Be $true
+
+        $status.decisions.'KR:000660:'.bar_history_resync_count = -1
+        (Test-PaperBarHistoryResyncDiagnosticsReady $status) | Should Be $false
+        $status.decisions.'KR:000660:' = [pscustomobject]@{}
+        (Test-PaperBarHistoryResyncDiagnosticsReady $status) | Should Be $false
+        (Test-PaperBarHistoryResyncDiagnosticsReady ([pscustomobject]@{ decisions = [pscustomobject]@{} })) | Should Be $false
     }
 
     It 'refuses restart when minute-bar persistence is unhealthy or pending' {

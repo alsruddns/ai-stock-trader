@@ -279,6 +279,23 @@ function Test-PaperMinuteQualityDiagnosticsReady($Session) {
     return $true
 }
 
+function Test-PaperBarHistoryResyncDiagnosticsReady($Session) {
+    if (-not $Session -or $null -eq $Session.PSObject.Properties['decisions'] -or -not $Session.decisions) {
+        return $false
+    }
+    $decisions = @($Session.decisions.PSObject.Properties)
+    if ($decisions.Count -eq 0) { return $false }
+    foreach ($entry in $decisions) {
+        $countProperty = $entry.Value.PSObject.Properties['bar_history_resync_count']
+        $count = 0L
+        if ($null -eq $countProperty -or
+            -not [long]::TryParse([string]$countProperty.Value, [ref]$count) -or $count -lt 0) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Test-PaperBarStorageSafeForRestart($Session) {
     if (-not $Session -or [string]$Session.bar_storage_state -ne 'RUNNING') { return $false }
     $pendingProperty = $Session.PSObject.Properties['bar_storage_pending_count']
@@ -439,6 +456,9 @@ if ($PSCmdlet.ShouldProcess("Closed-session local stack '$TaskName'", 'Restart S
     }
     if (-not (Test-PaperMinuteQualityDiagnosticsReady $paperSession)) {
         throw 'The restarted Python API did not expose the expected per-minute quote and spread diagnostics.'
+    }
+    if (-not (Test-PaperBarHistoryResyncDiagnosticsReady $paperSession)) {
+        throw 'The restarted Python API did not expose the expected bar-history resynchronization diagnostics.'
     }
     try {
         $postRestartQuote = Invoke-RestMethod -Uri $pythonPaperQuoteUrl -TimeoutSec 20
