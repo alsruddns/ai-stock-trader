@@ -296,6 +296,7 @@ class PaperSessionFeedMonitor:
         self._bars: dict[str, deque[MinuteBar]] = {}
         self._decisions: dict[str, dict[str, object]] = {}
         self._bar_history_resync_counts: dict[str, int] = {}
+        self._bar_history_resync_tasks: dict[str, asyncio.Task[None]] = {}
         self._automation_queue: asyncio.Queue[tuple[PaperWatch, MinuteBar, dict[str, object], dict[tuple[str, str], tuple[Decimal, datetime]]]] | None = None
         self._automation_task: asyncio.Task | None = None
         self._real_signal_queue: asyncio.Queue[tuple[PaperWatch, MinuteBar, dict[str, object]]] | None = None
@@ -972,6 +973,8 @@ class PaperSessionFeedMonitor:
     async def stop(self) -> None:
         candidate_tasks = self._candidate_tasks
         self._candidate_tasks = []
+        bar_history_resync_tasks = list(self._bar_history_resync_tasks.values())
+        self._bar_history_resync_tasks.clear()
         stream_tasks = self._stream_tasks
         self._stream_tasks = []
         finalizer_task = self._bar_finalizer_task
@@ -989,6 +992,13 @@ class PaperSessionFeedMonitor:
         for task in candidate_tasks:
             task.cancel()
         for task in candidate_tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        for task in bar_history_resync_tasks:
+            task.cancel()
+        for task in bar_history_resync_tasks:
             try:
                 await task
             except asyncio.CancelledError:
@@ -2305,14 +2315,35 @@ class PaperSessionFeedMonitor:
         decision = self._decisions.get(watch.key, {})
         if (decision.get("reason") == "BAR_SEQUENCE_INVALID"
                 and snapshot_store.enabled()):
-            self._resync_invalid_session_history(watch, bar)
+            self._schedule_invalid_session_history_resync(watch)
 
-    def _resync_invalid_session_history(self, watch: PaperWatch, current_bar: MinuteBar) -> None:
-        """Replace a broken in-memory prefix only with a validated persisted session prefix."""
-        history = self._bars[watch.key]
+    def _schedule_invalid_session_history_resync(self, watch: PaperWatch) -> None:
         try:
-            restored = snapshot_store.load_session_minute_bars(
-                watch.market, watch.symbol,
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        task = self._bar_history_resync_tasks.get(watch.key)
+        if task is not None and not task.done():
+            return
+        task = loop.create_task(self._resync_invalid_session_history(watch))
+        self._bar_history_resync_tasks[watch.key] = task
+
+        def clear_finished_task(finished: asyncio.Task[None]) -> None:
+            if self._bar_history_resync_tasks.get(watch.key) is finished:
+                self._bar_history_resync_tasks.pop(watch.key, None)
+
+        task.add_done_callback(clear_finished_task)
+
+    async def _resync_invalid_session_history(self, watch: PaperWatch) -> None:
+        """Replace a broken in-memory prefix only with a validated persisted session prefix."""
+        history = self._bars.get(watch.key)
+        if not history:
+            return
+        current_history = tuple(history)
+        current_bar = current_history[-1]
+        try:
+            restored = await asyncio.to_thread(
+                snapshot_store.load_session_minute_bars, watch.market, watch.symbol,
                 exchange_session_date(current_bar.timestamp, watch.market),
             )
         except Exception:
@@ -2323,11 +2354,15 @@ class PaperSessionFeedMonitor:
         if restored[-1].timestamp > current_bar.timestamp:
             return
         repaired = list(restored)
-        if repaired[-1].timestamp == current_bar.timestamp:
-            # The just-closed live bar is authoritative for the current spread gate.
-            repaired[-1] = current_bar
-        else:
-            repaired.append(current_bar)
+        repaired_by_timestamp = {item.timestamp: item for item in repaired}
+        for item in current_history:
+            if item.timestamp > repaired[-1].timestamp:
+                repaired_by_timestamp[item.timestamp] = item
+        # The newest live bar is authoritative for the current spread gate.
+        repaired_by_timestamp[current_bar.timestamp] = current_bar
+        repaired = sorted(repaired_by_timestamp.values(), key=lambda item: item.timestamp)
+        if repaired[-1].timestamp != current_bar.timestamp:
+            return
         try:
             # Validate continuity and session boundaries without using this diagnostic
             # to waive the live spread requirement used by the actual strategy below.
@@ -2336,12 +2371,16 @@ class PaperSessionFeedMonitor:
             )
         except (ArithmeticError, ValueError):
             return
-        history.clear()
-        history.extend(repaired)
-        self._bar_history_resync_counts[watch.key] = (
-            self._bar_history_resync_counts.get(watch.key, 0) + 1
-        )
-        self._evaluate_closed_history(watch, current_bar)
+        with self._lock:
+            history = self._bars.get(watch.key)
+            if not history or history[-1].timestamp != current_bar.timestamp:
+                return
+            history.clear()
+            history.extend(repaired)
+            self._bar_history_resync_counts[watch.key] = (
+                self._bar_history_resync_counts.get(watch.key, 0) + 1
+            )
+            self._evaluate_closed_history(watch, current_bar)
 
     def _evaluate_closed_history(self, watch: PaperWatch, bar: MinuteBar) -> None:
         history = self._bars[watch.key]

@@ -556,7 +556,11 @@ def test_invalid_live_history_resyncs_from_complete_persisted_session(monkeypatc
                                      if index not in {14, 15, 16})
     runtime._decisions[watch.key] = {}
 
-    runtime._record_closed_bar(watch, persisted[-1])
+    async def record_and_wait_for_resync() -> None:
+        runtime._record_closed_bar(watch, persisted[-1])
+        await runtime._bar_history_resync_tasks[watch.key]
+
+    asyncio.run(record_and_wait_for_resync())
 
     decision = runtime.decisions()[watch.key]
     assert len(runtime.bars(watch)) == len(persisted)
@@ -585,7 +589,11 @@ def test_invalid_persisted_history_keeps_strategy_blocked(monkeypatch) -> None:
     runtime._bars[watch.key] = deque(bar for index, bar in enumerate(complete[:20]) if index != 16)
     runtime._decisions[watch.key] = {}
 
-    runtime._record_closed_bar(watch, complete[-1])
+    async def record_and_wait_for_resync() -> None:
+        runtime._record_closed_bar(watch, complete[-1])
+        await runtime._bar_history_resync_tasks[watch.key]
+
+    asyncio.run(record_and_wait_for_resync())
 
     decision = runtime.decisions()[watch.key]
     assert decision["signal"] == "HOLD"
