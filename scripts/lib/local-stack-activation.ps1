@@ -102,3 +102,57 @@ function Assert-LocalStackReadyResponses {
         throw 'Local APIs did not confirm healthy PAPER mode with trading locks enabled.'
     }
 }
+
+function Get-LocalStackHealthComponentOutcome {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateSet('Python', 'Spring')][string]$Component,
+        [Parameter()][AllowNull()][object]$Response,
+        [Parameter()][AllowNull()][string]$FailureCategory
+    )
+
+    if ($null -eq $Response) {
+        $safeCategories = @('TIMEOUT', 'CONNECTION_FAILURE', 'DNS_FAILURE', 'TLS_FAILURE',
+            'CONNECTION_CLOSED', 'NETWORK_FAILURE', 'REQUEST_FAILURE')
+        if ($FailureCategory -in $safeCategories -or $FailureCategory -match '^HTTP_[45]\d{2}$') {
+            return $FailureCategory
+        }
+        return 'REQUEST_FAILURE'
+    }
+
+    if ($Component -eq 'Python') {
+        foreach ($name in @('status', 'live_trading_enabled', 'paper_automation_enabled')) {
+            if ($null -eq $Response.PSObject.Properties[$name]) { return 'MISSING_SAFETY_FIELDS' }
+        }
+        if ([string]$Response.status -ne 'ok') { return 'UNHEALTHY' }
+        if ([bool]$Response.live_trading_enabled -or [bool]$Response.paper_automation_enabled) {
+            return 'TRADING_UNLOCKED'
+        }
+        return 'PAPER_SAFE'
+    }
+
+    foreach ($name in @('tradingMode', 'liveTrading', 'paperAutomationEnabled', 'kisRealOrdersEnabled')) {
+        if ($null -eq $Response.PSObject.Properties[$name]) { return 'MISSING_SAFETY_FIELDS' }
+    }
+    if ([string]$Response.tradingMode -ne 'paper' -or [string]$Response.liveTrading -ne 'disabled' -or
+        [bool]$Response.paperAutomationEnabled -or [bool]$Response.kisRealOrdersEnabled) {
+        return 'TRADING_UNLOCKED'
+    }
+    return 'PAPER_SAFE'
+}
+
+function Get-LocalStackHealthFailureSummary {
+    [CmdletBinding()]
+    param(
+        [Parameter()][AllowNull()][object]$PythonHealth,
+        [Parameter()][AllowNull()][string]$PythonFailureCategory,
+        [Parameter()][AllowNull()][object]$SpringSummary,
+        [Parameter()][AllowNull()][string]$SpringFailureCategory
+    )
+
+    $pythonOutcome = Get-LocalStackHealthComponentOutcome -Component Python `
+        -Response $PythonHealth -FailureCategory $PythonFailureCategory
+    $springOutcome = Get-LocalStackHealthComponentOutcome -Component Spring `
+        -Response $SpringSummary -FailureCategory $SpringFailureCategory
+    return "python=$pythonOutcome; spring=$springOutcome"
+}

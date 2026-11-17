@@ -14,6 +14,7 @@ $backendProcess = $null
 $marketAiProcess = $null
 $loadedEnvironmentNames = @()
 . (Join-Path $PSScriptRoot 'lib\local-stack-activation.ps1')
+. (Join-Path $PSScriptRoot 'lib\paper-session-status-read.ps1')
 $originalPythonPath = [Environment]::GetEnvironmentVariable('PYTHONPATH', 'Process')
 $originalPythonPathWasSet = $null -ne $originalPythonPath
 
@@ -281,8 +282,12 @@ try {
                 if ($nowUtc -ge $nextHealthAuditUtc) {
                     $pythonHealth = $null
                     $springSummary = $null
-                    try { $pythonHealth = Invoke-RestMethod -Uri 'http://127.0.0.1:18000/api/v1/health' -TimeoutSec 3 } catch { }
-                    try { $springSummary = Invoke-RestMethod -Uri 'http://127.0.0.1:18080/api/v1/operations/summary' -TimeoutSec 3 } catch { }
+                    $pythonFailureCategory = $null
+                    $springFailureCategory = $null
+                    try { $pythonHealth = Invoke-RestMethod -Uri 'http://127.0.0.1:18000/api/v1/health' -TimeoutSec 3 }
+                    catch { $pythonFailureCategory = Get-PaperSessionStatusFailureCategory $_ }
+                    try { $springSummary = Invoke-RestMethod -Uri 'http://127.0.0.1:18080/api/v1/operations/summary' -TimeoutSec 3 }
+                    catch { $springFailureCategory = Get-PaperSessionStatusFailureCategory $_ }
                     $apiReadinessPassed = $false
                     if ($pythonHealth -and $springSummary) {
                         try {
@@ -294,7 +299,10 @@ try {
                         $healthFailureCount = 0
                     } else {
                         $healthFailureCount++
-                        Write-TaskLog ("Local API health check failed ({0}/2)." -f $healthFailureCount)
+                        $failureSummary = Get-LocalStackHealthFailureSummary `
+                            -PythonHealth $pythonHealth -PythonFailureCategory $pythonFailureCategory `
+                            -SpringSummary $springSummary -SpringFailureCategory $springFailureCategory
+                        Write-TaskLog ("Local API health check failed ({0}/2): {1}." -f $healthFailureCount, $failureSummary)
                         if ($healthFailureCount -ge 2) {
                             throw 'Local API health remained unavailable or unsafe across two checks; restarting the local stack.'
                         }

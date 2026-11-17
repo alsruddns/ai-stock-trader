@@ -90,4 +90,22 @@ Describe 'Local stack API health watchdog safety response' {
         $springSummary.kisRealOrdersEnabled = $true
         (Test-LocalStackReadinessRejects $pythonHealth $springSummary) | Should Be $true
     }
+
+    It 'records which local API failed without exposing exception or response details' {
+        $python = Get-LocalStackHealthComponentOutcome -Component Python -FailureCategory 'TIMEOUT'
+        $spring = Get-LocalStackHealthComponentOutcome -Component Spring -Response ([pscustomobject]@{
+            tradingMode = 'paper'; liveTrading = 'disabled'; paperAutomationEnabled = $false; kisRealOrdersEnabled = $false
+        })
+        $summary = Get-LocalStackHealthFailureSummary -PythonFailureCategory $python -SpringSummary ([pscustomobject]@{
+            tradingMode = 'paper'; liveTrading = 'disabled'; paperAutomationEnabled = $false; kisRealOrdersEnabled = $false
+        })
+
+        $summary | Should Be 'python=TIMEOUT; spring=PAPER_SAFE'
+        $summary | Should Not Match 'secret|account|response body'
+    }
+
+    It 'normalizes unrecognized health failure categories' {
+        Get-LocalStackHealthComponentOutcome -Component Spring -FailureCategory 'password=hidden' |
+            Should Be 'REQUEST_FAILURE'
+    }
 }
