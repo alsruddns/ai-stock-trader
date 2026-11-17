@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Update : [P1 국내 REAL 읽기검증] 잔고·주문가능금액·주문 전 사전점검 (2026-11-17 12:30 KST):** 실제 KIS REAL 자격정보로 `readsDomesticRealBalanceWithoutPlacingOrders`, `readsDomesticRealOrderableCashForSymbolWithoutPlacingOrders`, `preflightsDomesticRealBuyWithFreshQuoteWithoutSubmittingAnOrder`를 각각 명시 선택해 1/1 통과했습니다. Spring 계좌 GET과 최신 시세를 사용한 사전점검 응답 경로까지 확인했으며 주문 제출 API는 호출하지 않았습니다. 검증 스크립트의 `-EnableReadOnlyGetForThisRun`으로 계좌 읽기 스위치만 해당 Maven 프로세스 안에서 켰고 `.env_local`은 수정하지 않았습니다. 운영 API 재확인 결과 Spring은 `paper`, KIS PAPER/REAL 주문 잠금·REAL 계좌 읽기 비활성, FastAPI health `ok`/REAL 거래·PAPER 자동매매 비활성입니다. 금액이나 계좌 식별값은 출력·기록하지 않았습니다. 미국 계좌와 WebSocket 장시간 안정성은 별도 검증 대상입니다.
+
 - **Fix : [P5 판단 진단 문구] 분봉 문제 원인을 단정하지 않도록 수정 (2026-11-17 12:24 KST):** `BAR_SEQUENCE_INVALID`만으로 저장 데이터 결함인지 메모리 이력 차이인지 항상 구분할 수 없으므로, 대시보드 보조 설명을 “분봉 연속성 검증 실패 · 전략 평가 중단”으로 정정했습니다. 구체적인 저장 세션 품질과 복구 성공 횟수는 각각 별도 진단 필드에 표시합니다. ESLint와 TypeScript 검사 통과했습니다.
 
 - **Update : [P5 분봉 복구 상태 표시] 종목별 성공 횟수 진단 추가 (2026-11-17 12:18 KST):** P5 판단 테이블에 `bar_history_resync_count`를 연결해 재시작 전 진단 미적용 상태와 재시작 후 종목별 복구 횟수를 구분하도록 했습니다. ESLint와 TypeScript 검사가 다시 통과했습니다. 변경은 코드에 반영됐고, 16:15 KST로 등록된 대시보드 장후 갱신 작업이 빌드·잠금 확인 후 실행해야 화면 적용이 확인됩니다.
