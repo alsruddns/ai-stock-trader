@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Update : [P5 종일 PAPER 세션검증] 11월 17일 실행 실패와 재검증 예약 확인 (2026-11-17 12:38 KST):** `AIStockTrader-KRX-Session-Monitor-20261117`는 08:45에 시작했으나 09:19 KST, 2,045초 뒤 `SAFETY_LOCK_VIOLATION`으로 실패했습니다. 로컬 progress 증거에는 PAPER 세션 API의 타임아웃 15회·연결 실패 5회와 저장 대기 2건/저장 상태 `ERROR`가 기록되어 종일 검증을 통과하지 못했습니다. watchdog 로그는 09:17 두 차례 health 실패 뒤 stack 재시작, 09:19:08 양 API 준비 완료를 확인합니다. 오늘 세션은 미완료로 둡니다. 다음 전체 검증 작업 `AIStockTrader-KRX-Session-Monitor-20261118`은 08:45, 7시간, 폐장 및 전체 세션 품질 필수 조건으로 예약돼 있으며 현행 watcher가 적용된 로컬 스택은 10:43에 시작됐습니다. PAPER 자동매매와 PAPER/REAL 주문은 비활성입니다.
+
 - **Update : [P1 국내 REAL 읽기검증] 잔고·주문가능금액·주문 전 사전점검 (2026-11-17 12:30 KST):** 실제 KIS REAL 자격정보로 `readsDomesticRealBalanceWithoutPlacingOrders`, `readsDomesticRealOrderableCashForSymbolWithoutPlacingOrders`, `preflightsDomesticRealBuyWithFreshQuoteWithoutSubmittingAnOrder`를 각각 명시 선택해 1/1 통과했습니다. Spring 계좌 GET과 최신 시세를 사용한 사전점검 응답 경로까지 확인했으며 주문 제출 API는 호출하지 않았습니다. 검증 스크립트의 `-EnableReadOnlyGetForThisRun`으로 계좌 읽기 스위치만 해당 Maven 프로세스 안에서 켰고 `.env_local`은 수정하지 않았습니다. 운영 API 재확인 결과 Spring은 `paper`, KIS PAPER/REAL 주문 잠금·REAL 계좌 읽기 비활성, FastAPI health `ok`/REAL 거래·PAPER 자동매매 비활성입니다. 금액이나 계좌 식별값은 출력·기록하지 않았습니다. 미국 계좌와 WebSocket 장시간 안정성은 별도 검증 대상입니다.
 
 - **Fix : [P5 판단 진단 문구] 분봉 문제 원인을 단정하지 않도록 수정 (2026-11-17 12:24 KST):** `BAR_SEQUENCE_INVALID`만으로 저장 데이터 결함인지 메모리 이력 차이인지 항상 구분할 수 없으므로, 대시보드 보조 설명을 “분봉 연속성 검증 실패 · 전략 평가 중단”으로 정정했습니다. 구체적인 저장 세션 품질과 복구 성공 횟수는 각각 별도 진단 필드에 표시합니다. ESLint와 TypeScript 검사 통과했습니다.
