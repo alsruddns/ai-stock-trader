@@ -15,6 +15,7 @@ $marketAiProcess = $null
 $loadedEnvironmentNames = @()
 . (Join-Path $PSScriptRoot 'lib\local-stack-activation.ps1')
 . (Join-Path $PSScriptRoot 'lib\paper-session-status-read.ps1')
+. (Join-Path $PSScriptRoot 'lib\local-stack-log-archive.ps1')
 $originalPythonPath = [Environment]::GetEnvironmentVariable('PYTHONPATH', 'Process')
 $originalPythonPathWasSet = $null -ne $originalPythonPath
 
@@ -210,6 +211,14 @@ try {
             $environmentHash = Import-LocalEnvironment
             $pendingEnvironmentHash = $null
             $nextEnvironmentReloadCheckUtc = [DateTimeOffset]::MinValue
+            try {
+                $archivedLogs = @(Archive-LocalStackServiceLogs -LogDirectory $logDirectory)
+                if ($archivedLogs.Count -gt 0) {
+                    Write-TaskLog ("Archived previous API logs ({0} files)." -f $archivedLogs.Count)
+                }
+            } catch {
+                Write-TaskLog ("WARN could not archive previous API logs ({0})." -f $_.Exception.GetType().Name)
+            }
             $powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
             if (-not (Test-Path -LiteralPath $powerShellPath)) { $powerShellPath = (Get-Process -Id $PID).Path }
             $backendRunner = Join-Path $PSScriptRoot 'start-local.ps1'
