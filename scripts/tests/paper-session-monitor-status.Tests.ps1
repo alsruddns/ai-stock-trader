@@ -214,6 +214,25 @@ Describe 'Paper session monitor failure codes' {
             Should Be 'SAFETY_LOCK_VIOLATION'
     }
 
+    It 'distinguishes storage-blocked paper automation from an enabled order path' {
+        $status = [pscustomobject]@{
+            orders_enabled = $false
+            automation_state = 'BLOCKED'
+            bar_storage_state = 'ERROR'
+            bar_storage_pending_count = 2
+        }
+        $message = $null
+        try { Assert-MonitorSafetyLocks $status } catch { $message = $_.Exception.Message }
+
+        $message | Should Be 'PAPER automation is blocked because durable bar storage is unavailable.'
+        Get-MonitorFailureCode $message | Should Be 'BAR_STORAGE_BLOCKED'
+
+        $status.orders_enabled = $true
+        $message = $null
+        try { Assert-MonitorSafetyLocks $status } catch { $message = $_.Exception.Message }
+        Get-MonitorFailureCode $message | Should Be 'SAFETY_LOCK_VIOLATION'
+    }
+
     It 'uses a safe generic code for unknown exception text' {
         Get-MonitorFailureCode 'account=private-key-value' | Should Be 'MONITOR_FAILED'
     }

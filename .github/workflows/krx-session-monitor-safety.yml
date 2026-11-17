@@ -136,6 +136,11 @@ jobs:
             throw "Domestic PAPER WebSocket recovery diagnostics tests failed: passed=$($streamRecoveryResult.PassedCount), failed=$($streamRecoveryResult.FailedCount)."
           }
 
+          $monitorFailureCodeResult = Invoke-Pester -Path 'scripts/tests/paper-session-monitor-status.Tests.ps1' -TestName 'Paper session monitor failure codes' -PassThru
+          if ($monitorFailureCodeResult.FailedCount -gt 0 -or $monitorFailureCodeResult.PassedCount -ne 6) {
+            throw "Domestic PAPER monitor failure classification tests failed: passed=$($monitorFailureCodeResult.PassedCount), failed=$($monitorFailureCodeResult.FailedCount)."
+          }
+
           $restartResult = Invoke-Pester -Path 'scripts/tests/local-stack-restart-domestic.Tests.ps1' -PassThru
           if ($restartResult.FailedCount -gt 0 -or $restartResult.PassedCount -ne 11) {
             throw "Domestic local stack restart tests failed: passed=$($restartResult.PassedCount), failed=$($restartResult.FailedCount)."

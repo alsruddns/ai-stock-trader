@@ -1,5 +1,14 @@
 function Assert-MonitorSafetyLocks($Status) {
-    if ($Status.orders_enabled -or $Status.automation_state -ne 'DISABLED') {
+    if ($Status.orders_enabled) {
+        throw 'PAPER market-data monitor requires order submission to remain disabled.'
+    }
+    if ($Status.automation_state -eq 'BLOCKED') {
+        $storage = Get-MonitorBarStorageDiagnostic $Status
+        if (-not $storage.bar_storage_ready) {
+            throw 'PAPER automation is blocked because durable bar storage is unavailable.'
+        }
+    }
+    if ($Status.automation_state -ne 'DISABLED') {
         throw 'Paper-session monitor is not running in read-only, automation-disabled mode.'
     }
 }
@@ -77,6 +86,8 @@ function Get-MonitorFailureCode([string]$Message) {
         'Could not read the local paper-session status endpoint' { return 'SESSION_STATUS_UNAVAILABLE' }
         'durable bar storage queue did not drain' { return 'BAR_STORAGE_NOT_DRAINED' }
         'Could not verify today.*exchange session' { return 'EXCHANGE_CALENDAR_UNAVAILABLE' }
+        'PAPER automation is blocked because durable bar storage is unavailable' { return 'BAR_STORAGE_BLOCKED' }
+        'PAPER market-data monitor requires order submission to remain disabled' { return 'SAFETY_LOCK_VIOLATION' }
         'Paper-session monitor is not running in read-only, automation-disabled mode' { return 'SAFETY_LOCK_VIOLATION' }
         'Stored-session quality did not verify' { return 'STORED_SESSION_QUALITY_INCOMPLETE' }
         'below the required minimum' { return 'MINIMUM_BAR_COUNT_NOT_MET' }
