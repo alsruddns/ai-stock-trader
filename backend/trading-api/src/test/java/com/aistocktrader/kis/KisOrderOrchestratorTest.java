@@ -124,6 +124,35 @@ class KisOrderOrchestratorTest {
     }
 
     @Test
+    void experimentalDomesticCancelModeChecksOrderHistoryBeforeSubmittingPaperOrder() {
+        UUID key = UUID.randomUUID();
+        OrderRequest request = buyRequest();
+        KisOrderIntent intent = new KisOrderIntent(key, "hash", request, null);
+        KisOrderOrchestrator historyPreflightOrchestrator = new KisOrderOrchestrator(
+                orders, accounts, new KisOrderProperties(true, false, true),
+                new TradingSafetyProperties("paper", false, new BigDecimal("1000000"), new BigDecimal("100")),
+                intents, marketEvidence);
+        when(intents.prepare(key, KisOrderOrchestrator.hash(request, null), request, null))
+                .thenReturn(new KisOrderIntentStore.PreparedIntent(intent, true));
+        when(intents.reject(key, "PAPER_CANCEL_HISTORY_PREFLIGHT_FAILED")).thenAnswer(call -> {
+            intent.reject("PAPER_CANCEL_HISTORY_PREFLIGHT_FAILED");
+            return intent;
+        });
+        org.mockito.Mockito.doThrow(new KisApiException(HttpStatus.BAD_GATEWAY, "safe read failure"))
+                .when(orders).verifyDomesticPaperOrderHistoryAvailableForCancel(Market.KR, request.symbol());
+
+        KisOrderIntentResponse response = historyPreflightOrchestrator.submitPaperOrder(key, request, null);
+
+        assertEquals(KisOrderStatus.REJECTED, response.status());
+        assertEquals("PAPER_CANCEL_HISTORY_PREFLIGHT_FAILED", response.responseCode());
+        verify(orders).verifyDomesticPaperOrderHistoryAvailableForCancel(Market.KR, request.symbol());
+        verify(accounts, never()).getBalance(any(), any(), any(), any(), anyString());
+        verify(orders, never()).placePaperLimitOrder(any(), anyString(), any(),
+                org.mockito.ArgumentMatchers.anyInt(), any(), any(), anyString());
+        verifyNoInteractions(marketEvidence);
+    }
+
+    @Test
     void manualPaperReconciliationRequiresKisVerifiedCandidateAndNeverSubmitsOrCancels() {
         UUID key = UUID.randomUUID();
         KisOrderIntent intent = new KisOrderIntent(key, "hash", buyRequest(), null);

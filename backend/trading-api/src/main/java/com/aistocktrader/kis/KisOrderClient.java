@@ -157,6 +157,52 @@ public class KisOrderClient {
                 .map(KisManualPaperOrderMatch::snapshot);
     }
 
+    /**
+     * Check the PAPER domestic order-history route before a one-run submit-and-cancel test.
+     * This does not prove that a future order will be returned or cancellable; it only
+     * prevents submitting when the required read endpoint is already unavailable.
+     */
+    public void verifyDomesticPaperOrderHistoryAvailableForCancel(Market market, String symbol) {
+        if (market != Market.KR || !orderProperties.paperHistoryCancelPreflightEnabled()) {
+            throw new IllegalStateException("Domestic PAPER history preflight requires its explicit one-run switch.");
+        }
+        if (symbol == null || !symbol.trim().matches("\\d{6}")) {
+            throw new IllegalArgumentException("A six-digit domestic symbol is required for PAPER history preflight.");
+        }
+        requirePaperReconciliationReadEnabled();
+        KisProperties.Account credentials = properties.credentials(KisEnvironment.PAPER);
+        String account = credentials.accountNumber();
+        String date = LocalDate.now(ZoneId.of("Asia/Seoul")).format(DateTimeFormatter.BASIC_ISO_DATE);
+        MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+        params.add("CANO", account.substring(0, 8));
+        params.add("ACNT_PRDT_CD", account.substring(8));
+        params.add("INQR_STRT_DT", date);
+        params.add("INQR_END_DT", date);
+        params.add("SLL_BUY_DVSN_CD", "00");
+        params.add("PDNO", symbol.trim());
+        params.add("CCLD_DVSN", "00");
+        params.add("INQR_DVSN", "00");
+        params.add("INQR_DVSN_3", "00");
+        params.add("ORD_GNO_BRNO", "");
+        params.add("ODNO", "");
+        params.add("INQR_DVSN_1", "");
+        params.add("EXCG_ID_DVSN_CD", "KRX");
+        params.add("CTX_AREA_FK100", "");
+        params.add("CTX_AREA_NK100", "");
+        BrokerQueryResponse query = getPaper("/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
+                "VTTC0081R", params, "", credentials);
+        JsonNode response = query.body();
+        if (!"0".equals(response.path("rt_cd").asText())) {
+            throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                    "KIS PAPER order-history preflight failed (code "
+                            + safeCode(response.path("msg_cd").asText("unknown")) + ").");
+        }
+        if (!response.path("output1").isArray()) {
+            throw new KisApiException(HttpStatus.BAD_GATEWAY,
+                    "KIS PAPER order-history preflight returned an incomplete response.");
+        }
+    }
+
     public Optional<KisManualPaperOrderMatch> reconcilePaperOrderByVerifiedCandidate(
             KisOrderIntent intent, String brokerOrderNumber, String brokerOrganizationNumber) {
         if (intent == null || intent.getEnvironment() != KisEnvironment.PAPER

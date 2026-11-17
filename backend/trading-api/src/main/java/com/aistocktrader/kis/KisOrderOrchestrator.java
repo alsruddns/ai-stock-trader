@@ -79,6 +79,17 @@ public class KisOrderOrchestrator {
             return KisOrderIntentResponse.from(intent);
         }
 
+        if (request.market() == Market.KR && orderProperties.paperHistoryCancelPreflightEnabled()) {
+            try {
+                orders.verifyDomesticPaperOrderHistoryAvailableForCancel(request.market(), request.symbol());
+            } catch (KisApiException ex) {
+                return KisOrderIntentResponse.from(intents.reject(idempotencyKey,
+                        "PAPER_CANCEL_HISTORY_PREFLIGHT_FAILED"));
+            } catch (IllegalArgumentException | IllegalStateException ex) {
+                return KisOrderIntentResponse.from(intents.reject(idempotencyKey, "PREFLIGHT_BLOCKED"));
+            }
+        }
+
         try {
             reconcileAccount(request, exchange);
         } catch (KisApiException ex) {
