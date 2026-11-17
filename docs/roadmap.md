@@ -1,5 +1,7 @@
 # AI Stock Trader v1.0 Roadmap
 
+- **Fix : [P2 PAPER EGW00202 진단 회귀검사] (2026-11-17 10:13 KST):** 11월 17일 국내 PAPER 단건 점검에서 관측된 HTTP 500 `EGW00202`를 Spring KIS 주문 클라이언트 집중검사에 추가했습니다. HTTP 상태와 검증된 브로커 코드만 진단값에 남고 응답 메시지의 계정별 상세는 노출되지 않는지 확인했습니다. `KisOrderClientTest#paperOrderHttp500Egw00202RetainsBrokerCodeWithoutMessageBody` 1/1 통과. 이 검사는 mock 전용이며 오류 원인을 해결하거나 KIS 주문 성공을 입증하지 않습니다.
+
 - **Update : [P4 후보 구간 대시보드 Windows CI] 집중검증 성공 (2026-11-17 08:21 KST):** 커밋 `3e6c701`의 GitHub Actions run `43978139174`가 `success`로 완료됐습니다. dashboard lint/typecheck, 국내 KIS 호환성·Spring 범위 검사, 격리 PostgreSQL PAPER/REAL 주문복구·대사 job이 통과했습니다. CI는 격리 검증이며 모델 승인이나 실제 KIS 계좌·주문 결과는 확인하지 않습니다.
 
 - **Update : [P4 실행가능 후보 대시보드] 시간 분할별 수·세션 표시 (2026-11-17 08:17 KST):** 학습준비도 카드에 전체 후보 수와 양·음 비율만 보이던 상태를 보강해, 실행가능 ORB/VWAP 후보를 학습·검증·내부시험 구간별 표본 수, 후보 발생 세션 수, 양·음 라벨 수로 표시합니다. 이제 실행가능한 검증 후보 0개와 같이 학습을 막는 분포를 구간별로 확인할 수 있습니다. 대상 ESLint, TypeScript와 `git diff --check` 통과. 운영 Dashboard 빌드는 오늘 16:15 KST 예약이며 모델·주문 설정과 KIS API는 건드리지 않았습니다.
